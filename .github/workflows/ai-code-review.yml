@@ -14,21 +14,47 @@ permissions:
   security-events: write
 
 jobs:
-  # 1. GitHub Copilot Review
-  copilot-review:
+  # 1. GitHub AI Inference (Alternative to Copilot)
+  ai-inference:
     runs-on: ubuntu-latest
-    name: GitHub Copilot Analysis
+    name: GitHub AI Inference
+    permissions:
+      contents: read
+      models: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
-      - name: GitHub Copilot Review
-        uses: github/copilot-pr-review-action@v1
+      - name: Create AI Code Review Prompt
+        run: |
+          echo "Analyze this pull request for security vulnerabilities, performance issues, and code quality problems. Focus on:" > prompt.txt
+          echo "1. Security: SQL injection, XSS, hardcoded secrets" >> prompt.txt
+          echo "2. Performance: Algorithm complexity, memory leaks" >> prompt.txt  
+          echo "3. Turkish localization errors" >> prompt.txt
+          echo "4. Code quality and best practices" >> prompt.txt
+          echo "\nChanged files:" >> prompt.txt
+          git diff --name-only HEAD~1 >> prompt.txt
+      
+      - name: Run AI Code Analysis
+        id: ai-review
+        uses: actions/ai-inference@v1
         with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          prompt-file: prompt.txt
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const response = `## 🤖 GitHub AI Code Review\n\n${{ steps.ai-review.outputs.response }}\n\n---\n*Reviewed by GitHub AI Models*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: response
+            });
 
   # 2. Google Gemini Code Assist
   gemini-review:
@@ -111,7 +137,7 @@ jobs:
 
   # Summary Report
   summary:
-    needs: [copilot-review, gemini-review, security-scan, lint-check]
+    needs: [ai-inference, gemini-review, security-scan, lint-check]
     runs-on: ubuntu-latest
     name: Review Summary
     if: always()
@@ -124,7 +150,7 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Tool | Status |" >> $GITHUB_STEP_SUMMARY
           echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| GitHub Copilot | ✅ AI Review |" >> $GITHUB_STEP_SUMMARY
+          echo "| GitHub AI Inference | ✅ AI Review |" >> $GITHUB_STEP_SUMMARY
           echo "| Google Gemini | ✅ Code Analysis |" >> $GITHUB_STEP_SUMMARY
           echo "| CodeQL | ✅ Security Scan |" >> $GITHUB_STEP_SUMMARY
           echo "| Linting | ✅ Code Quality |" >> $GITHUB_STEP_SUMMARY
