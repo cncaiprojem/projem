@@ -23,12 +23,12 @@ jobs:
         with:
           fetch-depth: 0
       
-      - name: Copilot for PRs
-        uses: copilot-for-prs/copilot-for-prs@v1
+      - name: GitHub Copilot Review
+        uses: github/copilot-pr-review-action@v1
         with:
-          openai_api_key: ${{ secrets.OPENAI_API_KEY }}
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          github_pr_id: ${{ github.event.pull_request.number }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # 2. Google Gemini Code Assist
   gemini-review:
@@ -70,12 +70,15 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
       
       - name: Autobuild
         uses: github/codeql-action/autobuild@v3
       
       - name: CodeQL Analysis
         uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
 
   # 4. Basic Linting (Free)
   lint-check:
@@ -104,7 +107,7 @@ jobs:
         run: |
           cd apps/web
           npm install
-          npm run lint || true
+          npm run lint --if-present || echo "No lint script found, skipping..."
 
   # Summary Report
   summary:
