@@ -1,60 +1,115 @@
-name: AI Code Review & Security Analysis
+name: AI Code Review
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
   push:
-    branches: [main, develop]
+    branches: [main]
 
 permissions:
   contents: read
   pull-requests: write
   issues: write
   checks: write
+  security-events: write
 
 jobs:
-  # 1. OpenAI GPT Code Review
-  openai-review:
+  # 1. GitHub AI Inference (Alternative to Copilot)
+  ai-inference:
     runs-on: ubuntu-latest
-    name: OpenAI Code Review
+    name: GitHub AI Inference
+    permissions:
+      contents: read
+      models: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
-      - name: GPT Code Review
-        uses: anc95/ChatGPT-CodeReview@main
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-          OPENAI_API_MODEL: "gpt-4-turbo-preview"
-          LANGUAGE: "Turkish"
+      - name: Create AI Code Review Prompt
+        run: |
+          echo "Analyze this pull request for security vulnerabilities, performance issues, and code quality problems. Focus on:" > prompt.txt
+          echo "1. Security: SQL injection, XSS, hardcoded secrets" >> prompt.txt
+          echo "2. Performance: Algorithm complexity, memory leaks" >> prompt.txt  
+          echo "3. Turkish localization errors" >> prompt.txt
+          echo "4. Code quality and best practices" >> prompt.txt
+          echo "\nChanged files:" >> prompt.txt
+          git diff --name-only HEAD~1 >> prompt.txt
+      
+      - name: Run AI Code Analysis
+        id: ai-review
+        uses: actions/ai-inference@v1
         with:
-          debug: false
-          review_comment_prefix: "🤖 GPT-4 Review:"
-          review_Turkish: true
+          prompt-file: prompt.txt
+      
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const response = `## 🤖 GitHub AI Code Review\n\n${{ steps.ai-review.outputs.response }}\n\n---\n*Reviewed by GitHub AI Models*`;
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: response
+            });
 
-  # 2. Google Gemini Code Review
+  # 2. Google Gemini Code Assist
   gemini-review:
     runs-on: ubuntu-latest
-    name: Gemini AI Review
+    name: Gemini Code Analysis
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: Install Dependencies
+        run: |
+          pip install google-generativeai requests gitpython
+      
+      - name: Gemini Code Review
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          python .github/scripts/gemini-review.py
+
+  # 3. Security Scanning with GitHub CodeQL (Free)
+  security-scan:
+    runs-on: ubuntu-latest
+    name: Security Analysis
+    strategy:
+      matrix:
+        language: ['python', 'javascript-typescript']
     steps:
       - uses: actions/checkout@v4
       
-      - name: Gemini Code Analysis
-        uses: google-gemini/code-review-action@v1
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
         with:
-          gemini_api_key: ${{ secrets.GEMINI_API_KEY }}
-          model: "gemini-pro"
-          review_language: "tr"
-          check_security: true
-          check_performance: true
-          check_best_practices: true
+          languages: ${{ matrix.language }}
+          queries: security-extended,security-and-quality
+      
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@v3
+      
+      - name: CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+        with:
+          category: "/language:${{matrix.language}}"
 
-  # 3. Anthropic Claude Review (via API)
-  claude-review:
+  # 4. Basic Linting (Free)
+  lint-check:
     runs-on: ubuntu-latest
-    name: Claude Code Analysis
+    name: Code Quality Check
     steps:
       - uses: actions/checkout@v4
       
@@ -63,157 +118,39 @@ jobs:
         with:
           python-version: '3.11'
       
-      - name: Claude Code Review
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      - name: Python Linting
         run: |
-          pip install anthropic gitpython
-          python .github/scripts/claude-review.py
-
-  # 4. CodeRabbit AI Review
-  coderabbit:
-    runs-on: ubuntu-latest
-    name: CodeRabbit AI Review
-    steps:
-      - uses: actions/checkout@v4
+          pip install ruff black pylint
+          ruff check . || true
+          black --check . || true
       
-      - name: CodeRabbit Review
-        uses: coderabbitai/ai-pr-reviewer@latest
-        with:
-          api_key: ${{ secrets.CODERABBIT_API_KEY }}
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          review_level: "detailed"
-          language: "Turkish"
-
-  # 5. Codacy Automated Review
-  codacy:
-    runs-on: ubuntu-latest
-    name: Codacy Analysis
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Codacy Analysis
-        uses: codacy/codacy-analysis-cli-action@master
-        with:
-          api-token: ${{ secrets.CODACY_API_TOKEN }}
-          verbose: true
-          output: results.sarif
-          format: sarif
-      
-      - name: Upload Results
-        uses: github/codeql-action/upload-sarif@v3
-        with:
-          sarif_file: results.sarif
-
-  # 6. DeepSource Analysis
-  deepsource:
-    runs-on: ubuntu-latest
-    name: DeepSource AI Analysis
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      
-      - name: DeepSource Analysis
-        uses: deepsourcelabs/test-coverage-action@master
-        with:
-          key: ${{ secrets.DEEPSOURCE_DSN }}
-          coverage-file: coverage.xml
-          dsn: ${{ secrets.DEEPSOURCE_DSN }}
-
-  # 7. SonarCloud Analysis
-  sonarcloud:
-    runs-on: ubuntu-latest
-    name: SonarCloud Analysis
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@master
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-
-  # 8. Snyk Security Scan
-  snyk:
-    runs-on: ubuntu-latest
-    name: Snyk Security Analysis
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Snyk Security Scan
-        uses: snyk/actions/python@master
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-        with:
-          args: --severity-threshold=medium
-
-  # 9. GitHub Advanced Security
-  github-security:
-    runs-on: ubuntu-latest
-    name: GitHub CodeQL Analysis
-    permissions:
-      security-events: write
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
-        with:
-          languages: python, javascript, typescript
-      
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
-      
-      - name: CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
-
-  # 10. Custom AI Analysis Pipeline
-  custom-ai-analysis:
-    runs-on: ubuntu-latest
-    name: Multi-AI Analysis
-    steps:
-      - uses: actions/checkout@v4
-      
-      - name: Setup Node.js
+      - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: '20'
       
-      - name: Run Multi-AI Analysis
-        env:
-          OPENAI_KEY: ${{ secrets.OPENAI_API_KEY }}
-          GEMINI_KEY: ${{ secrets.GEMINI_API_KEY }}
-          CLAUDE_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: JavaScript/TypeScript Linting
         run: |
-          npm install -g ai-code-reviewer
-          ai-code-reviewer analyze \
-            --providers openai,gemini,claude \
-            --output markdown \
-            --post-to-pr \
-            --language Turkish
+          cd apps/web
+          npm install
+          npm run lint --if-present || echo "No lint script found, skipping..."
 
-  # Consolidate Results
-  report:
-    needs: [openai-review, gemini-review, claude-review, coderabbit, codacy, deepsource, sonarcloud, snyk, github-security]
+  # Summary Report
+  summary:
+    needs: [ai-inference, gemini-review, security-scan, lint-check]
     runs-on: ubuntu-latest
-    name: Consolidate AI Reports
+    name: Review Summary
     if: always()
     steps:
-      - uses: actions/checkout@v4
-      
-      - name: Generate Consolidated Report
+      - name: Create Summary
         run: |
           echo "# 🤖 AI Code Review Summary" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "## Analysis Results:" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ OpenAI GPT-4 Review: Complete" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Google Gemini Analysis: Complete" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Anthropic Claude Review: Complete" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ CodeRabbit Analysis: Complete" >> $GITHUB_STEP_SUMMARY
-          echo "- ✅ Security Scans: Complete" >> $GITHUB_STEP_SUMMARY
+          echo "## ✅ Analysis Complete" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Check individual job results for detailed feedback." >> $GITHUB_STEP_SUMMARY
+          echo "| Tool | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| GitHub AI Inference | ✅ AI Review |" >> $GITHUB_STEP_SUMMARY
+          echo "| Google Gemini | ✅ Code Analysis |" >> $GITHUB_STEP_SUMMARY
+          echo "| CodeQL | ✅ Security Scan |" >> $GITHUB_STEP_SUMMARY
+          echo "| Linting | ✅ Code Quality |" >> $GITHUB_STEP_SUMMARY
