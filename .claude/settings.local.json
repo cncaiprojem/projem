@@ -13,7 +13,10 @@
       "Bash(gh auth:*)",
       "Bash(powershell:*)",
       "Bash(cmd /c \"C:\\Program Files\\GitHub CLI\\gh.exe\" --version)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "mcp__github__get_pull_request",
+      "mcp__github__get_pull_request_comments",
+      "Bash(git remote add:*)"
     ],
     "deny": [],
     "ask": [],
