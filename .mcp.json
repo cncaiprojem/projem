@@ -1,0 +1,42 @@
+{
+	"mcpServers": {
+		"task-master-ai": {
+			"command": "npx",
+			"args": [
+				"-y",
+				"--package=task-master-ai",
+				"task-master-ai"
+			],
+			"env": {
+				"ANTHROPIC_API_KEY": "YOUR_ANTHROPIC_API_KEY_HERE",
+				"PERPLEXITY_API_KEY": "YOUR_PERPLEXITY_API_KEY_HERE",
+				"OPENAI_API_KEY": "YOUR_OPENAI_KEY_HERE",
+				"GOOGLE_API_KEY": "YOUR_GOOGLE_KEY_HERE",
+				"XAI_API_KEY": "YOUR_XAI_KEY_HERE",
+				"OPENROUTER_API_KEY": "YOUR_OPENROUTER_KEY_HERE",
+				"MISTRAL_API_KEY": "YOUR_MISTRAL_KEY_HERE",
+				"AZURE_OPENAI_API_KEY": "YOUR_AZURE_KEY_HERE",
+				"OLLAMA_API_KEY": "YOUR_OLLAMA_API_KEY_HERE"
+			}
+		},
+		"context7": {
+			"command": "npx",
+			"args": ["@context7/mcp", "library"],
+			"env": {}
+		},
+		"memory": {
+			"command": "npx",
+			"args": ["-y", "@anthropic-ai/mcp-knowledge-graph"]
+		},
+		"filesystem": {
+			"command": "npx",
+			"args": ["-y", "@modelcontextprotocol/server-filesystem", "C:\\Users\\kafge\\projem"]
+		},
+		"github": {
+			"image": "ghcr.io/github/github-mcp-server:latest",
+			"env": {
+				"GITHUB_TOKEN": "YOUR_GITHUB_TOKEN_HERE"
+			}
+		}
+	}
+}
