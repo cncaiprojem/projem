@@ -19,6 +19,7 @@ class Settings(BaseSettings):
 
     database_url: str
     redis_url: str = "redis://redis:6379/0"
+    rabbitmq_url: str = "amqp://freecad:freecad@rabbitmq:5672/"
 
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
@@ -45,6 +46,21 @@ class Settings(BaseSettings):
 
     # Toolbits
     toolbits_root: str | None = None
+
+    # Celery & Queue Configuration
+    celery_task_always_eager: bool = False
+    celery_task_eager_propagates: bool = True
+    celery_worker_prefetch_multiplier: int = 1
+    celery_task_acks_late: bool = True
+    celery_task_reject_on_worker_lost: bool = True
+    celery_broker_pool_limit: int = 10
+    
+    # Queue priorities (1-10, higher = more priority)
+    queue_priority_urgent: int = 9
+    queue_priority_high: int = 7
+    queue_priority_normal: int = 5
+    queue_priority_low: int = 3
+    queue_priority_background: int = 1
 
     # Branding / PDF / Public URL
     brand_name: str = "CNC AI Suite"
