@@ -1,0 +1,1715 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": 1,
+        "title": "Monorepo, Containers and CI/CD Setup",
+        "description": "Initialize monorepo and containerized dev stack for backend (FastAPI), workers (Celery), frontend (Next.js), DB (PostgreSQL), queue (RabbitMQ), cache/rate-limit (Redis), object storage (MinIO), FreeCAD/CAMotics/FFmpeg utilities. Configure secure env, base logging, and CI/CD.",
+        "details": "Stack choices (direct path, mature tooling):\n- Backend: Python 3.11, FastAPI ^0.115, Pydantic v2, SQLAlchemy 2.0, Alembic 1.13, Uvicorn, structlog 24.x\n- Workers/Queue: Celery 5.4 + RabbitMQ 3.13 (DLQ via x-dead-letter-exchange), Celery Beat for scheduled jobs (license reminders)\n- Cache/Rate-limit/CSRF: Redis 7.2\n- DB: PostgreSQL 17.6\n- Object Storage: MinIO RELEASE.2024-xx (MinIO Python SDK minio==7.2.7)\n- CAD/CAM: FreeCADCmd (FreeCAD 1.1.x) in isolated container; CAMotics 1.2.x CLI; FFmpeg 6.x; optional ClamAV for malware scan\n- Frontend: Next.js 15.4.0 (React 19, TypeScript 5), TanStack Query v5, react-hook-form v7, MUI v5, i18next, Zustand\n- SIEM/log shipping: JSON logs to stdout; Fluent Bit to SIEM (OpenSearch/Splunk) later\nRepo and infra:\n- Structure: /apps/api (FastAPI), /apps/workers (Celery tasks), /apps/web (Next.js), /infra (docker, compose, k8s manifests later)\n- docker-compose.dev.yml services: api, workers, beat, postgres, redis, rabbitmq, minio, createbuckets, freecad (with entry FreeCADCmd), camotics, ffmpeg (as utility), clamav (optional)\n- Security: no dev bypass in prod images; .env templates; secrets via .env + Doppler/Vault later. Enforce TLS at ingress in prod.\n- CI (GitHub Actions):\n  - Backend: ruff/mypy, pytest, coverage gate; build/push images with SBOM (syft) and signatures (cosign)\n  - Frontend: eslint, typecheck, vitest, Playwright e2e smoke\n- Pre-commit hooks: black, ruff, isort, prettier\n- Base logging: structlog JSON, request_id correlation middleware, OpenTelemetry SDK stubs.\nPseudocode (compose excerpt):\n- version: \"3.9\"\n- services:\n  - api: build apps/api, env_file .env, depends on postgres redis rabbitmq minio\n  - workers: build apps/workers, command: celery -A app.celery_app worker -Q default,cam,sim -O fair\n  - beat: celery beat for schedules\n  - postgres, redis, rabbitmq (with DLX), minio (MINIO_ROOT_USER/PASS), freecad image (FROM freecad/freecad:1.1.x), camotics (FROM camotics/camotics:1.2)\n",
+        "testStrategy": "Smoke boot all containers locally; health endpoints return 200; verify MinIO bucket creation and presigned URL generation in a dry run. CI runs lint/tests on PR. Validate FreeCADCmd, CAMotics, FFmpeg versions available in containers. Security: Trivy scan images, check no secrets in repo. E2E: Playwright hits login page and fetches health.",
+        "priority": "high",
+        "dependencies": [],
+        "status": "in-progress",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Monorepo scaffolding, conventions, pre-commit and onboarding",
+            "description": "Initialize monorepo structure (/apps, /infra), repository conventions, pre-commit hooks, EditorConfig, Makefile/Taskfile, and onboarding docs.",
+            "dependencies": [],
+            "details": "Goals:\n- Create a clean monorepo with /apps and /infra, consistent lint/format, and fast developer onboarding.\n\nSteps:\n- Create directories: /apps/api, /apps/workers, /apps/web, /infra/docker, /infra/compose, /infra/rabbitmq, /infra/minio, /scripts, /.github/workflows.\n- Add base files: README.md, LICENSE, .gitignore (Python, Node, Docker, OS), .editorconfig.\n- Pre-commit: install and configure black, ruff, isort, prettier, end-of-file-fixer, trailing-whitespace.\n- Add Makefile/Taskfile with common targets (bootstrap, compose up/down, fmt, lint, test, ci-local, sbom, sign, scan, smoke).\n- Add CODEOWNERS (optional) and CONTRIBUTING.md.\n\nFiles to create/change:\n- README.md (top-level), CONTRIBUTING.md, /scripts/bootstrap.sh, Makefile and/or Taskfile.yml, .gitignore, .editorconfig, .pre-commit-config.yaml, CODEOWNERS.\n\nImages/tags: n/a (scaffolding only).\n\nSecurity hardening:\n- Add .gitignore entries for .env*, node_modules, venv, dist, .next, coverage, .pytest_cache.\n- Add pre-commit hook detect-private-key (optional) and check for secrets with gitleaks as an extra hook (optional).\n\nCaching and CI performance tips:\n- Centralize .cache/ dirs in repo root to improve local dev performance.\n- Document use of local Docker BuildKit cache mounts.\n\nAcceptance criteria:\n- Monorepo tree exists with agreed structure and baseline configs committed.\n- pre-commit install works and hooks run locally.\n- make help shows targets.\n\nVerification commands:\n- pre-commit install && pre-commit run --all-files\n- tree -L 3\n- make help",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": ".env templates and secret handling strategy",
+            "description": "Provide environment variable templates, validation, and guidance for Doppler/Vault integration later.",
+            "dependencies": [
+              "1.1"
+            ],
+            "details": "Goals:\n- Standardize environment configuration across services; avoid committing secrets; pave path to Doppler/Vault later.\n\nSteps:\n- Create .env.example (root) with shared values and service-specific sections.\n- Create /apps/api/.env.example, /apps/workers/.env.example, /apps/web/.env.local.example when needed.\n- Add pydantic BaseSettings schema stubs in backend for validation.\n- Document secret loading order and plan for Doppler/Vault.\n\nFiles to create/change:\n- /.env.example\n- /apps/api/.env.example, /apps/workers/.env.example, /apps/web/.env.local.example\n- /apps/api/app/core/settings.py (pydantic v2 settings model)\n- /docs/secrets.md\n\nImages/tags: n/a.\n\nSecurity hardening:\n- Ensure .env* is ignored in .gitignore except *.example templates.\n- Document production: inject via CI/CD or secret store; never bake secrets in images.\n\nCaching and CI performance tips:\n- Use dotenv-linter in pre-commit (optional) to avoid drift.\n\nAcceptance criteria:\n- Example env files exist and load successfully in dev; missing required vars fail fast.\n\nVerification commands:\n- python -c \"from app.core.settings import Settings; print(Settings().model_dump())\" (from /apps/api)\n- grep -R \"SECRET\" -n . to ensure no real secrets present",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "FastAPI backend skeleton with health and DB/Alembic base",
+            "description": "Create FastAPI app with /healthz, basic routes structure, SQLAlchemy/Alembic setup, Uvicorn config.",
+            "dependencies": [
+              "1.1",
+              "1.2"
+            ],
+            "details": "Goals:\n- Bootable API with health endpoint; ready for DB integration and logging/tracing later.\n\nSteps:\n- Initialize /apps/api with pyproject.toml (Python 3.11), dependencies: fastapi ^0.115, uvicorn[standard], pydantic v2, sqlalchemy 2.x, alembic 1.13, psycopg[binary], structlog, opentelemetry-api/sdk (stubs), httpx (tests), pytest.\n- Create app package: app/main.py (FastAPI instance), app/api/routes.py, app/core/settings.py, app/db/session.py (SQLAlchemy engine/session), app/db/base.py, app/middleware/__init__.py.\n- Add Alembic: alembic.ini, /apps/api/alembic/ env.py, versions/ README; base migration.\n- Add /healthz route returning 200 and build info (git sha env injected later).\n- Add pytest scaffolding and a simple test_health.py.\n\nFiles to create/change:\n- /apps/api/pyproject.toml, /apps/api/app/... (as above), /apps/api/alembic/..., /apps/api/tests/test_health.py\n\nImages/tags: n/a (built in Dockerfiles task).\n\nSecurity hardening:\n- Enforce uvicorn --proxy-headers and forwarded allow list to avoid header spoofing in prod configs.\n- Validate settings with strict Pydantic model; default to secure values.\n\nCaching and CI performance tips:\n- Use uv loop and httptools only in prod; dev can hot-reload outside container.\n\nAcceptance criteria:\n- FastAPI boots locally (uvicorn app.main:app) and GET /healthz returns 200 JSON.\n- Alembic upgrade head runs on empty DB.\n\nVerification commands:\n- cd apps/api && uvicorn app.main:app --reload\n- curl http://localhost:8000/healthz\n- alembic upgrade head",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Celery workers + Celery Beat wiring",
+            "description": "Set up Celery app for workers and scheduled jobs (Beat), queues, and basic task placeholders.",
+            "dependencies": [
+              "1.1",
+              "1.2",
+              "1.3"
+            ],
+            "details": "Goals:\n- Workers and Beat processes that connect to RabbitMQ/Redis with placeholder tasks and schedule.\n\nSteps:\n- In /apps/workers, create pyproject.toml with celery 5.4, kombu, redis, structlog, opentelemetry-api/sdk, pydantic.\n- Create app/celery_app.py configuring broker (amqp), backend (redis optional), task_queues for default, cam, sim, model, report, erp; enable acks_late and prefetch; JSON serialization only.\n- Create tasks modules with a sample noop task and version check task.\n- Configure Celery Beat with a sample schedule (e.g., license reminders placeholder) in app/beat.py.\n- Add unit tests for task import and simple run.\n\nFiles to create/change:\n- /apps/workers/app/celery_app.py, app/tasks/__init__.py, app/tasks/sample.py, app/beat.py, /apps/workers/pyproject.toml, /apps/workers/tests/test_tasks.py\n\nImages/tags: n/a (built in Dockerfiles task).\n\nSecurity hardening:\n- Force task_routes and queue names explicitly; only allow JSON content.\n- Set broker heartbeat and TCP keepalive; configure visibility_timeout adequate for tasks.\n\nCaching and CI performance tips:\n- Separate requirements into base/dev to keep prod images minimal.\n\nAcceptance criteria:\n- Celery can start (worker and beat) and register queues without error.\n\nVerification commands:\n- cd apps/workers && python -c \"from app.celery_app import celery_app; print(celery_app.control.ping())\"",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Next.js frontend skeleton with health page",
+            "description": "Initialize Next.js 15.4.0 app with TypeScript, ESLint, TanStack Query, MUI, i18next, Zustand, and a /healthz route.",
+            "dependencies": [
+              "1.1",
+              "1.2"
+            ],
+            "details": "Goals:\n- Bootable Next.js app with baseline tooling and a health page for smoke tests.\n\nSteps:\n- Create /apps/web with Next.js 15.4.0 (create-next-app with TS) and add dependencies: @tanstack/react-query, @mui/material, i18next, react-i18next, zustand, zod, eslint configs, vitest, playwright.\n- Add /app/healthz/route.ts returning 200 JSON {status:\"ok\"} or a simple page /healthz.\n- Configure ESLint and TypeScript strict mode; set up vitest config and a trivial test.\n\nFiles to create/change:\n- /apps/web/package.json, tsconfig.json, next.config.js, .eslintrc.js, vitest.config.ts, playwright.config.ts, app/healthz/page.tsx or route.ts.\n\nImages/tags: n/a (built in Dockerfiles task).\n\nSecurity hardening:\n- Set React StrictMode; configure Content Security Policy headers in next.config.js (stubs).\n\nCaching and CI performance tips:\n- Use .npmrc with npm ci and cache in CI; consider pnpm for speed later.\n\nAcceptance criteria:\n- next dev runs and /healthz returns 200 in dev or renders page.\n\nVerification commands:\n- cd apps/web && npm install && npm run dev\n- curl -I http://localhost:3000/healthz",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Base logging (structlog JSON), request_id correlation, OpenTelemetry stubs",
+            "description": "Implement JSON logging with structlog, request ID middleware, and OTel SDK stubs for api and workers.",
+            "dependencies": [
+              "1.3",
+              "1.4"
+            ],
+            "details": "Goals:\n- Consistent JSON logs with request/task correlation IDs and future-ready tracing hooks.\n\nSteps:\n- In /apps/api: add middleware to inject X-Request-ID (generate if missing), log incoming/outgoing with structlog; configure uvicorn to use JSON.\n- In /apps/workers: configure structlog processors, attach task_id/request_id where present; add logging in task base class.\n- Add OTel stubs: initialize tracer provider from env; no exporter by default; integrate with FastAPI and Celery via instrumentation stubs disabled by default.\n\nFiles to create/change:\n- /apps/api/app/core/logging.py, app/middleware/request_id.py, updates to app/main.py.\n- /apps/workers/app/core/logging.py, updates to app/celery_app.py.\n\nImages/tags: n/a.\n\nSecurity hardening:\n- Redact sensitive fields in logs; use structlog filtering processor.\n\nCaching and CI performance tips:\n- Avoid logging noise in tests; set log level via env.\n\nAcceptance criteria:\n- Logs are JSON, include request_id and service name; workers include task_id.\n\nVerification commands:\n- Run API and curl a route with header X-Request-ID=abc; observe logs.\n- Trigger a Celery task and inspect stdout logs.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Dockerfiles for API and Workers (Python 3.11) with hardening",
+            "description": "Create secure, multi-stage Dockerfiles for FastAPI (Uvicorn) and Celery workers/beat.",
+            "dependencies": [
+              "1.3",
+              "1.4",
+              "1.6"
+            ],
+            "details": "Goals:\n- Build minimal, non-root images for api, workers, and beat with cache-efficient layers.\n\nSteps:\n- Use python:3.11-slim-bookworm as base; enable BuildKit; multi-stage: builder (install build deps, compile wheels) -> runtime.\n- Add system deps: gcc, build-essential (builder), libpq5, curl, netcat; clean apt lists.\n- Copy pyproject.toml and lock; pip install --no-cache-dir with --require-hashes (lock recommended) to /usr/local.\n- Create non-root user app:app; set WORKDIR /app; copy source; set proper permissions; set PYTHONDONTWRITEBYTECODE=1, PYTHONUNBUFFERED=1.\n- API CMD: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2.\n- Workers CMD: celery -A app.celery_app worker -Q default,cam,sim,model,report,erp -O fair; Beat CMD: celery -A app.celery_app beat.\n\nFiles to create/change:\n- /apps/api/Dockerfile\n- /apps/workers/Dockerfile\n\nImages/tags:\n- apps-api: local build from python:3.11-slim-bookworm\n- apps-workers: local build from python:3.11-slim-bookworm\n\nSecurity hardening:\n- Run as non-root; drop capabilities; set read-only root FS with writable /tmp if possible; do not expose dev-only env in prod image.\n- Pin package versions; verify wheels; no SSH keys copied.\n\nCaching and CI performance tips:\n- Separate requirements install from source copy; use pip cache mount: --mount=type=cache,target=/root/.cache/pip.\n\nAcceptance criteria:\n- Images build successfully; containers start and respond; hadolint passes.\n\nVerification commands:\n- docker build -t apps-api ./apps/api\n- docker run --rm -p 8000:8000 apps-api curl -s localhost:8000/healthz\n- docker build -t apps-workers ./apps/workers",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Dockerfile for Web (Next.js 15.4.0) with hardening",
+            "description": "Create multi-stage Dockerfile for Next.js app with separate builder/runtime and non-root execution.",
+            "dependencies": [
+              "1.5"
+            ],
+            "details": "Goals:\n- Produce small runtime image using Next.js standalone output; run as non-root.\n\nSteps:\n- Builder: node:20-alpine; install deps with npm ci; run next build; output standalone.\n- Runner: node:20-alpine; add non-root node user; copy .next/standalone and .next/static and public; set PORT=3000; CMD: node server.js.\n- Add healthcheck route mapping to /healthz.\n\nFiles to create/change:\n- /apps/web/Dockerfile\n\nImages/tags:\n- apps-web: local build from node:20-alpine\n\nSecurity hardening:\n- Run as non-root; set NODE_ENV=production; enable read-only root FS if possible; set sensible ulimit in compose.\n\nCaching and CI performance tips:\n- Cache node_modules via Docker build cache (mount=cache) and CI cache.\n\nAcceptance criteria:\n- Image builds and serves app; /healthz returns 200.\n\nVerification commands:\n- docker build -t apps-web ./apps/web\n- docker run --rm -p 3000:3000 apps-web curl -I localhost:3000/healthz",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 9,
+            "title": "Utility images: FreeCADCmd, CAMotics, FFmpeg, optional ClamAV",
+            "description": "Reference or wrap utility images for FreeCAD 1.1.x (FreeCADCmd), CAMotics 1.2.x, FFmpeg 6.x, and optional ClamAV.",
+            "dependencies": [
+              "1.1"
+            ],
+            "details": "Goals:\n- Provide containerized tooling images accessible to workers via compose.\n\nSteps:\n- FreeCAD: Dockerfile FROM freecad/freecad:1.1.x; set ENTRYPOINT [\"FreeCADCmd\"]; include a non-root user; document usage.\n- CAMotics: use camotics/camotics:1.2 directly or thin wrapper setting ENTRYPOINT [\"camotics\"]\n- FFmpeg: use jrottenberg/ffmpeg:6-slim; ensure hardware-agnostic; ENTRYPOINT [\"ffmpeg\"].\n- ClamAV (optional): clamav/clamav:1.3; expose freshclam and clamscan; mount DB volume.\n\nFiles to create/change:\n- /infra/docker/freecad/Dockerfile\n- /infra/docker/camotics/Dockerfile (optional)\n- /infra/docker/ffmpeg/Dockerfile (optional if using upstream)\n\nImages/tags:\n- freecad/freecad:1.1.x (ENTRY FreeCADCmd)\n- camotics/camotics:1.2\n- jrottenberg/ffmpeg:6-slim\n- clamav/clamav:1.3\n\nSecurity hardening:\n- Run as non-root where feasible; restrict capabilities; read-only FS; scan images with Trivy in CI.\n\nCaching and CI performance tips:\n- Pin tags; avoid latest; leverage Buildx cache for wrappers.\n\nAcceptance criteria:\n- Containers run and print version info.\n\nVerification commands:\n- docker run --rm freecad/freecad:1.1.x FreeCADCmd --version\n- docker run --rm camotics/camotics:1.2 camotics --version\n- docker run --rm jrottenberg/ffmpeg:6-slim -version\n- docker run --rm clamav/clamav:1.3 clamscan --version",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 10,
+            "title": "docker-compose.dev.yml with services, networks, healthchecks, and smoke script",
+            "description": "Compose file wiring all services with healthchecks, networks, volumes, and a smoke test script to validate the stack.",
+            "dependencies": [
+              "1.2",
+              "1.7",
+              "1.8",
+              "1.9",
+              "1.11",
+              "1.12"
+            ],
+            "details": "Goals:\n- One-command local dev stack up; automated smoke validation.\n\nSteps:\n- Create /infra/compose/docker-compose.dev.yml version \"3.9\" with services: api, workers, beat, postgres, redis, rabbitmq (management), minio, createbuckets, freecad, camotics, ffmpeg, clamav (optional), web.\n- Define networks: backend, frontend; attach api/workers to backend; web to frontend (and backend if it calls api).\n- Add volumes: pg_data, minio_data, minio_config, clamav_db.\n- Add env_file: .env; set restart, user: non-root where applicable; resource hints (mem_limit) for dev.\n- Healthchecks:\n  - postgres: pg_isready -U $POSTGRES_USER\n  - redis: redis-cli ping\n  - rabbitmq: rabbitmq-diagnostics -q ping\n  - minio: curl -sf http://localhost:9000/minio/health/ready inside container\n  - api: curl -sf http://localhost:8000/healthz\n  - web: curl -sf http://localhost:3000/healthz\n  - workers/beat use CMD-SHELL true to ensure process stays healthy\n- Add depends_on with condition: service_healthy where supported.\n- Add /scripts/smoke.sh that waits for health and exercises key calls (healthz, MinIO presign dry-run, version checks for utilities).\n\nFiles to create/change:\n- /infra/compose/docker-compose.dev.yml\n- /scripts/smoke.sh (executable)\n\nImages/tags:\n- postgres:16\n- redis:7.2-alpine\n- rabbitmq:3.13-management\n- minio/minio:RELEASE.2024-XX\n- minio/mc:RELEASE.2024-XX (for createbuckets)\n- utility images from prior task; apps-api, apps-workers, apps-web\n\nSecurity hardening:\n- No prod-only bypasses; expose only necessary ports; set RABBITMQ_DEFAULT_USER/PASS and MINIO_ROOT_USER/PASS from .env; read-only FS for api/workers where possible; drop ALL capabilities.\n\nCaching and CI performance tips:\n- Use docker compose build --parallel; enable BuildKit; mount bind volumes for fast iteration.\n\nAcceptance criteria:\n- docker compose up -d brings all services healthy; smoke script passes.\n\nVerification commands:\n- docker compose -f infra/compose/docker-compose.dev.yml up -d --build\n- ./scripts/smoke.sh",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 11,
+            "title": "RabbitMQ with DLX configuration for Celery queues",
+            "description": "Configure RabbitMQ policies/definitions for dead-letter exchanges and Celery queues.",
+            "dependencies": [
+              "1.1",
+              "1.2"
+            ],
+            "details": "Goals:\n- Ensure each queue has a DLX and *_dlq dead-letter queue for failures.\n\nSteps:\n- Use rabbitmq:3.13-management.\n- Create /infra/rabbitmq/definitions.json defining exchanges/queues:\n  - Exchanges: default, cam, sim, model, report, erp (direct); *_dlx (fanout or direct) and *_dlq queues bound to *_dlx.\n  - Queues: each primary with arguments: x-dead-letter-exchange: <queue>.dlx.\n- Mount definitions.json and load on boot via RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_management load_definitions \"/etc/rabbitmq/definitions.json\".\n- Document Celery queue names and ensure app.celery_app aligns.\n\nFiles to create/change:\n- /infra/rabbitmq/definitions.json\n- Update compose service rabbitmq to mount file and set env.\n\nImages/tags:\n- rabbitmq:3.13-management\n\nSecurity hardening:\n- Create non-default user from .env; disable guest; restrict management UI to local network in compose.\n\nCaching and CI performance tips:\n- Keep definitions minimal; use CLI rabbitmqadmin for updates if needed.\n\nAcceptance criteria:\n- Queues and DLQs exist; messages dead-letter on rejection.\n\nVerification commands:\n- docker compose exec rabbitmq rabbitmqctl list_queues name arguments\n- Publish a test message with x-death by rejecting and see it in *_dlq",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 12,
+            "title": "MinIO and bucket bootstrap job",
+            "description": "Set up MinIO service and a bootstrap job to create buckets and policies, verify presigned URL generation.",
+            "dependencies": [
+              "1.1",
+              "1.2"
+            ],
+            "details": "Goals:\n- Have artefacts/logs/reports/invoices buckets with versioning and lifecycle placeholders; demonstrate presign.\n\nSteps:\n- MinIO service using minio/minio:RELEASE.2024-XX with MINIO_ROOT_USER/PASS from .env.\n- Create createbuckets job using minio/mc:RELEASE.2024-XX that waits for MinIO, then:\n  - mc alias set local http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD\n  - mc mb --ignore-existing local/artefacts local/logs local/reports local/invoices\n  - mc version enable local/artefacts\n  - (optional) mc ilm add for lifecycle rules placeholders\n- In /apps/api add a tiny util to generate a presigned PUT and GET using minio==7.2.7; dry-run in smoke script.\n\nFiles to create/change:\n- /infra/minio/createbuckets.sh (entrypoint for createbuckets container)\n- /apps/api/app/services/s3.py (MinIO client wrapper)\n\nImages/tags:\n- minio/minio:RELEASE.2024-XX\n- minio/mc:RELEASE.2024-XX\n\nSecurity hardening:\n- Use unique creds per environment; do not expose MinIO publicly in dev; TLS termination at ingress in prod (documented).\n\nCaching and CI performance tips:\n- Keep mc script idempotent; skip work if buckets exist.\n\nAcceptance criteria:\n- Buckets exist; presigned URL generation works.\n\nVerification commands:\n- docker compose exec minio mc ls local/\n- python -c \"from app.services.s3 import client; print(client.presign_put('artefacts','smoke.txt',60))\" (adjust path)",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 13,
+            "title": "GitHub Actions: Backend CI/CD with SBOM, signing, and scanning",
+            "description": "Set up backend workflows: lint (ruff), format check (black), typecheck (mypy), tests (pytest) with coverage gate, build/push images, generate SBOM (syft), sign (cosign), scan (Trivy).",
+            "dependencies": [
+              "1.3",
+              "1.4",
+              "1.7"
+            ],
+            "details": "Goals:\n- Automated quality gates and secure supply chain for API and Workers images.\n\nSteps:\n- Create .github/workflows/backend.yml with jobs:\n  - lint-type-test: setup-python 3.11, cache pip, ruff check, black --check, mypy, pytest -q --cov with threshold (e.g., 80%).\n  - build-and-push: on main tag/push; setup QEMU/Buildx; docker/login; docker buildx build for apps/api and apps/workers with tags ghcr.io/ORG/api:SHA and workers:SHA; push.\n  - sbom-sign-scan: run anchore/syft to generate SBOMs; store as artifacts; cosign sign (keyless OIDC) images; aquasecurity/trivy image scan with --severity HIGH,CRITICAL and fail on critical.\n- Use actions/cache for pip and Docker Buildx inline cache.\n\nFiles to create/change:\n- /.github/workflows/backend.yml\n\nImages/tags:\n- Uses python:3.11 for CI; builds apps-api and apps-workers images; syft: latest; cosign: latest; trivy: latest.\n\nSecurity hardening:\n- Enable GitHub OIDC for cosign keyless; restrict workflow permissions: contents: read, id-token: write, packages: write.\n- Fail builds on critical vulnerabilities; allow override via allowlist file if needed.\n\nCaching and CI performance tips:\n- actions/setup-python with cache: 'pip'; docker buildx --cache-from/--cache-to.\n\nAcceptance criteria:\n- PRs run lint/type/tests; main builds and pushes images; SBOM artifacts published; images signed; Trivy scan passes or fails with clear output.\n\nVerification commands:\n- gh run watch (from PR)\n- cosign verify ghcr.io/ORG/api:SHA",
+            "status": "done",
+            "testStrategy": ""
+          },
+          {
+            "id": 14,
+            "title": "GitHub Actions: Frontend CI with lint, typecheck, tests, and Playwright smoke",
+            "description": "Set up frontend workflow: ESLint, typecheck, vitest, build, and Playwright e2e smoke using service containers.",
+            "dependencies": [
+              "1.5",
+              "1.8"
+            ],
+            "details": "Goals:\n- Automated quality gates and basic e2e smoke for web.\n\nSteps:\n- Create .github/workflows/frontend.yml with jobs:\n  - lint-type-test: setup Node 20; cache npm; npm ci; npm run lint; npm run typecheck; npm run test:unit (vitest --run).\n  - build: npm run build to ensure prod build works.\n  - e2e-smoke: use Playwright; start app (npm run start) and run a simple test hitting /healthz; optionally start API with a lightweight mock or use Next route.\n\nFiles to create/change:\n- /.github/workflows/frontend.yml\n- Ensure package.json has scripts: lint, typecheck, test:unit, build, start, test:e2e\n\nImages/tags:\n- node:20 in CI; browsers via playwright action.\n\nSecurity hardening:\n- Pin action versions; least-privileged GHA permissions; sanitize PR logs.\n\nCaching and CI performance tips:\n- actions/setup-node with cache: 'npm'; reuse Playwright browser cache with actions/download-artifact (optional).\n\nAcceptance criteria:\n- PRs run ESLint/typecheck/tests; e2e smoke passes.\n\nVerification commands:\n- gh run watch (from PR)\n- npm run test:e2e locally to replicate",
+            "status": "done",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Database Schema and Migrations",
+        "description": "Implement PostgreSQL schema per PRD with indices, constraints, and seed data (tools). Add audit hash-chain capability and idempotency constraints.",
+        "details": "Use Alembic for migrations; SQLAlchemy models mirror PRD tables: users, sessions, licenses, invoices, payments, models, jobs, cam_runs, sim_runs, artefacts, machines, materials, notifications, erp_mes_sync, audit_logs, security_events, tools.\nKey constraints/indexes:\n- Unique: users.email, users.phone; sessions.refresh_token_hash; jobs.idempotency_key; artefacts.s3_key; invoices.number; payments.provider_ref\n- FKs with ON DELETE: RESTRICT for most, artefacts (CASCADE on job delete)\n- Indices per PRD (e.g., jobs: user_id, type, status, created_at; licences: user_id, status, ends_at)\n- JSONB columns with GIN indexes where filtered often (e.g., jobs.metrics, params if needed)\n- Check constraints (currency in ['TRY', …] when multi-currency flag enabled)\n- tools table enum types for tool.type and material\nAudit chain:\n- audit_logs.chain_hash = sha256(prev_chain_hash || canonical_json(record))\n- Store prev hash (last hash overall or per user scope). Maintain in app layer within transaction.\nSeeds:\n- machines/materials minimal; tools: '6mm Carbide Endmill (4F)' and '10mm Drill HSS'\nPseudocode (Alembic example):\n- op.create_table('jobs', ... idempotency_key=sa.String, sa.UniqueConstraint('idempotency_key'))\n- op.create_index('ix_jobs_status_created', 'jobs', ['status','created_at'])\n- Seed tools via data migration inserting JSON specified in PRD.\n",
+        "testStrategy": "Run alembic upgrade head on clean DB. Verify constraints by attempting duplicates (expect errors). Confirm FK behaviors. Check hash-chain creation by inserting two audit logs and verifying deterministic chain. Query plans show indexes used. Unit tests for models; migration downgrade/upgrade cycle validated.",
+        "priority": "high",
+        "dependencies": [
+          1
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Finalize ERD, enums, and canonicalization rules",
+            "description": "Produce the final PostgreSQL ERD and enum/type definitions per PRD, and define canonical JSON and audit hash-chain scopes.",
+            "dependencies": [],
+            "details": "- Deliverables: ERD (tables/columns/FKs), enum specs for tools.type and tools.material, JSONB usage map, timestamp and soft-delete policy, naming conventions.\n- Map PRD entities: users, sessions, licenses, invoices, payments, models, jobs, cam_runs, sim_runs, artefacts, machines, materials, notifications, erp_mes_sync, audit_logs, security_events, tools.\n- Define JSONB fields (e.g., jobs.metrics, jobs.params) and which get GIN indexes.\n- Enumerate unique constraints and indexes per PRD (users.email/phone, sessions.refresh_token_hash, jobs.idempotency_key, artefacts.s3_key, invoices.number, payments.provider_ref; indexes on jobs user_id/type/status/created_at; licenses user_id/status/ends_at).\n- Audit chain scope: global or per-scope (e.g., per user or job). Specify fields scope_type and scope_id semantics.\n- Canonical JSON rules: UTF-8; stable key sort; no whitespace; numbers as strings with fixed precision if required or use JSONB deterministic dumps; exclude non-deterministic fields; nulls explicit.\n- Idempotency key policy for jobs (string length, charset, uniqueness, retry semantics).",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Alembic setup and base migration",
+            "description": "Set up Alembic for PostgreSQL 17.6 with SQLAlchemy 2.0 models and naming conventions; create base revision.",
+            "dependencies": [
+              "2.1"
+            ],
+            "details": "- Configure alembic.ini and env.py (UTC timestamps, timezone-aware, async not required).\n- Apply naming convention for constraints and indexes for reproducible diffs.\n- Wire metadata from SQLAlchemy models; enable render_as_batch=False for Postgres.\n- Create initial empty base revision (\"base\") to anchor subsequent DDL.\n- Add helper utilities for creating enums, GIN indexes, and check constraints.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Create core tables: users, sessions, licenses, models, jobs",
+            "description": "Implement Alembic migration to create core domain tables with required PKs, FKs, uniques, and base indexes.",
+            "dependencies": [
+              "2.2"
+            ],
+            "details": "- users: id, email (unique), phone (unique), role, status, locale, created_at/updated_at.\n- sessions: id, user_id FK (RESTRICT), refresh_token_hash (unique), device_fingerprint, last_used_at, expires_at; index on user_id, expires_at.\n- licenses: id, user_id FK (RESTRICT), plan, status, starts_at, ends_at; index on (user_id), (status, ends_at).\n- models: id, user_id FK (RESTRICT), type, params JSONB, metrics JSONB, created_at; optional GIN on params if filtered.\n- jobs: id, user_id FK (RESTRICT), type, status, params JSONB, metrics JSONB, idempotency_key (unique), created_at, updated_at; indexes: (status, created_at), user_id, type; GIN on metrics (and params if needed).",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Create operational tables: cam_runs, sim_runs, artefacts, notifications, erp_mes_sync",
+            "description": "Add execution/operations-related tables with correct FKs and cascade behaviors.",
+            "dependencies": [
+              "2.3"
+            ],
+            "details": "- cam_runs: id, job_id FK (RESTRICT), machine_id FK (RESTRICT), params JSONB, metrics JSONB, status, created_at; indexes: job_id, status.\n- sim_runs: id, job_id FK (RESTRICT), params JSONB, metrics JSONB, status, created_at; indexes: job_id, status.\n- artefacts: id, job_id FK (CASCADE on job delete), type, s3_key (unique), size_bytes, sha256, mime, meta JSONB, created_at; indexes: job_id, type; optional GIN on meta.\n- notifications: id, user_id FK (RESTRICT), type, payload JSONB, read_at, created_at; indexes: user_id, type, read_at.\n- erp_mes_sync: id, external_id, entity_type, entity_id, status, last_sync_at, payload JSONB; indexes: entity_type, status.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Create billing tables: invoices and payments",
+            "description": "Implement billing-related tables with monetary and provider references and currency checks.",
+            "dependencies": [
+              "2.3"
+            ],
+            "details": "- invoices: id, user_id FK (RESTRICT), number (unique), amount_cents, currency, status, issued_at, due_at, meta JSONB; indexes: user_id, status, issued_at.\n- payments: id, invoice_id FK (RESTRICT), provider, provider_ref (unique), amount_cents, currency, status, paid_at, meta JSONB; indexes: invoice_id, status, paid_at.\n- Currency check constraint: currency in allowed set; allow multi-currency when current_setting('app.multi_currency', true) = 'on' else enforce 'TRY'.\n- Ensure consistent money precision and non-negative checks.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Create security and audit tables with hash-chain",
+            "description": "Add audit_logs (hash-chain) and security_events tables and supporting constraints/indexes.",
+            "dependencies": [
+              "2.2"
+            ],
+            "details": "- audit_logs: id, scope_type, scope_id, actor_user_id FK (RESTRICT, nullable), event_type, payload JSONB, prev_chain_hash, chain_hash, created_at.\n- Constraints: chain_hash and prev_chain_hash are 64-char hex; NOT NULL for chain_hash; CHECK on hex format.\n- Indexes: (scope_type, scope_id, created_at), event_type; GIN on payload if filtered.\n- App responsibility: compute chain_hash = sha256(prev_chain_hash || canonical_json(payload)) within the same transaction; store prev_chain_hash from last scope record (or global) as per ERD rules.\n- security_events: id, user_id FK (RESTRICT), type, ip, ua, created_at; indexes: user_id, type, created_at.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Apply global constraints and performance indexes",
+            "description": "Ensure all uniques, FKs with correct ON DELETE rules, JSONB GIN, and check constraints are in place.",
+            "dependencies": [
+              "2.3",
+              "2.4",
+              "2.5",
+              "2.6"
+            ],
+            "details": "- Uniques: users.email, users.phone, sessions.refresh_token_hash, jobs.idempotency_key, artefacts.s3_key, invoices.number, payments.provider_ref.\n- FKs: RESTRICT by default; artefacts.job_id CASCADE; verify others match PRD.\n- Indexes: jobs(user_id), jobs(type), jobs(status, created_at); licenses(user_id), licenses(status, ends_at); add missing per PRD.\n- JSONB GIN indexes: jobs.metrics, jobs.params (if filtered), models.params, artefacts.meta as needed.\n- Check constraints: currency rules; non-negative amounts; any domain-specific checks per PRD.\n- Add comments to schema objects for maintainability.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Seed data via data migration",
+            "description": "Create idempotent data migration to seed machines, materials, and tools.",
+            "dependencies": [
+              "2.7"
+            ],
+            "details": "- Minimal machines and materials per PRD; ensure stable primary keys or natural keys.\n- tools: insert '6mm Carbide Endmill (4F)' and '10mm Drill HSS' with proper enums (type, material) and metadata.\n- Use INSERT ... ON CONFLICT DO NOTHING or upsert on natural key to make seeding idempotent.\n- Wrap in a separate migration file; provide downgrade that deletes only seeded rows by natural key.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 9,
+            "title": "Migration and integrity test suite",
+            "description": "Implement tests for upgrade/downgrade, constraints, FK behaviors, audit-chain determinism, and query plans.",
+            "dependencies": [
+              "2.6",
+              "2.7",
+              "2.8"
+            ],
+            "details": "- Run alembic upgrade head on clean DB and downgrade to base; ensure no residual objects.\n- Constraints: attempt duplicates for each unique; expect errors. Validate currency checks with GUC app.multi_currency on/off.\n- FKs: verify RESTRICT on delete for users with sessions; verify CASCADE for artefacts on job delete.\n- Audit chain: insert two audit_logs within a tx; verify chain_hash = sha256(prev || canonical_json(payload)) deterministically.\n- Query plans: EXPLAIN (ANALYZE, BUFFERS) on key queries to confirm index usage (jobs status+created_at; licenses status+ends_at; JSONB GIN probe).",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 10,
+            "title": "SQLAlchemy model parity and documentation",
+            "description": "Ensure SQLAlchemy models mirror the DB schema and document idempotency, canonical JSON, and rollback strategy.",
+            "dependencies": [
+              "2.7",
+              "2.9"
+            ],
+            "details": "- Validate ORM models against DB via autogenerate producing empty diffs.\n- Add model-level constraints/validators for idempotency_key, enums, and JSONB fields.\n- Document canonical JSON rules and audit chain responsibilities; include sample helper in app layer.\n- Provide rollback strategy notes for each migration and test fixtures for core entities (users, jobs, audit logs).\n- Include query examples demonstrating index usage and idempotent job creation semantics.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Auth, Sessions, RBAC, MFA, OIDC, Magic Link + Frontend Guards",
+        "description": "Implement registration, login (email/password, Google OIDC, magic link), JWT access (30m) and refresh tokens (7d with rotation/revocation), MFA (TOTP for admin/critical actions), RBAC (user/admin). Frontend route guards, CSRF/XSS protections, rate limiting, session idle logout.",
+        "details": "Backend (FastAPI):\n- Passwords: argon2-cffi 23.x with pepper and unique salts; strong policy check\n- JWT: PyJWT 2.8; access token (30m) in Authorization Bearer; refresh token as httpOnly, Secure, SameSite=Strict cookie; rotation on refresh with sessions table (refresh_token_hash unique), device_fingerprint stored\n- RBAC: role in JWT claims; scope checks per endpoint via dependency\n- OIDC (Google): Authlib 1.3; PKCE + state; store oidc sub mapping to user; logs oidc_login\n- Magic link: single-use signed token (itsdangerous or custom HMAC) TTL 15m; logged as magic_link_issued/consumed\n- MFA: pyotp + qrcode; enforce for admin or sensitive actions; backup codes table optional\n- CSRF: double-submit token for browser POST/PUT/DELETE: set csrf cookie + require X-CSRF-Token; validate when Authorization header present\n- Rate limit: fastapi-limiter + Redis (e.g., 5/min login, 30/min AI prompt)\n- Security headers: Starlette middleware (CSP, HSTS, X-Frame-Options deny); sanitize inputs; SQLAlchemy ORM prevents SQLi; PII masking in logs\n- Dev mode: env flag; if dev, bypass guards and tag outputs dev_mode=true; disabled in prod via config\n- Logging: all auth events to audit_logs + security_events with masked PII\nFrontend (Next.js):\n- i18next Turkish default; localized errors\n- React Hook Form dynamic validation\n- Auth pages for login/register, OIDC callback, magic link consumption\n- Route guard (middleware.ts): if no access token or /license/me shows expired → redirect to license page; show banner with remaining days; idle timer auto-logout\nPseudocode (refresh rotation):\n- POST /auth/token/refresh:\n  - read refresh cookie → verify, lookup session by hash → if revoked: 401\n  - issue new access + new refresh; mark old session revoked_at; insert new session\n  - set-cookie new refresh; return access\n",
+        "testStrategy": "Unit: password policy, JWT create/verify, refresh rotation, MFA verification, CSRF checks. Integration: OIDC login flow with mocked Google, magic link single-use. Rate limit enforced (429). Frontend: Playwright tests for route guard redirects, idle logout, Turkish UI strings. Security: ZAP scan for XSS/CSRF; brute-force throttling verified.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Password Authentication (Argon2 + Pepper + Policy)",
+            "description": "Implement email/password registration and login with Argon2 hashing, pepper, unique salts, and strong password policy enforcement.",
+            "dependencies": [],
+            "details": "Design:\n- Use argon2-cffi 23.x (argon2id) with per-user salts and a global pepper (ENV: AUTH_PASSWORD_PEPPER).\n- Enforce strong password policy: length >= 12, upper/lower/number/symbol, block top-10k and repeated patterns.\n- Optional account lockout counter (e.g., soft lock for 15m after 10 failed attempts) in addition to rate limiting.\nAPIs:\n- POST /auth/register {email, password, name?} → 201 {user_id}. 409 if email exists.\n- POST /auth/login {email, password, device_fingerprint?, mfa_code?} → 200 {access_token, expires_in, mfa_required?}. Sets refresh cookie if MFA satisfied.\n- POST /auth/password/strength {password} → 200 {score, ok, feedback}.\n- POST /auth/password/forgot {email} → 202 {}.\n- POST /auth/password/reset {token, new_password} → 200 {}.\nCookies: N/A (refresh set by Subtask 3).\nErrors:\n- 400 ERR-AUTH-INVALID-BODY, 401 ERR-AUTH-INVALID-CREDS, 423 ERR-AUTH-LOCKED, 409 ERR-AUTH-EMAIL-TAKEN.\nAcceptance:\n- Hash uses argon2id with configured parameters; pepper required; passwords failing policy rejected.\n- Login succeeds with correct creds; fails with incorrect; lockout triggers after threshold; does not leak timing/PII.\nLogging:\n- audit_logs: user_registered, login_succeeded, login_failed (mask email), password_reset_requested, password_reset_completed.\n- security_events: excessive_login_failures, account_locked.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Sessions Table and Device Fingerprint",
+            "description": "Create sessions persistence for refresh rotation with hashed refresh_token, device metadata, and revocation fields.",
+            "dependencies": [],
+            "details": "Design (DB/model):\n- Table sessions: id (uuid), user_id (fk users), refresh_token_hash (unique, sha256/HMAC), device_fingerprint (string), ip, user_agent, created_at, last_used_at, expires_at (7d), revoked_at, rotated_from (fk sessions.id), reason.\n- Indexes: user_id, (user_id, revoked_at IS NULL), expires_at.\n- Store only hash of refresh token; never store plaintext.\nAPIs: N/A (internal usage by auth flows).\nCookies: N/A.\nErrors: N/A.\nAcceptance:\n- Unique constraint enforced on refresh_token_hash; revoked_at prevents reuse.\n- Rotation chain (rotated_from) preserved; device_fingerprint stored when provided.\nLogging:\n- audit_logs: session_created, session_rotated, session_revoked (with session_id, masked ua/ip).\n- security_events: refresh_reuse_detected, anomalous_device_detected.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "JWT Access/Refresh Tokens with Rotation & Revocation",
+            "description": "Issue 30m JWT access tokens and 7d refresh tokens stored in httpOnly cookies; implement refresh rotation, revocation, and logout endpoints.",
+            "dependencies": [
+              "3.1",
+              "3.2"
+            ],
+            "details": "Design:\n- PyJWT 2.8; access token: 30m exp; claims: sub (user_id), role, scopes, sid (session id), iat, exp.\n- Refresh token: random 256-bit opaque; 7d TTL; stored as httpOnly cookie; rotation on each refresh; detect reuse → revoke all in chain.\nAPIs:\n- POST /auth/token/refresh → reads refresh cookie; 200 {access_token, expires_in}; sets new refresh cookie; 401 if invalid/revoked.\n- POST /auth/logout → revoke current session; 204; clears refresh cookie.\n- POST /auth/logout/all → revoke all sessions for user; 204; clears cookie.\nCookies:\n- Name: rt; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=604800; Domain configurable; Same attributes on rotation; clear on logout.\nErrors:\n- 401 ERR-TOKEN-INVALID, ERR-TOKEN-EXPIRED, ERR-TOKEN-REVOKED, ERR-REFRESH-REUSE.\n- 400 ERR-TOKEN-MALFORMED.\nAcceptance:\n- Refresh rotates: old session revoked_at set; new session inserted; new cookie set with correct attributes.\n- Reuse of an already-rotated refresh cookie triggers global revocation and 401.\n- Access token in Authorization: Bearer <jwt> works for protected routes.\nLogging:\n- audit_logs: token_refreshed, logout, logout_all.\n- security_events: refresh_reuse, invalid_refresh_cookie, suspicious_refresh_ip_change.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "RBAC Enforcement via FastAPI Dependencies",
+            "description": "Add role- and scope-based authorization using dependency injectors that read JWT claims.",
+            "dependencies": [
+              "3.3"
+            ],
+            "details": "Design:\n- Roles: user, admin; scopes per endpoint (e.g., designs:read, designs:write).\n- Dependencies: require_auth(), require_role('admin'), require_scopes('x','y'). Reject if missing.\nAPIs:\n- Example protected: GET /admin/users (admin only), GET /me (user).\nCookies: N/A.\nErrors:\n- 401 ERR-AUTH-REQUIRED (no/invalid token), 403 ERR-RBAC-FORBIDDEN (insufficient role/scope).\nAcceptance:\n- Endpoints annotated with dependencies enforce correct access; admin-only endpoints deny user role.\n- Scope mismatch returns 403 without leaking resource existence.\nLogging:\n- security_events: rbac_forbidden (endpoint, required, provided), missing_auth_header.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Google OIDC (Authlib) with PKCE/State",
+            "description": "Integrate Google OIDC sign-in with PKCE and state validation; map oidc sub to user and issue session/tokens.",
+            "dependencies": [
+              "3.3",
+              "3.2"
+            ],
+            "details": "Design:\n- Authlib 1.3 OAuth2Client; use PKCE (S256) and state in server-side store; nonce in auth request.\n- Persist mapping: oidc_accounts(user_id, provider='google', sub, email_verified, picture, created_at).\nAPIs:\n- GET /auth/oidc/google/start → 302 redirect to Google (sets pkce_verifier in server store).\n- GET /auth/oidc/google/callback?code&state → 302 to FE; on success set refresh cookie and return short-lived page that exchanges for access token if needed.\nCookies:\n- Sets refresh cookie (rt) per Subtask 3 upon successful OIDC login.\nErrors:\n- 400 ERR-OIDC-STATE, 400 ERR-OIDC-NONCE, 401 ERR-OIDC-TOKEN-EXCHANGE, 409 ERR-OIDC-EMAIL-CONFLICT (if email claimed by another flow and policy forbids auto-link).\nAcceptance:\n- PKCE verifier and state validated; code exchange succeeds; new or existing user linked via sub.\n- Audit log contains oidc_login with provider, sub; PII masked.\nLogging:\n- audit_logs: oidc_login_started, oidc_login_succeeded, oidc_login_linked.\n- security_events: oidc_state_mismatch, oidc_token_exchange_failed.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Magic Link Issuance and Consumption",
+            "description": "Provide passwordless login via single-use, 15-minute signed magic links with issuance and consumption endpoints.",
+            "dependencies": [
+              "3.3"
+            ],
+            "details": "Design:\n- Sign tokens with itsdangerous (TimedJSONWebSignatureSerializer) or HMAC; payload: {email, nonce, iat}.\n- Persist single-use: magic_links(id, email, nonce, issued_at, consumed_at, ip, ua).\nAPIs:\n- POST /auth/magic-link/request {email} → 202 {}; send email with URL (/auth/magic-link/consume?token=...). Rate limit applied.\n- POST /auth/magic-link/consume {token, device_fingerprint?} → 200 {access_token, expires_in}; sets refresh cookie.\nCookies:\n- On consume, set refresh cookie (rt) with Secure, HttpOnly, SameSite=Strict, Max-Age=7d.\nErrors:\n- 400 ERR-ML-MALFORMED, 401 ERR-ML-INVALID, 401 ERR-ML-EXPIRED, 409 ERR-ML-ALREADY-USED.\nAcceptance:\n- Token expires at 15m; cannot be reused; consuming creates session and returns access token.\n- Email enumeration safe: request endpoint always 202.\nLogging:\n- audit_logs: magic_link_issued, magic_link_consumed.\n- security_events: magic_link_invalid, magic_link_reuse_attempt.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "TOTP MFA (pyotp) Setup, Verify, and Backup Codes",
+            "description": "Implement TOTP MFA for admins/sensitive actions with setup, verification during login, and optional backup codes.",
+            "dependencies": [
+              "3.1",
+              "3.3"
+            ],
+            "details": "Design:\n- pyotp TOTP (period=30, digits=6); store mfa_secret encrypted at rest; enforce for admin role and step-up on sensitive endpoints.\n- Backup codes: 10 single-use codes (sha256 hashed) in mfa_backup_codes table.\nAPIs:\n- POST /auth/mfa/setup/start → 200 {secret_masked, otpauth_url, qr_png_base64}.\n- POST /auth/mfa/setup/verify {code} → 200 {} enables MFA.\n- POST /auth/mfa/disable {code} → 200 {}.\n- POST /auth/mfa/challenge {code or backup_code} → 200 {access_token} when login required step-up.\n- GET /auth/mfa/backup-codes → 200 {codes_plaintext_once} (generate/regenerate).\nCookies:\n- Uses refresh cookie issuance from Subtask 3 when MFA satisfied.\nErrors:\n- 401 ERR-MFA-REQUIRED, 401 ERR-MFA-INVALID, 409 ERR-MFA-ALREADY-ENABLED, 400 ERR-MFA-NOT-ENABLED.\nAcceptance:\n- Admin login without MFA triggers mfa_required; providing valid TOTP returns tokens.\n- Backup codes consume once; disabling MFA requires valid TOTP.\nLogging:\n- audit_logs: mfa_enabled, mfa_challenge_succeeded, mfa_disabled.\n- security_events: mfa_challenge_failed, backup_code_used.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "CSRF Double-Submit Protection",
+            "description": "Add double-submit CSRF for browser POST/PUT/PATCH/DELETE when Authorization header present.",
+            "dependencies": [
+              "3.3"
+            ],
+            "details": "Design:\n- Issue CSRF cookie and require X-CSRF-Token header matching cookie value for state-changing browser requests.\n- Skip for non-browser clients (no cookies) and for idempotent GET/HEAD.\nAPIs:\n- GET /auth/csrf-token → 200 {} and sets csrf cookie; FE reads cookie and mirrors into header.\nCookies:\n- Name: csrf; HttpOnly=false; Secure=true; SameSite=Strict; Path=/; Max-Age=7200.\nErrors:\n- 403 ERR-CSRF-MISSING, 403 ERR-CSRF-MISMATCH.\nAcceptance:\n- Requests with valid X-CSRF-Token pass; mismatched or missing token returns 403.\n- Token rotates periodically or on login; works with refresh cookie and Authorization header.\nLogging:\n- security_events: csrf_missing, csrf_mismatch (method, path, ua masked).",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 9,
+            "title": "Rate Limiting with Redis",
+            "description": "Configure fastapi-limiter with Redis and apply per-route policies, including login 5/min and AI prompt 30/min.",
+            "dependencies": [],
+            "details": "Design:\n- fastapi-limiter with IP + user keying; trust X-Forwarded-For when behind proxy.\n- Policies: /auth/login 5/min, /auth/magic-link/request 3/min, /auth/token/refresh 60/min per session, AI prompt endpoints 30/min per user.\nAPIs: N/A (decorators/middleware on endpoints).\nCookies: N/A.\nErrors:\n- 429 ERR-RATE-LIMIT with Retry-After header.\nAcceptance:\n- Exceeding thresholds yields 429; counters reset after window; per-user limits respect JWT sub.\nLogging:\n- security_events: rate_limited (route, key), potential_bruteforce_detected.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 10,
+            "title": "Security Headers and Input Sanitization",
+            "description": "Add Starlette middleware for CSP, HSTS, frame-ancestors deny, and sanitize inputs to mitigate XSS/Injection.",
+            "dependencies": [],
+            "details": "Design:\n- Headers: Content-Security-Policy (default-src 'self'; frame-ancestors 'none'; object-src 'none'), Strict-Transport-Security (max-age=31536000; includeSubDomains), X-Frame-Options: DENY, X-Content-Type-Options: nosniff, Referrer-Policy: no-referrer, Permissions-Policy minimal.\n- Input sanitization: pydantic validation; strip HTML from text fields where applicable; encode outputs.\nAPIs: N/A.\nCookies: Ensure Secure and SameSite per auth cookies.\nErrors: N/A.\nAcceptance:\n- Responses include required headers; sample reflective XSS payload is neutralized.\n- SQLAlchemy ORM used to prevent SQLi patterns in queries.\nLogging:\n- security_events: csp_violation_report (if enabled), xss_attempt_detected.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 11,
+            "title": "Audit and Security Event Logging with PII Masking",
+            "description": "Implement structured audit and security logs with masking and correlation IDs; persist to audit_logs and security_events.",
+            "dependencies": [],
+            "details": "Design:\n- Log schema: {event_type, user_id?, session_id?, resource?, ip_masked, ua_masked, metadata, created_at, chain_hash} with optional hash-chaining.\n- PII masking: emails partially masked (a***@d***), IP truncated.\n- Correlation-ID per request; include in all logs and responses.\nAPIs:\n- GET /admin/logs (admin) with filters and pagination.\nCookies: N/A.\nErrors: 403 ERR-RBAC-FORBIDDEN for non-admin access.\nAcceptance:\n- All auth events generate audited entries; sensitive fields masked; chain hash verifies integrity.\n- Logs queryable by correlation ID.\nLogging:\n- Applies across all other subtasks; provides emitters/utilities for consistent logging.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 12,
+            "title": "Dev-Mode Toggles and Production Hardening",
+            "description": "Introduce dev-mode behaviors and enforce production-only security settings.",
+            "dependencies": [
+              "3.3"
+            ],
+            "details": "Design:\n- ENV DEV_MODE=true enables relaxed guards for local development (e.g., skip CSRF for localhost), annotate responses dev_mode=true; never enabled in prod.\n- Enforce Secure cookies in prod; reject HTTP (redirect to HTTPS); disable detailed error traces in prod.\n- Feature flags for test OIDC provider.\nAPIs: N/A.\nCookies:\n- Validate cookie attributes vary by environment (Secure, SameSite strict in prod).\nErrors: N/A.\nAcceptance:\n- In dev: convenience features active and flagged; in prod: strict headers and cookies enforced; misconfiguration logs warnings and refuses to start if critical secrets missing.\nLogging:\n- audit_logs: config_loaded (env summary sans secrets).\n- security_events: insecure_config_detected (prod with insecure flags).",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 13,
+            "title": "Frontend Auth Pages and Turkish i18n",
+            "description": "Build Next.js pages for login/register, OIDC callback, and magic link; integrate React Hook Form and i18next (TR default).",
+            "dependencies": [
+              "3.1",
+              "3.3",
+              "3.5",
+              "3.6",
+              "3.8"
+            ],
+            "details": "Design:\n- Pages: /login, /register, /auth/oidc/callback, /auth/magic-link.\n- React Hook Form with dynamic validation mirroring backend policy; i18next with TR default and EN fallback; localized error handling.\n- Fetch flow: obtain CSRF token on app load; submit forms with X-CSRF-Token; store access token in memory (e.g., React state) and refresh via cookie.\nAPIs:\n- Calls backend: /auth/register, /auth/login, /auth/oidc/google/start, /auth/magic-link/request, /auth/magic-link/consume, /auth/csrf-token.\nCookies:\n- Reads CSRF cookie; backend manages refresh cookie; FE never stores refresh token.\nErrors:\n- Display localized messages for 401/403/429; map backend error codes to strings.\nAcceptance:\n- Turkish UI strings shown by default; validation errors inline; OIDC redirects correctly; magic link flow confirms email sent and consumes link successfully.\nLogging:\n- Client console/info logs minimized; no PII; send client telemetry (optional) with correlation ID if enabled.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 14,
+            "title": "Frontend Route Guards and Idle Logout",
+            "description": "Implement Next.js middleware and client guards to enforce auth and license checks; add idle timer auto-logout and banner.",
+            "dependencies": [
+              "3.3",
+              "3.13"
+            ],
+            "details": "Design:\n- middleware.ts: check for access token presence/validity (e.g., via lightweight endpoint or JWT decode) and redirect to /login; call /license/me to detect expiry → redirect to /license with banner of remaining days.\n- Idle timer: logout after configurable inactivity (e.g., 15–30m); warn before logout; clear memory tokens and call /auth/logout.\nAPIs:\n- GET /license/me → {status: active|expired, days_remaining}.\n- POST /auth/logout.\nCookies:\n- None handled directly; access token held in memory; refresh cookie managed by backend.\nErrors:\n- Redirect on 401; display localized toast on ERR-RBAC-FORBIDDEN when navigating to admin routes.\nAcceptance:\n- Unauthenticated user is redirected; expired license redirects with banner; idle logout triggers and clears session.\nLogging:\n- Client-side event logs (non-PII) for guard redirects and idle logout (optional analytics).",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 15,
+            "title": "End-to-End and Security Tests",
+            "description": "Automate E2E and security tests: Playwright flows, mocked OIDC, ZAP scan, CSRF/XSS/rate-limit verification.",
+            "dependencies": [
+              "3.1",
+              "3.2",
+              "3.3",
+              "3.4",
+              "3.5",
+              "3.6",
+              "3.7",
+              "3.8",
+              "3.9",
+              "3.10",
+              "3.11",
+              "3.12",
+              "3.13",
+              "3.14"
+            ],
+            "details": "Design:\n- Playwright: register→login (pwd), MFA challenge, OIDC login via mocked Google, magic link request→consume, refresh rotation, logout, license guard redirects, idle logout.\n- Security: OWASP ZAP active scan against staging; CSRF negative tests; XSS reflection tests; rate-limit assertions (429 with Retry-After).\nAPIs: Exercise all relevant endpoints from other subtasks.\nCookies: Validate rt cookie attributes and CSRF cookie behaviors.\nErrors:\n- Assert specific codes/messages for failure paths (ERR-* from backend).\nAcceptance:\n- All happy paths pass; all negative paths return correct status and codes; ZAP reports no high/medium issues.\nLogging:\n- Verify audit/security events emitted for key actions and correlate via test-specific correlation IDs.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 16,
+            "title": "Documentation and Operational Playbooks",
+            "description": "Produce API docs, security notes, and runbooks for keys rotation, incidents, and day-2 operations.",
+            "dependencies": [
+              "3.1",
+              "3.2",
+              "3.3",
+              "3.4",
+              "3.5",
+              "3.6",
+              "3.7",
+              "3.8",
+              "3.9",
+              "3.10",
+              "3.11",
+              "3.12",
+              "3.13",
+              "3.14",
+              "3.15"
+            ],
+            "details": "Design:\n- API reference with schemas, error codes, and cookie attributes; sequence diagrams for login, refresh rotation, OIDC, magic link, MFA.\n- Security guide: CSRF model, XSS defenses, header policies, RBAC model, rate-limits.\n- Playbooks: JWT signing key rotation (kid, JWKS), refresh token compromise response (revoke chains), password pepper rotation strategy, OIDC client secret rotation, incident response steps, audit log review, backup/restore for auth tables.\nAPIs: N/A (documentation deliverables).\nCookies: Document rt and csrf attributes and lifetimes.\nErrors: Document canonical ERR-* codes.\nAcceptance:\n- Docs reviewed and approved; includes examples and cURL snippets; on-call runbooks actionable with checklists.\nLogging:\n- Include logging taxonomy and examples; mapping of events to alerting.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Licensing, Billing, Invoices, Expiry Enforcement and Notifications",
+        "description": "Build license assignment/extend/cancel APIs, invoice generation with numbering and VAT, payment provider integration stub, strict license enforcement (grace=0), and D-7/3/1 notifications via email/SMS.",
+        "details": "Backend:\n- Endpoints: POST /license/assign|extend|cancel, GET /license/me\n- License types: ENUM 3m/6m/12m, scope JSON, ends_at. On extend, append duration; on cancel, set status and reason, audit trail\n- Enforcement middleware licenseGuard: if expired → 403 LIC_EXPIRED across all routes; on initial check for UI gating use /license/me; also revoke all sessions on expiry (set sessions.revoked_at)\n- Edge cases: running jobs on expire → mark cancel_requested and gracefully stop workers\n- Invoices: numbering 'YYYYMM-SEQ-CNCAI'; fields (amount, vat=amount*0.20, total). Currency: TRY (multi-currency behind feature flag)\n- PDF generation: WeasyPrint or reportlab; store pdf_url in S3/MinIO with immutable tag; signed GET URLs to deliver\n- Payments: provider-agnostic interface (e.g., Stripe Payment Intents or local PSP) with webhook to update payments.status and invoices.paid_status; audit all responses\n- Notifications: SMTP via provider (e.g., Postmark) and SMS via provider (e.g., Twilio/Vonage). ENV: SMTP_URL, SMS_API_KEY, SMS_SENDER, EMAIL_SENDER\n- Scheduler: Celery Beat daily 02:00 UTC: query licenses with remaining days 7/3/1 → enqueue notification jobs; persist notifications table (success/fail, provider_id)\n- Failover: try primary SMTP then fallback; SMS provider A→B fallback\nPseudocode (notification scan):\n- def scan_licenses():\n  - for lic in licenses where ends_at::date - now()::date in (7,3,1) and status=active:\n    - enqueue send_email_sms(user, lic)\n- def licenseGuard(request):\n  - lic = get_active_license(user)\n  - if not lic or lic.ends_at < now(): raise HTTPException(403, 'LIC_EXPIRED')\n",
+        "testStrategy": "Unit: license date math, invoice numbering uniqueness under concurrency, VAT calc, licenseGuard. Integration: Webhook updates invoice/payment states; PDF upload to MinIO and immutability flag. Scheduler: freeze time to hit 7/3/1 and assert notifications enqueued and persisted. E2E: expired license blocks API/UI immediately; extending license re-enables access instantly.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "License domain model and state transitions",
+            "description": "Design license schema, enums, constraints, and lifecycle for assign/extend/cancel/expire with auditability.",
+            "dependencies": [],
+            "details": "Scope:\n- Define DB tables: licenses, license_audit.\n- licenses fields: id, user_id (FK), type ENUM('3m','6m','12m'), scope JSONB, status ENUM('active','expired','canceled'), reason TEXT NULL, starts_at TIMESTAMPTZ DEFAULT now(), ends_at TIMESTAMPTZ NOT NULL, canceled_at TIMESTAMPTZ NULL, created_at, updated_at.\n- Constraints: one active license per user (partial unique index on (user_id) WHERE status='active' AND ends_at>now()); indexes on (status, ends_at).\n- State transitions:\n  - assign: create active license with ends_at = starts_at + duration (3/6/12 months). Audit event 'license_assigned'.\n  - extend: only if status='active' and ends_at>=now(). On extend, ends_at += duration months (append, not reset). Audit 'license_extended' with delta.\n  - cancel: set status='canceled', reason, canceled_at=now(). Audit 'license_canceled'.\n  - expire: when now()>ends_at treat as expired (status may be updated lazily by middleware or via scheduled task). Audit 'license_expired'.\n- Invariants: cannot have overlapping active licenses per user; canceled/expired licenses are immutable except audit.\nFailure modes:\n- Invalid type, scope not JSON, attempt to assign when active exists, extend non-active, cancel already canceled.\nAcceptance criteria:\n- Data model migrates successfully; constraints enforce single active license; date math verified for 3/6/12 months; audit rows exist for each transition.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "License APIs (assign/extend/cancel, me) with audit",
+            "description": "Implement POST /license/assign|extend|cancel and GET /license/me with request/response schemas and audit logging.",
+            "dependencies": [
+              "4.1"
+            ],
+            "details": "Endpoints:\n- POST /license/assign\n  - Auth: admin can assign to any user; user can self-assign if allowed by business rules.\n  - Body: { user_id?: UUID, type: '3m'|'6m'|'12m', scope: object, starts_at?: RFC3339 }\n  - Headers: Idempotency-Key (optional but supported).\n  - Response: { license: { id, type, scope, status, starts_at, ends_at } }\n  - Errors: 409 ACTIVE_LICENSE_EXISTS, 400 INVALID_TYPE, 403 FORBIDDEN.\n- POST /license/extend\n  - Body: { user_id?: UUID, license_id?: UUID, type: '3m'|'6m'|'12m' }\n  - Response: { license_id, previous_ends_at, new_ends_at, added_months }\n  - Errors: 409 LIC_NOT_ACTIVE, 404 NOT_FOUND.\n- POST /license/cancel\n  - Body: { user_id?: UUID, license_id?: UUID, reason: string }\n  - Response: { license_id, status: 'canceled', canceled_at, reason }\n  - Errors: 409 ALREADY_CANCELED, 404 NOT_FOUND.\n- GET /license/me\n  - Response: { status, type?, ends_at?, remaining_days?, scope? }\nAudit:\n- Write audit entries for each API call with actor, target, before/after diffs, request_id.\nSecurity/RBAC:\n- Enforce role-based access; validate ownership for self-service.\nAcceptance criteria:\n- Schemas documented via OpenAPI; success and error responses match; audit rows created for all state changes; idempotent retry (same Idempotency-Key) does not duplicate operations.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Enforcement middleware and session revocation on expiry",
+            "description": "Add global licenseGuard to protect routes, return 403 LIC_EXPIRED, and revoke all sessions upon expiry detection.",
+            "dependencies": [
+              "4.1",
+              "4.2"
+            ],
+            "details": "Behavior:\n- Implement licenseGuard(request): fetch get_active_license(user). If none or ends_at<now() then raise HTTP 403 with code 'LIC_EXPIRED'.\n- Apply to all protected routes; exclude auth/health/webhook endpoints as needed.\n- On first detection of expiry per user, revoke sessions: update sessions set revoked_at=now() where user_id=? and revoked_at is null; emit audit 'sessions_revoked_license_expired'.\n- Provide helper GET /license/me for UI gating; include remaining_days calculation.\n- Ensure thread-safe single revocation per user via DB condition.\nFailure modes:\n- Clock skew; missing user; DB unavailable (fail closed with 403 unless route is excluded?).\nAcceptance criteria:\n- Expired users receive 403 LIC_EXPIRED across protected endpoints; sessions.revoked_at set; subsequent requests remain blocked; non-expired users unaffected; logs include request_id and user_id.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Invoice numbering scheme, VAT calculation, and invoice model",
+            "description": "Create invoice schema with numbering 'YYYYMM-SEQ-CNCAI', VAT 20%, TRY currency, and associations to licenses/users.",
+            "dependencies": [
+              "4.1"
+            ],
+            "details": "Data model:\n- invoices fields: id, user_id (FK), license_id (FK), number UNIQUE, amount NUMERIC(12,2), currency CHAR(3) DEFAULT 'TRY', vat NUMERIC(12,2), total NUMERIC(12,2), paid_status ENUM('unpaid','pending','paid','failed','refunded') DEFAULT 'unpaid', issued_at TIMESTAMPTZ DEFAULT now(), pdf_url TEXT NULL, provider_payment_id TEXT NULL, created_at, updated_at.\nNumbering:\n- Format: 'YYYYMM-SEQ-CNCAI' where YYYYMM = issued_at in UTC; SEQ is per-month incremental integer zero-padded (e.g., 000123). CNCAI is static suffix.\nCalculations:\n- vat = round(amount * 0.20, 2); total = amount + vat. Rounding mode: half up.\nLinkage:\n- One invoice per assign/extend event; store pointers to license and user.\nAcceptance criteria:\n- Invoices created with correct number format and amounts; currency fixed to TRY unless feature flag enables multi-currency; paid_status defaults to 'unpaid'.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Invoice PDF rendering and MinIO storage with immutability",
+            "description": "Render invoice PDFs (WeasyPrint/ReportLab), store in S3/MinIO with immutable tag, and deliver via short-lived signed URLs.",
+            "dependencies": [
+              "4.4"
+            ],
+            "details": "Rendering:\n- Default renderer: WeasyPrint (HTML template with CSS); fallback to ReportLab on failure.\nStorage:\n- Bucket: invoices/. Object key: invoices/{YYYY}/{MM}/{number}.pdf. Set object immutability (legal hold or retention policy) and content-type application/pdf.\n- Persist pdf_url in invoices table.\nDelivery:\n- Generate presigned GET URLs (TTL 2 minutes) for download endpoint GET /invoices/:id/pdf.\nTemplate:\n- Include invoice number, dates, seller/buyer info, line items (license type and duration), amount, VAT, total, currency 'TRY'.\nAudit:\n- Log PDF generated and uploaded with checksum.\nAcceptance criteria:\n- PDF renders identically across engines for sample data; object stored and marked immutable; presigned URL works and expires; pdf_url persisted and points to stored object.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Payments provider abstraction and webhook handling with idempotency",
+            "description": "Implement provider-agnostic payments interface (Stripe/local PSP style), intents, and webhook to update payment and invoice states.",
+            "dependencies": [
+              "4.4"
+            ],
+            "details": "Abstraction:\n- Interface PaymentProvider: create_intent(amount, currency, metadata), retrieve(id), confirm(id, params), verify_webhook(sig, payload).\n- payments table: id, invoice_id, provider, provider_payment_id, amount, currency, status ENUM('requires_action','processing','succeeded','failed','canceled','refunded'), raw_request/response JSONB, created_at, updated_at.\nAPI/Webhook:\n- POST /payments/intents { invoice_id } -> { client_secret, provider, provider_payment_id }.\n- POST /payments/webhook: verify signature, parse events (payment_intent.succeeded/failed/refunded). Idempotency by event_id with unique index.\n- On succeeded: set payments.status='succeeded', invoices.paid_status='paid', audit 'payment_succeeded'. On failed: set 'failed', invoices.paid_status='failed'.\n- Log and persist all provider responses (for audit).\nFailure modes:\n- Signature invalid -> 400; unknown invoice -> 404; duplicate webhook -> 200 no-op.\nAcceptance criteria:\n- Creating an intent returns usable client params; webhook updates invoice/payment states correctly; duplicate webhooks are ignored; all interactions audited.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Notification service (email/SMS) with provider fallback and templating",
+            "description": "Build notification layer with SMTP + SMS providers, fallback logic, templating for D-7/3/1 reminders, and persistence.",
+            "dependencies": [
+              "4.2"
+            ],
+            "details": "Providers:\n- Email: primary SMTP (e.g., Postmark via SMTP_URL), fallback SMTP or API client.\n- SMS: primary (Twilio) via SMS_API_KEY, fallback (Vonage).\nTemplating:\n- Templates for D-7, D-3, D-1 with variables: {user_name, days_remaining, ends_at, renewal_link}. SMS within 160 chars; Email HTML + plain text.\nPersistence:\n- notifications table: id, user_id, license_id, channel ENUM('email','sms'), template_id, days_out INT, status ENUM('queued','sent','failed'), provider, provider_id, error_text, created_at, sent_at.\nFallback:\n- On provider failure, try fallback provider once, record both attempts.\nConfig:\n- ENV: SMTP_URL, EMAIL_SENDER, SMS_API_KEY, SMS_SENDER.\nAcceptance criteria:\n- Sending works with primary provider; on simulated failure, fallback is used; notifications rows capture success/failure, provider_id, and timing; templates render with correct substitutions.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Scheduler via Celery Beat for D-7/3/1 scans",
+            "description": "Run daily scan at 02:00 UTC to enqueue and persist D-7/3/1 email/SMS notifications for active licenses.",
+            "dependencies": [
+              "4.1",
+              "4.7"
+            ],
+            "details": "Scheduling:\n- Celery Beat job daily 02:00 UTC: scan_licenses().\nLogic:\n- Query licenses where status='active' and (DATE(ends_at) - DATE(now())) IN (7,3,1).\n- For each, enqueue send_email_sms(user, license, days_out) task; insert notifications row with status='queued'. Prevent duplicates per (license_id, days_out, date) via unique key.\nIdempotency:\n- Use transaction + ON CONFLICT DO NOTHING to avoid duplicate enqueues.\nObservability:\n- Log counts by days_out; metrics for queued/sent/failed.\nAcceptance criteria:\n- With time frozen to D-7/3/1, notifications are enqueued once per license; reruns do not duplicate; notifications persisted with correct days_out.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 9,
+            "title": "Edge-case handling for running jobs on expiry",
+            "description": "On license expiry, flag running jobs cancel_requested and ensure workers stop gracefully.",
+            "dependencies": [
+              "4.3",
+              "4.2"
+            ],
+            "details": "Behavior:\n- On detecting expiry in licenseGuard or a background watcher: update jobs set cancel_requested=true where user_id=? and status IN ('running','pending'); enqueue lightweight cancellation signal.\n- Workers: periodically check cancel_requested and stop after safe checkpoint; mark job as 'canceled' with reason 'license_expired'.\n- Persist audit events: 'license_expired_jobs_cancel_requested' with affected job IDs.\n- Provide admin endpoint GET /licenses/:id/impacted-jobs to review state.\nAcceptance criteria:\n- When a license expires, active jobs transition to canceling -> canceled without abrupt termination; audit lists impacted jobs; new job submissions are blocked by licenseGuard.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 10,
+            "title": "Observability and audit trail across licensing, billing, payments, notifications",
+            "description": "Implement structured logs, metrics, traces, and comprehensive audit entries with correlation IDs.",
+            "dependencies": [
+              "4.2",
+              "4.4",
+              "4.6",
+              "4.7",
+              "4.8"
+            ],
+            "details": "Observability:\n- OpenTelemetry tracing on API endpoints, Celery tasks, webhook handler; propagate X-Request-ID / trace-id.\n- Metrics: counters/gauges for licenses_active, license_expired_events, invoices_created, payments_succeeded/failed, notifications_sent/failed.\nAudit:\n- audit_log table: id, actor_id, subject_type, subject_id, action, before JSONB, after JSONB, request_id, created_at.\n- Actions captured: license_assigned/extended/canceled/expired, sessions_revoked, invoice_created/pdf_generated, payment_intent_created/succeeded/failed, notification_sent/failed.\nRetention:\n- Configure log retention and PII redaction for sensitive fields.\nAcceptance criteria:\n- Each state change produces an audit record with subject and action; traces span HTTP->DB->queue; metrics visible in test run; correlation IDs consistent across related events.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 11,
+            "title": "Concurrency and uniqueness guards (invoice numbers, idempotency, webhooks)",
+            "description": "Ensure atomic, conflict-free invoice numbering and deduplication for API idempotency and webhooks.",
+            "dependencies": [
+              "4.4",
+              "4.6"
+            ],
+            "details": "Invoice numbering:\n- Use DB sequence per month or a (period, seq) allocator with advisory locks. Compose number = YYYYMM + '-' + LPAD(seq,5,'0') + '-CNCAI'. Unique index on number.\n- Retry on conflict with bounded backoff.\nAPI idempotency:\n- Respect Idempotency-Key for /license/assign and /license/extend: store request hash keyed by (user_id, key) with response snapshot; return same result on retry.\nWebhooks:\n- Deduplicate via unique event_id table; process-once semantics.\nOther guards:\n- Unique active license per user enforced by partial unique index.\nAcceptance criteria:\n- Under concurrent 100x invoice creations in same month, zero duplicate numbers; repeated Idempotency-Key returns same response without side effects; duplicate webhook deliveries are no-ops.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 12,
+            "title": "Test matrix and acceptance criteria (unit/integration/e2e/time-freeze)",
+            "description": "Define and implement tests for license flows, enforcement, invoicing, payments, notifications, scheduler, and concurrency.",
+            "dependencies": [
+              "4.1",
+              "4.2",
+              "4.3",
+              "4.4",
+              "4.5",
+              "4.6",
+              "4.7",
+              "4.8",
+              "4.9",
+              "4.10",
+              "4.11"
+            ],
+            "details": "Unit tests:\n- License date math (3/6/12 months append), single active constraint, status transitions.\n- VAT calc and rounding; invoice number formatter.\n- licenseGuard behavior; session revocation.\n- Notification template rendering and fallback selection.\nIntegration tests:\n- Webhook updates payment/invoice states with signature verification and idempotency.\n- PDF generation and MinIO upload; immutability/tag presence; presigned GET works and expires.\n- Idempotent assign/extend under retries.\nScheduler/time-freeze:\n- Freeze time to D-7/3/1 and assert notifications enqueued once and persisted.\nE2E:\n- User without license blocked (403 LIC_EXPIRED); after assign, access allowed; after expiry, blocked and sessions revoked; invoice created; payment success flips paid_status; reminders sent at D-7/3/1.\nConcurrency:\n- Hammer invoice creation to verify unique numbering; duplicate webhooks ignored.\nAcceptance criteria:\n- All tests pass; OpenAPI docs validate; no flakiness under concurrency stress; audit entries present for all relevant flows.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "S3/MinIO File Service, Signed URLs, Upload Validation and Artefacts",
+        "description": "Implement file service for uploads/downloads with MinIO presigned URLs, type/size/sha256 validation, optional malware scan, and artefact management tied to jobs.",
+        "details": "Buckets/classes: artefacts (FCStd/STEP/STL/GLB/G-code/video), logs, reports, invoices with versioning + lifecycle (hot→cold). Object tags: job_id, machine, post.\nAPIs:\n- POST /files/upload/init {type, size, sha256, mime} → presigned PUT (TTL 5m, optional IP binding)\n- POST /files/upload/finalize {key} → verify object exists, size <= 200MB, compute sha256 server-side (stream) and compare; optional ClamAV scan; persist artefacts row\n- GET /files/:id → presigned GET (TTL 2m)\nValidation:\n- Allow: .step .stl .fcstd .glb .nc .tap .gcode .mp4 .gif; enforce MIME; reject otherwise (415)\n- On upload: limit size 200MB; block double extensions\nSecurity:\n- Signed URLs use least privilege; audit access events; store sha256, size; set object lock for invoices\n- Client uploads directly to S3/MinIO; backend never stores raw file on disk\nFrontend:\n- Uploader with progress; compute client-side sha256 (Web Workers) to include in init\nPseudocode (finalize):\n- def finalize(key):\n  - stat = minio.stat_object(bucket, key)\n  - assert stat.size <= 200*1024*1024\n  - hasher = sha256(); for chunk in minio.get_object_stream(...): hasher.update(chunk)\n  - if hasher.hexdigest()!=expected: delete object; 422\n  - if scan_enabled and clamav.detect(key): delete; 422\n  - insert artefact(job_id, key, size, sha256)\n",
+        "testStrategy": "Integration: init→upload→finalize happy path; wrong sha256 rejected; wrong MIME rejected; oversize rejected; presigned URLs expire. Malware scan mock returns detection gets blocked. Artefact rows created with correct metadata. Download presigned GET works and is short-lived.",
+        "priority": "high",
+        "dependencies": [
+          1,
+          2,
+          3
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "MinIO client configuration and credentials management",
+            "description": "Set up secure MinIO client, environment config, credentials rotation, and connection hardening.",
+            "dependencies": [],
+            "details": "- Env vars: MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_REGION (optional), MINIO_SECURE=true, MINIO_BUCKET_ARTEFACTS, MINIO_BUCKET_LOGS, MINIO_BUCKET_REPORTS, MINIO_BUCKET_INVOICES.\n- Client: MinIO Python SDK (minio==7.2.7); timeouts (connect/read 10s/60s), retries w/ backoff (3 attempts), HTTP/HTTPS support, certificate pinning or CA bundle configurable.\n- Credentials: dedicated service user(s) with least-privilege policies; document rotation procedure; disallow root credentials in non-local envs.\n- Key naming strategy: artefacts/{job_id}/{uuid}.{ext}, logs/{date}/{uuid}.log, reports/{date}/{uuid}.pdf, invoices/{year}/{invoice_no}.pdf.\n- Security: never persist raw files to local disk; stream I/O only; sanitize key components; enforce URL signing exclusively for client access.\n- Acceptance tests:\n  - Can connect to MinIO and list buckets using service credentials.\n  - Network failures retry and surface clear 503 STORAGE_UNAVAILABLE.\n  - TLS misconfig results in 502 STORAGE_TLS_ERROR with safe message.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Buckets, policies, versioning, lifecycle and object lock",
+            "description": "Create buckets with versioning and lifecycle hot→cold, set policies and object lock for invoices.",
+            "dependencies": [
+              "5.1"
+            ],
+            "details": "- Buckets: artefacts, logs, reports, invoices.\n- Enable versioning on all buckets.\n- Lifecycle: transition non-current versions to cold storage after 30 days (env-configurable), expire incomplete multipart uploads after 7 days; delete logs after 90 days (configurable); reports after 365 days; artefacts retain per policy; invoices retain indefinitely.\n- Object Lock: Enable on invoices bucket (COMPLIANCE mode) with retention period via env (e.g., INVOICE_RETENTION_YEARS=7); legal hold supported via admin tools.\n- Policies: deny ListBucket to public; service account(s) restricted to specific prefixes; only PUT/GET/HEAD allowed for artefact paths; deny DeleteObject on invoices bucket.\n- Presign constraints (enforced via conditions where supported): content-length-range ≤ 200MB; content-type must match allowed mime; optional x-amz-tagging for job_id/machine/post.\n- Object tags standard: job_id, machine, post.\n- Acceptance tests:\n  - Versioning enabled and new object gets version ID.\n  - Lifecycle rules exist and are validated via MinIO client.\n  - Invoices cannot be deleted due to object lock (expect 403/AccessDenied).\n  - Upload >200MB rejected at presign or PUT stage.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Upload init/finalize and download APIs with presigned URLs",
+            "description": "Implement POST /files/upload/init, POST /files/upload/finalize, GET /files/:id with least-privilege presigned URLs.",
+            "dependencies": [
+              "5.1",
+              "5.2"
+            ],
+            "details": "- POST /files/upload/init {type, size, sha256, mime, job_id, machine?, post?}\n  - Validate inputs (basic): size ≤ 200MB, type/mime prelim allowed list.\n  - Generate server-side key: artefacts/{job_id}/{uuid}.{ext}.\n  - Presign PUT URL (TTL 5m), optionally bind client IP; include conditions for content-type and content-length-range; optionally include tagging for job_id/machine/post.\n  - Response: {key, upload_url, expires_in:300, headers:{Content-Type,...}}.\n  - Errors: 400 INVALID_INPUT, 401 UNAUTHORIZED, 415 UNSUPPORTED_MEDIA_TYPE, 413 PAYLOAD_TOO_LARGE, 429 RATE_LIMITED.\n- POST /files/upload/finalize {key}\n  - Look up expected metadata from init (size, sha256, mime, job_id...)\n  - Stream-verify existence and SHA256 (see subtask 5); optional malware scan (subtask 6); persist artefact (subtask 7).\n  - Errors: 404 NOT_FOUND, 409 UPLOAD_INCOMPLETE, 413 PAYLOAD_TOO_LARGE, 422 HASH_MISMATCH or MALWARE_DETECTED, 503 SCAN_UNAVAILABLE, 500 STORAGE_ERROR.\n- GET /files/:id → presigned GET (TTL 2m)\n  - Authorize access by artefact ownership/role; log audit; return {download_url, expires_in:120}.\n  - For invoices ensure object lock is respected.\n- Security: presigned URLs single-operation; minimal TTLs; restrict headers; no backend file writes.\n- Acceptance tests:\n  - Happy path: init→PUT→finalize→GET works; TTLs honored (PUT 5m, GET 2m).\n  - Unauthorized user gets 401/403; wrong job_id cannot access artefacts; expired URL fails with 403 SignatureDoesNotMatch.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Server-side validation for type, MIME, size, and double-extension guard",
+            "description": "Enforce strict validation for uploads including allowed types/MIME, size limit, and extension checks.",
+            "dependencies": [
+              "5.3"
+            ],
+            "details": "- Allowed extensions: .step .stl .fcstd .glb .nc .tap .gcode .mp4 .gif.\n- Allowed MIME (examples): model/step, model/stl, application/vnd.freecad, model/gltf-binary, text/plain (G-code), video/mp4, image/gif. Map per extension; reject mismatches.\n- Size limit: ≤ 200MB enforced at init and finalize; use content-length-range condition on presign and recheck via stat.\n- Double-extension guard: reject filenames where the last extension is allowed but the penultimate extension exists and is not identical or is in blacklist [exe, js, sh, bat, cmd, com, dll, zip, rar, 7z].\n- Filename sanitization: normalize to server-generated UUID; ignore client-provided names to avoid traversal and UTF-8 tricks.\n- Error codes: 415 for unsupported type/MIME, 413 for oversize, 400 for malformed input.\n- Acceptance tests:\n  - .exe or .stl.exe rejected with 415.\n  - MIME mismatch (e.g., .stl with video/mp4) rejected with 415.\n  - >200MB rejected at init (413) and finalize (413).",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Streaming SHA256 computation and comparison",
+            "description": "Compute SHA256 server-side by streaming from MinIO, compare to client-provided hash, and handle mismatches.",
+            "dependencies": [
+              "5.3",
+              "5.4"
+            ],
+            "details": "- Implementation: use stat_object to confirm size, then get_object with ranged streaming; hash incrementally (chunk e.g., 8MB) to keep memory low; consider multipart objects.\n- Compare computed digest to expected from init; on mismatch: delete object, emit audit event, return 422 HASH_MISMATCH.\n- On success: attach metadata/etag (cannot overwrite etag), store computed sha256 in DB (subtask 7).\n- Timeouts: 60s read timeout; abort on slowloris; idempotent finalize allowed (re-verify same hash and return success).\n- Security: do not trust client headers for hash; only server-side compute; ensure path/key matches init record.\n- Acceptance tests:\n  - Happy path matches hash for a ~100MB file within memory constraints (<64MB RSS spike).\n  - Altered upload triggers deletion and 422.\n  - Finalize called twice returns 200 idempotently.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Optional ClamAV integration and failure handling",
+            "description": "Integrate ClamAV (clamd) to scan uploaded objects post-hash with robust error handling.",
+            "dependencies": [
+              "5.3",
+              "5.5"
+            ],
+            "details": "- clamd: connect via TCP or Unix socket; timeouts 10s connect / 60s scan; stream-scan from MinIO (avoid local disk) using chunk bridge.\n- Scan policy: execute only for configured types (e.g., non-G-code CAD and videos) or if scan_enabled; on detection: delete object, 422 MALWARE_DETECTED with remediation hint.\n- Failure mode: fail closed if scan_enabled=true and clamd unreachable → 503 SCAN_UNAVAILABLE; log security_event.\n- Rate limiting: cap concurrent scans to protect resources.\n- Acceptance tests:\n  - EICAR string upload triggers 422 MALWARE_DETECTED and object removed.\n  - clamd down → finalize returns 503 SCAN_UNAVAILABLE when scan_enabled.\n  - scan_enabled=false → finalize succeeds without scan.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Artefact persistence, tagging, and audit logging",
+            "description": "Persist artefact metadata in DB, apply S3 object tags, and audit all access events.",
+            "dependencies": [
+              "5.3",
+              "5.5",
+              "5.6"
+            ],
+            "details": "- DB insert into artefacts: job_id (FK), s3_bucket, s3_key, size, sha256, mime, type, created_by, machine?, post?, version_id; unique on s3_key.\n- S3 object tags: set/merge job_id, machine, post after successful finalize; retry on tag failures; ensure least-privilege.\n- Invoices: when type=invoice, set object retention (if supported at object level) and verify lock active.\n- Audit logs: write events for upload_init, upload_finalize_success/failure, download_url_issued with user_id, job_id, ip, user_agent, hash chain link.\n- Security: do not expose direct S3 keys publicly; enforce authz checks on GET /files/:id by job ownership/role; log every presign issuance.\n- Acceptance tests:\n  - Finalize persists artefact row with correct size and sha256; tags present on object.\n  - Download presign issues audit entry; unauthorized access denied with 403.\n  - Invoice artefact shows retention/lock metadata.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Frontend uploader with Web Worker SHA256 and progress",
+            "description": "Build uploader UI that computes SHA256 client-side via Web Worker, performs presigned PUT, and finalizes.",
+            "dependencies": [
+              "5.3",
+              "5.4"
+            ],
+            "details": "- Flow: user selects file → worker computes SHA256 (streaming via File.slice) → call /files/upload/init → PUT to presigned URL with correct Content-Type and Content-Length → on 200/204, call /files/upload/finalize.\n- Progress: upload progress via XHR/fetch streams; show speed, ETA; handle retries/backoff on transient 5xx.\n- Validation UX: enforce allowed extensions, size ≤200MB, double-extension warning before init; show clear errors for 415, 413, 422.\n- TTL handling: warn if PUT URL close to expiry; if expired (403), re-init and retry automatically once.\n- Security: no file reads by main thread beyond hashing; sandbox worker; never send file to backend; respect IP binding if enabled.\n- Acceptance tests:\n  - Happy path completes and shows success state; finalize returns artefact metadata.\n  - Wrong hash simulation (flip byte) yields 422 with user-facing remediation and auto-cleanup shown.\n  - Expired URL triggers re-init and successful retry; wrong MIME blocked with inline error.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Job Orchestration, Idempotency, DLQ and Audit Chain",
+        "description": "Provide job APIs, queue topology, idempotency keys, retries/backoff with jitter, cancellation, progress updates, and append-only audit log with hash-chain.",
+        "details": "Celery configuration:\n- Queues: default (light), model, cam, sim, report, erp; DLX for each (dead-letter exchange) routing to *_dlq queues\n- Retries: exponential backoff with jitter; max retries per task type (AI 3, model 5, cam 5, sim 5, erp 5)\nAPIs:\n- POST /jobs (type, params, idempotency_key): if exists → return existing; else create 'pending' and enqueue\n- GET /jobs/:id: status, progress, artefacts\n- Cancellation: POST /jobs/:id/cancel → set cancel_requested; workers check cooperative cancel between steps\n- Events: job.status.changed published internally and used for ERP outbound\nIdempotency:\n- jobs.idempotency_key unique; transactional check-create pattern to avoid races\nAudit:\n- Every state transition writes audit_logs with chain_hash computed as sha256(prev_hash || canonical_json)\nRate limit + DLQ replay:\n- Admin DLQ replay API gated by MFA\nPseudocode (create job):\n- def create_job(req):\n  - with tx:\n    - if job by idempotency_key exists: return it\n    - job = insert jobs(... status='pending')\n  - celery.send_task(queue=req.type, args=[job.id])\n  - return job\n",
+        "testStrategy": "Unit: idempotent creation, chain_hash consistency, cancel flag handling. Integration: enqueue tasks, simulate failures to DLQ and replay. Concurrency: two simultaneous requests with same idempotency_key result in one job. Progress updates visible via GET /jobs/:id. Audit entries ordered and hash-linked.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          3,
+          5
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Celery and RabbitMQ topology with DLX/DLQ",
+            "description": "Define Celery app and RabbitMQ resources for job orchestration with per-queue dead-lettering.",
+            "dependencies": [],
+            "details": "Implement Celery 5.4 app configuration. Declare durable direct exchanges and queues: primary queues: default, model, cam, sim, report, erp; for each, create a dedicated dead-letter exchange <queue>.dlx and a DLQ queue <queue>_dlq. Bindings: primary queues bound to exchange jobs.direct with routing keys: default, model, cam, sim, report, erp. Each primary queue sets x-dead-letter-exchange to <queue>.dlx; each DLQ queue bound to its DLX with routing key '#'. Use quorum queues for primaries, classic (lazy) for DLQs. Set basic_qos prefetch=8; acks_late=True. Define Celery task_queues using kombu Queue objects; configure task_routes mapping type→queue. Routing keys: jobs.ai→default, jobs.model→model, jobs.cam→cam, jobs.sim→sim, jobs.report→report, jobs.erp→erp. Policies: durable, lazy-mode for DLQs, message size limit 10MB, enforce publisher confirms. Acceptance: publishing a message with each routing key delivers to the correct primary queue; rejecting with requeue=False routes to the corresponding *_dlq; Celery workers consume from their expected queues.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Retry strategy, backoff with jitter, and error taxonomy",
+            "description": "Configure per-task-type retry policy with exponential backoff and jitter, and define error classes for retry vs DLQ.",
+            "dependencies": [
+              "6.1"
+            ],
+            "details": "Set max retries: AI 3 (uses default queue), model 5, cam 5, sim 5, erp 5, report 5. Use exponential backoff with full jitter: delay_n = min(cap, base * 2^n) * random.uniform(0.5, 1.5); base=2s, caps: AI 20s, model/cam/sim 60s, report/erp 45s. Configure Celery autoretry_for on retryable exceptions and retry_kwargs per task type. Error taxonomy (examples): Retryable: TransientExternalError, RateLimitedError, NetworkError; Non-retryable: ValidationError, UnauthorizedError, QuotaExceededError; Cancellation: JobCancelledError (no retry); Fatal: IntegrityError (send to DLQ immediately). Enable task_acks_late, reject_on_worker_lost=True, time_limit/soft_time_limit per type (e.g., model 900/840s). On exceeding retries, nack with requeue=False to DLQ. Include attempt count and last_exception in task headers for observability. Acceptance: forced Retryable errors show increasing backoff with jitter and cap; Non-retryable errors go directly to DLQ; attempt counts align with configured maxima; tasks respect time limits.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Job type routing, payload contracts, and validation",
+            "description": "Define job type enumeration, routing rules to queues, and canonical task payload schema with validation.",
+            "dependencies": [
+              "6.1",
+              "6.2"
+            ],
+            "details": "Job types: ai (routes to default), model, cam, sim, report, erp. Routing map: type→routing_key (jobs.<type>) → queue (matching the type, ai→default). Canonical task payload: { job_id: uuid, type: enum, params: object, submitted_by: user_id, attempt: int, created_at: iso8601 }. Validate params per type with Pydantic schemas; reject invalid with ERR-JOB-422. Enforce a max payload size of 256KB; large artefacts are referenced via object storage keys, not embedded. Acceptance: publishing with each type selects the correct queue; invalid types yield ERR-JOB-400; params validation errors are non-retryable.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "POST /jobs with transactional idempotency and enqueue",
+            "description": "Implement job creation API with idempotency_key handling, DB transactionality, enqueue to Celery, and rate limits.",
+            "dependencies": [
+              "6.1",
+              "6.3"
+            ],
+            "details": "FastAPI endpoint: POST /jobs accepts {type, params, idempotency_key}. In a DB transaction: lookup by idempotency_key; if found, return existing (200). Else insert jobs row with status='pending', cancel_requested=false, attempts=0, progress=0, idempotency_key unique. Use unique index on jobs.idempotency_key; implement insert-on-conflict pattern to avoid races and then select existing. After commit, publish task to appropriate queue with payload contract. Rate limiting: per-user 60/min and global 500/min via Redis token bucket; return 429 ERR-JOB-RATE-LIMIT when exceeded. Responses: 201 for new with Location header; 200 for existing idempotent hit. Errors: invalid type/params → 422; database conflict → 409; unknown → 500. Acceptance: two concurrent requests with same idempotency_key yield a single job; metrics show rate-limit counters; task appears on correct queue.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "GET /jobs/:id for status, progress, and artefacts",
+            "description": "Expose job read API returning current status, progress, attempts, errors, and artefact references.",
+            "dependencies": [
+              "6.4"
+            ],
+            "details": "FastAPI endpoint: GET /jobs/:id returns {id, type, status, progress: {percent, step, message, updated_at}, attempts, cancel_requested, created_at, updated_at, artefacts: [{id, kind, s3_key, sha256, size}], last_error: {code, message}}. Authorize access by owner or admin. Support ETag/If-None-Match to reduce polling bandwidth. Acceptance: progress updates issued by workers are visible within 1s; artefact list reflects persisted outputs; 404 for missing or unauthorized jobs; ETag changes when progress changes.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Cancellation API and cooperative worker cancellation",
+            "description": "Implement POST /jobs/:id/cancel and worker-side cooperative checks to stop work safely.",
+            "dependencies": [
+              "6.4",
+              "6.1"
+            ],
+            "details": "API: POST /jobs/:id/cancel sets jobs.cancel_requested=true and writes an audit entry. Workers must call check_cancel(job_id) between major steps; check reads a cached flag (Redis) backed by DB and raises JobCancelledError if set. On cancellation: mark job status='cancelled', persist final progress, do not retry, and release resources. Ensure idempotent cancel endpoint responses (200 even if already cancelled). Acceptance: cancelling during a long-running job stops work within a step boundary; subsequent GET shows status=cancelled; cancelled tasks are not retried or sent to DLQ.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Worker progress update conventions and status change events",
+            "description": "Define progress reporting API for workers and publish job.status.changed events for internal consumers and ERP outbound.",
+            "dependencies": [
+              "6.4",
+              "6.1",
+              "6.2",
+              "6.6"
+            ],
+            "details": "Provide a worker helper progress(job_id, percent, step, message, metrics) that updates jobs.progress fields and emits a job.status.changed event with payload {job_id, status, progress, attempt, timestamp}. Throttle writes to at most once per 2s per job to reduce DB load (coalesce). On state transitions (queued, started, running, retrying, succeeded, failed, cancelled), publish the event to an internal topic exchange events.jobs with routing key job.status.changed and fanout to ERP outbound bridge. Acceptance: progress in DB advances monotonically and is visible via GET; events for each transition are published exactly once per transition and consumed by ERP bridge.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Append-only audit log with hash-chain for state transitions",
+            "description": "Record every job state change in audit_logs with a tamper-evident chain_hash.",
+            "dependencies": [
+              "6.4",
+              "6.7"
+            ],
+            "details": "On each state change (created, queued, started, progress, retrying, cancelled, failed, succeeded, dlq_replayed), write an audit_logs row with fields: id, job_id, event_type, actor (system/user id), ts, payload (canonical JSON), prev_hash, chain_hash. Compute chain_hash=sha256(prev_hash || canonical_json(payload)) using stable key ordering and normalized floats/ints. prev_hash is the chain_hash of the last audit entry for the job, or 32 zero-bytes for the first. Enforce append-only at application level; never update existing rows. Provide a verification routine to recompute and validate the chain for a job. Acceptance: inserting two consecutive audit events yields deterministic chain_hash; modifying any prior audit row causes verification to fail; all API and worker transitions create corresponding audit entries.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 9,
+            "title": "Admin DLQ inspection and replay API with MFA and auditing",
+            "description": "Implement secured endpoints to list DLQs, inspect messages, and replay to origin queues with audit trail.",
+            "dependencies": [
+              "6.1",
+              "6.2",
+              "6.8"
+            ],
+            "details": "Endpoints: GET /admin/dlq lists *_dlq queues with depths; GET /admin/dlq/{queue}/peek?limit=n previews messages (headers include original routing key, job_id if present); POST /admin/dlq/{queue}/replay re-publishes up to N messages to their original exchange/routing key. Security: admin role + enforced MFA check; rate limit 30/min; require justification string recorded in audit. Replay policy: only messages whose original exchange/routing key match known routes; preserve headers; backoff between batches to avoid thundering herd. Errors: unauthorized (ERR-DLQ-401), invalid queue (ERR-DLQ-404), replay limit exceeded (ERR-DLQ-429). Acceptance: replayed messages land on primary queues and are processed; all admin actions are written to audit_logs with event_type=dlq_replayed; MFA is required for access.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 10,
+            "title": "Observability (metrics, tracing, logs) and comprehensive test suite",
+            "description": "Add structured logs, metrics, tracing across APIs/workers, and implement tests for idempotency, retries, DLQ, audit chain, and cancellation.",
+            "dependencies": [
+              "6.1",
+              "6.2",
+              "6.3",
+              "6.4",
+              "6.5",
+              "6.6",
+              "6.7",
+              "6.8",
+              "6.9"
+            ],
+            "details": "Logging: structlog with fields request_id, trace_id, job_id, idempotency_key, attempt, queue, routing_key, error_code; ensure PII masking. Metrics (Prometheus): job_create_total (labels type, status), job_in_progress gauge, job_duration_seconds (histogram), retries_total (labels type, error_code), dlq_depth (gauge per queue), dlq_replay_total, cancellation_total, progress_update_total. Tracing: OpenTelemetry for FastAPI and Celery (link spans via job_id); export to OTLP. Dashboards: Grafana panels for queue depths, success/failure rates, retry distribution, DLQ replay outcomes. Tests: unit tests for idempotent creation race (simulated concurrent POST with same idempotency_key), audit chain determinism and tamper detection, cancellation behavior, progress throttling, error taxonomy routing to retry/DLQ; integration tests that enqueue tasks, force failures into DLQ, and verify admin replay; performance test for 1k concurrent job creates meeting rate-limit behavior. Acceptance: >=90% coverage for job orchestration module; dashboards show live metrics; traces link API request to worker execution; all specified test scenarios pass.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Model Generation Flows (Prompt, Parametric, Upload, Assembly4) with FreeCAD",
+        "description": "Implement endpoints and Celery workers to generate models via FreeCADCmd for prompt-driven (AI pre-processing), parametric forms, file upload normalization, and Assembly4 assemblies. Produce FCStd, STEP, STL, GLB preview and metrics.",
+        "details": "Endpoints:\n- POST /designs/prompt, /designs/params, /designs/upload, /assemblies/a4 (all JWT + licenseGuard + rate limit)\nPrompt (AI):\n- Adapter interface (e.g., OpenAI/Azure) with limits: max tokens ~2k, timeout 20s, retries 3; per-user 30/min; mask PII in logs; store raw masked in ai_suggestions table (part of models.params)\n- normalize() and validate() deterministic; ambiguous → 425; missing → ERR-AI-422 AI_HINT_REQUIRED\nValidation rules:\n- Required fields (dimensions, units, material, machine); ranges (min wall, inner radius); material↔machine compatibility\nFreeCAD worker (subprocess):\n- Launch per job: `FreeCADCmd -c worker_script.py --args ...`; set ulimit or cgroups for CPU/RAM\n- Parametric example (prism with hole) pseudo-Python:\n  - import FreeCAD as App, Part\n  - doc=App.newDocument(); b=Part.makeBox(L,W,H); c=Part.makeCylinder(d/2,H)\n  - b=b.cut(c.translate(App.Vector(L/2,W/2,0)))\n  - Part.show(b); doc.recompute(); doc.saveAs(fcstd_path)\n  - export STEP/STL via Import/Export; generate STL then GLB using trimesh(export('glb')) for preview\n- Upload flow: on finalize, run normalization (unit conversion, orientation); optional manifold fix (trimesh.repair)\n- Assembly4: parse parts and placement constraints; build hierarchy; collision check (basic bounding box first)\nOutputs:\n- Artefacts: FCStd, STEP, STL, GLB; metrics: solids/faces/edges counts, duration; logs with request_id\n- Errors: catch FreeCAD exceptions → job failed + suggestions\n",
+        "testStrategy": "Unit: normalize/validate for several sample prompts/params; ambiguous prompt returns proper code. Integration: run FreeCAD worker in container to produce FCStd/STEP/STL/GLB; verify artefacts saved and sha256 logged. Upload: corrupted STEP returns 422 with remediation hints. Assembly: conflicting constraints detect and reported.",
+        "priority": "high",
+        "dependencies": [
+          2,
+          5,
+          6
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Define API contracts and guards for model generation endpoints",
+            "description": "Design and document POST /designs/prompt, /designs/params, /designs/upload, /assemblies/a4 with JWT, licenseGuard, RBAC scope checks, and per-user rate limits.",
+            "dependencies": [],
+            "details": "Deliver OpenAPI schemas and Pydantic models for inputs/outputs; apply guards: JWT Bearer, licenseGuard (active license), RBAC scope 'models:write'; rate limits: global 60/min per user and AI prompt-specific 30/min; support Idempotency-Key header (stored to jobs.idempotency_key) returning 409 on reuse with conflicting body; responses: 202 Accepted with job_id and request_id; error codes include 401/403/429; content types: application/json (prompt, params, a4) and application/json with object storage reference for upload; include GET /jobs/:id and GET /jobs/:id/artefacts to poll status and list artefacts; acceptance: OpenAPI generated, guards enforced in integration stub, rate limit returns 429 with Retry-After, idempotency validated.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Implement AI adapter (OpenAI/Azure) with timeouts, retries, PII masking, storage",
+            "description": "Create a provider-agnostic AI adapter with configured limits and compliant logging/storage for prompt preprocessing.",
+            "dependencies": [
+              "7.1"
+            ],
+            "details": "Adapter interface: suggest_params(prompt:str, context:dict, max_tokens<=2000, timeout<=20s, retries=3 with exponential backoff+jitter); providers: OpenAI Chat Completions and Azure OpenAI; PII masking (emails, phones, names, addresses) before logging/storage; store masked raw prompt and response in ai_suggestions table (linked to models.params/job_id, request_id); enforce per-user 30/min in adapter as defense-in-depth; circuit breaker on repeated timeouts; configurable via env (provider, model, api_base, api_key, timeouts); acceptance: masked content in logs and DB, retries stop at 3 with backoff, timeouts cancel correctly, adapter returns deterministic schema or raises Ambiguous/Missing with codes.\n<info added on 2025-08-15T21:02:01.754Z>\nTurkish optimization and GPT4FreeCAD-inspired setup:\n\n- System prompt (inspired by revhappy/GPT4FreeCAD; tailored for FreeCAD Python API):\n  Sen FreeCAD Python API uzmanısın. Türkçe CAD tasarım isteklerini FreeCAD scriptlerine dönüştür. Part, Sketcher, Draft modüllerini kullan. Birimler mm, koordinat sistemi sağ el kuralı. Türkçe CAD terimlerini sözlükle İngilizce karşılıklarına eşle: vida→screw, flanş→flange, mil→shaft, yatak→bearing, dişli→gear. Belirsizlik varsa güvenli varsayılanları belirt ve requires_clarification=true alanını doldur. ÇIKTI KURALI: Yalnızca JSON döndür (markdown yok) ve alanlar: {language:\"tr\", units:\"mm\", intent:\"freecad_script\", glossary_used:true|false, parameters:{}, script_py:\"<FreeCAD Python>\", warnings:[], requires_clarification:true|false}.\n\n- Turkish CAD glossary (used in preprocessing and normalization):\n  vida→screw; flanş→flange; mil→shaft; yatak→bearing; dişli→gear.\n  Apply as case-insensitive hints; do not over-rewrite variable names inside code.\n\n- Few-shot exemplars (Turkish prompt → minimal FreeCAD Python script; adapter will wrap these as assistant JSON per schema during real requests):\n  1) Prompt: M8 vida deliği olan 20mm flanş\n     Script:\n     import FreeCAD as App, Part\n     doc = App.newDocument(\"flange\")\n     outer_d = 20.0\n     thickness = 5.0\n     hole_d = 8.5  # M8 clearance\n     body = Part.makeCylinder(outer_d/2.0, thickness)\n     hole = Part.makeCylinder(hole_d/2.0, thickness)\n     result = body.cut(hole)\n     Part.show(result)\n     doc.recompute()\n  2) Prompt: 3 adet dişli ile güç aktarım sistemi\n     Script:\n     import FreeCAD as App, Part, Base\n     doc = App.newDocument(\"gear_train\")\n     module = 1.0\n     teeth = [20, 40, 20]\n     thickness = 10.0\n     radii = [module*t/2.0 for t in teeth]\n     centers = [(0,0,0), (radii[0]+radii[1],0,0), (radii[0]+2*radii[1],0,0)]\n     for i,(r,c) in enumerate(zip(radii, centers)):\n         cyl = Part.makeCylinder(r, thickness)\n         cyl.translate(Base.Vector(*c))\n         Part.show(cyl)\n     doc.recompute()\n  3) Prompt: Ayarlanabilir mil çapı ve uzunluğu\n     Script:\n     import FreeCAD as App, Part\n     def make_shaft(d=12.0, L=80.0):\n         doc = App.ActiveDocument or App.newDocument(\"shaft\")\n         body = Part.makeCylinder(d/2.0, L)\n         Part.show(body)\n         doc.recompute()\n         return body\n     make_shaft()\n\n- OpenAI/Azure client configuration for this adapter path:\n  timeout=20s, retries=3 with exponential backoff + jitter; model and api_base configurable via env; pass user_locale=tr-TR; include system prompt above; enforce JSON-only response via response_format or output parser.\n\n- Response parser and normalization:\n  Expect JSON with fields: language, units, intent, glossary_used, parameters, script_py, warnings, requires_clarification.\n  Steps:\n  1) Strip markdown and non-JSON pre/post text.\n  2) Validate presence and types; else raise Missing(code=ERR-AI-422) or Ambiguous(code=ERR-AI-425).\n  3) Enforce units=mm; convert numeric dims if user used cm (detect tokens like “cm”, “metre”).\n  4) Apply glossary to parameters/intent only; do not mutate script identifiers.\n  5) Lint script_py: must import FreeCAD and use Part/Sketcher/Draft only; reject file I/O and os/system calls.\n  6) Attach warnings for assumed defaults (e.g., thickness=5mm, M8 clearance=8.5mm).\n  7) Store masked prompt/response for audit; persist normalized JSON and derived script.\n\n- PII masking and audit:\n  Mask emails, phones, names, addresses in Turkish/English before storage/logging; ensure masked content is what lands in audit; retain request_id and job linkage.\n\n- Test scenarios (Turkish):\n  - Basit geometri: \"M8 vida deliği olan 20mm flanş\" → script returns a 20mm disk with 8.5mm through-hole; units=mm; warnings may note default thickness.\n  - Karmaşık montaj: \"3 adet dişli ile güç aktarım sistemi\" → script creates 3 cylinders positioned by pitch radii; warnings note simplification (no involute teeth).\n  - Parametrik model: \"Ayarlanabilir mil çapı ve uzunluğu\" → script exposes parameters d and L; requires_clarification=false when both provided, true otherwise.\n\n- Acceptance additions for Turkish flow:\n  - adapter applies glossary and locale; model returns JSON-only; parser yields valid FreeCAD script_py or raises explicit Ambiguous/Missing with codes.\n  - timeouts and retries respected for tr-TR prompts.\n  - masked audit rows include original Turkish prompt and JSON response.\n</info added on 2025-08-15T21:02:01.754Z>",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Build normalize() and validate() deterministic rules engine",
+            "description": "Implement canonicalization and validation for prompts and parametric inputs with strict error codes.",
+            "dependencies": [
+              "7.1"
+            ],
+            "details": "Normalization: units→mm (exact factors), ordered keys, numeric rounding (e.g., 1e-6), default units/material if provided context, string trims, enum casing; Validation: required fields (dimensions L,W,H or relevant set, units, material, machine), ranges (min wall thickness, inner radius > 0), material↔machine compatibility; Ambiguity detection (multiple interpretations) → HTTP 425; missing essential info → 422 with code ERR-AI-422 AI_HINT_REQUIRED; output canonical_params JSON used by workers and cache keys; acceptance: unit tests cover valid, ambiguous, and missing cases returning exact codes and messages deterministically.\n<info added on 2025-08-15T21:04:01.108Z>\nExtend normalize()/validate() with GPT4FreeCAD-style “script mode” for AI-generated FreeCAD Python scripts (Turkish CAD script security).\n\nScope\n- Applies when input contains a FreeCAD Python script (from prompt adapter or upload). Produces canonical_script and script_meta alongside canonical_params. Deterministic outputs drive worker cache keys (script_hash = sha256(canonical_script)).\n\nAllowed/forbidden\n- Allowed imports: FreeCAD (aliased as App), Part, Sketcher, Draft, math, numpy (numeric-only).\n- Forbidden names/operations: __import__, exec, eval, open, file, os, subprocess, sys.exit (any access), dynamic import patterns, writing files, spawning processes.\n- Numpy allowlist (attribute access limited to): array, asarray, linspace, arange, zeros, ones, sqrt, sin, cos, tan, pi, dot, cross, clip, maximum, minimum, abs, floor, ceil, round. Any other numpy attribute → SECURITY_VIOLATION.\n\nNormalization (deterministic, idempotent)\n1) Ensure imports (prepend if missing, keep single copies):\n   - import FreeCAD as App\n   - import Part\n   - Optional pass-through (present but not added): import Sketcher, import Draft, import math, import numpy as np or import numpy\n2) Ensure document:\n   - If no new/active doc used: insert doc = App.newDocument()\n   - Else if a document exists but no variable doc: insert doc = App.ActiveDocument\n3) Ensure display:\n   - If a top-level variable named result is created and is used as a shape/object, append Part.show(result) if missing\n4) Ensure recompute:\n   - Append doc.recompute() if missing at end of script\n5) Unit normalization to mm:\n   - Recognize and convert the following to mm, rounding to 1e-6:\n     a) Identifier suffixes: *_cm → value*10; *_inch or *_in → value*25.4\n     b) Inline unit comments on assignments/call args: “… = 12  # cm/inch/in”\n     c) Helper-like calls cm(x), inch(x) → replaced with numeric mm literal (if present)\n   - Update variable names by removing unit suffixes after conversion\n6) Comment translation:\n   - Translate Turkish comments to English via glossary-based replacement (code unchanged). Minimal glossary: uzunluk→length, genişlik→width, yükseklik→height, yarıçap→radius, duvar kalınlığı→wall thickness, birim→unit, mm→mm, cm→cm, inç→inch, hata→error, uyarı→warning\n7) Key ordering and whitespace:\n   - Stable import ordering (FreeCAD/Part first), strip trailing spaces, ensure newline at EOF\n\nValidation\n1) Syntax (AST):\n   - Parse with Python AST. On SyntaxError → INVALID_SYNTAX\n2) Security (AST-based, name/attr/use):\n   - Reject forbidden builtins/names and any access to os, subprocess, sys.exit (direct or via alias)\n   - Reject dynamic code execution (exec, eval, __import__)\n   - Enforce import allowlist; any other import → SECURITY_VIOLATION\n   - Enforce numpy allowlist; any disallowed attribute access on numpy/np → SECURITY_VIOLATION\n3) FreeCAD API compatibility (version target: FreeCAD 1.1.x):\n   - Resolve attribute chains (e.g., Part.makeBox). If attribute missing → API_NOT_FOUND\n   - Deprecated methods produce non-fatal warnings (API_DEPRECATED) with suggested replacements (maintain internal deprecation map); still pass validate unless also missing\n4) Dimension limits (mm):\n   - Extract lengths from known constructors and operations: Part.makeBox(L,W,H), Part.makeCylinder(r,h), Part.Face/Edge creation with lengths, Sketcher distances where literal\n   - After unit normalization, each positive dimension must be 0.1 ≤ value_mm ≤ 1000; else → DIMENSION_ERROR\n5) Timeout:\n   - Sandbox execution budget 20s CPU/wall (worker enforces). Exceeding budget → TIMEOUT_ERROR\n\nError codes, messages (Turkish, deterministic)\n- INVALID_SYNTAX (HTTP 400): Python sözdizimi hatası: {details}. Çözüm: satır {lineno} yakınındaki hatayı düzeltin.\n- SECURITY_VIOLATION (HTTP 403): Güvenlik ihlali: yasaklı komut/modül kullanımı tespit edildi: {symbol}. Öneri: yalnızca izin verilen modülleri (FreeCAD, Part, Sketcher, Draft, math, numpy) ve güvenli API’leri kullanın.\n- API_NOT_FOUND (HTTP 422): API bulunamadı: {qualname} FreeCAD {version} içinde yok veya erişilemez. Öneri: güncel API’yi kullanın: {suggestion}.\n- DIMENSION_ERROR (HTTP 422): Boyut limiti aşıldı: {name}={value_mm} mm (izin: 0.1–1000 mm). Öneri: değeri aralığa çekin.\n- TIMEOUT_ERROR (HTTP 504): Zaman aşımı: script 20 saniyeyi aştı. Öneri: hesaplamayı basitleştirin veya yinelemeyi sınırlandırın.\n\nOutputs on success (augment canonical_params)\n- canonical_script: normalized script text\n- script_meta: {\n  modules_used: [...],\n  conversions_applied: [{from_unit, to_unit, before, after, location}],\n  api_warnings: [API_DEPRECATED …],\n  dims_mm: {L, W, H, r, h, … when inferable},\n  script_hash: sha256(canonical_script)\n}\n\nDeterminism\n- All normalization edits are structural (AST-to-source or regex with anchor rules) and idempotent.\n- Error messages include fixed templates and stable field ordering; numbers rounded to 1e-6.\n\nTesting (expand unit tests)\n- Syntax error sample → INVALID_SYNTAX with exact Turkish template\n- Forbidden exec/eval/open/os/subprocess/sys.exit → SECURITY_VIOLATION\n- Disallowed import (e.g., json) or numpy attribute (e.g., np.linalg.solve) → SECURITY_VIOLATION\n- Missing imports/doc/show/recompute auto-inserted; idempotent on second run\n- Unit conversions: _cm, _inch suffixes and inline comments converted to mm; values rounded; variable names normalized\n- API missing (e.g., Part.makeBoxx) → API_NOT_FOUND; deprecated method → warning only\n- Dimension limits: values outside [0.1, 1000] mm → DIMENSION_ERROR; boundary values pass\n- Timeout enforced in worker harness → TIMEOUT_ERROR\n- Comments translated TR→EN in output; code semantics unchanged\n- Snapshot of canonical_script hashed; cache key stable across runs with same logical script\n</info added on 2025-08-15T21:04:01.108Z>",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Celery job orchestration and lifecycle for model flows",
+            "description": "Wire API to Celery tasks, define queues, idempotency, structured logging, and job status transitions.",
+            "dependencies": [
+              "7.1"
+            ],
+            "details": "Queues: models.prompt, models.params, models.upload, assemblies.a4; task signature includes job_id, request_id, user_id, canonical_params/input_ref; Celery worker options: acks_late, task_time_limit and soft_time_limit, visibility_timeout; retries for transient storage/queue errors only; dead-letter via RabbitMQ DLX; structured logs with request_id; CLI: celery -A app.celery_app worker -Q models.prompt,models.params,models.upload,assemblies.a4 -Ofair -c 2 --prefetch-multiplier=1; acceptance: job created with idempotency, transitions queued→running→succeeded/failed, logs contain request_id, DLQ receives poisoned messages.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "FreeCAD worker container image and execution harness",
+            "description": "Create container with FreeCADCmd 1.1.x and a harness that executes modeling tasks under resource limits.",
+            "dependencies": [
+              "7.4"
+            ],
+            "details": "Dockerfile installs FreeCADCmd 1.1.x, Python 3.11, packages: numpy, trimesh, pygltflib (if used), minio SDK; non-root user; execution harness worker_script.py parses args, sets ulimit (CPU seconds) and cgroups (RAM), sets nice/ionice; invocation: FreeCADCmd -c /app/worker_script.py --flow {prompt|params|upload|a4} --input /work/input.json --outdir /work/out --request-id {uuid}; temp workspace isolated per job; acceptance: container builds in CI, FreeCADCmd available, harness enforces time/memory limits and exits with non-zero on violation.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Implement parametric modeling pipeline (example prism with hole)",
+            "description": "Translate canonical params to FreeCAD geometry and export artefacts for the params flow.",
+            "dependencies": [
+              "7.3",
+              "7.5"
+            ],
+            "details": "Inputs: L,W,H,d, units(mm), material, machine; FreeCAD pseudo: newDocument, Part.makeBox, Part.makeCylinder, translate to center, cut, Part.show, recompute; save FCStd; export STEP via Import/Export, STL via Mesh; GLB preview via trimesh from STL; accept tessellation quality args; ensure deterministic recompute (no random seeds); acceptance: given sample params, pipeline outputs FCStd, STEP, STL, GLB with stable sha256 across runs, metrics present, and material-machine compatibility enforced.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Upload flow normalization and validation",
+            "description": "Process uploaded CAD files: unit conversion, orientation normalization, optional manifold repair, and validation.",
+            "dependencies": [
+              "7.3",
+              "7.5"
+            ],
+            "details": "Inputs: object_storage_ref (S3 key), declared units/or auto-detect; load STEP/IGES/STL into FreeCAD/trimesh; convert to mm, orient Z-up, center or preserve origin based on flag, weld/merge; optional trimesh.repair (fill holes, remove degenerate faces); validate geometry (manifoldness, min wall where inferable), reject corrupted STEP with 422 and remediation hints; acceptance: sample corrupted STEP returns 422 with hints, valid uploads produce normalized outputs and GLB preview.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Assembly4 JSON parser and constraint handling",
+            "description": "Parse A4-style inputs, place parts using LCS/placements, and run basic collision checks.",
+            "dependencies": [
+              "7.3",
+              "7.5"
+            ],
+            "details": "Input schema: parts (model_ref, LCS names), constraints (Attachment, AxisCoincident, Angle, Offset), root LCS; load referenced parts (STEP/FCStd) into doc, apply placements, build hierarchy; collision check via AABB first, report pair list; save assembly FCStd, export formats; acceptance: given sample assembly JSON, placements applied as specified, collisions flagged, outputs generated.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 9,
+            "title": "Unified export pipeline with version pinning (FCStd, STEP, STL, GLB)",
+            "description": "Standardize exports and ensure deterministic, versioned outputs for all flows.",
+            "dependencies": [
+              "7.5"
+            ],
+            "details": "Pin FreeCAD 1.1.x and Python deps; export FCStd native; STEP via Import/Export with fixed write parameters (schema AP214/AP242); STL using Mesh with fixed linear/angle deflection; GLB via trimesh conversion from STL with fixed transforms and quantization off; record exporter versions in artefact metadata; acceptance: same input produces identical hashes across runs in CI, and metadata includes version/tolerances.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 10,
+            "title": "Metrics extraction and runtime telemetry",
+            "description": "Compute model metrics and durations, and attach to jobs.",
+            "dependencies": [
+              "7.5",
+              "7.9"
+            ],
+            "details": "Metrics: solids, faces, edges (TopoShape), triangle count from STL, bounding box, volume (if closed), mass (if density from material), duration_ms; capture worker CPU/RAM peak when available; store metrics JSON in jobs table and emit structured logs with request_id; acceptance: metrics fields populated for all flows, values match golden within tolerance.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 11,
+            "title": "Artefact storage and linking to jobs",
+            "description": "Upload artefacts to object storage and persist DB records linked to job lifecycle.",
+            "dependencies": [
+              "7.4",
+              "7.9",
+              "7.10"
+            ],
+            "details": "MinIO/S3 integration with bucket models; path scheme jobs/{job_id}/{artefact}.{ext}; set content-type and metadata (sha256, exporter version, request_id); compute sha256; insert artefacts row with FK to jobs and cascade on job delete; generate presigned URLs for download; acceptance: artefacts uploaded, DB rows created, sha256 logged, presigned URLs work and expire.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 12,
+            "title": "Error handling, code mapping, and user suggestions",
+            "description": "Create a unified error taxonomy and map worker exceptions to actionable API errors.",
+            "dependencies": [
+              "7.3",
+              "7.5",
+              "7.9"
+            ],
+            "details": "Map: Ambiguous→425, ERR-AI-422 AI_HINT_REQUIRED, VALIDATION_4xx for rules, FC_RUNTIME for FreeCAD errors, STORAGE_5xx for IO; include 'suggestions' array (e.g., increase wall thickness to >= min, choose compatible machine/material, reduce part size) and 'remediation_links'; ensure logs capture exception class and traceback but mask PII; acceptance: errors return correct HTTP/code, include suggestions, and logs correlate with request_id.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 13,
+            "title": "Performance tuning and caching strategy",
+            "description": "Optimize throughput and determinism via caching, concurrency, and warm-ups.",
+            "dependencies": [
+              "7.6",
+              "7.7",
+              "7.8",
+              "7.9"
+            ],
+            "details": "Caching: Redis keyed by canonical_params hash for params/prompt flows to reuse artefacts/metrics; AI suggestion cache keyed by masked prompt hash with TTL; geometry memoization per canonical key; pre-warm FreeCAD module import; Celery tuning (concurrency, prefetch=1, time limits), rate limits; avoid redundant exports if artefacts present; acceptance: repeated identical requests hit cache (>90% hit rate in test), p95 latency reduced, outputs unchanged.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 14,
+            "title": "Test data, golden artefacts, and CI integration tests (FreeCAD in container)",
+            "description": "Create deterministic test corpus and wire end-to-end tests in CI to validate all flows.",
+            "dependencies": [
+              "7.1",
+              "7.2",
+              "7.3",
+              "7.4",
+              "7.5",
+              "7.6",
+              "7.7",
+              "7.8",
+              "7.9",
+              "7.11",
+              "7.13"
+            ],
+            "details": "Test data: sample prompts (clear/ambiguous), param sets, corrupted and valid STEP/STL, Assembly4 JSON; generate golden outputs (FCStd/STEP/STL/GLB) and metrics with locked versions and store hashes; CI: run docker-compose to bring up API, Celery, FreeCAD worker, MinIO, RabbitMQ, Redis; pytest integration suite triggers each endpoint, polls /jobs/:id until done, verifies artefacts exist and sha256 match golden, metrics within tolerance; checks: 425 on ambiguous prompt, 422 on corrupted STEP with hints, rate limit 429, idempotency behavior; acceptance: CI passes deterministically on clean runners.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 8,
+        "title": "CAM Pipeline with FreeCAD Path WB, Tool Library, Post-Processing and Static G-code Validation",
+        "description": "Create CAM endpoints and worker to compute toolpaths using FreeCAD Path Workbench, apply machine/post mapping, enforce rules (WCS, stock, keep-out, tool limits), generate G-code with metadata and store artefacts.",
+        "details": "APIs: POST /cam/run, /cam/post; GET /cam/jobs/:id\nInputs: model_ref, machine_profile, material, operations, WCS, stock, keep-outs\nImplementation:\n- Tool library table and seed (6mm Carbide Endmill 4F, 10mm Drill HSS); ensure API JSON schema per PRD; validate tool↔strategy and diameter vs geometry → 409 CAM_LIMIT_EXCEEDED\n- Machine→post mapping (post_map.py):\n  - 'HAAS MINI MILL'→'post_haas_mill'→.nc\n  - 'Tormach 1100MX'→'post_tormach_mill'→.tap\n  - 'Generic 3-axis Mill'→'post_generic_mill'→.gcode\n  - unknown → 415 POSTPROC_UNSUPPORTED\n- Path WB scripting: create Job, set WCS (G54..G59), define Clearance/Rapid/Z safety heights, create Facing, Profile(2D), Pocket, Drilling ops with validated parameters; sequence to minimize tool changes; compute()\n- Machine limits: axis stroke, feed/speed caps; if violations, propose reduced params or 422\n- Keep-out: AABB intersects path segments → revise or error\n- Post-process: generate G-code; embed SHA256 and meta (tool list, est time) as comments; version rev on re-gen\n- Static G-code validation: pygcode/gcodeparser to ensure modal consistency, forbid codes, feed/speed caps; produce report and block on critical\n- Artefacts: save path, G-code, reports to MinIO with tags {job_id, machine, post}\nPseudocode (validation snippet):\n- for line in gcode:\n  - if code in FORBIDDEN: errors.append(...)\n  - enforce F<=maxF, S<=maxS; ensure modal states initialized\n",
+        "testStrategy": "Integration: run CAM on sample prism; validate tool selection and stock/WCS; unknown machine returns 415. Verify G-code contains metadata comments and sha256. Static validator flags a forbidden M-code. Performance: ensure compute < configured timeout for medium parts. Artefacts stored with correct tags.",
+        "priority": "high",
+        "dependencies": [
+          6,
+          7
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Design CAM APIs and Schemas (/cam/run, /cam/post, GET /cam/jobs/:id)",
+            "description": "Define REST contracts, JSON schemas, status codes, and OpenAPI spec for CAM endpoints.",
+            "dependencies": [],
+            "details": "Scope:\n- Endpoints: POST /cam/run (compute toolpaths + postproc flag optional), POST /cam/post (post-process existing job/toolpaths), GET /cam/jobs/:id (status + artefact refs).\n- Inputs: model_ref, machine_profile, material, operations[], WCS (G54..G59), stock, keep_outs[].\n- Status codes: 202 queued, 200 OK; 400 VALIDATION_ERROR; 409 CAM_LIMIT_EXCEEDED; 415 POSTPROC_UNSUPPORTED; 422 MACHINE_LIMIT_VIOLATION or KEEP_OUT_VIOLATION; 504 TIMEOUT; 500 INTERNAL.\n- Error envelope: {code, message, details}.\nSample POST /cam/run body:\n{\n  \"model_ref\":\"s3://artefacts/models/prism.step\",\n  \"machine_profile\":\"HAAS MINI MILL\",\n  \"material\":\"6061\",\n  \"operations\":[{\"type\":\"Facing\",\"strategy\":\"planar\",\"tool_id\":1}],\n  \"WCS\":\"G54\",\n  \"stock\":{\"type\":\"box\",\"dims\":[100,60,20]},\n  \"keep_outs\":[{\"aabb\":[[10,10,0],[20,20,30]]}]\n}\nAcceptance:\n- OpenAPI 3.1 published with request/response schemas and examples.\n- Validation middleware enforces schema with descriptive errors.\n- Job object includes fields: id, status, progress, timings, artefact_refs, version_rev.\nPerformance:\n- JSON validation per request < 10 ms at p95.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Tool Library Schema, Seed, and Strategy/Geometry Validation",
+            "description": "Implement tool library storage, seed initial tools, and enforce tool-strategy and geometry constraints.",
+            "dependencies": [
+              "8.1"
+            ],
+            "details": "DB schema (tools): id, name, type, diameter_mm, flutes, material, stickout_mm, holder, max_rpm, max_feed_mm_min, notes, created_at.\nSeed:\n- id=1, 6mm Carbide Endmill 4F; id=2, 10mm Drill HSS.\nRules:\n- Strategy compatibility: Endmill → {Facing, Profile2D, Pocket}; Drill → {Drilling}.\n- Geometry: tool.diameter <= min_feature_width for operation geometry; drilling hole_dia ≈ tool.diameter ±0.2mm; stepdowns respect flute length if provided.\n- On violation: 409 CAM_LIMIT_EXCEEDED with details {reason, op_index, tool_id}.\nSample tool JSON for API exposure:\n{\"id\":1,\"name\":\"6mm Carbide Endmill 4F\",\"type\":\"endmill\",\"diameter_mm\":6.0,\"max_rpm\":24000,\"max_feed_mm_min\":3000}\nAcceptance:\n- Seed migration creates 2 tools.\n- Validator rejects mismatched tool↔strategy and oversize diameter vs geometry.\n- Unit tests cover pass/fail cases.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Machine to Post-Processor Mapping and File Extension Rules",
+            "description": "Create post_map module that resolves machine names to FreeCAD post and output extension.",
+            "dependencies": [
+              "8.1"
+            ],
+            "details": "Mapping (post_map.py):\n- 'HAAS MINI MILL' → post: 'post_haas_mill', ext: '.nc'\n- 'Tormach 1100MX' → post: 'post_tormach_mill', ext: '.tap'\n- 'Generic 3-axis Mill' → post: 'post_generic_mill', ext: '.gcode'\n- Unknown → error 415 POSTPROC_UNSUPPORTED {machine_profile}.\nFunctions:\n- resolve(machine_profile) → {post_name, extension}.\n- list_supported() → [names].\nAcceptance:\n- Unit tests for known mappings + unknown case.\n- Config override: env POST_MAP_JSON optional.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "FreeCAD Path WB Scripting Harness and Operations Sequencing",
+            "description": "Build headless FreeCAD worker harness to create Job, set WCS/stock/heights, add ops, minimize tool changes, compute().",
+            "dependencies": [
+              "8.1",
+              "8.2"
+            ],
+            "details": "Capabilities:\n- Launch FreeCAD in headless mode; import model_ref; create Path Job.\n- Set WCS: map G54..G59 to placement/origin per request; set heights: Clearance, Rapid, Safe Z from machine/material defaults.\n- Create operations: Facing, Profile(2D), Pocket, Drilling using validated parameters from operations[].\n- Sequencing: group by tool_id, then by rough→finish; minimize tool changes.\n- Units: mm; tolerances configurable.\nOutputs:\n- Persist FCStd and Path JSON (operations, tool list, est_time).\nAcceptance:\n- Sample prism job computes without errors.\n- Tool changes minimized vs naive sequence (<=1 change for single-tool jobs).\nPerformance:\n- Medium part compute() p95 < 120s; memory peak < 1.5GB.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Machine Limits Enforcement (Axis Stroke, Feed/Speed Caps) with Remediation",
+            "description": "Validate toolpaths against machine travel and speed caps; propose safe parameter reductions or fail with 422.",
+            "dependencies": [
+              "8.1",
+              "8.4"
+            ],
+            "details": "Inputs: machine profile including axis limits and caps.\nSample machine JSON:\n{\n  \"name\":\"HAAS MINI MILL\",\n  \"axes\":{\"X\":[0,406],\"Y\":[0,305],\"Z\":[0,254]},\n  \"caps\":{\"max_feed\":5000,\"max_rpm\":10000}\n}\nChecks:\n- Path AABB fits within axes minus safety margins.\n- F<=max_feed, S<=max_rpm; clamp if remediation enabled.\nRemediation:\n- Clamp feeds/speeds to caps; warn in job report; if geometric travel exceeded → 422 MACHINE_LIMIT_VIOLATION.\nAcceptance:\n- Violating feed/speed auto-reduced with note in metadata.\n- Travel violation returns 422 with offending extents.\nPerformance:\n- Limits evaluation < 50 ms per job.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Keep-out AABB Intersection and Path Revision",
+            "description": "Detect intersections between path segments and keep-out regions; revise or fail.",
+            "dependencies": [
+              "8.1",
+              "8.4"
+            ],
+            "details": "Algorithm:\n- Build AABB for each path segment/rapid; test against keep_outs[].\n- Revision strategies: raise clearance Z or re-route rapids where possible; otherwise error.\n- Report: list of intersections with segment ids and keep-out ids.\nAcceptance:\n- Non-intersecting jobs pass.\n- Intersecting case returns 422 KEEP_OUT_VIOLATION unless revision enabled and effective.\nPerformance:\n- Intersection checks scale O(n log n) with spatial index; p95 < 200 ms for 50k segments.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Post-Processing to G-code with Embedded Metadata and SHA256",
+            "description": "Generate G-code using resolved post; embed metadata comments and compute SHA256; maintain version rev on re-gen.",
+            "dependencies": [
+              "8.3",
+              "8.4",
+              "8.5",
+              "8.6"
+            ],
+            "details": "Steps:\n- Resolve post via post_map; invoke FreeCAD post with correct units and file extension.\n- Metadata header comments (prefixed by ';' or '(' per post): sha256, job_id, machine, tool list, est_time_s, created_at, version_rev.\n- Compute sha256 over content sans existing hash; write back into header as sha256.\n- Version rev: monotonic increment per re-generation.\nAcceptance:\n- Output file extension matches mapping.\n- Header contains required metadata and valid sha256 checksum.\nPerformance:\n- Post-processing p95 < 30 s; IO bounded.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Static G-code Validator and Report Generation",
+            "description": "Parse and validate G-code for modal consistency, forbidden codes, and caps; emit JSON report and block on critical issues.",
+            "dependencies": [
+              "8.1",
+              "8.7"
+            ],
+            "details": "Tools: pygcode or gcodeparser.\nRules:\n- Initialize modal states (units, plane, absolute/relative, feed mode).\n- Forbidden codes: {\"M00\",\"M01\",\"M198\",\"G92\"} unless explicitly allowed by machine profile.\n- Enforce F<=max_feed and S<=max_rpm per machine caps.\nReport JSON:\n{\n  \"summary\":{\"errors\":0,\"warnings\":1,\"lines\":1234},\n  \"issues\":[{\"severity\":\"error\",\"line\":57,\"code\":\"M00\",\"msg\":\"Program stop forbidden\"}]\n}\nAcceptance:\n- Validator flags a known forbidden M-code in fixture and blocks job (critical).\n- Modal states are initialized before first motion.\nPerformance:\n- Validation p95 < 15 s for 100k lines.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 9,
+            "title": "Artefact Persistence to MinIO with Tags and Metadata",
+            "description": "Store FCStd, toolpath JSON, G-code, and validation reports to MinIO with proper keys and tags.",
+            "dependencies": [
+              "8.7",
+              "8.8"
+            ],
+            "details": "Storage:\n- Keys: jobs/{job_id}/cam/{version_rev}/model.fcstd, toolpaths.json, program{ext}, validation_report.json.\n- Object tags: {job_id, machine, post} and content-type metadata.\n- Signed URL integration via file service; verify upload success; server-side sha256 for each artefact.\nAcceptance:\n- All artefacts saved with correct tags and are retrievable via short-lived URLs.\n- Artefact rows include size, sha256, content-type, created_at.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 10,
+            "title": "Execution Timeouts, Resource Limits, and Cancellation",
+            "description": "Enforce per-stage timeouts, memory/CPU limits, and job cancellation handling.",
+            "dependencies": [
+              "8.4",
+              "8.7"
+            ],
+            "details": "Limits:\n- Overall job timeout: 300 s (configurable).\n- FreeCAD compute: 120 s; postproc: 30 s; validation: 15 s; storage: 10 s.\n- cgroup/ulimit: CPU quota 2 cores, RAM 2 GB, temp disk 2 GB.\n- Cancellation: allow job cancel → terminate subprocesses, mark job canceled.\nAcceptance:\n- Timeouts propagate as 504 TIMEOUT with stage in details.\n- Cancellation within 1 s and no orphan processes.\nPerformance:\n- Scheduler respects concurrency limit and backpressure.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 11,
+            "title": "Failure Taxonomy and Consistent Error Handling",
+            "description": "Define canonical error codes and map to HTTP; implement uniform error envelope.",
+            "dependencies": [
+              "8.1",
+              "8.5",
+              "8.6",
+              "8.8",
+              "8.10"
+            ],
+            "details": "Codes:\n- CAM_LIMIT_EXCEEDED (409)\n- POSTPROC_UNSUPPORTED (415)\n- MACHINE_LIMIT_VIOLATION (422)\n- KEEP_OUT_VIOLATION (422)\n- VALIDATION_ERROR (400)\n- GCODE_STATIC_BLOCKED (422)\n- TIMEOUT (504)\n- INTERNAL (500)\nEnvelope: {code, message, details:{stage, context}}; include correlation_id and job_id.\nAcceptance:\n- All failure paths return standardized JSON with actionable details.\n- Error catalog documented and referenced by API spec.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 12,
+            "title": "Observability: Structured Logging, Metrics, and Tracing",
+            "description": "Add structured logs, metrics, and optional tracing; persist job logs to storage.",
+            "dependencies": [
+              "8.4",
+              "8.7",
+              "8.8",
+              "8.9",
+              "8.10",
+              "8.11"
+            ],
+            "details": "Logging:\n- JSON logs with fields: ts, level, job_id, stage, machine, post, duration_ms.\n- Persist job logs to MinIO: jobs/{job_id}/logs/{version_rev}.ndjson.\nMetrics:\n- cam.jobs_submitted, cam.jobs_succeeded, cam.jobs_failed\n- cam.stage_duration_ms{stage}\n- cam.validation_issues{severity}\nTracing:\n- Optional OpenTelemetry spans for stages; sampling 10%.\nAcceptance:\n- Dashboards show p95 durations and failure rates.\n- Logs correlate across stages by job_id/correlation_id.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 13,
+            "title": "Test Fixtures, CI Integration Runs, and Acceptance Tests",
+            "description": "Provide sample models and machine profiles; automate integration tests for end-to-end pipeline.",
+            "dependencies": [
+              "8.1",
+              "8.2",
+              "8.3",
+              "8.4",
+              "8.5",
+              "8.6",
+              "8.7",
+              "8.8",
+              "8.9",
+              "8.10",
+              "8.11",
+              "8.12"
+            ],
+            "details": "Fixtures:\n- Prism STEP with features, ops JSON, keep-outs.\n- Machine profiles for three mapped machines + an unknown.\nTests:\n- Happy path: compute→post→validate→store; verify metadata and sha256 in G-code.\n- Unknown machine returns 415.\n- Validator flags forbidden M-code and blocks.\n- Performance: medium part completes < 300 s end-to-end.\nCI:\n- Runs on PR; artifacts uploaded; reports attached.\nAcceptance:\n- All tests green; coverage for validators and mappers > 80%.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 14,
+            "title": "Documentation and Operator Guidelines",
+            "description": "Produce README, runbooks, configuration samples, and SOPs for operators.",
+            "dependencies": [
+              "8.1",
+              "8.3",
+              "8.7",
+              "8.8",
+              "8.9",
+              "8.11",
+              "8.12",
+              "8.13"
+            ],
+            "details": "Docs:\n- API usage examples for /cam/run, /cam/post, GET job.\n- Sample configs: post_map, machine profiles, limits caps, forbidden codes.\n- Operator SOP: selecting WCS/stock, defining keep-outs, interpreting validator report, re-gen versioning.\n- Troubleshooting matrix by error code; escalation paths.\nAcceptance:\n- Reviewed and approved by CAM lead; docs published alongside OpenAPI.\n- Quickstart completes end-to-end run in < 15 minutes.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "CAMotics Simulation Integration and Reporting",
+        "description": "Integrate CAMotics CLI to simulate G-code with optional stock/fixturing, produce video/snapshots and JSON report conforming to sim_report schema. Stream progress and alerts.",
+        "details": "API: POST /simulations/run, GET /simulations/:id (JWT + licenseGuard)\nWorker:\n- Prepare CAMotics project (cmx JSON) with G-code, tool params, stock, WCS; run `camotics --no-gui --format json --output <dir> project.cmx`\n- Progress: tail CAMotics logs; periodically update jobs.progress\n- Outputs: generate frames (if CAMotics exports frames) or capture toolpath frames; convert to MP4/GIF via FFmpeg; store video and snapshot to MinIO\n- Parse results to fill sim_report v1 (workers/camotics.output.schema.json): collision_count, removed_volume_mm3, est_time_s, sim_video_path, sim_snapshot_path, notes[]\n- Basic collision/violation detection from CAMotics output; surface removal volume estimation\n- Publish warnings/alerts back to UI via job status and notifications\nPseudocode:\n- run_camotics(gcode, tools, stock):\n  - write cmx\n  - proc = subprocess.run(['camotics','--no-gui','--output',out,'project.cmx'], timeout=...) \n  - parse json → report; ffmpeg to make mp4\n  - save artefacts; update sim_runs row\n",
+        "testStrategy": "Integration: simulate sample G-code; assert report has required fields; collision scenarios yield collision_count>0. Video and snapshot paths valid and downloadable via signed URL. Timeout and error handling place job in failed with useful message. Schema validation against v1 JSON schema.",
+        "priority": "high",
+        "dependencies": [
+          8
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Configuration, Schema Baseline, and Observability Setup",
+            "description": "Establish configuration keys, sim_report v1 schema location, and base logging/metrics for the CAMotics simulation worker.",
+            "dependencies": [],
+            "details": "Define config: CAMOTICS_BIN, FFMPEG_BIN, SIM_TIMEOUT_S, SIM_RETRY_MAX, SIM_TMP_DIR, MINIO_BUCKET_SIM, MINIO_PREFIX, SIGNED_URL_TTL_S. Confirm versions via startup checks. Pin sim_report v1 schema path (workers/camotics.output.schema.json). Structured logging fields: job_id, sim_id, cmx_path, camotics_exit_code, duration_ms, frames_count, bytes_uploaded, collision_count. Emit metrics/counters for runs_started, runs_succeeded, runs_failed, timeouts, collisions_detected. Document defaults and override precedence (env, .env, secrets). Acceptance: config loads with sane defaults, schema file accessible, health/preflight verifies CAMotics and FFmpeg presence.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Simulation API Endpoints with Auth and Guardrails",
+            "description": "Implement POST /simulations/run and GET /simulations/:id with JWT auth and licenseGuard, enqueue worker job, and expose status/results.",
+            "dependencies": [
+              "9.1"
+            ],
+            "details": "POST /simulations/run: validates payload (gcode_ref or inline_gcode, tools[], stock{dims, units, material}, wcs, fixturing?), rate-limits, enqueues Celery task, returns sim_id and job_id. GET /simulations/:id: returns status, progress, sim_report, and presigned URLs for media. Enforce JWT and licenseGuard checks; reject if license expired or not entitled. Add request/response schemas and error codes (400 INVALID_INPUT, 402 LICENSE_REQUIRED, 409 CONFLICT, 422 UNPROCESSABLE_GCODE). Acceptance: happy path enqueues and returns IDs; unauthorized/forbidden requests blocked; GET returns evolving progress then final report.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "CAMotics Project (CMX) Builder",
+            "description": "Translate API inputs (G-code, tools, stock, WCS) into a valid CAMotics .cmx project with correct units and coordinate frames.",
+            "dependencies": [
+              "9.1"
+            ],
+            "details": "Generate ephemeral workspace and paths (project.cmx, logs/, output/). Normalize units (mm/inch) and WCS offsets. Map tools[] to CAMotics tool definitions (diameter, flute length, number of flutes, feed/speed if applicable). Attach stock definition (box/cylinder) and fixturing offset if provided. Validate G-code headers and detect unit/mode (G20/G21, G90/G91). Persist cmx JSON to disk and reference G-code file path. Acceptance: CMX validates with CAMotics --check (if available) and contains expected entities; rejects missing/invalid tool or stock with clear messages.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "CAMotics CLI Runner with Timeout, Retry, and Log Tailing",
+            "description": "Execute CAMotics CLI headless, enforce timeouts/retries, and tail logs to derive percent progress.",
+            "dependencies": [
+              "9.3"
+            ],
+            "details": "Invoke: camotics --no-gui --format json --output <out_dir> project.cmx. Stream stdout/stderr to rotating log files. Parse progress indicators from CAMotics output (e.g., simulated steps/toolpath segments) and estimate percent; fallback to periodic heartbeats. Apply timeout SIM_TIMEOUT_S and one retry on transient exit codes; capture exit status and duration. Store raw JSON outputs to out_dir. Acceptance: long-running sims show periodic progress updates; timeouts cancel process tree; retry triggers once on eligible failures.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "Output Parser and sim_report v1 Mapping",
+            "description": "Parse CAMotics JSON results and map to sim_report v1 fields including collisions, volume removed, and estimated time.",
+            "dependencies": [
+              "9.4"
+            ],
+            "details": "Read CAMotics JSON artifacts (e.g., simulation.json) and extract: est_time_s, removed_volume_mm3 (material removal), collision_count/violations (tool-stock/fixture collisions if present), and any warnings. Compose notes[] with structured messages (code, severity, message). Fill sim_video_path/sim_snapshot_path placeholders for later population. Validate against JSON schema and coerce defaults (zeros) when fields absent. Acceptance: parser produces schema-valid report for sample runs and differentiates collision/no-collision scenarios.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Media Capture and Encoding (Frames → MP4/GIF + Snapshot)",
+            "description": "Capture simulation frames and generate MP4/GIF and a representative snapshot using FFmpeg.",
+            "dependencies": [
+              "9.3",
+              "9.4"
+            ],
+            "details": "Detect if CAMotics exports frames; if available, collect and sort frames. If not, implement fallback frame capture strategy (e.g., invoke CAMotics in scripted steps or render toolpath layers if supported). Encode video: ffmpeg -r <fps> -i frames/%06d.png -c:v libx264 -pix_fmt yuv420p -movflags +faststart out.mp4. Generate GIF preview (palette optimization) and snapshot (first/median frame). Record frames_count, video duration, and sizes for metrics. Acceptance: MP4, GIF, and PNG snapshot generated deterministically for sample sims; encoding completes within budget and files pass basic validation.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Artefact Storage and sim_runs Persistence",
+            "description": "Upload media and report artefacts to MinIO and persist simulation run records in DB.",
+            "dependencies": [
+              "9.5",
+              "9.6"
+            ],
+            "details": "MinIO: create object keys under MINIO_PREFIX/simulations/<sim_id>/ for report.json, out.mp4, preview.gif, snapshot.png, logs/*. Generate presigned URLs with TTL. DB: upsert sim_runs row with job_id, sim_id, status, progress, report JSON, object paths, timings, metrics. Ensure idempotency on retries (same sim_id reuses paths). Acceptance: artefacts visible in MinIO with correct ACL; DB row reflects final state and downloadable URLs work until TTL.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Progress Streaming and Alert Publishing",
+            "description": "Continuously update job progress and publish warnings/alerts to the UI via status and notifications.",
+            "dependencies": [
+              "9.4",
+              "9.7"
+            ],
+            "details": "Emit periodic progress updates (0–100%) to jobs.progress and include stage (prepare, simulate, encode, upload). Publish alerts with codes (COLLISION_DETECTED, TIMEOUT, INVALID_INPUT, ENCODING_FAILED) and severity. Deduplicate repeated alerts and rate-limit notifications. On collision_count>0, mark job status with warning and include link to media. Acceptance: UI receives timely progress and a collision alert when applicable; no alert storming under noisy logs.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 9,
+            "title": "Robust Error Handling and Failure Messaging",
+            "description": "Standardize exception mapping, user-facing messages, and cleanup for failed or partial simulations.",
+            "dependencies": [
+              "9.4",
+              "9.5",
+              "9.6"
+            ],
+            "details": "Classify errors: timeout, CAMotics nonzero exit, corrupt/unsupported G-code, bad CMX, missing tools/stock, media encode failure, storage failure. Map to HTTP and job error codes with actionable messages. Persist failure logs and partial artefacts; ensure workspace cleanup and process termination. Mark job failed with reason and next steps. Acceptance: each error class yields deterministic status, message, and preserved diagnostics; retries occur only on transient classes.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 10,
+            "title": "Schema Validation, Test Matrix, and CI with Containers",
+            "description": "Add schema validation gates, comprehensive tests (collision/no-collision/boundaries), and CI integration for CAMotics/FFmpeg containers.",
+            "dependencies": [
+              "9.2",
+              "9.3",
+              "9.4",
+              "9.5",
+              "9.6",
+              "9.7",
+              "9.8",
+              "9.9"
+            ],
+            "details": "JSON schema validation as part of worker completion and unit tests. Test fixtures: simple prism no-collision, intentional crash/collision, tiny stock, large G-code file, inch vs mm, invalid G-code. Assert: collision_count semantics, est_time_s > 0, video/snapshot exist and are downloadable, timeout transitions to failed with message. CI: container images with CAMotics and FFmpeg, cache dependencies, run integration tests in pipeline, publish artefact samples on CI for inspection. Acceptance: CI green across matrix; failures surface clear diagnostics; schema violations fail the build.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "ERP/MES Integration, Reporting/Analytics, Admin Panel, SIEM & Forensics",
+        "description": "Deliver outbound/inbound ERP/MES APIs with HMAC signatures and retries, reporting dashboards with filters/exports, admin panel with MFA and incident lock, and full audit/SIEM pipeline with hash-chained logs.",
+        "details": "ERP/MES:\n- Outbound event job.status.changed → POST /erp/v1/jobs/update with HMAC-SHA256(body, ERP_SHARED_SECRET) in X-Signature; retries 5s, 15s, 45s, 2m, 5m (max 5) with idempotency; record in erp_mes_sync\n- Inbound: POST /api/v1/erp/inbound/job/progress (Bearer + IP allowlist). Update job progress/status, write audit_logs and erp_mes_sync\n- Mock server (docker) for dev: POST /erp/v1/jobs/update → 200 {ok:true}, GET /erp/v1/health → 200 ok\nReporting/Analytics:\n- Backend: GET /reports/summary, /reports/detail; POST /reports/export (CSV/Excel/JSON). Filters: date range, status, model type, machine/post; metrics P50/P95 durations, success/failure rates, breakdowns\n- Frontend: Turkish dashboards with ECharts; quiet hours and repeat policies for alerts; export links as signed URLs\nAdmin Panel:\n- Modules: users/licenses/invoices, catalog (machine/material/template), jobs/logs, integration profiles; bulk actions: license extend, job cancel\n- Security: Admin role + MFA enforced; optional IP allowlist; incident lock toggles read-only; key rotation flows\nSIEM/Forensics:\n- Log feed: structured JSON with versions, PII masked to SIEM (via Fluent Bit/syslog RFC5424); DLQ and replay for delivery failures\n- Audit trail: append-only with chain_hash; forensic export (CSV/JSON) including external timestamp (optional)\nPseudocode (HMAC signature):\n- sig = base64(hmac_sha256(ERP_SHARED_SECRET, body_json_bytes))\n- headers: {'X-Signature': sig, 'X-Request-Id': req_id, 'Content-Type': 'application/json'}\n- verify inbound by recomputing and constant-time compare\n",
+        "testStrategy": "Integration: outbound event fires on status changes and succeeds against mock; tampered signature rejected inbound (401). Retry schedule observed. Reporting metrics match expected aggregates on fixtures; exports download and honor TTL. Admin: MFA gate enforced; incident lock makes UI read-only. SIEM receives logs; simulate SIEM outage → DLQ populated and later replayed. Audit chain verifies end-to-end.",
+        "priority": "medium",
+        "dependencies": [
+          2,
+          3,
+          4,
+          5,
+          6,
+          8,
+          9
+        ],
+        "status": "pending",
+        "subtasks": [
+          {
+            "id": 1,
+            "title": "Data models, secrets, and config for ERP/MES, Reporting, SIEM, Admin",
+            "description": "Define schemas, config keys, and base migrations for erp_mes_sync, audit_logs, reporting aggregates, and security secrets.",
+            "dependencies": [],
+            "details": "Schemas:\n- erp_mes_sync: {id, direction: 'outbound'|'inbound', job_id, external_id, status: 'queued'|'sent'|'acked'|'failed', request_id, idempotency_key, body_sha256, request_body(jsonb), response_code, error_message, attempt_count, last_attempt_at, created_at, updated_at}\n- audit_logs (append-only): {id, ts, actor_type, actor_id, action, object_type, object_id, payload(jsonb), payload_sha256, prev_hash, chain_hash, external_timestamp(optional), version}\n- reporting materialized views/rollups for durations and outcomes\nConfigs/Secrets:\n- ERP_SHARED_SECRET, ERP_BEARER_TOKEN, ADMIN_MFA_ISSUER, ADMIN_IP_ALLOWLIST, SIEM_ENDPOINT, FLUENT_BIT_CONFIG, KEYRING_CURRENT/KEYRING_NEXT\nOperational:\n- Feature flags: INCIDENT_LOCK_ENABLED, EXPORT_SIGNED_URL_TTL, ALERT_QUIET_HOURS\nAcceptance: Migrations apply cleanly; secrets loaded via vault/env; chain_hash immutable constraint; base feature flags readable at runtime.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 2,
+            "title": "Outbound ERP webhook publisher with HMAC and idempotency",
+            "description": "Emit job.status.changed to ERP POST /erp/v1/jobs/update with HMAC-SHA256 signature, headers, idempotency, and persistence.",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "Trigger: on job.status.changed\nHTTP: POST https://<erp-host>/erp/v1/jobs/update\nPayload schema: {job_id:string, status:string, progress:number(0-100), updated_at:iso8601, meta?:object}\nHeaders: {'X-Signature': base64(hmac_sha256(ERP_SHARED_SECRET, body_bytes)), 'X-Request-Id': uuid, 'Idempotency-Key': idem_key, 'Content-Type': 'application/json'}\nBehavior: write outbound record to erp_mes_sync, dedupe by idempotency_key, mark status transitions; constant-time signature generation\nSLA: P95 publish latency < 2s in steady state\nAcceptance: Sample event delivers 200 against mock; erp_mes_sync row created with body_sha256; duplicate status changes reuse existing idem record.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 3,
+            "title": "Outbound retry scheduler and DLQ handling",
+            "description": "Implement fixed retry schedule with idempotent reattempts, error classification, and DLQ + replay endpoints.",
+            "dependencies": [
+              "10.2",
+              "10.1"
+            ],
+            "details": "Retry policy: 5s, 15s, 45s, 2m, 5m (max 5 attempts)\nDedup: idem_key prevents duplicate HTTP sends; backoff respects per-record attempt_count\nDLQ: route hard failures (4xx except 429/408) after 1 attempt or on final attempt to erp_outbound_dlq; store error details\nReplay: POST /admin/erp/replay {sync_id[]} -> requeue eligible records\nObservability: counters for attempts, successes, failures; alert if >1% failures over 15m\nAcceptance: Verified schedule timings; 429 triggers next backoff; DLQ receives malformed payload cases; replay transitions from DLQ to queued and eventually acked.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 4,
+            "title": "Inbound ERP progress API with signature verification and IP allowlist",
+            "description": "Expose POST /api/v1/erp/inbound/job/progress secured by Bearer, optional HMAC verification, and IP allowlist; update job and logs.",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "Endpoint: POST /api/v1/erp/inbound/job/progress\nAuth: Authorization: Bearer <ERP_BEARER_TOKEN>; IP allowlist match; if X-Signature present, verify base64(hmac_sha256(ERP_SHARED_SECRET, body_bytes)) using constant-time compare\nBody: {job_id:string, status:string, progress:number(0-100), message?:string, ext_ts?:iso8601}\nResponses: 200 {ok:true}, 401 invalid token/signature, 403 IP not allowed, 422 schema error\nSide effects: update job progress/status; write audit_logs(entry: action='erp.inbound.progress'); insert erp_mes_sync(direction='inbound')\nAcceptance: Tampered body → 401; non-allowlisted IP → 403; valid request updates job and creates both audit and sync rows.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 5,
+            "title": "ERP/MES sync reconciliation and health checks",
+            "description": "Periodic reconciliation of erp_mes_sync with ERP acknowledgments and admin tooling for manual requeue/resolve.",
+            "dependencies": [
+              "10.2",
+              "10.3",
+              "10.4",
+              "10.6"
+            ],
+            "details": "Reconciler: scan outbound records older than 10m without ack; call ERP health/confirm APIs if available; otherwise requeue with cap\nAdmin: UI/API to mark failed as resolved, requeue, or ignore; show attempt history\nHealth: GET /internal/erp/health aggregates success/failure rates; consume /erp/v1/health from mock for connectivity\nAcceptance: Orphaned records detected and re-enqueued; health endpoint exposes JSON {ok, last_acked_at, failure_rate}; admin actions change record state accordingly.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 6,
+            "title": "Mock ERP server container for development and tests",
+            "description": "Provide dockerized mock implementing POST /erp/v1/jobs/update and GET /erp/v1/health with simple behaviors and logs.",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "Endpoints: POST /erp/v1/jobs/update → 200 {ok:true}; GET /erp/v1/health → 200 'ok'\nConfig: accepts/records headers X-Signature, X-Request-Id; optionally validate signature via injected secret; toggle failure modes via env MOCK_FAILURE_RATE\nArtifacts: Dockerfile, docker-compose service, request/response logs\nAcceptance: Local stack can send outbound events and receive 200; toggling failure rate triggers retry flow; health returns ok.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 7,
+            "title": "Reporting backend: summary/detail endpoints and aggregates",
+            "description": "Implement GET /reports/summary and /reports/detail with filters and metrics (P50/P95, success rates, breakdowns).",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "Endpoints:\n- GET /reports/summary?date_from&date_to&status&model_type&machine&post\n- GET /reports/detail?date_from&date_to&status&model_type&machine&post&page&limit\nMetrics: durations P50/P95, success/failure rates, breakdowns by status, model_type, machine/post\nResponse summary: {range:{from,to}, totals:{count,success,failed}, latency_ms:{p50,p95}, breakdowns:{by_status:[], by_machine:[]}}\nAcceptance: Aggregates match fixture expectations; P50/P95 computed from persisted durations; pagination stable in detail endpoint.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 8,
+            "title": "Report export generation and signed URL delivery",
+            "description": "Create POST /reports/export to generate CSV/Excel/JSON exports with filters and deliver via signed URLs with TTL.",
+            "dependencies": [
+              "10.7",
+              "10.1"
+            ],
+            "details": "Endpoint: POST /reports/export {format:'csv'|'xlsx'|'json', filters:{...}}\nBehavior: enqueue export job; on completion store object to S3/MinIO; generate signed URL (TTL configurable); email/webhook optional\nSecurity: exports scoped by RBAC; signed URL single-use optional; hash checksum recorded in audit_logs\nAcceptance: Exports download within TTL; content matches report filters; JSON schema validated; links expire after TTL; audit entry includes export_id and checksum.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 9,
+            "title": "Frontend dashboards (Turkish UI) with ECharts",
+            "description": "Build Turkish-language dashboards for summary/detail reports with filters, charts, and export links.",
+            "dependencies": [
+              "10.7",
+              "10.8"
+            ],
+            "details": "UI: tr-TR localization, date/time formats; filters for date range, status, model type, machine/post\nCharts: ECharts for trends, breakdown pie/stacked bar, latency distributions\nExports: use signed URLs from backend; show progress indicators\nAcceptance: UI strings in Turkish; charts render with sample data; export buttons download correct files; responsive layout.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 10,
+            "title": "Alerting quiet hours and repeat policies",
+            "description": "Implement alert rules with quiet hours and repeat intervals for report anomalies (e.g., failure rate spikes).",
+            "dependencies": [
+              "10.9"
+            ],
+            "details": "Config: {quiet_hours:[{start:'22:00', end:'07:00', tz:'Europe/Istanbul'}], repeat_every:'30m'} per channel\nRules: trigger on failure_rate > threshold, latency p95 > threshold; suppress during quiet hours except severity=critical\nDelivery: email/Slack/webhook with dedup keys to control repeats\nAcceptance: During quiet hours, non-critical alerts suppressed; repeats occur per policy; breach generates alert within 2m.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 11,
+            "title": "RBAC and permissions model for admin and reporting",
+            "description": "Define roles and permissions, enforce on APIs and UI (admin, analyst, operator, auditor).",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "Roles: admin(full), analyst(read reports/exports), operator(jobs/actions), auditor(read-only audit/SIEM)\nPermissions map to resources: users, licenses, invoices, catalog, jobs, logs, integrations, reports, exports\nImplementation: policy middleware; route guards; attribute-based checks for tenant/project\nAcceptance: Permission matrix tests pass; forbidden routes return 403; UI hides disallowed actions.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 12,
+            "title": "Admin panel modules and bulk actions",
+            "description": "Implement modules: users/licenses/invoices, catalog, jobs/logs, integration profiles; bulk actions license extend and job cancel.",
+            "dependencies": [
+              "10.11"
+            ],
+            "details": "Routes: /admin/users, /admin/licenses, /admin/invoices, /admin/catalog, /admin/jobs, /admin/logs, /admin/integrations\nBulk: license extend (select N → +period), job cancel (multi-select → cancel API)\nUX: server-side pagination, filters, audit trail entries for changes\nAcceptance: Bulk operations create audit_logs; permissions enforced; cancel requests reach workers; pagination performant on 50k+ rows.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 13,
+            "title": "Admin security: MFA enforcement and optional IP allowlist",
+            "description": "Enforce MFA for admin role and support optional IP allowlist for admin routes.",
+            "dependencies": [
+              "10.11"
+            ],
+            "details": "MFA: TOTP enrollment/verification, backup codes, enforcement toggle; recovery flows audited\nIP allowlist: CIDR list for /admin/*; bypass for break-glass with additional approval\nAcceptance: Admin login requires MFA; blocked IPs receive 403; recovery uses backup codes and logs audit entry.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 14,
+            "title": "Incident lock (read-only mode) and key rotation flows",
+            "description": "Add incident lock to toggle read-only across admin, and implement key rotation for ERP secrets and signing keys.",
+            "dependencies": [
+              "10.11"
+            ],
+            "details": "Incident lock: feature flag sets DB to read-only for mutating admin actions; UI badge and banner; include allowlist of emergency ops\nKey rotation: support KEYRING_CURRENT/KEYRING_NEXT; outbound signs with current, inbound verifies current+next; rotate via admin flow with audit\nAcceptance: In lock, mutating endpoints return 423 and UI disabled; rotation completes without downtime; both keys accepted during window.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 15,
+            "title": "SIEM log shipping pipeline with masking, DLQ, and replay",
+            "description": "Ship structured JSON logs to SIEM using Fluent Bit/syslog RFC5424; mask PII; implement DLQ and replay.",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "Format: versioned JSON envelope {ts, level, svc, host, req_id, actor, event, payload_redacted, schema_ver}\nTransport: Fluent Bit to SIEM_ENDPOINT via syslog RFC5424/TCP+TLS; retry/backoff; batch and compress\nMasking: PII detection and redaction before egress; allowlist fields\nDLQ: failed batches to local durable queue; admin endpoint to replay\nAcceptance: Logs visible in SIEM with correct schema; PII fields redacted; induced outage stores in DLQ then replays successfully.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 16,
+            "title": "Audit trail with chain_hash and forensic export",
+            "description": "Ensure append-only audit with hash chaining and provide CSV/JSON forensic exports including optional external timestamp.",
+            "dependencies": [
+              "10.1"
+            ],
+            "details": "Chain: chain_hash = sha256(prev_hash || record_sha256); immutability enforced by DB constraints and no-update trigger\nExport: GET /forensics/audit/export?format=csv|json&date_from&date_to&actor&action includes chain proofs and external_timestamp if present\nVerification: CLI tool to verify chain integrity offline\nAcceptance: Chain validates end-to-end on sample; export downloads with correct fields; tampering test fails verification.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 17,
+            "title": "Observability dashboards and operational SLAs",
+            "description": "Create metrics, logs, and traces dashboards and define SLAs/SLOs for ERP, reporting, admin, and SIEM pipelines.",
+            "dependencies": [
+              "10.2",
+              "10.4",
+              "10.7",
+              "10.15",
+              "10.16"
+            ],
+            "details": "Metrics: ERP outbound success rate, retries, p50/p95 latencies; inbound 2xx rate; report generation duration; export queue times; SIEM ship lag; admin auth failures\nDashboards: Grafana/Datadog with service-level SLOs (e.g., ERP outbound success >= 99.5% weekly, report export p95 < 60s)\nAlerts: tie to quiet hours policies; runbooks linked\nAcceptance: Dashboards populated in staging; alerts fire on synthetic canaries; SLOs documented and approved.",
+            "status": "pending",
+            "testStrategy": ""
+          },
+          {
+            "id": 18,
+            "title": "Data retention & GDPR, E2E tests, failure drills, rollout & runbooks",
+            "description": "Define retention policies and GDPR flows; implement end-to-end tests and chaos drills; plan rollout and author runbooks.",
+            "dependencies": [
+              "10.2",
+              "10.3",
+              "10.4",
+              "10.5",
+              "10.6",
+              "10.7",
+              "10.8",
+              "10.9",
+              "10.10",
+              "10.11",
+              "10.12",
+              "10.13",
+              "10.14",
+              "10.15",
+              "10.16",
+              "10.17"
+            ],
+            "details": "Retention: policies for audit_logs (e.g., 7y), SIEM (per contract), exports (TTL), PII minimization; GDPR: data subject access/delete with audit and exemptions\nE2E: tests covering outbound/inbound ERP, reports, exports, admin MFA/lock, SIEM shipment, forensic export; CI pipeline gates\nFailure drills: simulate ERP outage, SIEM sink failure, key rotation, incident lock; document RTO/RPO\nRollout: phased enablement, feature flags, canary, rollback plan; runbooks for on-call\nAcceptance: Retention jobs enforce policies; DSAR workflow validated; E2E suite passes in CI; drills executed with postmortems; rollout completed without SEV incidents.",
+            "status": "pending",
+            "testStrategy": ""
+          }
+        ]
+      }
+    ],
+    "metadata": {
+      "created": "2025-08-15T19:56:57.780Z",
+      "updated": "2025-08-16T15:19:33.531Z",
+      "description": "Tasks for master context"
+    }
+  }
+}

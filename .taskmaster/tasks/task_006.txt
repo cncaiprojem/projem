@@ -1,0 +1,94 @@
+# Task ID: 6
+# Title: Job Orchestration, Idempotency, DLQ and Audit Chain
+# Status: pending
+# Dependencies: 2, 3, 5
+# Priority: high
+# Description: Provide job APIs, queue topology, idempotency keys, retries/backoff with jitter, cancellation, progress updates, and append-only audit log with hash-chain.
+# Details:
+Celery configuration:
+- Queues: default (light), model, cam, sim, report, erp; DLX for each (dead-letter exchange) routing to *_dlq queues
+- Retries: exponential backoff with jitter; max retries per task type (AI 3, model 5, cam 5, sim 5, erp 5)
+APIs:
+- POST /jobs (type, params, idempotency_key): if exists → return existing; else create 'pending' and enqueue
+- GET /jobs/:id: status, progress, artefacts
+- Cancellation: POST /jobs/:id/cancel → set cancel_requested; workers check cooperative cancel between steps
+- Events: job.status.changed published internally and used for ERP outbound
+Idempotency:
+- jobs.idempotency_key unique; transactional check-create pattern to avoid races
+Audit:
+- Every state transition writes audit_logs with chain_hash computed as sha256(prev_hash || canonical_json)
+Rate limit + DLQ replay:
+- Admin DLQ replay API gated by MFA
+Pseudocode (create job):
+- def create_job(req):
+  - with tx:
+    - if job by idempotency_key exists: return it
+    - job = insert jobs(... status='pending')
+  - celery.send_task(queue=req.type, args=[job.id])
+  - return job
+
+
+# Test Strategy:
+Unit: idempotent creation, chain_hash consistency, cancel flag handling. Integration: enqueue tasks, simulate failures to DLQ and replay. Concurrency: two simultaneous requests with same idempotency_key result in one job. Progress updates visible via GET /jobs/:id. Audit entries ordered and hash-linked.
+
+# Subtasks:
+## 1. Celery and RabbitMQ topology with DLX/DLQ [pending]
+### Dependencies: None
+### Description: Define Celery app and RabbitMQ resources for job orchestration with per-queue dead-lettering.
+### Details:
+Implement Celery 5.4 app configuration. Declare durable direct exchanges and queues: primary queues: default, model, cam, sim, report, erp; for each, create a dedicated dead-letter exchange <queue>.dlx and a DLQ queue <queue>_dlq. Bindings: primary queues bound to exchange jobs.direct with routing keys: default, model, cam, sim, report, erp. Each primary queue sets x-dead-letter-exchange to <queue>.dlx; each DLQ queue bound to its DLX with routing key '#'. Use quorum queues for primaries, classic (lazy) for DLQs. Set basic_qos prefetch=8; acks_late=True. Define Celery task_queues using kombu Queue objects; configure task_routes mapping type→queue. Routing keys: jobs.ai→default, jobs.model→model, jobs.cam→cam, jobs.sim→sim, jobs.report→report, jobs.erp→erp. Policies: durable, lazy-mode for DLQs, message size limit 10MB, enforce publisher confirms. Acceptance: publishing a message with each routing key delivers to the correct primary queue; rejecting with requeue=False routes to the corresponding *_dlq; Celery workers consume from their expected queues.
+
+## 2. Retry strategy, backoff with jitter, and error taxonomy [pending]
+### Dependencies: 6.1
+### Description: Configure per-task-type retry policy with exponential backoff and jitter, and define error classes for retry vs DLQ.
+### Details:
+Set max retries: AI 3 (uses default queue), model 5, cam 5, sim 5, erp 5, report 5. Use exponential backoff with full jitter: delay_n = min(cap, base * 2^n) * random.uniform(0.5, 1.5); base=2s, caps: AI 20s, model/cam/sim 60s, report/erp 45s. Configure Celery autoretry_for on retryable exceptions and retry_kwargs per task type. Error taxonomy (examples): Retryable: TransientExternalError, RateLimitedError, NetworkError; Non-retryable: ValidationError, UnauthorizedError, QuotaExceededError; Cancellation: JobCancelledError (no retry); Fatal: IntegrityError (send to DLQ immediately). Enable task_acks_late, reject_on_worker_lost=True, time_limit/soft_time_limit per type (e.g., model 900/840s). On exceeding retries, nack with requeue=False to DLQ. Include attempt count and last_exception in task headers for observability. Acceptance: forced Retryable errors show increasing backoff with jitter and cap; Non-retryable errors go directly to DLQ; attempt counts align with configured maxima; tasks respect time limits.
+
+## 3. Job type routing, payload contracts, and validation [pending]
+### Dependencies: 6.1, 6.2
+### Description: Define job type enumeration, routing rules to queues, and canonical task payload schema with validation.
+### Details:
+Job types: ai (routes to default), model, cam, sim, report, erp. Routing map: type→routing_key (jobs.<type>) → queue (matching the type, ai→default). Canonical task payload: { job_id: uuid, type: enum, params: object, submitted_by: user_id, attempt: int, created_at: iso8601 }. Validate params per type with Pydantic schemas; reject invalid with ERR-JOB-422. Enforce a max payload size of 256KB; large artefacts are referenced via object storage keys, not embedded. Acceptance: publishing with each type selects the correct queue; invalid types yield ERR-JOB-400; params validation errors are non-retryable.
+
+## 4. POST /jobs with transactional idempotency and enqueue [pending]
+### Dependencies: 6.1, 6.3
+### Description: Implement job creation API with idempotency_key handling, DB transactionality, enqueue to Celery, and rate limits.
+### Details:
+FastAPI endpoint: POST /jobs accepts {type, params, idempotency_key}. In a DB transaction: lookup by idempotency_key; if found, return existing (200). Else insert jobs row with status='pending', cancel_requested=false, attempts=0, progress=0, idempotency_key unique. Use unique index on jobs.idempotency_key; implement insert-on-conflict pattern to avoid races and then select existing. After commit, publish task to appropriate queue with payload contract. Rate limiting: per-user 60/min and global 500/min via Redis token bucket; return 429 ERR-JOB-RATE-LIMIT when exceeded. Responses: 201 for new with Location header; 200 for existing idempotent hit. Errors: invalid type/params → 422; database conflict → 409; unknown → 500. Acceptance: two concurrent requests with same idempotency_key yield a single job; metrics show rate-limit counters; task appears on correct queue.
+
+## 5. GET /jobs/:id for status, progress, and artefacts [pending]
+### Dependencies: 6.4
+### Description: Expose job read API returning current status, progress, attempts, errors, and artefact references.
+### Details:
+FastAPI endpoint: GET /jobs/:id returns {id, type, status, progress: {percent, step, message, updated_at}, attempts, cancel_requested, created_at, updated_at, artefacts: [{id, kind, s3_key, sha256, size}], last_error: {code, message}}. Authorize access by owner or admin. Support ETag/If-None-Match to reduce polling bandwidth. Acceptance: progress updates issued by workers are visible within 1s; artefact list reflects persisted outputs; 404 for missing or unauthorized jobs; ETag changes when progress changes.
+
+## 6. Cancellation API and cooperative worker cancellation [pending]
+### Dependencies: 6.4, 6.1
+### Description: Implement POST /jobs/:id/cancel and worker-side cooperative checks to stop work safely.
+### Details:
+API: POST /jobs/:id/cancel sets jobs.cancel_requested=true and writes an audit entry. Workers must call check_cancel(job_id) between major steps; check reads a cached flag (Redis) backed by DB and raises JobCancelledError if set. On cancellation: mark job status='cancelled', persist final progress, do not retry, and release resources. Ensure idempotent cancel endpoint responses (200 even if already cancelled). Acceptance: cancelling during a long-running job stops work within a step boundary; subsequent GET shows status=cancelled; cancelled tasks are not retried or sent to DLQ.
+
+## 7. Worker progress update conventions and status change events [pending]
+### Dependencies: 6.4, 6.1, 6.2, 6.6
+### Description: Define progress reporting API for workers and publish job.status.changed events for internal consumers and ERP outbound.
+### Details:
+Provide a worker helper progress(job_id, percent, step, message, metrics) that updates jobs.progress fields and emits a job.status.changed event with payload {job_id, status, progress, attempt, timestamp}. Throttle writes to at most once per 2s per job to reduce DB load (coalesce). On state transitions (queued, started, running, retrying, succeeded, failed, cancelled), publish the event to an internal topic exchange events.jobs with routing key job.status.changed and fanout to ERP outbound bridge. Acceptance: progress in DB advances monotonically and is visible via GET; events for each transition are published exactly once per transition and consumed by ERP bridge.
+
+## 8. Append-only audit log with hash-chain for state transitions [pending]
+### Dependencies: 6.4, 6.7
+### Description: Record every job state change in audit_logs with a tamper-evident chain_hash.
+### Details:
+On each state change (created, queued, started, progress, retrying, cancelled, failed, succeeded, dlq_replayed), write an audit_logs row with fields: id, job_id, event_type, actor (system/user id), ts, payload (canonical JSON), prev_hash, chain_hash. Compute chain_hash=sha256(prev_hash || canonical_json(payload)) using stable key ordering and normalized floats/ints. prev_hash is the chain_hash of the last audit entry for the job, or 32 zero-bytes for the first. Enforce append-only at application level; never update existing rows. Provide a verification routine to recompute and validate the chain for a job. Acceptance: inserting two consecutive audit events yields deterministic chain_hash; modifying any prior audit row causes verification to fail; all API and worker transitions create corresponding audit entries.
+
+## 9. Admin DLQ inspection and replay API with MFA and auditing [pending]
+### Dependencies: 6.1, 6.2, 6.8
+### Description: Implement secured endpoints to list DLQs, inspect messages, and replay to origin queues with audit trail.
+### Details:
+Endpoints: GET /admin/dlq lists *_dlq queues with depths; GET /admin/dlq/{queue}/peek?limit=n previews messages (headers include original routing key, job_id if present); POST /admin/dlq/{queue}/replay re-publishes up to N messages to their original exchange/routing key. Security: admin role + enforced MFA check; rate limit 30/min; require justification string recorded in audit. Replay policy: only messages whose original exchange/routing key match known routes; preserve headers; backoff between batches to avoid thundering herd. Errors: unauthorized (ERR-DLQ-401), invalid queue (ERR-DLQ-404), replay limit exceeded (ERR-DLQ-429). Acceptance: replayed messages land on primary queues and are processed; all admin actions are written to audit_logs with event_type=dlq_replayed; MFA is required for access.
+
+## 10. Observability (metrics, tracing, logs) and comprehensive test suite [pending]
+### Dependencies: 6.1, 6.2, 6.3, 6.4, 6.5, 6.6, 6.7, 6.8, 6.9
+### Description: Add structured logs, metrics, tracing across APIs/workers, and implement tests for idempotency, retries, DLQ, audit chain, and cancellation.
+### Details:
+Logging: structlog with fields request_id, trace_id, job_id, idempotency_key, attempt, queue, routing_key, error_code; ensure PII masking. Metrics (Prometheus): job_create_total (labels type, status), job_in_progress gauge, job_duration_seconds (histogram), retries_total (labels type, error_code), dlq_depth (gauge per queue), dlq_replay_total, cancellation_total, progress_update_total. Tracing: OpenTelemetry for FastAPI and Celery (link spans via job_id); export to OTLP. Dashboards: Grafana panels for queue depths, success/failure rates, retry distribution, DLQ replay outcomes. Tests: unit tests for idempotent creation race (simulated concurrent POST with same idempotency_key), audit chain determinism and tamper detection, cancellation behavior, progress throttling, error taxonomy routing to retry/DLQ; integration tests that enqueue tasks, force failures into DLQ, and verify admin replay; performance test for 1k concurrent job creates meeting rate-limit behavior. Acceptance: >=90% coverage for job orchestration module; dashboards show live metrics; traces link API request to worker execution; all specified test scenarios pass.
+

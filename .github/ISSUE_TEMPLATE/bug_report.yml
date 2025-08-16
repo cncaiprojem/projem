@@ -1,0 +1,124 @@
+name: 🐛 Hata Raporu
+description: Sistemde karşılaştığınız hata veya sorunları bildirin
+title: "[BUG]: "
+labels: ["bug", "triage"]
+assignees:
+  - shaptina
+body:
+  - type: markdown
+    attributes:
+      value: |
+        FreeCAD CNC/CAM Platform'da karşılaştığınız hatayı bildirdiğiniz için teşekkürler!
+        Lütfen sorunu mümkün olduğunca detaylı bir şekilde açıklayın.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: Hatanın Açıklaması
+      description: Karşılaştığınız hatayı detaylı bir şekilde açıklayın
+      placeholder: Örn. CAD modeli oluştururken beklenmedik bir hata alıyorum...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Hatayı Tekrarlatma Adımları
+      description: Hatayı nasıl tekrarlayabiliriz?
+      placeholder: |
+        1. '...' sayfasına git
+        2. '...' butonuna tıkla
+        3. '...' değerini gir
+        4. Hatayı gör
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Beklenen Davranış
+      description: Ne olmasını bekliyordunuz?
+      placeholder: CAD modeli başarıyla oluşturulmalıydı...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Hata Logları
+      description: Varsa hata logları veya console çıktıları
+      render: shell
+      placeholder: |
+        2024-08-16 10:30:15 ERROR: FreeCAD operation failed
+        Traceback (most recent call last):
+        ...
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Hangi Bileşende Hata?
+      multiple: true
+      options:
+        - Frontend (Web UI)
+        - Backend API
+        - FreeCAD Integration
+        - CAD Generation
+        - CAM Processing
+        - G-code Generation
+        - File Storage
+        - Database
+        - Authentication
+        - Docker/Deployment
+        - Diğer
+    validations:
+      required: true
+
+  - type: dropdown
+    id: browsers
+    attributes:
+      label: Tarayıcı (Frontend sorunları için)
+      multiple: true
+      options:
+        - Firefox
+        - Chrome
+        - Safari
+        - Microsoft Edge
+        - Diğer
+
+  - type: input
+    id: version
+    attributes:
+      label: Platform Versiyonu
+      description: Hangi versiyon kullanıyorsunuz?
+      placeholder: v1.2.3
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Sistem Bilgileri
+      description: İşletim sistemi, Docker versiyonu vb.
+      placeholder: |
+        - OS: Ubuntu 22.04
+        - Docker: 24.0.6
+        - FreeCAD: 0.21.1
+        - Browser: Chrome 118
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Ek Bilgiler
+      description: Hatanın çözümüne yardımcı olabilecek diğer bilgiler
+      placeholder: Screenshot, video, ek dosyalar vb.
+
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Kontrol Listesi
+      description: Lütfen aşağıdakileri kontrol edin
+      options:
+        - label: Benzer bir issue'nun daha önce açılmadığını kontrol ettim
+          required: true
+        - label: Dokumentasyonu okudum ve çözüm bulamadım
+          required: true
+        - label: Bu hata tekrarlanabilir
+          required: true

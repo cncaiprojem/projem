@@ -1,0 +1,157 @@
+# Task ID: 5
+# Title: S3/MinIO File Service, Signed URLs, Upload Validation and Artefacts
+# Status: pending
+# Dependencies: 1, 2, 3
+# Priority: high
+# Description: Implement file service for uploads/downloads with MinIO presigned URLs, type/size/sha256 validation, optional malware scan, and artefact management tied to jobs.
+# Details:
+Buckets/classes: artefacts (FCStd/STEP/STL/GLB/G-code/video), logs, reports, invoices with versioning + lifecycle (hot→cold). Object tags: job_id, machine, post.
+APIs:
+- POST /files/upload/init {type, size, sha256, mime} → presigned PUT (TTL 5m, optional IP binding)
+- POST /files/upload/finalize {key} → verify object exists, size <= 200MB, compute sha256 server-side (stream) and compare; optional ClamAV scan; persist artefacts row
+- GET /files/:id → presigned GET (TTL 2m)
+Validation:
+- Allow: .step .stl .fcstd .glb .nc .tap .gcode .mp4 .gif; enforce MIME; reject otherwise (415)
+- On upload: limit size 200MB; block double extensions
+Security:
+- Signed URLs use least privilege; audit access events; store sha256, size; set object lock for invoices
+- Client uploads directly to S3/MinIO; backend never stores raw file on disk
+Frontend:
+- Uploader with progress; compute client-side sha256 (Web Workers) to include in init
+Pseudocode (finalize):
+- def finalize(key):
+  - stat = minio.stat_object(bucket, key)
+  - assert stat.size <= 200*1024*1024
+  - hasher = sha256(); for chunk in minio.get_object_stream(...): hasher.update(chunk)
+  - if hasher.hexdigest()!=expected: delete object; 422
+  - if scan_enabled and clamav.detect(key): delete; 422
+  - insert artefact(job_id, key, size, sha256)
+
+
+# Test Strategy:
+Integration: init→upload→finalize happy path; wrong sha256 rejected; wrong MIME rejected; oversize rejected; presigned URLs expire. Malware scan mock returns detection gets blocked. Artefact rows created with correct metadata. Download presigned GET works and is short-lived.
+
+# Subtasks:
+## 1. MinIO client configuration and credentials management [pending]
+### Dependencies: None
+### Description: Set up secure MinIO client, environment config, credentials rotation, and connection hardening.
+### Details:
+- Env vars: MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_REGION (optional), MINIO_SECURE=true, MINIO_BUCKET_ARTEFACTS, MINIO_BUCKET_LOGS, MINIO_BUCKET_REPORTS, MINIO_BUCKET_INVOICES.
+- Client: MinIO Python SDK (minio==7.2.7); timeouts (connect/read 10s/60s), retries w/ backoff (3 attempts), HTTP/HTTPS support, certificate pinning or CA bundle configurable.
+- Credentials: dedicated service user(s) with least-privilege policies; document rotation procedure; disallow root credentials in non-local envs.
+- Key naming strategy: artefacts/{job_id}/{uuid}.{ext}, logs/{date}/{uuid}.log, reports/{date}/{uuid}.pdf, invoices/{year}/{invoice_no}.pdf.
+- Security: never persist raw files to local disk; stream I/O only; sanitize key components; enforce URL signing exclusively for client access.
+- Acceptance tests:
+  - Can connect to MinIO and list buckets using service credentials.
+  - Network failures retry and surface clear 503 STORAGE_UNAVAILABLE.
+  - TLS misconfig results in 502 STORAGE_TLS_ERROR with safe message.
+
+## 2. Buckets, policies, versioning, lifecycle and object lock [pending]
+### Dependencies: 5.1
+### Description: Create buckets with versioning and lifecycle hot→cold, set policies and object lock for invoices.
+### Details:
+- Buckets: artefacts, logs, reports, invoices.
+- Enable versioning on all buckets.
+- Lifecycle: transition non-current versions to cold storage after 30 days (env-configurable), expire incomplete multipart uploads after 7 days; delete logs after 90 days (configurable); reports after 365 days; artefacts retain per policy; invoices retain indefinitely.
+- Object Lock: Enable on invoices bucket (COMPLIANCE mode) with retention period via env (e.g., INVOICE_RETENTION_YEARS=7); legal hold supported via admin tools.
+- Policies: deny ListBucket to public; service account(s) restricted to specific prefixes; only PUT/GET/HEAD allowed for artefact paths; deny DeleteObject on invoices bucket.
+- Presign constraints (enforced via conditions where supported): content-length-range ≤ 200MB; content-type must match allowed mime; optional x-amz-tagging for job_id/machine/post.
+- Object tags standard: job_id, machine, post.
+- Acceptance tests:
+  - Versioning enabled and new object gets version ID.
+  - Lifecycle rules exist and are validated via MinIO client.
+  - Invoices cannot be deleted due to object lock (expect 403/AccessDenied).
+  - Upload >200MB rejected at presign or PUT stage.
+
+## 3. Upload init/finalize and download APIs with presigned URLs [pending]
+### Dependencies: 5.1, 5.2
+### Description: Implement POST /files/upload/init, POST /files/upload/finalize, GET /files/:id with least-privilege presigned URLs.
+### Details:
+- POST /files/upload/init {type, size, sha256, mime, job_id, machine?, post?}
+  - Validate inputs (basic): size ≤ 200MB, type/mime prelim allowed list.
+  - Generate server-side key: artefacts/{job_id}/{uuid}.{ext}.
+  - Presign PUT URL (TTL 5m), optionally bind client IP; include conditions for content-type and content-length-range; optionally include tagging for job_id/machine/post.
+  - Response: {key, upload_url, expires_in:300, headers:{Content-Type,...}}.
+  - Errors: 400 INVALID_INPUT, 401 UNAUTHORIZED, 415 UNSUPPORTED_MEDIA_TYPE, 413 PAYLOAD_TOO_LARGE, 429 RATE_LIMITED.
+- POST /files/upload/finalize {key}
+  - Look up expected metadata from init (size, sha256, mime, job_id...)
+  - Stream-verify existence and SHA256 (see subtask 5); optional malware scan (subtask 6); persist artefact (subtask 7).
+  - Errors: 404 NOT_FOUND, 409 UPLOAD_INCOMPLETE, 413 PAYLOAD_TOO_LARGE, 422 HASH_MISMATCH or MALWARE_DETECTED, 503 SCAN_UNAVAILABLE, 500 STORAGE_ERROR.
+- GET /files/:id → presigned GET (TTL 2m)
+  - Authorize access by artefact ownership/role; log audit; return {download_url, expires_in:120}.
+  - For invoices ensure object lock is respected.
+- Security: presigned URLs single-operation; minimal TTLs; restrict headers; no backend file writes.
+- Acceptance tests:
+  - Happy path: init→PUT→finalize→GET works; TTLs honored (PUT 5m, GET 2m).
+  - Unauthorized user gets 401/403; wrong job_id cannot access artefacts; expired URL fails with 403 SignatureDoesNotMatch.
+
+## 4. Server-side validation for type, MIME, size, and double-extension guard [pending]
+### Dependencies: 5.3
+### Description: Enforce strict validation for uploads including allowed types/MIME, size limit, and extension checks.
+### Details:
+- Allowed extensions: .step .stl .fcstd .glb .nc .tap .gcode .mp4 .gif.
+- Allowed MIME (examples): model/step, model/stl, application/vnd.freecad, model/gltf-binary, text/plain (G-code), video/mp4, image/gif. Map per extension; reject mismatches.
+- Size limit: ≤ 200MB enforced at init and finalize; use content-length-range condition on presign and recheck via stat.
+- Double-extension guard: reject filenames where the last extension is allowed but the penultimate extension exists and is not identical or is in blacklist [exe, js, sh, bat, cmd, com, dll, zip, rar, 7z].
+- Filename sanitization: normalize to server-generated UUID; ignore client-provided names to avoid traversal and UTF-8 tricks.
+- Error codes: 415 for unsupported type/MIME, 413 for oversize, 400 for malformed input.
+- Acceptance tests:
+  - .exe or .stl.exe rejected with 415.
+  - MIME mismatch (e.g., .stl with video/mp4) rejected with 415.
+  - >200MB rejected at init (413) and finalize (413).
+
+## 5. Streaming SHA256 computation and comparison [pending]
+### Dependencies: 5.3, 5.4
+### Description: Compute SHA256 server-side by streaming from MinIO, compare to client-provided hash, and handle mismatches.
+### Details:
+- Implementation: use stat_object to confirm size, then get_object with ranged streaming; hash incrementally (chunk e.g., 8MB) to keep memory low; consider multipart objects.
+- Compare computed digest to expected from init; on mismatch: delete object, emit audit event, return 422 HASH_MISMATCH.
+- On success: attach metadata/etag (cannot overwrite etag), store computed sha256 in DB (subtask 7).
+- Timeouts: 60s read timeout; abort on slowloris; idempotent finalize allowed (re-verify same hash and return success).
+- Security: do not trust client headers for hash; only server-side compute; ensure path/key matches init record.
+- Acceptance tests:
+  - Happy path matches hash for a ~100MB file within memory constraints (<64MB RSS spike).
+  - Altered upload triggers deletion and 422.
+  - Finalize called twice returns 200 idempotently.
+
+## 6. Optional ClamAV integration and failure handling [pending]
+### Dependencies: 5.3, 5.5
+### Description: Integrate ClamAV (clamd) to scan uploaded objects post-hash with robust error handling.
+### Details:
+- clamd: connect via TCP or Unix socket; timeouts 10s connect / 60s scan; stream-scan from MinIO (avoid local disk) using chunk bridge.
+- Scan policy: execute only for configured types (e.g., non-G-code CAD and videos) or if scan_enabled; on detection: delete object, 422 MALWARE_DETECTED with remediation hint.
+- Failure mode: fail closed if scan_enabled=true and clamd unreachable → 503 SCAN_UNAVAILABLE; log security_event.
+- Rate limiting: cap concurrent scans to protect resources.
+- Acceptance tests:
+  - EICAR string upload triggers 422 MALWARE_DETECTED and object removed.
+  - clamd down → finalize returns 503 SCAN_UNAVAILABLE when scan_enabled.
+  - scan_enabled=false → finalize succeeds without scan.
+
+## 7. Artefact persistence, tagging, and audit logging [pending]
+### Dependencies: 5.3, 5.5, 5.6
+### Description: Persist artefact metadata in DB, apply S3 object tags, and audit all access events.
+### Details:
+- DB insert into artefacts: job_id (FK), s3_bucket, s3_key, size, sha256, mime, type, created_by, machine?, post?, version_id; unique on s3_key.
+- S3 object tags: set/merge job_id, machine, post after successful finalize; retry on tag failures; ensure least-privilege.
+- Invoices: when type=invoice, set object retention (if supported at object level) and verify lock active.
+- Audit logs: write events for upload_init, upload_finalize_success/failure, download_url_issued with user_id, job_id, ip, user_agent, hash chain link.
+- Security: do not expose direct S3 keys publicly; enforce authz checks on GET /files/:id by job ownership/role; log every presign issuance.
+- Acceptance tests:
+  - Finalize persists artefact row with correct size and sha256; tags present on object.
+  - Download presign issues audit entry; unauthorized access denied with 403.
+  - Invoice artefact shows retention/lock metadata.
+
+## 8. Frontend uploader with Web Worker SHA256 and progress [pending]
+### Dependencies: 5.3, 5.4
+### Description: Build uploader UI that computes SHA256 client-side via Web Worker, performs presigned PUT, and finalizes.
+### Details:
+- Flow: user selects file → worker computes SHA256 (streaming via File.slice) → call /files/upload/init → PUT to presigned URL with correct Content-Type and Content-Length → on 200/204, call /files/upload/finalize.
+- Progress: upload progress via XHR/fetch streams; show speed, ETA; handle retries/backoff on transient 5xx.
+- Validation UX: enforce allowed extensions, size ≤200MB, double-extension warning before init; show clear errors for 415, 413, 422.
+- TTL handling: warn if PUT URL close to expiry; if expired (403), re-init and retry automatically once.
+- Security: no file reads by main thread beyond hashing; sandbox worker; never send file to backend; respect IP binding if enabled.
+- Acceptance tests:
+  - Happy path completes and shows success state; finalize returns artefact metadata.
+  - Wrong hash simulation (flip byte) yields 422 with user-facing remediation and auto-cleanup shown.
+  - Expired URL triggers re-init and successful retry; wrong MIME blocked with inline error.
+

@@ -1,0 +1,87 @@
+# Task ID: 9
+# Title: CAMotics Simulation Integration and Reporting
+# Status: pending
+# Dependencies: 8
+# Priority: high
+# Description: Integrate CAMotics CLI to simulate G-code with optional stock/fixturing, produce video/snapshots and JSON report conforming to sim_report schema. Stream progress and alerts.
+# Details:
+API: POST /simulations/run, GET /simulations/:id (JWT + licenseGuard)
+Worker:
+- Prepare CAMotics project (cmx JSON) with G-code, tool params, stock, WCS; run `camotics --no-gui --format json --output <dir> project.cmx`
+- Progress: tail CAMotics logs; periodically update jobs.progress
+- Outputs: generate frames (if CAMotics exports frames) or capture toolpath frames; convert to MP4/GIF via FFmpeg; store video and snapshot to MinIO
+- Parse results to fill sim_report v1 (workers/camotics.output.schema.json): collision_count, removed_volume_mm3, est_time_s, sim_video_path, sim_snapshot_path, notes[]
+- Basic collision/violation detection from CAMotics output; surface removal volume estimation
+- Publish warnings/alerts back to UI via job status and notifications
+Pseudocode:
+- run_camotics(gcode, tools, stock):
+  - write cmx
+  - proc = subprocess.run(['camotics','--no-gui','--output',out,'project.cmx'], timeout=...) 
+  - parse json → report; ffmpeg to make mp4
+  - save artefacts; update sim_runs row
+
+
+# Test Strategy:
+Integration: simulate sample G-code; assert report has required fields; collision scenarios yield collision_count>0. Video and snapshot paths valid and downloadable via signed URL. Timeout and error handling place job in failed with useful message. Schema validation against v1 JSON schema.
+
+# Subtasks:
+## 1. Configuration, Schema Baseline, and Observability Setup [pending]
+### Dependencies: None
+### Description: Establish configuration keys, sim_report v1 schema location, and base logging/metrics for the CAMotics simulation worker.
+### Details:
+Define config: CAMOTICS_BIN, FFMPEG_BIN, SIM_TIMEOUT_S, SIM_RETRY_MAX, SIM_TMP_DIR, MINIO_BUCKET_SIM, MINIO_PREFIX, SIGNED_URL_TTL_S. Confirm versions via startup checks. Pin sim_report v1 schema path (workers/camotics.output.schema.json). Structured logging fields: job_id, sim_id, cmx_path, camotics_exit_code, duration_ms, frames_count, bytes_uploaded, collision_count. Emit metrics/counters for runs_started, runs_succeeded, runs_failed, timeouts, collisions_detected. Document defaults and override precedence (env, .env, secrets). Acceptance: config loads with sane defaults, schema file accessible, health/preflight verifies CAMotics and FFmpeg presence.
+
+## 2. Simulation API Endpoints with Auth and Guardrails [pending]
+### Dependencies: 9.1
+### Description: Implement POST /simulations/run and GET /simulations/:id with JWT auth and licenseGuard, enqueue worker job, and expose status/results.
+### Details:
+POST /simulations/run: validates payload (gcode_ref or inline_gcode, tools[], stock{dims, units, material}, wcs, fixturing?), rate-limits, enqueues Celery task, returns sim_id and job_id. GET /simulations/:id: returns status, progress, sim_report, and presigned URLs for media. Enforce JWT and licenseGuard checks; reject if license expired or not entitled. Add request/response schemas and error codes (400 INVALID_INPUT, 402 LICENSE_REQUIRED, 409 CONFLICT, 422 UNPROCESSABLE_GCODE). Acceptance: happy path enqueues and returns IDs; unauthorized/forbidden requests blocked; GET returns evolving progress then final report.
+
+## 3. CAMotics Project (CMX) Builder [pending]
+### Dependencies: 9.1
+### Description: Translate API inputs (G-code, tools, stock, WCS) into a valid CAMotics .cmx project with correct units and coordinate frames.
+### Details:
+Generate ephemeral workspace and paths (project.cmx, logs/, output/). Normalize units (mm/inch) and WCS offsets. Map tools[] to CAMotics tool definitions (diameter, flute length, number of flutes, feed/speed if applicable). Attach stock definition (box/cylinder) and fixturing offset if provided. Validate G-code headers and detect unit/mode (G20/G21, G90/G91). Persist cmx JSON to disk and reference G-code file path. Acceptance: CMX validates with CAMotics --check (if available) and contains expected entities; rejects missing/invalid tool or stock with clear messages.
+
+## 4. CAMotics CLI Runner with Timeout, Retry, and Log Tailing [pending]
+### Dependencies: 9.3
+### Description: Execute CAMotics CLI headless, enforce timeouts/retries, and tail logs to derive percent progress.
+### Details:
+Invoke: camotics --no-gui --format json --output <out_dir> project.cmx. Stream stdout/stderr to rotating log files. Parse progress indicators from CAMotics output (e.g., simulated steps/toolpath segments) and estimate percent; fallback to periodic heartbeats. Apply timeout SIM_TIMEOUT_S and one retry on transient exit codes; capture exit status and duration. Store raw JSON outputs to out_dir. Acceptance: long-running sims show periodic progress updates; timeouts cancel process tree; retry triggers once on eligible failures.
+
+## 5. Output Parser and sim_report v1 Mapping [pending]
+### Dependencies: 9.4
+### Description: Parse CAMotics JSON results and map to sim_report v1 fields including collisions, volume removed, and estimated time.
+### Details:
+Read CAMotics JSON artifacts (e.g., simulation.json) and extract: est_time_s, removed_volume_mm3 (material removal), collision_count/violations (tool-stock/fixture collisions if present), and any warnings. Compose notes[] with structured messages (code, severity, message). Fill sim_video_path/sim_snapshot_path placeholders for later population. Validate against JSON schema and coerce defaults (zeros) when fields absent. Acceptance: parser produces schema-valid report for sample runs and differentiates collision/no-collision scenarios.
+
+## 6. Media Capture and Encoding (Frames → MP4/GIF + Snapshot) [pending]
+### Dependencies: 9.3, 9.4
+### Description: Capture simulation frames and generate MP4/GIF and a representative snapshot using FFmpeg.
+### Details:
+Detect if CAMotics exports frames; if available, collect and sort frames. If not, implement fallback frame capture strategy (e.g., invoke CAMotics in scripted steps or render toolpath layers if supported). Encode video: ffmpeg -r <fps> -i frames/%06d.png -c:v libx264 -pix_fmt yuv420p -movflags +faststart out.mp4. Generate GIF preview (palette optimization) and snapshot (first/median frame). Record frames_count, video duration, and sizes for metrics. Acceptance: MP4, GIF, and PNG snapshot generated deterministically for sample sims; encoding completes within budget and files pass basic validation.
+
+## 7. Artefact Storage and sim_runs Persistence [pending]
+### Dependencies: 9.5, 9.6
+### Description: Upload media and report artefacts to MinIO and persist simulation run records in DB.
+### Details:
+MinIO: create object keys under MINIO_PREFIX/simulations/<sim_id>/ for report.json, out.mp4, preview.gif, snapshot.png, logs/*. Generate presigned URLs with TTL. DB: upsert sim_runs row with job_id, sim_id, status, progress, report JSON, object paths, timings, metrics. Ensure idempotency on retries (same sim_id reuses paths). Acceptance: artefacts visible in MinIO with correct ACL; DB row reflects final state and downloadable URLs work until TTL.
+
+## 8. Progress Streaming and Alert Publishing [pending]
+### Dependencies: 9.4, 9.7
+### Description: Continuously update job progress and publish warnings/alerts to the UI via status and notifications.
+### Details:
+Emit periodic progress updates (0–100%) to jobs.progress and include stage (prepare, simulate, encode, upload). Publish alerts with codes (COLLISION_DETECTED, TIMEOUT, INVALID_INPUT, ENCODING_FAILED) and severity. Deduplicate repeated alerts and rate-limit notifications. On collision_count>0, mark job status with warning and include link to media. Acceptance: UI receives timely progress and a collision alert when applicable; no alert storming under noisy logs.
+
+## 9. Robust Error Handling and Failure Messaging [pending]
+### Dependencies: 9.4, 9.5, 9.6
+### Description: Standardize exception mapping, user-facing messages, and cleanup for failed or partial simulations.
+### Details:
+Classify errors: timeout, CAMotics nonzero exit, corrupt/unsupported G-code, bad CMX, missing tools/stock, media encode failure, storage failure. Map to HTTP and job error codes with actionable messages. Persist failure logs and partial artefacts; ensure workspace cleanup and process termination. Mark job failed with reason and next steps. Acceptance: each error class yields deterministic status, message, and preserved diagnostics; retries occur only on transient classes.
+
+## 10. Schema Validation, Test Matrix, and CI with Containers [pending]
+### Dependencies: 9.2, 9.3, 9.4, 9.5, 9.6, 9.7, 9.8, 9.9
+### Description: Add schema validation gates, comprehensive tests (collision/no-collision/boundaries), and CI integration for CAMotics/FFmpeg containers.
+### Details:
+JSON schema validation as part of worker completion and unit tests. Test fixtures: simple prism no-collision, intentional crash/collision, tiny stock, large G-code file, inch vs mm, invalid G-code. Assert: collision_count semantics, est_time_s > 0, video/snapshot exist and are downloadable, timeout transitions to failed with message. CI: container images with CAMotics and FFmpeg, cache dependencies, run integration tests in pipeline, publish artefact samples on CI for inspection. Acceptance: CI green across matrix; failures surface clear diagnostics; schema violations fail the build.
+

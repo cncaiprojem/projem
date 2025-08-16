@@ -1,0 +1,273 @@
+# Task ID: 8
+# Title: CAM Pipeline with FreeCAD Path WB, Tool Library, Post-Processing and Static G-code Validation
+# Status: pending
+# Dependencies: 6, 7
+# Priority: high
+# Description: Create CAM endpoints and worker to compute toolpaths using FreeCAD Path Workbench, apply machine/post mapping, enforce rules (WCS, stock, keep-out, tool limits), generate G-code with metadata and store artefacts.
+# Details:
+APIs: POST /cam/run, /cam/post; GET /cam/jobs/:id
+Inputs: model_ref, machine_profile, material, operations, WCS, stock, keep-outs
+Implementation:
+- Tool library table and seed (6mm Carbide Endmill 4F, 10mm Drill HSS); ensure API JSON schema per PRD; validate tool↔strategy and diameter vs geometry → 409 CAM_LIMIT_EXCEEDED
+- Machine→post mapping (post_map.py):
+  - 'HAAS MINI MILL'→'post_haas_mill'→.nc
+  - 'Tormach 1100MX'→'post_tormach_mill'→.tap
+  - 'Generic 3-axis Mill'→'post_generic_mill'→.gcode
+  - unknown → 415 POSTPROC_UNSUPPORTED
+- Path WB scripting: create Job, set WCS (G54..G59), define Clearance/Rapid/Z safety heights, create Facing, Profile(2D), Pocket, Drilling ops with validated parameters; sequence to minimize tool changes; compute()
+- Machine limits: axis stroke, feed/speed caps; if violations, propose reduced params or 422
+- Keep-out: AABB intersects path segments → revise or error
+- Post-process: generate G-code; embed SHA256 and meta (tool list, est time) as comments; version rev on re-gen
+- Static G-code validation: pygcode/gcodeparser to ensure modal consistency, forbid codes, feed/speed caps; produce report and block on critical
+- Artefacts: save path, G-code, reports to MinIO with tags {job_id, machine, post}
+Pseudocode (validation snippet):
+- for line in gcode:
+  - if code in FORBIDDEN: errors.append(...)
+  - enforce F<=maxF, S<=maxS; ensure modal states initialized
+
+
+# Test Strategy:
+Integration: run CAM on sample prism; validate tool selection and stock/WCS; unknown machine returns 415. Verify G-code contains metadata comments and sha256. Static validator flags a forbidden M-code. Performance: ensure compute < configured timeout for medium parts. Artefacts stored with correct tags.
+
+# Subtasks:
+## 1. Design CAM APIs and Schemas (/cam/run, /cam/post, GET /cam/jobs/:id) [pending]
+### Dependencies: None
+### Description: Define REST contracts, JSON schemas, status codes, and OpenAPI spec for CAM endpoints.
+### Details:
+Scope:
+- Endpoints: POST /cam/run (compute toolpaths + postproc flag optional), POST /cam/post (post-process existing job/toolpaths), GET /cam/jobs/:id (status + artefact refs).
+- Inputs: model_ref, machine_profile, material, operations[], WCS (G54..G59), stock, keep_outs[].
+- Status codes: 202 queued, 200 OK; 400 VALIDATION_ERROR; 409 CAM_LIMIT_EXCEEDED; 415 POSTPROC_UNSUPPORTED; 422 MACHINE_LIMIT_VIOLATION or KEEP_OUT_VIOLATION; 504 TIMEOUT; 500 INTERNAL.
+- Error envelope: {code, message, details}.
+Sample POST /cam/run body:
+{
+  "model_ref":"s3://artefacts/models/prism.step",
+  "machine_profile":"HAAS MINI MILL",
+  "material":"6061",
+  "operations":[{"type":"Facing","strategy":"planar","tool_id":1}],
+  "WCS":"G54",
+  "stock":{"type":"box","dims":[100,60,20]},
+  "keep_outs":[{"aabb":[[10,10,0],[20,20,30]]}]
+}
+Acceptance:
+- OpenAPI 3.1 published with request/response schemas and examples.
+- Validation middleware enforces schema with descriptive errors.
+- Job object includes fields: id, status, progress, timings, artefact_refs, version_rev.
+Performance:
+- JSON validation per request < 10 ms at p95.
+
+## 2. Tool Library Schema, Seed, and Strategy/Geometry Validation [pending]
+### Dependencies: 8.1
+### Description: Implement tool library storage, seed initial tools, and enforce tool-strategy and geometry constraints.
+### Details:
+DB schema (tools): id, name, type, diameter_mm, flutes, material, stickout_mm, holder, max_rpm, max_feed_mm_min, notes, created_at.
+Seed:
+- id=1, 6mm Carbide Endmill 4F; id=2, 10mm Drill HSS.
+Rules:
+- Strategy compatibility: Endmill → {Facing, Profile2D, Pocket}; Drill → {Drilling}.
+- Geometry: tool.diameter <= min_feature_width for operation geometry; drilling hole_dia ≈ tool.diameter ±0.2mm; stepdowns respect flute length if provided.
+- On violation: 409 CAM_LIMIT_EXCEEDED with details {reason, op_index, tool_id}.
+Sample tool JSON for API exposure:
+{"id":1,"name":"6mm Carbide Endmill 4F","type":"endmill","diameter_mm":6.0,"max_rpm":24000,"max_feed_mm_min":3000}
+Acceptance:
+- Seed migration creates 2 tools.
+- Validator rejects mismatched tool↔strategy and oversize diameter vs geometry.
+- Unit tests cover pass/fail cases.
+
+## 3. Machine to Post-Processor Mapping and File Extension Rules [pending]
+### Dependencies: 8.1
+### Description: Create post_map module that resolves machine names to FreeCAD post and output extension.
+### Details:
+Mapping (post_map.py):
+- 'HAAS MINI MILL' → post: 'post_haas_mill', ext: '.nc'
+- 'Tormach 1100MX' → post: 'post_tormach_mill', ext: '.tap'
+- 'Generic 3-axis Mill' → post: 'post_generic_mill', ext: '.gcode'
+- Unknown → error 415 POSTPROC_UNSUPPORTED {machine_profile}.
+Functions:
+- resolve(machine_profile) → {post_name, extension}.
+- list_supported() → [names].
+Acceptance:
+- Unit tests for known mappings + unknown case.
+- Config override: env POST_MAP_JSON optional.
+
+## 4. FreeCAD Path WB Scripting Harness and Operations Sequencing [pending]
+### Dependencies: 8.1, 8.2
+### Description: Build headless FreeCAD worker harness to create Job, set WCS/stock/heights, add ops, minimize tool changes, compute().
+### Details:
+Capabilities:
+- Launch FreeCAD in headless mode; import model_ref; create Path Job.
+- Set WCS: map G54..G59 to placement/origin per request; set heights: Clearance, Rapid, Safe Z from machine/material defaults.
+- Create operations: Facing, Profile(2D), Pocket, Drilling using validated parameters from operations[].
+- Sequencing: group by tool_id, then by rough→finish; minimize tool changes.
+- Units: mm; tolerances configurable.
+Outputs:
+- Persist FCStd and Path JSON (operations, tool list, est_time).
+Acceptance:
+- Sample prism job computes without errors.
+- Tool changes minimized vs naive sequence (<=1 change for single-tool jobs).
+Performance:
+- Medium part compute() p95 < 120s; memory peak < 1.5GB.
+
+## 5. Machine Limits Enforcement (Axis Stroke, Feed/Speed Caps) with Remediation [pending]
+### Dependencies: 8.1, 8.4
+### Description: Validate toolpaths against machine travel and speed caps; propose safe parameter reductions or fail with 422.
+### Details:
+Inputs: machine profile including axis limits and caps.
+Sample machine JSON:
+{
+  "name":"HAAS MINI MILL",
+  "axes":{"X":[0,406],"Y":[0,305],"Z":[0,254]},
+  "caps":{"max_feed":5000,"max_rpm":10000}
+}
+Checks:
+- Path AABB fits within axes minus safety margins.
+- F<=max_feed, S<=max_rpm; clamp if remediation enabled.
+Remediation:
+- Clamp feeds/speeds to caps; warn in job report; if geometric travel exceeded → 422 MACHINE_LIMIT_VIOLATION.
+Acceptance:
+- Violating feed/speed auto-reduced with note in metadata.
+- Travel violation returns 422 with offending extents.
+Performance:
+- Limits evaluation < 50 ms per job.
+
+## 6. Keep-out AABB Intersection and Path Revision [pending]
+### Dependencies: 8.1, 8.4
+### Description: Detect intersections between path segments and keep-out regions; revise or fail.
+### Details:
+Algorithm:
+- Build AABB for each path segment/rapid; test against keep_outs[].
+- Revision strategies: raise clearance Z or re-route rapids where possible; otherwise error.
+- Report: list of intersections with segment ids and keep-out ids.
+Acceptance:
+- Non-intersecting jobs pass.
+- Intersecting case returns 422 KEEP_OUT_VIOLATION unless revision enabled and effective.
+Performance:
+- Intersection checks scale O(n log n) with spatial index; p95 < 200 ms for 50k segments.
+
+## 7. Post-Processing to G-code with Embedded Metadata and SHA256 [pending]
+### Dependencies: 8.3, 8.4, 8.5, 8.6
+### Description: Generate G-code using resolved post; embed metadata comments and compute SHA256; maintain version rev on re-gen.
+### Details:
+Steps:
+- Resolve post via post_map; invoke FreeCAD post with correct units and file extension.
+- Metadata header comments (prefixed by ';' or '(' per post): sha256, job_id, machine, tool list, est_time_s, created_at, version_rev.
+- Compute sha256 over content sans existing hash; write back into header as sha256.
+- Version rev: monotonic increment per re-generation.
+Acceptance:
+- Output file extension matches mapping.
+- Header contains required metadata and valid sha256 checksum.
+Performance:
+- Post-processing p95 < 30 s; IO bounded.
+
+## 8. Static G-code Validator and Report Generation [pending]
+### Dependencies: 8.1, 8.7
+### Description: Parse and validate G-code for modal consistency, forbidden codes, and caps; emit JSON report and block on critical issues.
+### Details:
+Tools: pygcode or gcodeparser.
+Rules:
+- Initialize modal states (units, plane, absolute/relative, feed mode).
+- Forbidden codes: {"M00","M01","M198","G92"} unless explicitly allowed by machine profile.
+- Enforce F<=max_feed and S<=max_rpm per machine caps.
+Report JSON:
+{
+  "summary":{"errors":0,"warnings":1,"lines":1234},
+  "issues":[{"severity":"error","line":57,"code":"M00","msg":"Program stop forbidden"}]
+}
+Acceptance:
+- Validator flags a known forbidden M-code in fixture and blocks job (critical).
+- Modal states are initialized before first motion.
+Performance:
+- Validation p95 < 15 s for 100k lines.
+
+## 9. Artefact Persistence to MinIO with Tags and Metadata [pending]
+### Dependencies: 8.7, 8.8
+### Description: Store FCStd, toolpath JSON, G-code, and validation reports to MinIO with proper keys and tags.
+### Details:
+Storage:
+- Keys: jobs/{job_id}/cam/{version_rev}/model.fcstd, toolpaths.json, program{ext}, validation_report.json.
+- Object tags: {job_id, machine, post} and content-type metadata.
+- Signed URL integration via file service; verify upload success; server-side sha256 for each artefact.
+Acceptance:
+- All artefacts saved with correct tags and are retrievable via short-lived URLs.
+- Artefact rows include size, sha256, content-type, created_at.
+
+## 10. Execution Timeouts, Resource Limits, and Cancellation [pending]
+### Dependencies: 8.4, 8.7
+### Description: Enforce per-stage timeouts, memory/CPU limits, and job cancellation handling.
+### Details:
+Limits:
+- Overall job timeout: 300 s (configurable).
+- FreeCAD compute: 120 s; postproc: 30 s; validation: 15 s; storage: 10 s.
+- cgroup/ulimit: CPU quota 2 cores, RAM 2 GB, temp disk 2 GB.
+- Cancellation: allow job cancel → terminate subprocesses, mark job canceled.
+Acceptance:
+- Timeouts propagate as 504 TIMEOUT with stage in details.
+- Cancellation within 1 s and no orphan processes.
+Performance:
+- Scheduler respects concurrency limit and backpressure.
+
+## 11. Failure Taxonomy and Consistent Error Handling [pending]
+### Dependencies: 8.1, 8.5, 8.6, 8.8, 8.10
+### Description: Define canonical error codes and map to HTTP; implement uniform error envelope.
+### Details:
+Codes:
+- CAM_LIMIT_EXCEEDED (409)
+- POSTPROC_UNSUPPORTED (415)
+- MACHINE_LIMIT_VIOLATION (422)
+- KEEP_OUT_VIOLATION (422)
+- VALIDATION_ERROR (400)
+- GCODE_STATIC_BLOCKED (422)
+- TIMEOUT (504)
+- INTERNAL (500)
+Envelope: {code, message, details:{stage, context}}; include correlation_id and job_id.
+Acceptance:
+- All failure paths return standardized JSON with actionable details.
+- Error catalog documented and referenced by API spec.
+
+## 12. Observability: Structured Logging, Metrics, and Tracing [pending]
+### Dependencies: 8.4, 8.7, 8.8, 8.9, 8.10, 8.11
+### Description: Add structured logs, metrics, and optional tracing; persist job logs to storage.
+### Details:
+Logging:
+- JSON logs with fields: ts, level, job_id, stage, machine, post, duration_ms.
+- Persist job logs to MinIO: jobs/{job_id}/logs/{version_rev}.ndjson.
+Metrics:
+- cam.jobs_submitted, cam.jobs_succeeded, cam.jobs_failed
+- cam.stage_duration_ms{stage}
+- cam.validation_issues{severity}
+Tracing:
+- Optional OpenTelemetry spans for stages; sampling 10%.
+Acceptance:
+- Dashboards show p95 durations and failure rates.
+- Logs correlate across stages by job_id/correlation_id.
+
+## 13. Test Fixtures, CI Integration Runs, and Acceptance Tests [pending]
+### Dependencies: 8.1, 8.2, 8.3, 8.4, 8.5, 8.6, 8.7, 8.8, 8.9, 8.10, 8.11, 8.12
+### Description: Provide sample models and machine profiles; automate integration tests for end-to-end pipeline.
+### Details:
+Fixtures:
+- Prism STEP with features, ops JSON, keep-outs.
+- Machine profiles for three mapped machines + an unknown.
+Tests:
+- Happy path: compute→post→validate→store; verify metadata and sha256 in G-code.
+- Unknown machine returns 415.
+- Validator flags forbidden M-code and blocks.
+- Performance: medium part completes < 300 s end-to-end.
+CI:
+- Runs on PR; artifacts uploaded; reports attached.
+Acceptance:
+- All tests green; coverage for validators and mappers > 80%.
+
+## 14. Documentation and Operator Guidelines [pending]
+### Dependencies: 8.1, 8.3, 8.7, 8.8, 8.9, 8.11, 8.12, 8.13
+### Description: Produce README, runbooks, configuration samples, and SOPs for operators.
+### Details:
+Docs:
+- API usage examples for /cam/run, /cam/post, GET job.
+- Sample configs: post_map, machine profiles, limits caps, forbidden codes.
+- Operator SOP: selecting WCS/stock, defining keep-outs, interpreting validator report, re-gen versioning.
+- Troubleshooting matrix by error code; escalation paths.
+Acceptance:
+- Reviewed and approved by CAM lead; docs published alongside OpenAPI.
+- Quickstart completes end-to-end run in < 15 minutes.
+

@@ -1,0 +1,53 @@
+{
+	"meta": {
+		"generatedAt": "2025-08-16T14:45:14.676Z",
+		"tasksAnalyzed": 5,
+		"totalTasks": 10,
+		"analysisCount": 5,
+		"thresholdScore": 5,
+		"projectName": "Taskmaster",
+		"usedResearch": true
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 1,
+			"taskTitle": "Monorepo, Containers and CI/CD Setup",
+			"complexityScore": 9,
+			"recommendedSubtasks": 14,
+			"expansionPrompt": "Decompose into: (1) repo scaffolding/conventions/pre-commit, (2) env templates and secrets strategy, (3) FastAPI skeleton + Alembic base, (4) Celery workers + Beat wiring, (5) Next.js skeleton, (6) structlog JSON logging + request_id + OTel stubs, (7) hardened Dockerfiles for API/workers, (8) hardened Dockerfile for web, (9) utility images (FreeCAD/CAMotics/FFmpeg/ClamAV), (10) docker-compose.dev with healthchecks + smoke script, (11) RabbitMQ DLX/queues definition, (12) MinIO + bucket bootstrap + presign util, (13) Backend CI/CD (lint, test, build, SBOM, sign, scan), (14) Frontend CI (lint, typecheck, unit, Playwright). For each subtask define: inputs, commands, acceptance criteria, security hardening (non-root, SBOM, cosign, Trivy), caching, and smoke tests.",
+			"reasoning": "Multi-service stack with secure supply chain and developer UX requirements; touches infra, build, security, and CI/CD. High coordination and failure-surface across containers and workflows."
+		},
+		{
+			"taskId": 2,
+			"taskTitle": "Database Schema and Migrations",
+			"complexityScore": 8,
+			"recommendedSubtasks": 10,
+			"expansionPrompt": "Break down into: (1) finalize ERD/enums/canonicalization rules, (2) Alembic setup + naming conventions + base rev, (3) core tables (users/sessions/licenses/models/jobs), (4) operational tables (cam_runs/sim_runs/artefacts/notifications/erp_mes_sync), (5) billing tables (invoices/payments) with currency checks, (6) security + audit tables with hash-chain, (7) global constraints and performance indexes (GIN/partial uniques), (8) seed data migration, (9) migration and integrity test suite (upgrade/downgrade, plans), (10) SQLAlchemy parity and documentation. Include downgrade paths, deterministic canonical JSON, and idempotency policies.",
+			"reasoning": "Complex relational model with strict constraints, JSONB, and audit hash-chaining. Requires careful migration hygiene, performance indexing, and ORM parity."
+		},
+		{
+			"taskId": 3,
+			"taskTitle": "Auth, Sessions, RBAC, MFA, OIDC, Magic Link + Frontend Guards",
+			"complexityScore": 10,
+			"recommendedSubtasks": 16,
+			"expansionPrompt": "Expand into: (1) password auth (Argon2+pepper+policy), (2) sessions table + device fingerprint, (3) JWT access/refresh with rotation & revocation, (4) RBAC dependencies, (5) Google OIDC PKCE/state, (6) magic link issuance/consume, (7) TOTP MFA + backup codes, (8) CSRF double-submit, (9) rate limiting with Redis, (10) security headers + input sanitization, (11) audit/security logging with PII masking, (12) dev/prod toggles and hardening, (13) frontend auth pages + i18n, (14) route guards + idle logout, (15) E2E + security tests (ZAP/Playwright), (16) docs and operational playbooks. Define OpenAPI, cookie attributes, threat model, error codes (ERR-*), and logging taxonomy.",
+			"reasoning": "Multiple authentication flows, browser security, token rotation, and frontend integration with strict security requirements. Highest risk area demanding extensive tests and hardening."
+		},
+		{
+			"taskId": 4,
+			"taskTitle": "Licensing, Billing, Invoices, Expiry Enforcement and Notifications",
+			"complexityScore": 9,
+			"recommendedSubtasks": 12,
+			"expansionPrompt": "Structure as: (1) license domain model and transitions, (2) license APIs with audit + idempotency, (3) enforcement middleware + session revocation, (4) invoice model + numbering + VAT, (5) invoice PDF render + MinIO immutability, (6) payments abstraction + webhook idempotency, (7) notifications service (email/SMS) with fallback + templates, (8) Celery Beat scheduler for D-7/3/1 scans, (9) job-cancellation on expiry, (10) observability and audit trail, (11) concurrency/uniqueness guards (numbers, idempotency, webhooks), (12) comprehensive test matrix including time-freeze and concurrency. Specify data invariants, race-condition handling, and acceptance checks.",
+			"reasoning": "Involves money, time-based enforcement, external providers, PDFs, and scheduling with strict consistency and auditability. Concurrency and idempotency are critical."
+		},
+		{
+			"taskId": 5,
+			"taskTitle": "S3/MinIO File Service, Signed URLs, Upload Validation and Artefacts",
+			"complexityScore": 8,
+			"recommendedSubtasks": 8,
+			"expansionPrompt": "Split into: (1) MinIO client config/credentials and hardening, (2) buckets/policies/versioning/lifecycle and object lock, (3) upload init/finalize/download APIs with presigned URLs and RBAC, (4) server-side validation (type/MIME/size/double-extension), (5) streaming SHA256 compute/compare with cleanups, (6) optional ClamAV integration and failure handling, (7) artefact persistence/tagging/audit logging, (8) frontend uploader with Web Worker hashing and progress. Define TTLs, allowed lists, error codes, idempotency, and audit events.",
+			"reasoning": "Security-sensitive file handling with streaming verification, storage policies, and optional malware scanning, plus FE uploader flow. Requires precise validation and short-lived, least-privilege access."
+		}
+	]
+}

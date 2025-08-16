@@ -1,0 +1,127 @@
+# Pre-commit hooks konfigürasyonu
+# FreeCAD tabanlı CNC/CAM/CAD üretim platformu için kod kalitesi kontrolü
+
+repos:
+  # Genel dosya kontrolları
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+        name: Satır sonu boşluklarını temizle
+        description: Satır sonlarındaki gereksiz boşlukları kaldırır
+      - id: end-of-file-fixer
+        name: Dosya sonu düzeltmesi
+        description: Dosyaların son satırında yeni satır karakteri olmasını sağlar
+      - id: check-yaml
+        name: YAML dosya kontrolü
+        description: YAML dosyalarının syntax kontrolünü yapar
+      - id: check-json
+        name: JSON dosya kontrolü
+        description: JSON dosyalarının syntax kontrolünü yapar
+      - id: check-toml
+        name: TOML dosya kontrolü
+        description: TOML dosyalarının syntax kontrolünü yapar
+      - id: check-merge-conflict
+        name: Merge conflict kontrolü
+        description: Git merge conflict işaretlerini kontrol eder
+      - id: check-added-large-files
+        name: Büyük dosya kontrolü
+        description: 500KB'dan büyük dosyaların eklenmesini engeller
+        args: ['--maxkb=500']
+      - id: debug-statements
+        name: Debug statement kontrolü
+        description: Python kodunda unutulmuş pdb, ipdb ifadelerini bulur
+
+  # Python kod formatı ve kalite kontrolü
+  - repo: https://github.com/psf/black
+    rev: 24.4.2
+    hooks:
+      - id: black
+        name: Black Python formatter
+        description: Python kodunu Black standartlarına göre formatlar
+        language_version: python3.11
+        files: ^apps/api/
+        args: [--line-length=100]
+
+  - repo: https://github.com/pycqa/isort
+    rev: 5.13.2
+    hooks:
+      - id: isort
+        name: Python import sıralayıcı
+        description: Python import ifadelerini alfabetik olarak sıralar
+        files: ^apps/api/
+        args: [--profile=black, --line-length=100]
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.4.8
+    hooks:
+      - id: ruff
+        name: Ruff Python linter
+        description: Hızlı Python linting ve kod kalitesi kontrolü
+        files: ^apps/api/
+        args: [--fix, --exit-non-zero-on-fix]
+      - id: ruff-format
+        name: Ruff Python formatter
+        description: Ruff ile Python kod formatı
+        files: ^apps/api/
+
+  # Python tip kontrolü
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.10.0
+    hooks:
+      - id: mypy
+        name: MyPy tip kontrolü
+        description: Python kodunda statik tip kontrolü yapar
+        files: ^apps/api/
+        additional_dependencies: [types-all]
+        args: [--ignore-missing-imports, --no-strict-optional]
+
+  # JavaScript/TypeScript formatı ve kalite kontrolü
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.3.2
+    hooks:
+      - id: prettier
+        name: Prettier formatter
+        description: JavaScript/TypeScript/CSS/HTML kodunu formatlar
+        files: ^apps/web/
+        types_or: [javascript, jsx, ts, tsx, css, json, yaml, markdown]
+        exclude: ^apps/web/node_modules/
+
+  # TypeScript/JavaScript linting
+  - repo: https://github.com/pre-commit/mirrors-eslint
+    rev: v9.6.0
+    hooks:
+      - id: eslint
+        name: ESLint JavaScript/TypeScript linter
+        description: JavaScript/TypeScript kod kalitesi kontrolü
+        files: ^apps/web/.*\.(js|jsx|ts|tsx)$
+        exclude: ^apps/web/node_modules/
+        additional_dependencies:
+          - eslint@9.6.0
+          - eslint-config-next@14.2.5
+          - typescript@5.5.3
+
+  # Docker ve compose dosya kontrolü
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint-docker
+        name: Dockerfile linter
+        description: Dockerfile best practices kontrolü
+        files: Dockerfile.*
+
+  # Güvenlik kontrolü
+  - repo: https://github.com/PyCQA/bandit
+    rev: 1.7.8
+    hooks:
+      - id: bandit
+        name: Python güvenlik kontrolü
+        description: Python kodunda güvenlik açığı taraması
+        files: ^apps/api/
+        args: [-r, --skip=B101,B601]  # test assertions ve shell=True uyarılarını atla
+
+# Pre-commit hook'ların çalıştırılacağı Git aşamaları
+default_stages: [commit, push]
+
+# Minimum pre-commit versiyonu
+minimum_pre_commit_version: '3.0.0'

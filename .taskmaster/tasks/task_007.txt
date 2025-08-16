@@ -1,0 +1,276 @@
+# Task ID: 7
+# Title: Model Generation Flows (Prompt, Parametric, Upload, Assembly4) with FreeCAD
+# Status: pending
+# Dependencies: 2, 5, 6
+# Priority: high
+# Description: Implement endpoints and Celery workers to generate models via FreeCADCmd for prompt-driven (AI pre-processing), parametric forms, file upload normalization, and Assembly4 assemblies. Produce FCStd, STEP, STL, GLB preview and metrics.
+# Details:
+Endpoints:
+- POST /designs/prompt, /designs/params, /designs/upload, /assemblies/a4 (all JWT + licenseGuard + rate limit)
+Prompt (AI):
+- Adapter interface (e.g., OpenAI/Azure) with limits: max tokens ~2k, timeout 20s, retries 3; per-user 30/min; mask PII in logs; store raw masked in ai_suggestions table (part of models.params)
+- normalize() and validate() deterministic; ambiguous → 425; missing → ERR-AI-422 AI_HINT_REQUIRED
+Validation rules:
+- Required fields (dimensions, units, material, machine); ranges (min wall, inner radius); material↔machine compatibility
+FreeCAD worker (subprocess):
+- Launch per job: `FreeCADCmd -c worker_script.py --args ...`; set ulimit or cgroups for CPU/RAM
+- Parametric example (prism with hole) pseudo-Python:
+  - import FreeCAD as App, Part
+  - doc=App.newDocument(); b=Part.makeBox(L,W,H); c=Part.makeCylinder(d/2,H)
+  - b=b.cut(c.translate(App.Vector(L/2,W/2,0)))
+  - Part.show(b); doc.recompute(); doc.saveAs(fcstd_path)
+  - export STEP/STL via Import/Export; generate STL then GLB using trimesh(export('glb')) for preview
+- Upload flow: on finalize, run normalization (unit conversion, orientation); optional manifold fix (trimesh.repair)
+- Assembly4: parse parts and placement constraints; build hierarchy; collision check (basic bounding box first)
+Outputs:
+- Artefacts: FCStd, STEP, STL, GLB; metrics: solids/faces/edges counts, duration; logs with request_id
+- Errors: catch FreeCAD exceptions → job failed + suggestions
+
+
+# Test Strategy:
+Unit: normalize/validate for several sample prompts/params; ambiguous prompt returns proper code. Integration: run FreeCAD worker in container to produce FCStd/STEP/STL/GLB; verify artefacts saved and sha256 logged. Upload: corrupted STEP returns 422 with remediation hints. Assembly: conflicting constraints detect and reported.
+
+# Subtasks:
+## 1. Define API contracts and guards for model generation endpoints [pending]
+### Dependencies: None
+### Description: Design and document POST /designs/prompt, /designs/params, /designs/upload, /assemblies/a4 with JWT, licenseGuard, RBAC scope checks, and per-user rate limits.
+### Details:
+Deliver OpenAPI schemas and Pydantic models for inputs/outputs; apply guards: JWT Bearer, licenseGuard (active license), RBAC scope 'models:write'; rate limits: global 60/min per user and AI prompt-specific 30/min; support Idempotency-Key header (stored to jobs.idempotency_key) returning 409 on reuse with conflicting body; responses: 202 Accepted with job_id and request_id; error codes include 401/403/429; content types: application/json (prompt, params, a4) and application/json with object storage reference for upload; include GET /jobs/:id and GET /jobs/:id/artefacts to poll status and list artefacts; acceptance: OpenAPI generated, guards enforced in integration stub, rate limit returns 429 with Retry-After, idempotency validated.
+
+## 2. Implement AI adapter (OpenAI/Azure) with timeouts, retries, PII masking, storage [pending]
+### Dependencies: 7.1
+### Description: Create a provider-agnostic AI adapter with configured limits and compliant logging/storage for prompt preprocessing.
+### Details:
+Adapter interface: suggest_params(prompt:str, context:dict, max_tokens<=2000, timeout<=20s, retries=3 with exponential backoff+jitter); providers: OpenAI Chat Completions and Azure OpenAI; PII masking (emails, phones, names, addresses) before logging/storage; store masked raw prompt and response in ai_suggestions table (linked to models.params/job_id, request_id); enforce per-user 30/min in adapter as defense-in-depth; circuit breaker on repeated timeouts; configurable via env (provider, model, api_base, api_key, timeouts); acceptance: masked content in logs and DB, retries stop at 3 with backoff, timeouts cancel correctly, adapter returns deterministic schema or raises Ambiguous/Missing with codes.
+<info added on 2025-08-15T21:02:01.754Z>
+Turkish optimization and GPT4FreeCAD-inspired setup:
+
+- System prompt (inspired by revhappy/GPT4FreeCAD; tailored for FreeCAD Python API):
+  Sen FreeCAD Python API uzmanısın. Türkçe CAD tasarım isteklerini FreeCAD scriptlerine dönüştür. Part, Sketcher, Draft modüllerini kullan. Birimler mm, koordinat sistemi sağ el kuralı. Türkçe CAD terimlerini sözlükle İngilizce karşılıklarına eşle: vida→screw, flanş→flange, mil→shaft, yatak→bearing, dişli→gear. Belirsizlik varsa güvenli varsayılanları belirt ve requires_clarification=true alanını doldur. ÇIKTI KURALI: Yalnızca JSON döndür (markdown yok) ve alanlar: {language:"tr", units:"mm", intent:"freecad_script", glossary_used:true|false, parameters:{}, script_py:"<FreeCAD Python>", warnings:[], requires_clarification:true|false}.
+
+- Turkish CAD glossary (used in preprocessing and normalization):
+  vida→screw; flanş→flange; mil→shaft; yatak→bearing; dişli→gear.
+  Apply as case-insensitive hints; do not over-rewrite variable names inside code.
+
+- Few-shot exemplars (Turkish prompt → minimal FreeCAD Python script; adapter will wrap these as assistant JSON per schema during real requests):
+  1) Prompt: M8 vida deliği olan 20mm flanş
+     Script:
+     import FreeCAD as App, Part
+     doc = App.newDocument("flange")
+     outer_d = 20.0
+     thickness = 5.0
+     hole_d = 8.5  # M8 clearance
+     body = Part.makeCylinder(outer_d/2.0, thickness)
+     hole = Part.makeCylinder(hole_d/2.0, thickness)
+     result = body.cut(hole)
+     Part.show(result)
+     doc.recompute()
+  2) Prompt: 3 adet dişli ile güç aktarım sistemi
+     Script:
+     import FreeCAD as App, Part, Base
+     doc = App.newDocument("gear_train")
+     module = 1.0
+     teeth = [20, 40, 20]
+     thickness = 10.0
+     radii = [module*t/2.0 for t in teeth]
+     centers = [(0,0,0), (radii[0]+radii[1],0,0), (radii[0]+2*radii[1],0,0)]
+     for i,(r,c) in enumerate(zip(radii, centers)):
+         cyl = Part.makeCylinder(r, thickness)
+         cyl.translate(Base.Vector(*c))
+         Part.show(cyl)
+     doc.recompute()
+  3) Prompt: Ayarlanabilir mil çapı ve uzunluğu
+     Script:
+     import FreeCAD as App, Part
+     def make_shaft(d=12.0, L=80.0):
+         doc = App.ActiveDocument or App.newDocument("shaft")
+         body = Part.makeCylinder(d/2.0, L)
+         Part.show(body)
+         doc.recompute()
+         return body
+     make_shaft()
+
+- OpenAI/Azure client configuration for this adapter path:
+  timeout=20s, retries=3 with exponential backoff + jitter; model and api_base configurable via env; pass user_locale=tr-TR; include system prompt above; enforce JSON-only response via response_format or output parser.
+
+- Response parser and normalization:
+  Expect JSON with fields: language, units, intent, glossary_used, parameters, script_py, warnings, requires_clarification.
+  Steps:
+  1) Strip markdown and non-JSON pre/post text.
+  2) Validate presence and types; else raise Missing(code=ERR-AI-422) or Ambiguous(code=ERR-AI-425).
+  3) Enforce units=mm; convert numeric dims if user used cm (detect tokens like “cm”, “metre”).
+  4) Apply glossary to parameters/intent only; do not mutate script identifiers.
+  5) Lint script_py: must import FreeCAD and use Part/Sketcher/Draft only; reject file I/O and os/system calls.
+  6) Attach warnings for assumed defaults (e.g., thickness=5mm, M8 clearance=8.5mm).
+  7) Store masked prompt/response for audit; persist normalized JSON and derived script.
+
+- PII masking and audit:
+  Mask emails, phones, names, addresses in Turkish/English before storage/logging; ensure masked content is what lands in audit; retain request_id and job linkage.
+
+- Test scenarios (Turkish):
+  - Basit geometri: "M8 vida deliği olan 20mm flanş" → script returns a 20mm disk with 8.5mm through-hole; units=mm; warnings may note default thickness.
+  - Karmaşık montaj: "3 adet dişli ile güç aktarım sistemi" → script creates 3 cylinders positioned by pitch radii; warnings note simplification (no involute teeth).
+  - Parametrik model: "Ayarlanabilir mil çapı ve uzunluğu" → script exposes parameters d and L; requires_clarification=false when both provided, true otherwise.
+
+- Acceptance additions for Turkish flow:
+  - adapter applies glossary and locale; model returns JSON-only; parser yields valid FreeCAD script_py or raises explicit Ambiguous/Missing with codes.
+  - timeouts and retries respected for tr-TR prompts.
+  - masked audit rows include original Turkish prompt and JSON response.
+</info added on 2025-08-15T21:02:01.754Z>
+
+## 3. Build normalize() and validate() deterministic rules engine [pending]
+### Dependencies: 7.1
+### Description: Implement canonicalization and validation for prompts and parametric inputs with strict error codes.
+### Details:
+Normalization: units→mm (exact factors), ordered keys, numeric rounding (e.g., 1e-6), default units/material if provided context, string trims, enum casing; Validation: required fields (dimensions L,W,H or relevant set, units, material, machine), ranges (min wall thickness, inner radius > 0), material↔machine compatibility; Ambiguity detection (multiple interpretations) → HTTP 425; missing essential info → 422 with code ERR-AI-422 AI_HINT_REQUIRED; output canonical_params JSON used by workers and cache keys; acceptance: unit tests cover valid, ambiguous, and missing cases returning exact codes and messages deterministically.
+<info added on 2025-08-15T21:04:01.108Z>
+Extend normalize()/validate() with GPT4FreeCAD-style “script mode” for AI-generated FreeCAD Python scripts (Turkish CAD script security).
+
+Scope
+- Applies when input contains a FreeCAD Python script (from prompt adapter or upload). Produces canonical_script and script_meta alongside canonical_params. Deterministic outputs drive worker cache keys (script_hash = sha256(canonical_script)).
+
+Allowed/forbidden
+- Allowed imports: FreeCAD (aliased as App), Part, Sketcher, Draft, math, numpy (numeric-only).
+- Forbidden names/operations: __import__, exec, eval, open, file, os, subprocess, sys.exit (any access), dynamic import patterns, writing files, spawning processes.
+- Numpy allowlist (attribute access limited to): array, asarray, linspace, arange, zeros, ones, sqrt, sin, cos, tan, pi, dot, cross, clip, maximum, minimum, abs, floor, ceil, round. Any other numpy attribute → SECURITY_VIOLATION.
+
+Normalization (deterministic, idempotent)
+1) Ensure imports (prepend if missing, keep single copies):
+   - import FreeCAD as App
+   - import Part
+   - Optional pass-through (present but not added): import Sketcher, import Draft, import math, import numpy as np or import numpy
+2) Ensure document:
+   - If no new/active doc used: insert doc = App.newDocument()
+   - Else if a document exists but no variable doc: insert doc = App.ActiveDocument
+3) Ensure display:
+   - If a top-level variable named result is created and is used as a shape/object, append Part.show(result) if missing
+4) Ensure recompute:
+   - Append doc.recompute() if missing at end of script
+5) Unit normalization to mm:
+   - Recognize and convert the following to mm, rounding to 1e-6:
+     a) Identifier suffixes: *_cm → value*10; *_inch or *_in → value*25.4
+     b) Inline unit comments on assignments/call args: “… = 12  # cm/inch/in”
+     c) Helper-like calls cm(x), inch(x) → replaced with numeric mm literal (if present)
+   - Update variable names by removing unit suffixes after conversion
+6) Comment translation:
+   - Translate Turkish comments to English via glossary-based replacement (code unchanged). Minimal glossary: uzunluk→length, genişlik→width, yükseklik→height, yarıçap→radius, duvar kalınlığı→wall thickness, birim→unit, mm→mm, cm→cm, inç→inch, hata→error, uyarı→warning
+7) Key ordering and whitespace:
+   - Stable import ordering (FreeCAD/Part first), strip trailing spaces, ensure newline at EOF
+
+Validation
+1) Syntax (AST):
+   - Parse with Python AST. On SyntaxError → INVALID_SYNTAX
+2) Security (AST-based, name/attr/use):
+   - Reject forbidden builtins/names and any access to os, subprocess, sys.exit (direct or via alias)
+   - Reject dynamic code execution (exec, eval, __import__)
+   - Enforce import allowlist; any other import → SECURITY_VIOLATION
+   - Enforce numpy allowlist; any disallowed attribute access on numpy/np → SECURITY_VIOLATION
+3) FreeCAD API compatibility (version target: FreeCAD 1.1.x):
+   - Resolve attribute chains (e.g., Part.makeBox). If attribute missing → API_NOT_FOUND
+   - Deprecated methods produce non-fatal warnings (API_DEPRECATED) with suggested replacements (maintain internal deprecation map); still pass validate unless also missing
+4) Dimension limits (mm):
+   - Extract lengths from known constructors and operations: Part.makeBox(L,W,H), Part.makeCylinder(r,h), Part.Face/Edge creation with lengths, Sketcher distances where literal
+   - After unit normalization, each positive dimension must be 0.1 ≤ value_mm ≤ 1000; else → DIMENSION_ERROR
+5) Timeout:
+   - Sandbox execution budget 20s CPU/wall (worker enforces). Exceeding budget → TIMEOUT_ERROR
+
+Error codes, messages (Turkish, deterministic)
+- INVALID_SYNTAX (HTTP 400): Python sözdizimi hatası: {details}. Çözüm: satır {lineno} yakınındaki hatayı düzeltin.
+- SECURITY_VIOLATION (HTTP 403): Güvenlik ihlali: yasaklı komut/modül kullanımı tespit edildi: {symbol}. Öneri: yalnızca izin verilen modülleri (FreeCAD, Part, Sketcher, Draft, math, numpy) ve güvenli API’leri kullanın.
+- API_NOT_FOUND (HTTP 422): API bulunamadı: {qualname} FreeCAD {version} içinde yok veya erişilemez. Öneri: güncel API’yi kullanın: {suggestion}.
+- DIMENSION_ERROR (HTTP 422): Boyut limiti aşıldı: {name}={value_mm} mm (izin: 0.1–1000 mm). Öneri: değeri aralığa çekin.
+- TIMEOUT_ERROR (HTTP 504): Zaman aşımı: script 20 saniyeyi aştı. Öneri: hesaplamayı basitleştirin veya yinelemeyi sınırlandırın.
+
+Outputs on success (augment canonical_params)
+- canonical_script: normalized script text
+- script_meta: {
+  modules_used: [...],
+  conversions_applied: [{from_unit, to_unit, before, after, location}],
+  api_warnings: [API_DEPRECATED …],
+  dims_mm: {L, W, H, r, h, … when inferable},
+  script_hash: sha256(canonical_script)
+}
+
+Determinism
+- All normalization edits are structural (AST-to-source or regex with anchor rules) and idempotent.
+- Error messages include fixed templates and stable field ordering; numbers rounded to 1e-6.
+
+Testing (expand unit tests)
+- Syntax error sample → INVALID_SYNTAX with exact Turkish template
+- Forbidden exec/eval/open/os/subprocess/sys.exit → SECURITY_VIOLATION
+- Disallowed import (e.g., json) or numpy attribute (e.g., np.linalg.solve) → SECURITY_VIOLATION
+- Missing imports/doc/show/recompute auto-inserted; idempotent on second run
+- Unit conversions: _cm, _inch suffixes and inline comments converted to mm; values rounded; variable names normalized
+- API missing (e.g., Part.makeBoxx) → API_NOT_FOUND; deprecated method → warning only
+- Dimension limits: values outside [0.1, 1000] mm → DIMENSION_ERROR; boundary values pass
+- Timeout enforced in worker harness → TIMEOUT_ERROR
+- Comments translated TR→EN in output; code semantics unchanged
+- Snapshot of canonical_script hashed; cache key stable across runs with same logical script
+</info added on 2025-08-15T21:04:01.108Z>
+
+## 4. Celery job orchestration and lifecycle for model flows [pending]
+### Dependencies: 7.1
+### Description: Wire API to Celery tasks, define queues, idempotency, structured logging, and job status transitions.
+### Details:
+Queues: models.prompt, models.params, models.upload, assemblies.a4; task signature includes job_id, request_id, user_id, canonical_params/input_ref; Celery worker options: acks_late, task_time_limit and soft_time_limit, visibility_timeout; retries for transient storage/queue errors only; dead-letter via RabbitMQ DLX; structured logs with request_id; CLI: celery -A app.celery_app worker -Q models.prompt,models.params,models.upload,assemblies.a4 -Ofair -c 2 --prefetch-multiplier=1; acceptance: job created with idempotency, transitions queued→running→succeeded/failed, logs contain request_id, DLQ receives poisoned messages.
+
+## 5. FreeCAD worker container image and execution harness [pending]
+### Dependencies: 7.4
+### Description: Create container with FreeCADCmd 1.1.x and a harness that executes modeling tasks under resource limits.
+### Details:
+Dockerfile installs FreeCADCmd 1.1.x, Python 3.11, packages: numpy, trimesh, pygltflib (if used), minio SDK; non-root user; execution harness worker_script.py parses args, sets ulimit (CPU seconds) and cgroups (RAM), sets nice/ionice; invocation: FreeCADCmd -c /app/worker_script.py --flow {prompt|params|upload|a4} --input /work/input.json --outdir /work/out --request-id {uuid}; temp workspace isolated per job; acceptance: container builds in CI, FreeCADCmd available, harness enforces time/memory limits and exits with non-zero on violation.
+
+## 6. Implement parametric modeling pipeline (example prism with hole) [pending]
+### Dependencies: 7.3, 7.5
+### Description: Translate canonical params to FreeCAD geometry and export artefacts for the params flow.
+### Details:
+Inputs: L,W,H,d, units(mm), material, machine; FreeCAD pseudo: newDocument, Part.makeBox, Part.makeCylinder, translate to center, cut, Part.show, recompute; save FCStd; export STEP via Import/Export, STL via Mesh; GLB preview via trimesh from STL; accept tessellation quality args; ensure deterministic recompute (no random seeds); acceptance: given sample params, pipeline outputs FCStd, STEP, STL, GLB with stable sha256 across runs, metrics present, and material-machine compatibility enforced.
+
+## 7. Upload flow normalization and validation [pending]
+### Dependencies: 7.3, 7.5
+### Description: Process uploaded CAD files: unit conversion, orientation normalization, optional manifold repair, and validation.
+### Details:
+Inputs: object_storage_ref (S3 key), declared units/or auto-detect; load STEP/IGES/STL into FreeCAD/trimesh; convert to mm, orient Z-up, center or preserve origin based on flag, weld/merge; optional trimesh.repair (fill holes, remove degenerate faces); validate geometry (manifoldness, min wall where inferable), reject corrupted STEP with 422 and remediation hints; acceptance: sample corrupted STEP returns 422 with hints, valid uploads produce normalized outputs and GLB preview.
+
+## 8. Assembly4 JSON parser and constraint handling [pending]
+### Dependencies: 7.3, 7.5
+### Description: Parse A4-style inputs, place parts using LCS/placements, and run basic collision checks.
+### Details:
+Input schema: parts (model_ref, LCS names), constraints (Attachment, AxisCoincident, Angle, Offset), root LCS; load referenced parts (STEP/FCStd) into doc, apply placements, build hierarchy; collision check via AABB first, report pair list; save assembly FCStd, export formats; acceptance: given sample assembly JSON, placements applied as specified, collisions flagged, outputs generated.
+
+## 9. Unified export pipeline with version pinning (FCStd, STEP, STL, GLB) [pending]
+### Dependencies: 7.5
+### Description: Standardize exports and ensure deterministic, versioned outputs for all flows.
+### Details:
+Pin FreeCAD 1.1.x and Python deps; export FCStd native; STEP via Import/Export with fixed write parameters (schema AP214/AP242); STL using Mesh with fixed linear/angle deflection; GLB via trimesh conversion from STL with fixed transforms and quantization off; record exporter versions in artefact metadata; acceptance: same input produces identical hashes across runs in CI, and metadata includes version/tolerances.
+
+## 10. Metrics extraction and runtime telemetry [pending]
+### Dependencies: 7.5, 7.9
+### Description: Compute model metrics and durations, and attach to jobs.
+### Details:
+Metrics: solids, faces, edges (TopoShape), triangle count from STL, bounding box, volume (if closed), mass (if density from material), duration_ms; capture worker CPU/RAM peak when available; store metrics JSON in jobs table and emit structured logs with request_id; acceptance: metrics fields populated for all flows, values match golden within tolerance.
+
+## 11. Artefact storage and linking to jobs [pending]
+### Dependencies: 7.4, 7.9, 7.10
+### Description: Upload artefacts to object storage and persist DB records linked to job lifecycle.
+### Details:
+MinIO/S3 integration with bucket models; path scheme jobs/{job_id}/{artefact}.{ext}; set content-type and metadata (sha256, exporter version, request_id); compute sha256; insert artefacts row with FK to jobs and cascade on job delete; generate presigned URLs for download; acceptance: artefacts uploaded, DB rows created, sha256 logged, presigned URLs work and expire.
+
+## 12. Error handling, code mapping, and user suggestions [pending]
+### Dependencies: 7.3, 7.5, 7.9
+### Description: Create a unified error taxonomy and map worker exceptions to actionable API errors.
+### Details:
+Map: Ambiguous→425, ERR-AI-422 AI_HINT_REQUIRED, VALIDATION_4xx for rules, FC_RUNTIME for FreeCAD errors, STORAGE_5xx for IO; include 'suggestions' array (e.g., increase wall thickness to >= min, choose compatible machine/material, reduce part size) and 'remediation_links'; ensure logs capture exception class and traceback but mask PII; acceptance: errors return correct HTTP/code, include suggestions, and logs correlate with request_id.
+
+## 13. Performance tuning and caching strategy [pending]
+### Dependencies: 7.6, 7.7, 7.8, 7.9
+### Description: Optimize throughput and determinism via caching, concurrency, and warm-ups.
+### Details:
+Caching: Redis keyed by canonical_params hash for params/prompt flows to reuse artefacts/metrics; AI suggestion cache keyed by masked prompt hash with TTL; geometry memoization per canonical key; pre-warm FreeCAD module import; Celery tuning (concurrency, prefetch=1, time limits), rate limits; avoid redundant exports if artefacts present; acceptance: repeated identical requests hit cache (>90% hit rate in test), p95 latency reduced, outputs unchanged.
+
+## 14. Test data, golden artefacts, and CI integration tests (FreeCAD in container) [pending]
+### Dependencies: 7.1, 7.2, 7.3, 7.4, 7.5, 7.6, 7.7, 7.8, 7.9, 7.11, 7.13
+### Description: Create deterministic test corpus and wire end-to-end tests in CI to validate all flows.
+### Details:
+Test data: sample prompts (clear/ambiguous), param sets, corrupted and valid STEP/STL, Assembly4 JSON; generate golden outputs (FCStd/STEP/STL/GLB) and metrics with locked versions and store hashes; CI: run docker-compose to bring up API, Celery, FreeCAD worker, MinIO, RabbitMQ, Redis; pytest integration suite triggers each endpoint, polls /jobs/:id until done, verifies artefacts exist and sha256 match golden, metrics within tolerance; checks: 425 on ambiguous prompt, 422 on corrupted STEP with hints, rate limit 429, idempotency behavior; acceptance: CI passes deterministically on clean runners.
+

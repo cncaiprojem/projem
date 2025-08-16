@@ -34,6 +34,35 @@ services:
     networks:
       - app-net
 
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    container_name: fc_rabbitmq
+    hostname: fc-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-freecad}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-freecad}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+      # DLX ve Queue politikaları için
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbit log_levels [{connection,error},{default,info}]
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"       # AMQP portu
+      - "${RABBITMQ_MGMT_PORT:-15672}:15672" # Management UI
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./scripts/init-rabbitmq.sh:/opt/rabbitmq/init-rabbitmq.sh:ro
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    networks:
+      - app-net
+    restart: unless-stopped
+    # Güvenlik ayarları
+    security_opt:
+      - no-new-privileges:true
+
   minio:
     image: quay.io/minio/minio:RELEASE.2024-06-13T22-53-53Z
     container_name: fc_minio
@@ -80,6 +109,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
       minio:
         condition: service_healthy
     env_file:
@@ -88,6 +119,7 @@ services:
       ENV: production
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-freecad}:${RABBITMQ_PASS:-freecad}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
       AWS_S3_ENDPOINT: http://minio:9000
       OPENAI_API_KEY: ${OPENAI_API_KEY}
       MODEL_POLICY: ${MODEL_POLICY}
@@ -116,15 +148,22 @@ services:
     depends_on:
       api:
         condition: service_started
-      redis:
+      rabbitmq:
         condition: service_healthy
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-freecad}:${RABBITMQ_PASS:-freecad}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
       AWS_S3_ENDPOINT: http://minio:9000
     command: ["celery", "-A", "app.tasks.worker", "worker", "--loglevel=INFO", "-Q", "cpu,postproc", "-c", "4"]
+    healthcheck:
+      test: ["CMD", "celery", "-A", "app.tasks.worker", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
     networks:
       - app-net
 
@@ -136,19 +175,20 @@ services:
     depends_on:
       api:
         condition: service_started
-      redis:
+      rabbitmq:
         condition: service_healthy
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-freecad}:${RABBITMQ_PASS:-freecad}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
       AWS_S3_ENDPOINT: http://minio:9000
       FREECAD_TIMEOUT_SECONDS: ${FREECAD_TIMEOUT_SECONDS:-1200}
       LANG: C.UTF-8
     command: ["celery", "-A", "app.tasks.worker", "worker", "--loglevel=INFO", "-Q", "freecad", "-c", "1"]
     healthcheck:
-      test: ["CMD", "freecadcmd", "--version"]
+      test: ["CMD-SHELL", "freecadcmd --version && celery -A app.tasks.worker inspect ping"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -168,19 +208,20 @@ services:
     depends_on:
       api:
         condition: service_started
-      redis:
+      rabbitmq:
         condition: service_healthy
     env_file:
       - .env
     environment:
       DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-freecad}:${RABBITMQ_PASS:-freecad}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
       AWS_S3_ENDPOINT: http://minio:9000
       FREECAD_TIMEOUT_SECONDS: ${FREECAD_TIMEOUT_SECONDS:-1200}
       LANG: C.UTF-8
     command: ["celery", "-A", "app.tasks.worker", "worker", "--loglevel=INFO", "-Q", "sim", "-c", "1"]
     healthcheck:
-      test: ["CMD", "freecadcmd", "--version"]
+      test: ["CMD-SHELL", "freecadcmd --version && celery -A app.tasks.worker inspect ping"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -197,15 +238,17 @@ services:
       dockerfile: Dockerfile
     container_name: fc_beat
     depends_on:
-      redis:
+      rabbitmq:
         condition: service_healthy
     env_file:
       - .env
     environment:
       REDIS_URL: redis://redis:6379/0
+      RABBITMQ_URL: amqp://${RABBITMQ_USER:-freecad}:${RABBITMQ_PASS:-freecad}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
     command: ["celery", "-A", "app.tasks.worker", "beat", "--loglevel=INFO"]
     volumes:
       - ./apps/api:/app
+    restart: unless-stopped
     networks:
       - app-net
 
@@ -272,6 +315,7 @@ services:
 volumes:
   postgres_data:
   minio_data:
+  rabbitmq_data:
   web_node_modules:
 
 networks:

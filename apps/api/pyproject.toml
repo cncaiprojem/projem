@@ -57,8 +57,45 @@ line_length = 100
 
 [tool.ruff]
 line-length = 100
-select = ["E", "F", "I", "C90"]
-ignore = []
+target-version = "py311"
+
+# Aktif kurallar (pre-commit ile uyumlu)
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings  
+    "F",   # pyflakes
+    "I",   # isort
+    "C90", # mccabe
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+
+# Göz ardı edilecek kurallar
+ignore = [
+    "B008",  # function calls in argument defaults
+    "E501",  # line too long (black handles this)
+]
+
+# Dosya başına max karmaşıklık
+[tool.ruff.mccabe]
+max-complexity = 10
+
+# Import sıralama ayarları  
+[tool.ruff.isort]
+known-first-party = ["app"]
+
+# MyPy konfigürasyonu
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+ignore_missing_imports = true
 
 [tool.setuptools]
 license-files = []

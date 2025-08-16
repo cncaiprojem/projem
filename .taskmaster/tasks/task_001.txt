@@ -1,0 +1,533 @@
+# Task ID: 1
+# Title: Monorepo, Containers and CI/CD Setup
+# Status: pending
+# Dependencies: None
+# Priority: high
+# Description: Initialize monorepo and containerized dev stack for backend (FastAPI), workers (Celery), frontend (Next.js), DB (PostgreSQL), queue (RabbitMQ), cache/rate-limit (Redis), object storage (MinIO), FreeCAD/CAMotics/FFmpeg utilities. Configure secure env, base logging, and CI/CD.
+# Details:
+Stack choices (direct path, mature tooling):
+- Backend: Python 3.11, FastAPI ^0.115, Pydantic v2, SQLAlchemy 2.0, Alembic 1.13, Uvicorn, structlog 24.x
+- Workers/Queue: Celery 5.4 + RabbitMQ 3.13 (DLQ via x-dead-letter-exchange), Celery Beat for scheduled jobs (license reminders)
+- Cache/Rate-limit/CSRF: Redis 7.2
+- DB: PostgreSQL 17.6
+- Object Storage: MinIO RELEASE.2024-xx (MinIO Python SDK minio==7.2.7)
+- CAD/CAM: FreeCADCmd (FreeCAD 1.1.x) in isolated container; CAMotics 1.2.x CLI; FFmpeg 6.x; optional ClamAV for malware scan
+- Frontend: Next.js 15.4.0 (React 19, TypeScript 5), TanStack Query v5, react-hook-form v7, MUI v5, i18next, Zustand
+- SIEM/log shipping: JSON logs to stdout; Fluent Bit to SIEM (OpenSearch/Splunk) later
+Repo and infra:
+- Structure: /apps/api (FastAPI), /apps/workers (Celery tasks), /apps/web (Next.js), /infra (docker, compose, k8s manifests later)
+- docker-compose.dev.yml services: api, workers, beat, postgres, redis, rabbitmq, minio, createbuckets, freecad (with entry FreeCADCmd), camotics, ffmpeg (as utility), clamav (optional)
+- Security: no dev bypass in prod images; .env templates; secrets via .env + Doppler/Vault later. Enforce TLS at ingress in prod.
+- CI (GitHub Actions):
+  - Backend: ruff/mypy, pytest, coverage gate; build/push images with SBOM (syft) and signatures (cosign)
+  - Frontend: eslint, typecheck, vitest, Playwright e2e smoke
+- Pre-commit hooks: black, ruff, isort, prettier
+- Base logging: structlog JSON, request_id correlation middleware, OpenTelemetry SDK stubs.
+Pseudocode (compose excerpt):
+- version: "3.9"
+- services:
+  - api: build apps/api, env_file .env, depends on postgres redis rabbitmq minio
+  - workers: build apps/workers, command: celery -A app.celery_app worker -Q default,cam,sim -O fair
+  - beat: celery beat for schedules
+  - postgres, redis, rabbitmq (with DLX), minio (MINIO_ROOT_USER/PASS), freecad image (FROM freecad/freecad:0.21), camotics (FROM camotics/camotics:1.2)
+
+
+# Test Strategy:
+Smoke boot all containers locally; health endpoints return 200; verify MinIO bucket creation and presigned URL generation in a dry run. CI runs lint/tests on PR. Validate FreeCADCmd, CAMotics, FFmpeg versions available in containers. Security: Trivy scan images, check no secrets in repo. E2E: Playwright hits login page and fetches health.
+
+# Subtasks:
+## 1. Monorepo scaffolding, conventions, pre-commit and onboarding [pending]
+### Dependencies: None
+### Description: Initialize monorepo structure (/apps, /infra), repository conventions, pre-commit hooks, EditorConfig, Makefile/Taskfile, and onboarding docs.
+### Details:
+Goals:
+- Create a clean monorepo with /apps and /infra, consistent lint/format, and fast developer onboarding.
+
+Steps:
+- Create directories: /apps/api, /apps/workers, /apps/web, /infra/docker, /infra/compose, /infra/rabbitmq, /infra/minio, /scripts, /.github/workflows.
+- Add base files: README.md, LICENSE, .gitignore (Python, Node, Docker, OS), .editorconfig.
+- Pre-commit: install and configure black, ruff, isort, prettier, end-of-file-fixer, trailing-whitespace.
+- Add Makefile/Taskfile with common targets (bootstrap, compose up/down, fmt, lint, test, ci-local, sbom, sign, scan, smoke).
+- Add CODEOWNERS (optional) and CONTRIBUTING.md.
+
+Files to create/change:
+- README.md (top-level), CONTRIBUTING.md, /scripts/bootstrap.sh, Makefile and/or Taskfile.yml, .gitignore, .editorconfig, .pre-commit-config.yaml, CODEOWNERS.
+
+Images/tags: n/a (scaffolding only).
+
+Security hardening:
+- Add .gitignore entries for .env*, node_modules, venv, dist, .next, coverage, .pytest_cache.
+- Add pre-commit hook detect-private-key (optional) and check for secrets with gitleaks as an extra hook (optional).
+
+Caching and CI performance tips:
+- Centralize .cache/ dirs in repo root to improve local dev performance.
+- Document use of local Docker BuildKit cache mounts.
+
+Acceptance criteria:
+- Monorepo tree exists with agreed structure and baseline configs committed.
+- pre-commit install works and hooks run locally.
+- make help shows targets.
+
+Verification commands:
+- pre-commit install && pre-commit run --all-files
+- tree -L 3
+- make help
+
+## 2. .env templates and secret handling strategy [pending]
+### Dependencies: 1.1
+### Description: Provide environment variable templates, validation, and guidance for Doppler/Vault integration later.
+### Details:
+Goals:
+- Standardize environment configuration across services; avoid committing secrets; pave path to Doppler/Vault later.
+
+Steps:
+- Create .env.example (root) with shared values and service-specific sections.
+- Create /apps/api/.env.example, /apps/workers/.env.example, /apps/web/.env.local.example when needed.
+- Add pydantic BaseSettings schema stubs in backend for validation.
+- Document secret loading order and plan for Doppler/Vault.
+
+Files to create/change:
+- /.env.example
+- /apps/api/.env.example, /apps/workers/.env.example, /apps/web/.env.local.example
+- /apps/api/app/core/settings.py (pydantic v2 settings model)
+- /docs/secrets.md
+
+Images/tags: n/a.
+
+Security hardening:
+- Ensure .env* is ignored in .gitignore except *.example templates.
+- Document production: inject via CI/CD or secret store; never bake secrets in images.
+
+Caching and CI performance tips:
+- Use dotenv-linter in pre-commit (optional) to avoid drift.
+
+Acceptance criteria:
+- Example env files exist and load successfully in dev; missing required vars fail fast.
+
+Verification commands:
+- python -c "from app.core.settings import Settings; print(Settings().model_dump())" (from /apps/api)
+- grep -R "SECRET" -n . to ensure no real secrets present
+
+## 3. FastAPI backend skeleton with health and DB/Alembic base [pending]
+### Dependencies: 1.1, 1.2
+### Description: Create FastAPI app with /healthz, basic routes structure, SQLAlchemy/Alembic setup, Uvicorn config.
+### Details:
+Goals:
+- Bootable API with health endpoint; ready for DB integration and logging/tracing later.
+
+Steps:
+- Initialize /apps/api with pyproject.toml (Python 3.11), dependencies: fastapi ^0.115, uvicorn[standard], pydantic v2, sqlalchemy 2.x, alembic 1.13, psycopg[binary], structlog, opentelemetry-api/sdk (stubs), httpx (tests), pytest.
+- Create app package: app/main.py (FastAPI instance), app/api/routes.py, app/core/settings.py, app/db/session.py (SQLAlchemy engine/session), app/db/base.py, app/middleware/__init__.py.
+- Add Alembic: alembic.ini, /apps/api/alembic/ env.py, versions/ README; base migration.
+- Add /healthz route returning 200 and build info (git sha env injected later).
+- Add pytest scaffolding and a simple test_health.py.
+
+Files to create/change:
+- /apps/api/pyproject.toml, /apps/api/app/... (as above), /apps/api/alembic/..., /apps/api/tests/test_health.py
+
+Images/tags: n/a (built in Dockerfiles task).
+
+Security hardening:
+- Enforce uvicorn --proxy-headers and forwarded allow list to avoid header spoofing in prod configs.
+- Validate settings with strict Pydantic model; default to secure values.
+
+Caching and CI performance tips:
+- Use uv loop and httptools only in prod; dev can hot-reload outside container.
+
+Acceptance criteria:
+- FastAPI boots locally (uvicorn app.main:app) and GET /healthz returns 200 JSON.
+- Alembic upgrade head runs on empty DB.
+
+Verification commands:
+- cd apps/api && uvicorn app.main:app --reload
+- curl http://localhost:8000/healthz
+- alembic upgrade head
+
+## 4. Celery workers + Celery Beat wiring [pending]
+### Dependencies: 1.1, 1.2, 1.3
+### Description: Set up Celery app for workers and scheduled jobs (Beat), queues, and basic task placeholders.
+### Details:
+Goals:
+- Workers and Beat processes that connect to RabbitMQ/Redis with placeholder tasks and schedule.
+
+Steps:
+- In /apps/workers, create pyproject.toml with celery 5.4, kombu, redis, structlog, opentelemetry-api/sdk, pydantic.
+- Create app/celery_app.py configuring broker (amqp), backend (redis optional), task_queues for default, cam, sim, model, report, erp; enable acks_late and prefetch; JSON serialization only.
+- Create tasks modules with a sample noop task and version check task.
+- Configure Celery Beat with a sample schedule (e.g., license reminders placeholder) in app/beat.py.
+- Add unit tests for task import and simple run.
+
+Files to create/change:
+- /apps/workers/app/celery_app.py, app/tasks/__init__.py, app/tasks/sample.py, app/beat.py, /apps/workers/pyproject.toml, /apps/workers/tests/test_tasks.py
+
+Images/tags: n/a (built in Dockerfiles task).
+
+Security hardening:
+- Force task_routes and queue names explicitly; only allow JSON content.
+- Set broker heartbeat and TCP keepalive; configure visibility_timeout adequate for tasks.
+
+Caching and CI performance tips:
+- Separate requirements into base/dev to keep prod images minimal.
+
+Acceptance criteria:
+- Celery can start (worker and beat) and register queues without error.
+
+Verification commands:
+- cd apps/workers && python -c "from app.celery_app import celery_app; print(celery_app.control.ping())"
+
+## 5. Next.js frontend skeleton with health page [pending]
+### Dependencies: 1.1, 1.2
+### Description: Initialize Next.js 15.4.0 app with TypeScript, ESLint, TanStack Query, MUI, i18next, Zustand, and a /healthz route.
+### Details:
+Goals:
+- Bootable Next.js app with baseline tooling and a health page for smoke tests.
+
+Steps:
+- Create /apps/web with Next.js 15.4.0 (create-next-app with TS) and add dependencies: @tanstack/react-query, @mui/material, i18next, react-i18next, zustand, zod, eslint configs, vitest, playwright.
+- Add /app/healthz/route.ts returning 200 JSON {status:"ok"} or a simple page /healthz.
+- Configure ESLint and TypeScript strict mode; set up vitest config and a trivial test.
+
+Files to create/change:
+- /apps/web/package.json, tsconfig.json, next.config.js, .eslintrc.js, vitest.config.ts, playwright.config.ts, app/healthz/page.tsx or route.ts.
+
+Images/tags: n/a (built in Dockerfiles task).
+
+Security hardening:
+- Set React StrictMode; configure Content Security Policy headers in next.config.js (stubs).
+
+Caching and CI performance tips:
+- Use .npmrc with npm ci and cache in CI; consider pnpm for speed later.
+
+Acceptance criteria:
+- next dev runs and /healthz returns 200 in dev or renders page.
+
+Verification commands:
+- cd apps/web && npm install && npm run dev
+- curl -I http://localhost:3000/healthz
+
+## 6. Base logging (structlog JSON), request_id correlation, OpenTelemetry stubs [pending]
+### Dependencies: 1.3, 1.4
+### Description: Implement JSON logging with structlog, request ID middleware, and OTel SDK stubs for api and workers.
+### Details:
+Goals:
+- Consistent JSON logs with request/task correlation IDs and future-ready tracing hooks.
+
+Steps:
+- In /apps/api: add middleware to inject X-Request-ID (generate if missing), log incoming/outgoing with structlog; configure uvicorn to use JSON.
+- In /apps/workers: configure structlog processors, attach task_id/request_id where present; add logging in task base class.
+- Add OTel stubs: initialize tracer provider from env; no exporter by default; integrate with FastAPI and Celery via instrumentation stubs disabled by default.
+
+Files to create/change:
+- /apps/api/app/core/logging.py, app/middleware/request_id.py, updates to app/main.py.
+- /apps/workers/app/core/logging.py, updates to app/celery_app.py.
+
+Images/tags: n/a.
+
+Security hardening:
+- Redact sensitive fields in logs; use structlog filtering processor.
+
+Caching and CI performance tips:
+- Avoid logging noise in tests; set log level via env.
+
+Acceptance criteria:
+- Logs are JSON, include request_id and service name; workers include task_id.
+
+Verification commands:
+- Run API and curl a route with header X-Request-ID=abc; observe logs.
+- Trigger a Celery task and inspect stdout logs.
+
+## 7. Dockerfiles for API and Workers (Python 3.11) with hardening [pending]
+### Dependencies: 1.3, 1.4, 1.6
+### Description: Create secure, multi-stage Dockerfiles for FastAPI (Uvicorn) and Celery workers/beat.
+### Details:
+Goals:
+- Build minimal, non-root images for api, workers, and beat with cache-efficient layers.
+
+Steps:
+- Use python:3.11-slim-bookworm as base; enable BuildKit; multi-stage: builder (install build deps, compile wheels) -> runtime.
+- Add system deps: gcc, build-essential (builder), libpq5, curl, netcat; clean apt lists.
+- Copy pyproject.toml and lock; pip install --no-cache-dir with --require-hashes (lock recommended) to /usr/local.
+- Create non-root user app:app; set WORKDIR /app; copy source; set proper permissions; set PYTHONDONTWRITEBYTECODE=1, PYTHONUNBUFFERED=1.
+- API CMD: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2.
+- Workers CMD: celery -A app.celery_app worker -Q default,cam,sim,model,report,erp -O fair; Beat CMD: celery -A app.celery_app beat.
+
+Files to create/change:
+- /apps/api/Dockerfile
+- /apps/workers/Dockerfile
+
+Images/tags:
+- apps-api: local build from python:3.11-slim-bookworm
+- apps-workers: local build from python:3.11-slim-bookworm
+
+Security hardening:
+- Run as non-root; drop capabilities; set read-only root FS with writable /tmp if possible; do not expose dev-only env in prod image.
+- Pin package versions; verify wheels; no SSH keys copied.
+
+Caching and CI performance tips:
+- Separate requirements install from source copy; use pip cache mount: --mount=type=cache,target=/root/.cache/pip.
+
+Acceptance criteria:
+- Images build successfully; containers start and respond; hadolint passes.
+
+Verification commands:
+- docker build -t apps-api ./apps/api
+- docker run --rm -p 8000:8000 apps-api curl -s localhost:8000/healthz
+- docker build -t apps-workers ./apps/workers
+
+## 8. Dockerfile for Web (Next.js 15.4.0) with hardening [pending]
+### Dependencies: 1.5
+### Description: Create multi-stage Dockerfile for Next.js app with separate builder/runtime and non-root execution.
+### Details:
+Goals:
+- Produce small runtime image using Next.js standalone output; run as non-root.
+
+Steps:
+- Builder: node:20-alpine; install deps with npm ci; run next build; output standalone.
+- Runner: node:20-alpine; add non-root node user; copy .next/standalone and .next/static and public; set PORT=3000; CMD: node server.js.
+- Add healthcheck route mapping to /healthz.
+
+Files to create/change:
+- /apps/web/Dockerfile
+
+Images/tags:
+- apps-web: local build from node:20-alpine
+
+Security hardening:
+- Run as non-root; set NODE_ENV=production; enable read-only root FS if possible; set sensible ulimit in compose.
+
+Caching and CI performance tips:
+- Cache node_modules via Docker build cache (mount=cache) and CI cache.
+
+Acceptance criteria:
+- Image builds and serves app; /healthz returns 200.
+
+Verification commands:
+- docker build -t apps-web ./apps/web
+- docker run --rm -p 3000:3000 apps-web curl -I localhost:3000/healthz
+
+## 9. Utility images: FreeCADCmd, CAMotics, FFmpeg, optional ClamAV [pending]
+### Dependencies: 1.1
+### Description: Reference or wrap utility images for FreeCAD 1.1.x (FreeCADCmd), CAMotics 1.2.x, FFmpeg 6.x, and optional ClamAV.
+### Details:
+Goals:
+- Provide containerized tooling images accessible to workers via compose.
+
+Steps:
+- FreeCAD: Dockerfile FROM freecad/freecad:0.21; set ENTRYPOINT ["FreeCADCmd"]; include a non-root user; document usage.
+- CAMotics: use camotics/camotics:1.2 directly or thin wrapper setting ENTRYPOINT ["camotics"]
+- FFmpeg: use jrottenberg/ffmpeg:6-slim; ensure hardware-agnostic; ENTRYPOINT ["ffmpeg"].
+- ClamAV (optional): clamav/clamav:1.3; expose freshclam and clamscan; mount DB volume.
+
+Files to create/change:
+- /infra/docker/freecad/Dockerfile
+- /infra/docker/camotics/Dockerfile (optional)
+- /infra/docker/ffmpeg/Dockerfile (optional if using upstream)
+
+Images/tags:
+- freecad/freecad:0.21 (ENTRY FreeCADCmd)
+- camotics/camotics:1.2
+- jrottenberg/ffmpeg:6-slim
+- clamav/clamav:1.3
+
+Security hardening:
+- Run as non-root where feasible; restrict capabilities; read-only FS; scan images with Trivy in CI.
+
+Caching and CI performance tips:
+- Pin tags; avoid latest; leverage Buildx cache for wrappers.
+
+Acceptance criteria:
+- Containers run and print version info.
+
+Verification commands:
+- docker run --rm freecad/freecad:0.21 FreeCADCmd --version
+- docker run --rm camotics/camotics:1.2 camotics --version
+- docker run --rm jrottenberg/ffmpeg:6-slim -version
+- docker run --rm clamav/clamav:1.3 clamscan --version
+
+## 10. docker-compose.dev.yml with services, networks, healthchecks, and smoke script [pending]
+### Dependencies: 1.2, 1.7, 1.8, 1.9, 1.11, 1.12
+### Description: Compose file wiring all services with healthchecks, networks, volumes, and a smoke test script to validate the stack.
+### Details:
+Goals:
+- One-command local dev stack up; automated smoke validation.
+
+Steps:
+- Create /infra/compose/docker-compose.dev.yml version "3.9" with services: api, workers, beat, postgres, redis, rabbitmq (management), minio, createbuckets, freecad, camotics, ffmpeg, clamav (optional), web.
+- Define networks: backend, frontend; attach api/workers to backend; web to frontend (and backend if it calls api).
+- Add volumes: pg_data, minio_data, minio_config, clamav_db.
+- Add env_file: .env; set restart, user: non-root where applicable; resource hints (mem_limit) for dev.
+- Healthchecks:
+  - postgres: pg_isready -U $POSTGRES_USER
+  - redis: redis-cli ping
+  - rabbitmq: rabbitmq-diagnostics -q ping
+  - minio: curl -sf http://localhost:9000/minio/health/ready inside container
+  - api: curl -sf http://localhost:8000/healthz
+  - web: curl -sf http://localhost:3000/healthz
+  - workers/beat use CMD-SHELL true to ensure process stays healthy
+- Add depends_on with condition: service_healthy where supported.
+- Add /scripts/smoke.sh that waits for health and exercises key calls (healthz, MinIO presign dry-run, version checks for utilities).
+
+Files to create/change:
+- /infra/compose/docker-compose.dev.yml
+- /scripts/smoke.sh (executable)
+
+Images/tags:
+- postgres:16
+- redis:7.2-alpine
+- rabbitmq:3.13-management
+- minio/minio:RELEASE.2024-XX
+- minio/mc:RELEASE.2024-XX (for createbuckets)
+- utility images from prior task; apps-api, apps-workers, apps-web
+
+Security hardening:
+- No prod-only bypasses; expose only necessary ports; set RABBITMQ_DEFAULT_USER/PASS and MINIO_ROOT_USER/PASS from .env; read-only FS for api/workers where possible; drop ALL capabilities.
+
+Caching and CI performance tips:
+- Use docker compose build --parallel; enable BuildKit; mount bind volumes for fast iteration.
+
+Acceptance criteria:
+- docker compose up -d brings all services healthy; smoke script passes.
+
+Verification commands:
+- docker compose -f infra/compose/docker-compose.dev.yml up -d --build
+- ./scripts/smoke.sh
+
+## 11. RabbitMQ with DLX configuration for Celery queues [pending]
+### Dependencies: 1.1, 1.2
+### Description: Configure RabbitMQ policies/definitions for dead-letter exchanges and Celery queues.
+### Details:
+Goals:
+- Ensure each queue has a DLX and *_dlq dead-letter queue for failures.
+
+Steps:
+- Use rabbitmq:3.13-management.
+- Create /infra/rabbitmq/definitions.json defining exchanges/queues:
+  - Exchanges: default, cam, sim, model, report, erp (direct); *_dlx (fanout or direct) and *_dlq queues bound to *_dlx.
+  - Queues: each primary with arguments: x-dead-letter-exchange: <queue>.dlx.
+- Mount definitions.json and load on boot via RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: -rabbitmq_management load_definitions "/etc/rabbitmq/definitions.json".
+- Document Celery queue names and ensure app.celery_app aligns.
+
+Files to create/change:
+- /infra/rabbitmq/definitions.json
+- Update compose service rabbitmq to mount file and set env.
+
+Images/tags:
+- rabbitmq:3.13-management
+
+Security hardening:
+- Create non-default user from .env; disable guest; restrict management UI to local network in compose.
+
+Caching and CI performance tips:
+- Keep definitions minimal; use CLI rabbitmqadmin for updates if needed.
+
+Acceptance criteria:
+- Queues and DLQs exist; messages dead-letter on rejection.
+
+Verification commands:
+- docker compose exec rabbitmq rabbitmqctl list_queues name arguments
+- Publish a test message with x-death by rejecting and see it in *_dlq
+
+## 12. MinIO and bucket bootstrap job [pending]
+### Dependencies: 1.1, 1.2
+### Description: Set up MinIO service and a bootstrap job to create buckets and policies, verify presigned URL generation.
+### Details:
+Goals:
+- Have artefacts/logs/reports/invoices buckets with versioning and lifecycle placeholders; demonstrate presign.
+
+Steps:
+- MinIO service using minio/minio:RELEASE.2024-XX with MINIO_ROOT_USER/PASS from .env.
+- Create createbuckets job using minio/mc:RELEASE.2024-XX that waits for MinIO, then:
+  - mc alias set local http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD
+  - mc mb --ignore-existing local/artefacts local/logs local/reports local/invoices
+  - mc version enable local/artefacts
+  - (optional) mc ilm add for lifecycle rules placeholders
+- In /apps/api add a tiny util to generate a presigned PUT and GET using minio==7.2.7; dry-run in smoke script.
+
+Files to create/change:
+- /infra/minio/createbuckets.sh (entrypoint for createbuckets container)
+- /apps/api/app/services/s3.py (MinIO client wrapper)
+
+Images/tags:
+- minio/minio:RELEASE.2024-XX
+- minio/mc:RELEASE.2024-XX
+
+Security hardening:
+- Use unique creds per environment; do not expose MinIO publicly in dev; TLS termination at ingress in prod (documented).
+
+Caching and CI performance tips:
+- Keep mc script idempotent; skip work if buckets exist.
+
+Acceptance criteria:
+- Buckets exist; presigned URL generation works.
+
+Verification commands:
+- docker compose exec minio mc ls local/
+- python -c "from app.services.s3 import client; print(client.presign_put('artefacts','smoke.txt',60))" (adjust path)
+
+## 13. GitHub Actions: Backend CI/CD with SBOM, signing, and scanning [pending]
+### Dependencies: 1.3, 1.4, 1.7
+### Description: Set up backend workflows: lint (ruff), format check (black), typecheck (mypy), tests (pytest) with coverage gate, build/push images, generate SBOM (syft), sign (cosign), scan (Trivy).
+### Details:
+Goals:
+- Automated quality gates and secure supply chain for API and Workers images.
+
+Steps:
+- Create .github/workflows/backend.yml with jobs:
+  - lint-type-test: setup-python 3.11, cache pip, ruff check, black --check, mypy, pytest -q --cov with threshold (e.g., 80%).
+  - build-and-push: on main tag/push; setup QEMU/Buildx; docker/login; docker buildx build for apps/api and apps/workers with tags ghcr.io/ORG/api:SHA and workers:SHA; push.
+  - sbom-sign-scan: run anchore/syft to generate SBOMs; store as artifacts; cosign sign (keyless OIDC) images; aquasecurity/trivy image scan with --severity HIGH,CRITICAL and fail on critical.
+- Use actions/cache for pip and Docker Buildx inline cache.
+
+Files to create/change:
+- /.github/workflows/backend.yml
+
+Images/tags:
+- Uses python:3.11 for CI; builds apps-api and apps-workers images; syft: latest; cosign: latest; trivy: latest.
+
+Security hardening:
+- Enable GitHub OIDC for cosign keyless; restrict workflow permissions: contents: read, id-token: write, packages: write.
+- Fail builds on critical vulnerabilities; allow override via allowlist file if needed.
+
+Caching and CI performance tips:
+- actions/setup-python with cache: 'pip'; docker buildx --cache-from/--cache-to.
+
+Acceptance criteria:
+- PRs run lint/type/tests; main builds and pushes images; SBOM artifacts published; images signed; Trivy scan passes or fails with clear output.
+
+Verification commands:
+- gh run watch (from PR)
+- cosign verify ghcr.io/ORG/api:SHA
+
+## 14. GitHub Actions: Frontend CI with lint, typecheck, tests, and Playwright smoke [pending]
+### Dependencies: 1.5, 1.8
+### Description: Set up frontend workflow: ESLint, typecheck, vitest, build, and Playwright e2e smoke using service containers.
+### Details:
+Goals:
+- Automated quality gates and basic e2e smoke for web.
+
+Steps:
+- Create .github/workflows/frontend.yml with jobs:
+  - lint-type-test: setup Node 20; cache npm; npm ci; npm run lint; npm run typecheck; npm run test:unit (vitest --run).
+  - build: npm run build to ensure prod build works.
+  - e2e-smoke: use Playwright; start app (npm run start) and run a simple test hitting /healthz; optionally start API with a lightweight mock or use Next route.
+
+Files to create/change:
+- /.github/workflows/frontend.yml
+- Ensure package.json has scripts: lint, typecheck, test:unit, build, start, test:e2e
+
+Images/tags:
+- node:20 in CI; browsers via playwright action.
+
+Security hardening:
+- Pin action versions; least-privileged GHA permissions; sanitize PR logs.
+
+Caching and CI performance tips:
+- actions/setup-node with cache: 'npm'; reuse Playwright browser cache with actions/download-artifact (optional).
+
+Acceptance criteria:
+- PRs run ESLint/typecheck/tests; e2e smoke passes.
+
+Verification commands:
+- gh run watch (from PR)
+- npm run test:e2e locally to replicate
+

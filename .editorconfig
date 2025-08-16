@@ -1,0 +1,85 @@
+# EditorConfig konfigürasyonu
+# FreeCAD tabanlı CNC/CAM/CAD üretim platformu için kod standartları
+# https://editorconfig.org/
+
+# Kök EditorConfig dosyası
+root = true
+
+# Tüm dosyalar için genel ayarlar
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Python dosyaları (apps/api/)
+[*.py]
+indent_size = 4
+max_line_length = 100
+
+# JavaScript/TypeScript dosyaları (apps/web/)
+[*.{js,jsx,ts,tsx}]
+indent_size = 2
+max_line_length = 80
+
+# JSON dosyaları
+[*.json]
+indent_size = 2
+
+# YAML dosyaları (Docker Compose, Kubernetes, GitHub Actions)
+[*.{yml,yaml}]
+indent_size = 2
+
+# TOML dosyaları (pyproject.toml)
+[*.toml]
+indent_size = 2
+
+# Markdown dosyaları
+[*.md]
+trim_trailing_whitespace = false
+max_line_length = 120
+
+# Makefile dosyaları (tab karakteri kullanılmalı)
+[{Makefile,*.mk}]
+indent_style = tab
+indent_size = 4
+
+# Docker dosyaları
+[{Dockerfile,*.dockerfile}]
+indent_size = 2
+
+# Shell script dosyaları
+[*.{sh,bash}]
+indent_size = 2
+
+# Batch dosyaları (Windows)
+[*.{bat,cmd}]
+end_of_line = crlf
+indent_size = 2
+
+# SQL dosyaları
+[*.sql]
+indent_size = 2
+
+# CSS/SCSS dosyaları
+[*.{css,scss,sass}]
+indent_size = 2
+
+# HTML dosyaları
+[*.html]
+indent_size = 2
+
+# XML dosyaları
+[*.xml]
+indent_size = 2
+
+# Konfigürasyon dosyaları
+[.{env,env.*}]
+trim_trailing_whitespace = false
+
+# Log dosyaları için özel ayarlar
+[*.log]
+insert_final_newline = false
+trim_trailing_whitespace = false

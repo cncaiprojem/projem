@@ -1,0 +1,242 @@
+# Task ID: 4
+# Title: Licensing, Billing, Invoices, Expiry Enforcement and Notifications
+# Status: pending
+# Dependencies: 2, 3
+# Priority: high
+# Description: Build license assignment/extend/cancel APIs, invoice generation with numbering and VAT, payment provider integration stub, strict license enforcement (grace=0), and D-7/3/1 notifications via email/SMS.
+# Details:
+Backend:
+- Endpoints: POST /license/assign|extend|cancel, GET /license/me
+- License types: ENUM 3m/6m/12m, scope JSON, ends_at. On extend, append duration; on cancel, set status and reason, audit trail
+- Enforcement middleware licenseGuard: if expired → 403 LIC_EXPIRED across all routes; on initial check for UI gating use /license/me; also revoke all sessions on expiry (set sessions.revoked_at)
+- Edge cases: running jobs on expire → mark cancel_requested and gracefully stop workers
+- Invoices: numbering 'YYYYMM-SEQ-CNCAI'; fields (amount, vat=amount*0.20, total). Currency: TRY (multi-currency behind feature flag)
+- PDF generation: WeasyPrint or reportlab; store pdf_url in S3/MinIO with immutable tag; signed GET URLs to deliver
+- Payments: provider-agnostic interface (e.g., Stripe Payment Intents or local PSP) with webhook to update payments.status and invoices.paid_status; audit all responses
+- Notifications: SMTP via provider (e.g., Postmark) and SMS via provider (e.g., Twilio/Vonage). ENV: SMTP_URL, SMS_API_KEY, SMS_SENDER, EMAIL_SENDER
+- Scheduler: Celery Beat daily 02:00 UTC: query licenses with remaining days 7/3/1 → enqueue notification jobs; persist notifications table (success/fail, provider_id)
+- Failover: try primary SMTP then fallback; SMS provider A→B fallback
+Pseudocode (notification scan):
+- def scan_licenses():
+  - for lic in licenses where ends_at::date - now()::date in (7,3,1) and status=active:
+    - enqueue send_email_sms(user, lic)
+- def licenseGuard(request):
+  - lic = get_active_license(user)
+  - if not lic or lic.ends_at < now(): raise HTTPException(403, 'LIC_EXPIRED')
+
+
+# Test Strategy:
+Unit: license date math, invoice numbering uniqueness under concurrency, VAT calc, licenseGuard. Integration: Webhook updates invoice/payment states; PDF upload to MinIO and immutability flag. Scheduler: freeze time to hit 7/3/1 and assert notifications enqueued and persisted. E2E: expired license blocks API/UI immediately; extending license re-enables access instantly.
+
+# Subtasks:
+## 1. License domain model and state transitions [pending]
+### Dependencies: None
+### Description: Design license schema, enums, constraints, and lifecycle for assign/extend/cancel/expire with auditability.
+### Details:
+Scope:
+- Define DB tables: licenses, license_audit.
+- licenses fields: id, user_id (FK), type ENUM('3m','6m','12m'), scope JSONB, status ENUM('active','expired','canceled'), reason TEXT NULL, starts_at TIMESTAMPTZ DEFAULT now(), ends_at TIMESTAMPTZ NOT NULL, canceled_at TIMESTAMPTZ NULL, created_at, updated_at.
+- Constraints: one active license per user (partial unique index on (user_id) WHERE status='active' AND ends_at>now()); indexes on (status, ends_at).
+- State transitions:
+  - assign: create active license with ends_at = starts_at + duration (3/6/12 months). Audit event 'license_assigned'.
+  - extend: only if status='active' and ends_at>=now(). On extend, ends_at += duration months (append, not reset). Audit 'license_extended' with delta.
+  - cancel: set status='canceled', reason, canceled_at=now(). Audit 'license_canceled'.
+  - expire: when now()>ends_at treat as expired (status may be updated lazily by middleware or via scheduled task). Audit 'license_expired'.
+- Invariants: cannot have overlapping active licenses per user; canceled/expired licenses are immutable except audit.
+Failure modes:
+- Invalid type, scope not JSON, attempt to assign when active exists, extend non-active, cancel already canceled.
+Acceptance criteria:
+- Data model migrates successfully; constraints enforce single active license; date math verified for 3/6/12 months; audit rows exist for each transition.
+
+## 2. License APIs (assign/extend/cancel, me) with audit [pending]
+### Dependencies: 4.1
+### Description: Implement POST /license/assign|extend|cancel and GET /license/me with request/response schemas and audit logging.
+### Details:
+Endpoints:
+- POST /license/assign
+  - Auth: admin can assign to any user; user can self-assign if allowed by business rules.
+  - Body: { user_id?: UUID, type: '3m'|'6m'|'12m', scope: object, starts_at?: RFC3339 }
+  - Headers: Idempotency-Key (optional but supported).
+  - Response: { license: { id, type, scope, status, starts_at, ends_at } }
+  - Errors: 409 ACTIVE_LICENSE_EXISTS, 400 INVALID_TYPE, 403 FORBIDDEN.
+- POST /license/extend
+  - Body: { user_id?: UUID, license_id?: UUID, type: '3m'|'6m'|'12m' }
+  - Response: { license_id, previous_ends_at, new_ends_at, added_months }
+  - Errors: 409 LIC_NOT_ACTIVE, 404 NOT_FOUND.
+- POST /license/cancel
+  - Body: { user_id?: UUID, license_id?: UUID, reason: string }
+  - Response: { license_id, status: 'canceled', canceled_at, reason }
+  - Errors: 409 ALREADY_CANCELED, 404 NOT_FOUND.
+- GET /license/me
+  - Response: { status, type?, ends_at?, remaining_days?, scope? }
+Audit:
+- Write audit entries for each API call with actor, target, before/after diffs, request_id.
+Security/RBAC:
+- Enforce role-based access; validate ownership for self-service.
+Acceptance criteria:
+- Schemas documented via OpenAPI; success and error responses match; audit rows created for all state changes; idempotent retry (same Idempotency-Key) does not duplicate operations.
+
+## 3. Enforcement middleware and session revocation on expiry [pending]
+### Dependencies: 4.1, 4.2
+### Description: Add global licenseGuard to protect routes, return 403 LIC_EXPIRED, and revoke all sessions upon expiry detection.
+### Details:
+Behavior:
+- Implement licenseGuard(request): fetch get_active_license(user). If none or ends_at<now() then raise HTTP 403 with code 'LIC_EXPIRED'.
+- Apply to all protected routes; exclude auth/health/webhook endpoints as needed.
+- On first detection of expiry per user, revoke sessions: update sessions set revoked_at=now() where user_id=? and revoked_at is null; emit audit 'sessions_revoked_license_expired'.
+- Provide helper GET /license/me for UI gating; include remaining_days calculation.
+- Ensure thread-safe single revocation per user via DB condition.
+Failure modes:
+- Clock skew; missing user; DB unavailable (fail closed with 403 unless route is excluded?).
+Acceptance criteria:
+- Expired users receive 403 LIC_EXPIRED across protected endpoints; sessions.revoked_at set; subsequent requests remain blocked; non-expired users unaffected; logs include request_id and user_id.
+
+## 4. Invoice numbering scheme, VAT calculation, and invoice model [pending]
+### Dependencies: 4.1
+### Description: Create invoice schema with numbering 'YYYYMM-SEQ-CNCAI', VAT 20%, TRY currency, and associations to licenses/users.
+### Details:
+Data model:
+- invoices fields: id, user_id (FK), license_id (FK), number UNIQUE, amount NUMERIC(12,2), currency CHAR(3) DEFAULT 'TRY', vat NUMERIC(12,2), total NUMERIC(12,2), paid_status ENUM('unpaid','pending','paid','failed','refunded') DEFAULT 'unpaid', issued_at TIMESTAMPTZ DEFAULT now(), pdf_url TEXT NULL, provider_payment_id TEXT NULL, created_at, updated_at.
+Numbering:
+- Format: 'YYYYMM-SEQ-CNCAI' where YYYYMM = issued_at in UTC; SEQ is per-month incremental integer zero-padded (e.g., 000123). CNCAI is static suffix.
+Calculations:
+- vat = round(amount * 0.20, 2); total = amount + vat. Rounding mode: half up.
+Linkage:
+- One invoice per assign/extend event; store pointers to license and user.
+Acceptance criteria:
+- Invoices created with correct number format and amounts; currency fixed to TRY unless feature flag enables multi-currency; paid_status defaults to 'unpaid'.
+
+## 5. Invoice PDF rendering and MinIO storage with immutability [pending]
+### Dependencies: 4.4
+### Description: Render invoice PDFs (WeasyPrint/ReportLab), store in S3/MinIO with immutable tag, and deliver via short-lived signed URLs.
+### Details:
+Rendering:
+- Default renderer: WeasyPrint (HTML template with CSS); fallback to ReportLab on failure.
+Storage:
+- Bucket: invoices/. Object key: invoices/{YYYY}/{MM}/{number}.pdf. Set object immutability (legal hold or retention policy) and content-type application/pdf.
+- Persist pdf_url in invoices table.
+Delivery:
+- Generate presigned GET URLs (TTL 2 minutes) for download endpoint GET /invoices/:id/pdf.
+Template:
+- Include invoice number, dates, seller/buyer info, line items (license type and duration), amount, VAT, total, currency 'TRY'.
+Audit:
+- Log PDF generated and uploaded with checksum.
+Acceptance criteria:
+- PDF renders identically across engines for sample data; object stored and marked immutable; presigned URL works and expires; pdf_url persisted and points to stored object.
+
+## 6. Payments provider abstraction and webhook handling with idempotency [pending]
+### Dependencies: 4.4
+### Description: Implement provider-agnostic payments interface (Stripe/local PSP style), intents, and webhook to update payment and invoice states.
+### Details:
+Abstraction:
+- Interface PaymentProvider: create_intent(amount, currency, metadata), retrieve(id), confirm(id, params), verify_webhook(sig, payload).
+- payments table: id, invoice_id, provider, provider_payment_id, amount, currency, status ENUM('requires_action','processing','succeeded','failed','canceled','refunded'), raw_request/response JSONB, created_at, updated_at.
+API/Webhook:
+- POST /payments/intents { invoice_id } -> { client_secret, provider, provider_payment_id }.
+- POST /payments/webhook: verify signature, parse events (payment_intent.succeeded/failed/refunded). Idempotency by event_id with unique index.
+- On succeeded: set payments.status='succeeded', invoices.paid_status='paid', audit 'payment_succeeded'. On failed: set 'failed', invoices.paid_status='failed'.
+- Log and persist all provider responses (for audit).
+Failure modes:
+- Signature invalid -> 400; unknown invoice -> 404; duplicate webhook -> 200 no-op.
+Acceptance criteria:
+- Creating an intent returns usable client params; webhook updates invoice/payment states correctly; duplicate webhooks are ignored; all interactions audited.
+
+## 7. Notification service (email/SMS) with provider fallback and templating [pending]
+### Dependencies: 4.2
+### Description: Build notification layer with SMTP + SMS providers, fallback logic, templating for D-7/3/1 reminders, and persistence.
+### Details:
+Providers:
+- Email: primary SMTP (e.g., Postmark via SMTP_URL), fallback SMTP or API client.
+- SMS: primary (Twilio) via SMS_API_KEY, fallback (Vonage).
+Templating:
+- Templates for D-7, D-3, D-1 with variables: {user_name, days_remaining, ends_at, renewal_link}. SMS within 160 chars; Email HTML + plain text.
+Persistence:
+- notifications table: id, user_id, license_id, channel ENUM('email','sms'), template_id, days_out INT, status ENUM('queued','sent','failed'), provider, provider_id, error_text, created_at, sent_at.
+Fallback:
+- On provider failure, try fallback provider once, record both attempts.
+Config:
+- ENV: SMTP_URL, EMAIL_SENDER, SMS_API_KEY, SMS_SENDER.
+Acceptance criteria:
+- Sending works with primary provider; on simulated failure, fallback is used; notifications rows capture success/failure, provider_id, and timing; templates render with correct substitutions.
+
+## 8. Scheduler via Celery Beat for D-7/3/1 scans [pending]
+### Dependencies: 4.1, 4.7
+### Description: Run daily scan at 02:00 UTC to enqueue and persist D-7/3/1 email/SMS notifications for active licenses.
+### Details:
+Scheduling:
+- Celery Beat job daily 02:00 UTC: scan_licenses().
+Logic:
+- Query licenses where status='active' and (DATE(ends_at) - DATE(now())) IN (7,3,1).
+- For each, enqueue send_email_sms(user, license, days_out) task; insert notifications row with status='queued'. Prevent duplicates per (license_id, days_out, date) via unique key.
+Idempotency:
+- Use transaction + ON CONFLICT DO NOTHING to avoid duplicate enqueues.
+Observability:
+- Log counts by days_out; metrics for queued/sent/failed.
+Acceptance criteria:
+- With time frozen to D-7/3/1, notifications are enqueued once per license; reruns do not duplicate; notifications persisted with correct days_out.
+
+## 9. Edge-case handling for running jobs on expiry [pending]
+### Dependencies: 4.3, 4.2
+### Description: On license expiry, flag running jobs cancel_requested and ensure workers stop gracefully.
+### Details:
+Behavior:
+- On detecting expiry in licenseGuard or a background watcher: update jobs set cancel_requested=true where user_id=? and status IN ('running','pending'); enqueue lightweight cancellation signal.
+- Workers: periodically check cancel_requested and stop after safe checkpoint; mark job as 'canceled' with reason 'license_expired'.
+- Persist audit events: 'license_expired_jobs_cancel_requested' with affected job IDs.
+- Provide admin endpoint GET /licenses/:id/impacted-jobs to review state.
+Acceptance criteria:
+- When a license expires, active jobs transition to canceling -> canceled without abrupt termination; audit lists impacted jobs; new job submissions are blocked by licenseGuard.
+
+## 10. Observability and audit trail across licensing, billing, payments, notifications [pending]
+### Dependencies: 4.2, 4.4, 4.6, 4.7, 4.8
+### Description: Implement structured logs, metrics, traces, and comprehensive audit entries with correlation IDs.
+### Details:
+Observability:
+- OpenTelemetry tracing on API endpoints, Celery tasks, webhook handler; propagate X-Request-ID / trace-id.
+- Metrics: counters/gauges for licenses_active, license_expired_events, invoices_created, payments_succeeded/failed, notifications_sent/failed.
+Audit:
+- audit_log table: id, actor_id, subject_type, subject_id, action, before JSONB, after JSONB, request_id, created_at.
+- Actions captured: license_assigned/extended/canceled/expired, sessions_revoked, invoice_created/pdf_generated, payment_intent_created/succeeded/failed, notification_sent/failed.
+Retention:
+- Configure log retention and PII redaction for sensitive fields.
+Acceptance criteria:
+- Each state change produces an audit record with subject and action; traces span HTTP->DB->queue; metrics visible in test run; correlation IDs consistent across related events.
+
+## 11. Concurrency and uniqueness guards (invoice numbers, idempotency, webhooks) [pending]
+### Dependencies: 4.4, 4.6
+### Description: Ensure atomic, conflict-free invoice numbering and deduplication for API idempotency and webhooks.
+### Details:
+Invoice numbering:
+- Use DB sequence per month or a (period, seq) allocator with advisory locks. Compose number = YYYYMM + '-' + LPAD(seq,5,'0') + '-CNCAI'. Unique index on number.
+- Retry on conflict with bounded backoff.
+API idempotency:
+- Respect Idempotency-Key for /license/assign and /license/extend: store request hash keyed by (user_id, key) with response snapshot; return same result on retry.
+Webhooks:
+- Deduplicate via unique event_id table; process-once semantics.
+Other guards:
+- Unique active license per user enforced by partial unique index.
+Acceptance criteria:
+- Under concurrent 100x invoice creations in same month, zero duplicate numbers; repeated Idempotency-Key returns same response without side effects; duplicate webhook deliveries are no-ops.
+
+## 12. Test matrix and acceptance criteria (unit/integration/e2e/time-freeze) [pending]
+### Dependencies: 4.1, 4.2, 4.3, 4.4, 4.5, 4.6, 4.7, 4.8, 4.9, 4.10, 4.11
+### Description: Define and implement tests for license flows, enforcement, invoicing, payments, notifications, scheduler, and concurrency.
+### Details:
+Unit tests:
+- License date math (3/6/12 months append), single active constraint, status transitions.
+- VAT calc and rounding; invoice number formatter.
+- licenseGuard behavior; session revocation.
+- Notification template rendering and fallback selection.
+Integration tests:
+- Webhook updates payment/invoice states with signature verification and idempotency.
+- PDF generation and MinIO upload; immutability/tag presence; presigned GET works and expires.
+- Idempotent assign/extend under retries.
+Scheduler/time-freeze:
+- Freeze time to D-7/3/1 and assert notifications enqueued once and persisted.
+E2E:
+- User without license blocked (403 LIC_EXPIRED); after assign, access allowed; after expiry, blocked and sessions revoked; invoice created; payment success flips paid_status; reminders sent at D-7/3/1.
+Concurrency:
+- Hammer invoice creation to verify unique numbering; duplicate webhooks ignored.
+Acceptance criteria:
+- All tests pass; OpenAPI docs validate; no flakiness under concurrency stress; audit entries present for all relevant flows.
+

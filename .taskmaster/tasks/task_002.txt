@@ -1,0 +1,131 @@
+# Task ID: 2
+# Title: Database Schema and Migrations
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Implement PostgreSQL schema per PRD with indices, constraints, and seed data (tools). Add audit hash-chain capability and idempotency constraints.
+# Details:
+Use Alembic for migrations; SQLAlchemy models mirror PRD tables: users, sessions, licenses, invoices, payments, models, jobs, cam_runs, sim_runs, artefacts, machines, materials, notifications, erp_mes_sync, audit_logs, security_events, tools.
+Key constraints/indexes:
+- Unique: users.email, users.phone; sessions.refresh_token_hash; jobs.idempotency_key; artefacts.s3_key; invoices.number; payments.provider_ref
+- FKs with ON DELETE: RESTRICT for most, artefacts (CASCADE on job delete)
+- Indices per PRD (e.g., jobs: user_id, type, status, created_at; licences: user_id, status, ends_at)
+- JSONB columns with GIN indexes where filtered often (e.g., jobs.metrics, params if needed)
+- Check constraints (currency in ['TRY', …] when multi-currency flag enabled)
+- tools table enum types for tool.type and material
+Audit chain:
+- audit_logs.chain_hash = sha256(prev_chain_hash || canonical_json(record))
+- Store prev hash (last hash overall or per user scope). Maintain in app layer within transaction.
+Seeds:
+- machines/materials minimal; tools: '6mm Carbide Endmill (4F)' and '10mm Drill HSS'
+Pseudocode (Alembic example):
+- op.create_table('jobs', ... idempotency_key=sa.String, sa.UniqueConstraint('idempotency_key'))
+- op.create_index('ix_jobs_status_created', 'jobs', ['status','created_at'])
+- Seed tools via data migration inserting JSON specified in PRD.
+
+
+# Test Strategy:
+Run alembic upgrade head on clean DB. Verify constraints by attempting duplicates (expect errors). Confirm FK behaviors. Check hash-chain creation by inserting two audit logs and verifying deterministic chain. Query plans show indexes used. Unit tests for models; migration downgrade/upgrade cycle validated.
+
+# Subtasks:
+## 1. Finalize ERD, enums, and canonicalization rules [pending]
+### Dependencies: None
+### Description: Produce the final PostgreSQL ERD and enum/type definitions per PRD, and define canonical JSON and audit hash-chain scopes.
+### Details:
+- Deliverables: ERD (tables/columns/FKs), enum specs for tools.type and tools.material, JSONB usage map, timestamp and soft-delete policy, naming conventions.
+- Map PRD entities: users, sessions, licenses, invoices, payments, models, jobs, cam_runs, sim_runs, artefacts, machines, materials, notifications, erp_mes_sync, audit_logs, security_events, tools.
+- Define JSONB fields (e.g., jobs.metrics, jobs.params) and which get GIN indexes.
+- Enumerate unique constraints and indexes per PRD (users.email/phone, sessions.refresh_token_hash, jobs.idempotency_key, artefacts.s3_key, invoices.number, payments.provider_ref; indexes on jobs user_id/type/status/created_at; licenses user_id/status/ends_at).
+- Audit chain scope: global or per-scope (e.g., per user or job). Specify fields scope_type and scope_id semantics.
+- Canonical JSON rules: UTF-8; stable key sort; no whitespace; numbers as strings with fixed precision if required or use JSONB deterministic dumps; exclude non-deterministic fields; nulls explicit.
+- Idempotency key policy for jobs (string length, charset, uniqueness, retry semantics).
+
+## 2. Alembic setup and base migration [pending]
+### Dependencies: 2.1
+### Description: Set up Alembic for PostgreSQL 17.6 with SQLAlchemy 2.0 models and naming conventions; create base revision.
+### Details:
+- Configure alembic.ini and env.py (UTC timestamps, timezone-aware, async not required).
+- Apply naming convention for constraints and indexes for reproducible diffs.
+- Wire metadata from SQLAlchemy models; enable render_as_batch=False for Postgres.
+- Create initial empty base revision ("base") to anchor subsequent DDL.
+- Add helper utilities for creating enums, GIN indexes, and check constraints.
+
+## 3. Create core tables: users, sessions, licenses, models, jobs [pending]
+### Dependencies: 2.2
+### Description: Implement Alembic migration to create core domain tables with required PKs, FKs, uniques, and base indexes.
+### Details:
+- users: id, email (unique), phone (unique), role, status, locale, created_at/updated_at.
+- sessions: id, user_id FK (RESTRICT), refresh_token_hash (unique), device_fingerprint, last_used_at, expires_at; index on user_id, expires_at.
+- licenses: id, user_id FK (RESTRICT), plan, status, starts_at, ends_at; index on (user_id), (status, ends_at).
+- models: id, user_id FK (RESTRICT), type, params JSONB, metrics JSONB, created_at; optional GIN on params if filtered.
+- jobs: id, user_id FK (RESTRICT), type, status, params JSONB, metrics JSONB, idempotency_key (unique), created_at, updated_at; indexes: (status, created_at), user_id, type; GIN on metrics (and params if needed).
+
+## 4. Create operational tables: cam_runs, sim_runs, artefacts, notifications, erp_mes_sync [pending]
+### Dependencies: 2.3
+### Description: Add execution/operations-related tables with correct FKs and cascade behaviors.
+### Details:
+- cam_runs: id, job_id FK (RESTRICT), machine_id FK (RESTRICT), params JSONB, metrics JSONB, status, created_at; indexes: job_id, status.
+- sim_runs: id, job_id FK (RESTRICT), params JSONB, metrics JSONB, status, created_at; indexes: job_id, status.
+- artefacts: id, job_id FK (CASCADE on job delete), type, s3_key (unique), size_bytes, sha256, mime, meta JSONB, created_at; indexes: job_id, type; optional GIN on meta.
+- notifications: id, user_id FK (RESTRICT), type, payload JSONB, read_at, created_at; indexes: user_id, type, read_at.
+- erp_mes_sync: id, external_id, entity_type, entity_id, status, last_sync_at, payload JSONB; indexes: entity_type, status.
+
+## 5. Create billing tables: invoices and payments [pending]
+### Dependencies: 2.3
+### Description: Implement billing-related tables with monetary and provider references and currency checks.
+### Details:
+- invoices: id, user_id FK (RESTRICT), number (unique), amount_cents, currency, status, issued_at, due_at, meta JSONB; indexes: user_id, status, issued_at.
+- payments: id, invoice_id FK (RESTRICT), provider, provider_ref (unique), amount_cents, currency, status, paid_at, meta JSONB; indexes: invoice_id, status, paid_at.
+- Currency check constraint: currency in allowed set; allow multi-currency when current_setting('app.multi_currency', true) = 'on' else enforce 'TRY'.
+- Ensure consistent money precision and non-negative checks.
+
+## 6. Create security and audit tables with hash-chain [pending]
+### Dependencies: 2.2
+### Description: Add audit_logs (hash-chain) and security_events tables and supporting constraints/indexes.
+### Details:
+- audit_logs: id, scope_type, scope_id, actor_user_id FK (RESTRICT, nullable), event_type, payload JSONB, prev_chain_hash, chain_hash, created_at.
+- Constraints: chain_hash and prev_chain_hash are 64-char hex; NOT NULL for chain_hash; CHECK on hex format.
+- Indexes: (scope_type, scope_id, created_at), event_type; GIN on payload if filtered.
+- App responsibility: compute chain_hash = sha256(prev_chain_hash || canonical_json(payload)) within the same transaction; store prev_chain_hash from last scope record (or global) as per ERD rules.
+- security_events: id, user_id FK (RESTRICT), type, ip, ua, created_at; indexes: user_id, type, created_at.
+
+## 7. Apply global constraints and performance indexes [pending]
+### Dependencies: 2.3, 2.4, 2.5, 2.6
+### Description: Ensure all uniques, FKs with correct ON DELETE rules, JSONB GIN, and check constraints are in place.
+### Details:
+- Uniques: users.email, users.phone, sessions.refresh_token_hash, jobs.idempotency_key, artefacts.s3_key, invoices.number, payments.provider_ref.
+- FKs: RESTRICT by default; artefacts.job_id CASCADE; verify others match PRD.
+- Indexes: jobs(user_id), jobs(type), jobs(status, created_at); licenses(user_id), licenses(status, ends_at); add missing per PRD.
+- JSONB GIN indexes: jobs.metrics, jobs.params (if filtered), models.params, artefacts.meta as needed.
+- Check constraints: currency rules; non-negative amounts; any domain-specific checks per PRD.
+- Add comments to schema objects for maintainability.
+
+## 8. Seed data via data migration [pending]
+### Dependencies: 2.7
+### Description: Create idempotent data migration to seed machines, materials, and tools.
+### Details:
+- Minimal machines and materials per PRD; ensure stable primary keys or natural keys.
+- tools: insert '6mm Carbide Endmill (4F)' and '10mm Drill HSS' with proper enums (type, material) and metadata.
+- Use INSERT ... ON CONFLICT DO NOTHING or upsert on natural key to make seeding idempotent.
+- Wrap in a separate migration file; provide downgrade that deletes only seeded rows by natural key.
+
+## 9. Migration and integrity test suite [pending]
+### Dependencies: 2.6, 2.7, 2.8
+### Description: Implement tests for upgrade/downgrade, constraints, FK behaviors, audit-chain determinism, and query plans.
+### Details:
+- Run alembic upgrade head on clean DB and downgrade to base; ensure no residual objects.
+- Constraints: attempt duplicates for each unique; expect errors. Validate currency checks with GUC app.multi_currency on/off.
+- FKs: verify RESTRICT on delete for users with sessions; verify CASCADE for artefacts on job delete.
+- Audit chain: insert two audit_logs within a tx; verify chain_hash = sha256(prev || canonical_json(payload)) deterministically.
+- Query plans: EXPLAIN (ANALYZE, BUFFERS) on key queries to confirm index usage (jobs status+created_at; licenses status+ends_at; JSONB GIN probe).
+
+## 10. SQLAlchemy model parity and documentation [pending]
+### Dependencies: 2.7, 2.9
+### Description: Ensure SQLAlchemy models mirror the DB schema and document idempotency, canonical JSON, and rollback strategy.
+### Details:
+- Validate ORM models against DB via autogenerate producing empty diffs.
+- Add model-level constraints/validators for idempotency_key, enums, and JSONB fields.
+- Document canonical JSON rules and audit chain responsibilities; include sample helper in app layer.
+- Provide rollback strategy notes for each migration and test fixtures for core entities (users, jobs, audit logs).
+- Include query examples demonstrating index usage and idempotent job creation semantics.
+

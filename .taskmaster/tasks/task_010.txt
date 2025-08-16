@@ -1,0 +1,206 @@
+# Task ID: 10
+# Title: ERP/MES Integration, Reporting/Analytics, Admin Panel, SIEM & Forensics
+# Status: pending
+# Dependencies: 2, 3, 4, 5, 6, 8, 9
+# Priority: medium
+# Description: Deliver outbound/inbound ERP/MES APIs with HMAC signatures and retries, reporting dashboards with filters/exports, admin panel with MFA and incident lock, and full audit/SIEM pipeline with hash-chained logs.
+# Details:
+ERP/MES:
+- Outbound event job.status.changed → POST /erp/v1/jobs/update with HMAC-SHA256(body, ERP_SHARED_SECRET) in X-Signature; retries 5s, 15s, 45s, 2m, 5m (max 5) with idempotency; record in erp_mes_sync
+- Inbound: POST /api/v1/erp/inbound/job/progress (Bearer + IP allowlist). Update job progress/status, write audit_logs and erp_mes_sync
+- Mock server (docker) for dev: POST /erp/v1/jobs/update → 200 {ok:true}, GET /erp/v1/health → 200 ok
+Reporting/Analytics:
+- Backend: GET /reports/summary, /reports/detail; POST /reports/export (CSV/Excel/JSON). Filters: date range, status, model type, machine/post; metrics P50/P95 durations, success/failure rates, breakdowns
+- Frontend: Turkish dashboards with ECharts; quiet hours and repeat policies for alerts; export links as signed URLs
+Admin Panel:
+- Modules: users/licenses/invoices, catalog (machine/material/template), jobs/logs, integration profiles; bulk actions: license extend, job cancel
+- Security: Admin role + MFA enforced; optional IP allowlist; incident lock toggles read-only; key rotation flows
+SIEM/Forensics:
+- Log feed: structured JSON with versions, PII masked to SIEM (via Fluent Bit/syslog RFC5424); DLQ and replay for delivery failures
+- Audit trail: append-only with chain_hash; forensic export (CSV/JSON) including external timestamp (optional)
+Pseudocode (HMAC signature):
+- sig = base64(hmac_sha256(ERP_SHARED_SECRET, body_json_bytes))
+- headers: {'X-Signature': sig, 'X-Request-Id': req_id, 'Content-Type': 'application/json'}
+- verify inbound by recomputing and constant-time compare
+
+
+# Test Strategy:
+Integration: outbound event fires on status changes and succeeds against mock; tampered signature rejected inbound (401). Retry schedule observed. Reporting metrics match expected aggregates on fixtures; exports download and honor TTL. Admin: MFA gate enforced; incident lock makes UI read-only. SIEM receives logs; simulate SIEM outage → DLQ populated and later replayed. Audit chain verifies end-to-end.
+
+# Subtasks:
+## 1. Data models, secrets, and config for ERP/MES, Reporting, SIEM, Admin [pending]
+### Dependencies: None
+### Description: Define schemas, config keys, and base migrations for erp_mes_sync, audit_logs, reporting aggregates, and security secrets.
+### Details:
+Schemas:
+- erp_mes_sync: {id, direction: 'outbound'|'inbound', job_id, external_id, status: 'queued'|'sent'|'acked'|'failed', request_id, idempotency_key, body_sha256, request_body(jsonb), response_code, error_message, attempt_count, last_attempt_at, created_at, updated_at}
+- audit_logs (append-only): {id, ts, actor_type, actor_id, action, object_type, object_id, payload(jsonb), payload_sha256, prev_hash, chain_hash, external_timestamp(optional), version}
+- reporting materialized views/rollups for durations and outcomes
+Configs/Secrets:
+- ERP_SHARED_SECRET, ERP_BEARER_TOKEN, ADMIN_MFA_ISSUER, ADMIN_IP_ALLOWLIST, SIEM_ENDPOINT, FLUENT_BIT_CONFIG, KEYRING_CURRENT/KEYRING_NEXT
+Operational:
+- Feature flags: INCIDENT_LOCK_ENABLED, EXPORT_SIGNED_URL_TTL, ALERT_QUIET_HOURS
+Acceptance: Migrations apply cleanly; secrets loaded via vault/env; chain_hash immutable constraint; base feature flags readable at runtime.
+
+## 2. Outbound ERP webhook publisher with HMAC and idempotency [pending]
+### Dependencies: 10.1
+### Description: Emit job.status.changed to ERP POST /erp/v1/jobs/update with HMAC-SHA256 signature, headers, idempotency, and persistence.
+### Details:
+Trigger: on job.status.changed
+HTTP: POST https://<erp-host>/erp/v1/jobs/update
+Payload schema: {job_id:string, status:string, progress:number(0-100), updated_at:iso8601, meta?:object}
+Headers: {'X-Signature': base64(hmac_sha256(ERP_SHARED_SECRET, body_bytes)), 'X-Request-Id': uuid, 'Idempotency-Key': idem_key, 'Content-Type': 'application/json'}
+Behavior: write outbound record to erp_mes_sync, dedupe by idempotency_key, mark status transitions; constant-time signature generation
+SLA: P95 publish latency < 2s in steady state
+Acceptance: Sample event delivers 200 against mock; erp_mes_sync row created with body_sha256; duplicate status changes reuse existing idem record.
+
+## 3. Outbound retry scheduler and DLQ handling [pending]
+### Dependencies: 10.2, 10.1
+### Description: Implement fixed retry schedule with idempotent reattempts, error classification, and DLQ + replay endpoints.
+### Details:
+Retry policy: 5s, 15s, 45s, 2m, 5m (max 5 attempts)
+Dedup: idem_key prevents duplicate HTTP sends; backoff respects per-record attempt_count
+DLQ: route hard failures (4xx except 429/408) after 1 attempt or on final attempt to erp_outbound_dlq; store error details
+Replay: POST /admin/erp/replay {sync_id[]} -> requeue eligible records
+Observability: counters for attempts, successes, failures; alert if >1% failures over 15m
+Acceptance: Verified schedule timings; 429 triggers next backoff; DLQ receives malformed payload cases; replay transitions from DLQ to queued and eventually acked.
+
+## 4. Inbound ERP progress API with signature verification and IP allowlist [pending]
+### Dependencies: 10.1
+### Description: Expose POST /api/v1/erp/inbound/job/progress secured by Bearer, optional HMAC verification, and IP allowlist; update job and logs.
+### Details:
+Endpoint: POST /api/v1/erp/inbound/job/progress
+Auth: Authorization: Bearer <ERP_BEARER_TOKEN>; IP allowlist match; if X-Signature present, verify base64(hmac_sha256(ERP_SHARED_SECRET, body_bytes)) using constant-time compare
+Body: {job_id:string, status:string, progress:number(0-100), message?:string, ext_ts?:iso8601}
+Responses: 200 {ok:true}, 401 invalid token/signature, 403 IP not allowed, 422 schema error
+Side effects: update job progress/status; write audit_logs(entry: action='erp.inbound.progress'); insert erp_mes_sync(direction='inbound')
+Acceptance: Tampered body → 401; non-allowlisted IP → 403; valid request updates job and creates both audit and sync rows.
+
+## 5. ERP/MES sync reconciliation and health checks [pending]
+### Dependencies: 10.2, 10.3, 10.4, 10.6
+### Description: Periodic reconciliation of erp_mes_sync with ERP acknowledgments and admin tooling for manual requeue/resolve.
+### Details:
+Reconciler: scan outbound records older than 10m without ack; call ERP health/confirm APIs if available; otherwise requeue with cap
+Admin: UI/API to mark failed as resolved, requeue, or ignore; show attempt history
+Health: GET /internal/erp/health aggregates success/failure rates; consume /erp/v1/health from mock for connectivity
+Acceptance: Orphaned records detected and re-enqueued; health endpoint exposes JSON {ok, last_acked_at, failure_rate}; admin actions change record state accordingly.
+
+## 6. Mock ERP server container for development and tests [pending]
+### Dependencies: 10.1
+### Description: Provide dockerized mock implementing POST /erp/v1/jobs/update and GET /erp/v1/health with simple behaviors and logs.
+### Details:
+Endpoints: POST /erp/v1/jobs/update → 200 {ok:true}; GET /erp/v1/health → 200 'ok'
+Config: accepts/records headers X-Signature, X-Request-Id; optionally validate signature via injected secret; toggle failure modes via env MOCK_FAILURE_RATE
+Artifacts: Dockerfile, docker-compose service, request/response logs
+Acceptance: Local stack can send outbound events and receive 200; toggling failure rate triggers retry flow; health returns ok.
+
+## 7. Reporting backend: summary/detail endpoints and aggregates [pending]
+### Dependencies: 10.1
+### Description: Implement GET /reports/summary and /reports/detail with filters and metrics (P50/P95, success rates, breakdowns).
+### Details:
+Endpoints:
+- GET /reports/summary?date_from&date_to&status&model_type&machine&post
+- GET /reports/detail?date_from&date_to&status&model_type&machine&post&page&limit
+Metrics: durations P50/P95, success/failure rates, breakdowns by status, model_type, machine/post
+Response summary: {range:{from,to}, totals:{count,success,failed}, latency_ms:{p50,p95}, breakdowns:{by_status:[], by_machine:[]}}
+Acceptance: Aggregates match fixture expectations; P50/P95 computed from persisted durations; pagination stable in detail endpoint.
+
+## 8. Report export generation and signed URL delivery [pending]
+### Dependencies: 10.7, 10.1
+### Description: Create POST /reports/export to generate CSV/Excel/JSON exports with filters and deliver via signed URLs with TTL.
+### Details:
+Endpoint: POST /reports/export {format:'csv'|'xlsx'|'json', filters:{...}}
+Behavior: enqueue export job; on completion store object to S3/MinIO; generate signed URL (TTL configurable); email/webhook optional
+Security: exports scoped by RBAC; signed URL single-use optional; hash checksum recorded in audit_logs
+Acceptance: Exports download within TTL; content matches report filters; JSON schema validated; links expire after TTL; audit entry includes export_id and checksum.
+
+## 9. Frontend dashboards (Turkish UI) with ECharts [pending]
+### Dependencies: 10.7, 10.8
+### Description: Build Turkish-language dashboards for summary/detail reports with filters, charts, and export links.
+### Details:
+UI: tr-TR localization, date/time formats; filters for date range, status, model type, machine/post
+Charts: ECharts for trends, breakdown pie/stacked bar, latency distributions
+Exports: use signed URLs from backend; show progress indicators
+Acceptance: UI strings in Turkish; charts render with sample data; export buttons download correct files; responsive layout.
+
+## 10. Alerting quiet hours and repeat policies [pending]
+### Dependencies: 10.9
+### Description: Implement alert rules with quiet hours and repeat intervals for report anomalies (e.g., failure rate spikes).
+### Details:
+Config: {quiet_hours:[{start:'22:00', end:'07:00', tz:'Europe/Istanbul'}], repeat_every:'30m'} per channel
+Rules: trigger on failure_rate > threshold, latency p95 > threshold; suppress during quiet hours except severity=critical
+Delivery: email/Slack/webhook with dedup keys to control repeats
+Acceptance: During quiet hours, non-critical alerts suppressed; repeats occur per policy; breach generates alert within 2m.
+
+## 11. RBAC and permissions model for admin and reporting [pending]
+### Dependencies: 10.1
+### Description: Define roles and permissions, enforce on APIs and UI (admin, analyst, operator, auditor).
+### Details:
+Roles: admin(full), analyst(read reports/exports), operator(jobs/actions), auditor(read-only audit/SIEM)
+Permissions map to resources: users, licenses, invoices, catalog, jobs, logs, integrations, reports, exports
+Implementation: policy middleware; route guards; attribute-based checks for tenant/project
+Acceptance: Permission matrix tests pass; forbidden routes return 403; UI hides disallowed actions.
+
+## 12. Admin panel modules and bulk actions [pending]
+### Dependencies: 10.11
+### Description: Implement modules: users/licenses/invoices, catalog, jobs/logs, integration profiles; bulk actions license extend and job cancel.
+### Details:
+Routes: /admin/users, /admin/licenses, /admin/invoices, /admin/catalog, /admin/jobs, /admin/logs, /admin/integrations
+Bulk: license extend (select N → +period), job cancel (multi-select → cancel API)
+UX: server-side pagination, filters, audit trail entries for changes
+Acceptance: Bulk operations create audit_logs; permissions enforced; cancel requests reach workers; pagination performant on 50k+ rows.
+
+## 13. Admin security: MFA enforcement and optional IP allowlist [pending]
+### Dependencies: 10.11
+### Description: Enforce MFA for admin role and support optional IP allowlist for admin routes.
+### Details:
+MFA: TOTP enrollment/verification, backup codes, enforcement toggle; recovery flows audited
+IP allowlist: CIDR list for /admin/*; bypass for break-glass with additional approval
+Acceptance: Admin login requires MFA; blocked IPs receive 403; recovery uses backup codes and logs audit entry.
+
+## 14. Incident lock (read-only mode) and key rotation flows [pending]
+### Dependencies: 10.11
+### Description: Add incident lock to toggle read-only across admin, and implement key rotation for ERP secrets and signing keys.
+### Details:
+Incident lock: feature flag sets DB to read-only for mutating admin actions; UI badge and banner; include allowlist of emergency ops
+Key rotation: support KEYRING_CURRENT/KEYRING_NEXT; outbound signs with current, inbound verifies current+next; rotate via admin flow with audit
+Acceptance: In lock, mutating endpoints return 423 and UI disabled; rotation completes without downtime; both keys accepted during window.
+
+## 15. SIEM log shipping pipeline with masking, DLQ, and replay [pending]
+### Dependencies: 10.1
+### Description: Ship structured JSON logs to SIEM using Fluent Bit/syslog RFC5424; mask PII; implement DLQ and replay.
+### Details:
+Format: versioned JSON envelope {ts, level, svc, host, req_id, actor, event, payload_redacted, schema_ver}
+Transport: Fluent Bit to SIEM_ENDPOINT via syslog RFC5424/TCP+TLS; retry/backoff; batch and compress
+Masking: PII detection and redaction before egress; allowlist fields
+DLQ: failed batches to local durable queue; admin endpoint to replay
+Acceptance: Logs visible in SIEM with correct schema; PII fields redacted; induced outage stores in DLQ then replays successfully.
+
+## 16. Audit trail with chain_hash and forensic export [pending]
+### Dependencies: 10.1
+### Description: Ensure append-only audit with hash chaining and provide CSV/JSON forensic exports including optional external timestamp.
+### Details:
+Chain: chain_hash = sha256(prev_hash || record_sha256); immutability enforced by DB constraints and no-update trigger
+Export: GET /forensics/audit/export?format=csv|json&date_from&date_to&actor&action includes chain proofs and external_timestamp if present
+Verification: CLI tool to verify chain integrity offline
+Acceptance: Chain validates end-to-end on sample; export downloads with correct fields; tampering test fails verification.
+
+## 17. Observability dashboards and operational SLAs [pending]
+### Dependencies: 10.2, 10.4, 10.7, 10.15, 10.16
+### Description: Create metrics, logs, and traces dashboards and define SLAs/SLOs for ERP, reporting, admin, and SIEM pipelines.
+### Details:
+Metrics: ERP outbound success rate, retries, p50/p95 latencies; inbound 2xx rate; report generation duration; export queue times; SIEM ship lag; admin auth failures
+Dashboards: Grafana/Datadog with service-level SLOs (e.g., ERP outbound success >= 99.5% weekly, report export p95 < 60s)
+Alerts: tie to quiet hours policies; runbooks linked
+Acceptance: Dashboards populated in staging; alerts fire on synthetic canaries; SLOs documented and approved.
+
+## 18. Data retention & GDPR, E2E tests, failure drills, rollout & runbooks [pending]
+### Dependencies: 10.2, 10.3, 10.4, 10.5, 10.6, 10.7, 10.8, 10.9, 10.10, 10.11, 10.12, 10.13, 10.14, 10.15, 10.16, 10.17
+### Description: Define retention policies and GDPR flows; implement end-to-end tests and chaos drills; plan rollout and author runbooks.
+### Details:
+Retention: policies for audit_logs (e.g., 7y), SIEM (per contract), exports (TTL), PII minimization; GDPR: data subject access/delete with audit and exemptions
+E2E: tests covering outbound/inbound ERP, reports, exports, admin MFA/lock, SIEM shipment, forensic export; CI pipeline gates
+Failure drills: simulate ERP outage, SIEM sink failure, key rotation, incident lock; document RTO/RPO
+Rollout: phased enablement, feature flags, canary, rollback plan; runbooks for on-call
+Acceptance: Retention jobs enforce policies; DSAR workflow validated; E2E suite passes in CI; drills executed with postmortems; rollout completed without SEV incidents.
+

@@ -36,18 +36,108 @@ out/
 .vscode/
 .idea/
 
-# Ortam dosyaları - GERÇEKLER ignore
+# =================================================================================
+# ENVIRONMENT FILES - SECURITY CRITICAL
+# =================================================================================
+# Gerçek environment dosyaları GIT'e dahil edilmez (güvenlik)
 .env
 .env.local
 .env.prod
 .env.production
+.env.staging
+.env.dev
+*.env.local
+*.env.prod
+*.env.production
+
+# Backup files - potansiyel secret içerebilir
 .env.bak
 *.env.bak
 .env.*.bak
+.env.backup*
 
-# ÖRNEK dosyalar - TAKİBE AL
+# Development overrides
+.env.development.local
+.env.test.local
+.env.production.local
+
+# =================================================================================
+# TEMPLATE FILES - TRACKED IN GIT (güvenli örnekler)
+# =================================================================================
 !.env.example
+!.env.test
+!.env.prod.example
 !apps/web/.env.local.example
+
+# =================================================================================
+# SECRET MANAGEMENT FILES
+# =================================================================================
+# Doppler cache
+.doppler/
+
+# Vault files
+vault-config.json
+vault-token
+.vault-token
+
+# Azure Key Vault
+azure-keyvault-config.json
+
+# Google Cloud Secret Manager
+gcp-secrets.json
+google-application-credentials.json
+
+# AWS Secrets Manager
+aws-secrets-config.json
+
+# Kubernetes secrets (if accidentally generated locally)
+k8s-secrets.yaml
+sealed-secrets.yaml
+secret-*.yaml
+
+# HashiCorp Vault
+.vault/
+vault-data/
+
+# =================================================================================
+# SECURITY SENSITIVE FILES
+# =================================================================================
+# SSL/TLS certificates
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.jks
+
+# SSH keys
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+*.priv
+
+# GPG keys
+*.gpg
+*.asc
+
+# API keys and tokens
+api-keys.txt
+tokens.txt
+credentials.json
+service-account.json
+
+# Database dumps (may contain sensitive data)
+*.sql.dump
+*.sql.gz
+database-backup.*
+
+# Audit logs (may contain sensitive data)
+audit-*.log
+security-*.log
+
+# Pre-commit cache
+.pre-commit-cache/
 
 
 

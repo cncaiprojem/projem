@@ -1,0 +1,173 @@
+# FreeCAD CNC/CAM Platform - Dependabot Konfigürasyonu
+# Bu dosya otomatik dependency güncelleme sürecini yönetir
+# - Python, npm, Docker ve GitHub Actions dependency'leri
+# - Güvenlik yamaları öncelikli
+# - Haftalık kontrol ve otomatik PR oluşturma
+
+version: 2
+updates:
+  # Backend API - Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "shaptina"
+    assignees:
+      - "shaptina"
+    commit-message:
+      prefix: "deps(api)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "backend"
+      - "python"
+    versioning-strategy: "increase"
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    ignore:
+      # Major version updates için manuel review
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+
+  # Frontend Web - npm dependencies
+  - package-ecosystem: "npm"
+    directory: "/apps/web"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "10:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 10
+    reviewers:
+      - "shaptina"
+    assignees:
+      - "shaptina"
+    commit-message:
+      prefix: "deps(web)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "frontend"
+      - "npm"
+    versioning-strategy: "increase"
+    allow:
+      - dependency-type: "direct"
+      - dependency-type: "indirect"
+    ignore:
+      # Major version updates için manuel review
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+      # Specific problematic packages
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
+
+  # Root package.json - semantic-release dependencies
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "11:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "shaptina"
+    assignees:
+      - "shaptina"
+    commit-message:
+      prefix: "deps(root)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "devops"
+      - "release"
+    versioning-strategy: "increase"
+
+  # Docker dependencies - Dockerfile base images
+  - package-ecosystem: "docker"
+    directory: "/apps/api"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "09:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "shaptina"
+    assignees:
+      - "shaptina"
+    commit-message:
+      prefix: "deps(docker-api)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "backend"
+
+  - package-ecosystem: "docker"
+    directory: "/apps/web"
+    schedule:
+      interval: "weekly"
+      day: "tuesday"
+      time: "10:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "shaptina"
+    assignees:
+      - "shaptina"
+    commit-message:
+      prefix: "deps(docker-web)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "docker"
+      - "frontend"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "wednesday"
+      time: "09:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 5
+    reviewers:
+      - "shaptina"
+    assignees:
+      - "shaptina"
+    commit-message:
+      prefix: "deps(actions)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "github-actions"
+      - "ci-cd"
+
+  # Helm Charts dependencies
+  - package-ecosystem: "docker"
+    directory: "/charts/cnc"
+    schedule:
+      interval: "weekly"
+      day: "thursday"
+      time: "09:00"
+      timezone: "Europe/Istanbul"
+    open-pull-requests-limit: 3
+    reviewers:
+      - "shaptina"
+    assignees:
+      - "shaptina"
+    commit-message:
+      prefix: "deps(helm)"
+      include: "scope"
+    labels:
+      - "dependencies"
+      - "kubernetes"
+      - "helm"

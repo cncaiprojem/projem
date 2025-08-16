@@ -1,0 +1,345 @@
+# Docker Compose Development Overrides
+# Bu dosya development ortamı için özel ayarları içerir
+# Kullanım: docker-compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+name: freecad-platform-dev
+
+services:
+  # PostgreSQL - Development ayarları
+  postgres:
+    ports:
+      - "5432:5432"  # Host'a port expose et (debugging için)
+    environment:
+      POSTGRES_LOG_STATEMENT: "all"  # Tüm SQL sorguları logla
+      POSTGRES_LOG_MIN_DURATION_STATEMENT: "0"  # Tüm query sürelerini logla
+    volumes:
+      # Development için local volume mount
+      - ./data/postgres-dev:/var/lib/postgresql/data
+    command: >
+      postgres 
+      -c log_statement=all 
+      -c log_destination=stderr 
+      -c logging_collector=on
+      -c log_min_duration_statement=0
+      -c log_line_prefix='%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+
+  # Redis - Development ayarları  
+  redis:
+    ports:
+      - "6379:6379"  # Host'a port expose et
+    volumes:
+      - ./data/redis-dev:/data
+    command: >
+      redis-server 
+      --appendonly yes 
+      --appendfsync everysec
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --loglevel verbose
+
+  # RabbitMQ - Development ayarları
+  rabbitmq:
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI port  
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-freecad}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASS:-freecad}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+      # Development için detaylı logging
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >
+        -rabbit log_levels [{connection,info},{channel,info},{queue,info},{mirroring,info},{federation,info},{upgrade,info}]
+        -rabbitmq_management listener [{port,15672}]
+      # Development plugins
+      RABBITMQ_ENABLED_PLUGINS_FILE: /etc/rabbitmq/enabled_plugins
+    volumes:
+      # Development için local volume mount
+      - ./data/rabbitmq-dev:/var/lib/rabbitmq
+      - ./scripts/init-rabbitmq.sh:/opt/rabbitmq/init-rabbitmq.sh:ro
+      # Development için ek plugin konfigürasyonu
+      - ./compose/rabbitmq-dev-plugins.txt:/etc/rabbitmq/enabled_plugins:ro
+    # Development için restart policy
+    restart: "no"
+    # Management UI için ek ayarlar
+    labels:
+      - "rabbitmq.management.load_definitions=/etc/rabbitmq/definitions.json"
+
+  # MinIO - Development ayarları
+  minio:
+    ports:
+      - "9000:9000"   # API port
+      - "9001:9001"   # Console port
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      # Development için console logging
+      MINIO_CONSOLE_LOGGER: "on"
+      MINIO_LOGGER_WEBHOOK_ENABLE: "off"
+    volumes:
+      # Development için local volume mount
+      - ./data/minio-dev:/data
+    command: >
+      server /data 
+      --console-address ":9001" 
+      --address ":9000"
+
+  # API - Development ayarları
+  api:
+    environment:
+      ENV: development
+      DEBUG: "true"
+      RELOAD: "true"
+      # Development için detaylı logging
+      LOG_LEVEL: DEBUG
+      PYTHONPATH: /app
+      # Hot reload için
+      WATCHDOG_ENABLED: "true"
+      # Development authentication bypass
+      DEV_AUTH_BYPASS: "true"
+      # OpenTelemetry development ayarları
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      OTEL_RESOURCE_ATTRIBUTES: service.name=freecad-api-dev,service.version=dev
+    volumes:
+      # Source code hot reload için
+      - ./apps/api:/app:rw
+      - ./data/api-logs:/app/logs
+    # Development için port expose
+    ports:
+      - "8000:8000"
+    # Development için override command (hot reload)
+    command: >
+      /bin/sh -c "
+      echo 'Development modunda başlatılıyor...' && 
+      pip install watchdog[watchmedo] && 
+      uvicorn app.main:app 
+        --host 0.0.0.0 
+        --port 8000 
+        --reload 
+        --reload-dir /app 
+        --log-level debug
+      "
+
+  # Worker - Development ayarları
+  worker:
+    environment:
+      DEBUG: "true"
+      LOG_LEVEL: DEBUG
+      # Development için Celery ayarları
+      CELERY_TASK_ALWAYS_EAGER: "false"
+      CELERY_TASK_EAGER_PROPAGATES: "true"
+      CELERY_WORKER_PREFETCH_MULTIPLIER: 1
+      CELERY_TASK_ROUTES: >
+        {
+          "app.tasks.*": {"queue": "cpu"},
+          "app.tasks.freecad.*": {"queue": "freecad"},
+          "app.tasks.sim.*": {"queue": "sim"}
+        }
+    volumes:
+      - ./apps/api:/app:rw
+      - ./data/worker-logs:/app/logs
+    # Development için daha verbose logging
+    command: >
+      celery -A app.tasks.worker worker 
+        --loglevel=DEBUG 
+        --concurrency=2 
+        --queues=cpu,postproc
+        --without-heartbeat
+        --without-gossip
+
+  # FreeCAD Worker - Development ayarları  
+  worker-freecad:
+    environment:
+      DEBUG: "true" 
+      LOG_LEVEL: DEBUG
+      FREECAD_TIMEOUT_SECONDS: ${FREECAD_TIMEOUT_SECONDS:-600}  # Development için kısa timeout
+      LANG: C.UTF-8
+      # FreeCAD debugging
+      FREECAD_LOG_LEVEL: "Debug"
+      PYTHONPATH: "/app:/usr/lib/freecad-daily/lib:/usr/lib/freecad-daily/Ext"
+    volumes:
+      - ./apps/api:/app:rw
+      - ./data/freecad-logs:/app/logs
+      - ./data/freecad-temp:/tmp/freecad:rw
+    # Development için tek worker
+    command: >
+      celery -A app.tasks.worker worker 
+        --loglevel=DEBUG 
+        --concurrency=1 
+        --queues=freecad
+        --without-heartbeat
+        --without-gossip
+        --pool=solo
+
+  # Simulation Worker - Development ayarları
+  worker-sim:
+    environment:
+      DEBUG: "true"
+      LOG_LEVEL: DEBUG  
+      FREECAD_TIMEOUT_SECONDS: ${FREECAD_TIMEOUT_SECONDS:-600}
+      LANG: C.UTF-8
+      SIM_RESOLUTION_MM_DEFAULT: 1.0  # Development için düşük çözünürlük
+    volumes:
+      - ./apps/api:/app:rw
+      - ./data/sim-logs:/app/logs
+      - ./data/sim-temp:/tmp/sim:rw
+    command: >
+      celery -A app.tasks.worker worker 
+        --loglevel=DEBUG 
+        --concurrency=1 
+        --queues=sim
+        --without-heartbeat
+        --without-gossip
+        --pool=solo
+
+  # Celery Beat - Development ayarları
+  beat:
+    environment:
+      DEBUG: "true"
+      LOG_LEVEL: DEBUG
+      # Development için schedule override
+      CELERY_BEAT_SCHEDULE_FILENAME: "/app/celerybeat-schedule-dev"
+    volumes:
+      - ./apps/api:/app:rw
+      - ./data/beat-logs:/app/logs
+    command: >
+      celery -A app.tasks.worker beat 
+        --loglevel=DEBUG 
+        --pidfile=/app/celerybeat-dev.pid
+        --schedule=/app/celerybeat-schedule-dev
+
+  # Web - Development ayarları
+  web:
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_BASE_URL: http://localhost:8000
+      NEXT_PUBLIC_DEV_AUTH_BYPASS: "true"
+      # Development için hot reload
+      WATCHPACK_POLLING: "true"
+      CHOKIDAR_USEPOLLING: "true"
+      # Development için debug
+      DEBUG: "*"
+    volumes:
+      # Source code hot reload için
+      - ./apps/web:/app:rw
+      - web_node_modules_dev:/app/node_modules
+    ports:
+      - "3000:3000"
+      - "3001:3001"  # Next.js dev server additional port
+    # Development için override command
+    command: >
+      sh -lc "
+      echo 'Web development modunda başlatılıyor...' &&
+      corepack enable && 
+      corepack prepare pnpm@8.15.4 --activate && 
+      pnpm install && 
+      pnpm dev --port 3000 --hostname 0.0.0.0
+      "
+
+  # OpenTelemetry Collector - Development ayarları
+  otel-collector:
+    environment:
+      # Development için detaylı logging
+      OTEL_LOG_LEVEL: "debug"
+    volumes:
+      - ./compose/otel-collector-config-dev.yaml:/etc/otel-collector-config.yaml:ro
+      - ./data/otel-logs:/var/log/otel
+    ports:
+      - "4317:4317"  # OTLP gRPC
+      - "4318:4318"  # OTLP HTTP
+      - "14250:14250"  # Jaeger gRPC
+    command: >
+      --config=/etc/otel-collector-config.yaml
+      --log-level=debug
+
+  # Prometheus - Development ayarları
+  prometheus:
+    volumes:
+      - ./compose/prometheus-dev.yml:/etc/prometheus/prometheus.yml:ro
+      - ./data/prometheus-dev:/prometheus
+    ports:
+      - "9090:9090"
+    command: >
+      --config.file=/etc/prometheus/prometheus.yml
+      --storage.tsdb.path=/prometheus
+      --web.console.libraries=/etc/prometheus/console_libraries
+      --web.console.templates=/etc/prometheus/consoles
+      --web.enable-lifecycle
+      --log.level=debug
+
+  # Grafana - Development ayarları  
+  grafana:
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: "grafana-clock-panel,grafana-simple-json-datasource"
+      # Development için debugging
+      GF_LOG_LEVEL: debug
+      GF_FEATURE_TOGGLES_ENABLE: "publicDashboards"
+    volumes:
+      - ./data/grafana-dev:/var/lib/grafana
+      - ./compose/grafana-dev-dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./compose/grafana-dev-datasources:/etc/grafana/provisioning/datasources:ro
+    ports:
+      - "3001:3000"  # Grafana port (web 3000 ile çakışmaması için)
+
+# Development için ek servisler
+  # RabbitMQ Exporter - Monitoring için
+  rabbitmq-exporter:
+    image: kbudde/rabbitmq-exporter:v1.0.0-RC19
+    container_name: fc_rabbitmq_exporter_dev
+    environment:
+      RABBIT_URL: http://rabbitmq:15672
+      RABBIT_USER: ${RABBITMQ_USER:-freecad}
+      RABBIT_PASSWORD: ${RABBITMQ_PASS:-freecad}
+      RABBIT_CAPABILITIES: "bert,no_sort"
+      PUBLISH_PORT: "9419"
+      LOG_LEVEL: "debug"
+    ports:
+      - "9419:9419"
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    networks:
+      - app-net
+
+  # Redis Exporter - Monitoring için  
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: fc_redis_exporter_dev
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_EXPORTER_LOG_FORMAT: "json"
+      REDIS_EXPORTER_DEBUG: "true"
+    ports:
+      - "9121:9121"
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - app-net
+
+  # Mailhog - Email testing için
+  mailhog:
+    image: mailhog/mailhog:latest
+    container_name: fc_mailhog_dev
+    ports:
+      - "1025:1025"  # SMTP
+      - "8025:8025"  # Web UI
+    networks:
+      - app-net
+
+# Development için ek volume'lar
+volumes:
+  web_node_modules_dev:
+    name: fc_web_node_modules_dev
+
+# Development için network override
+networks:
+  app-net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.driver.mtu: 1500
+    labels:
+      - "development=true"
+      - "project=freecad-platform"

@@ -1,0 +1,169 @@
+{
+  "branches": [
+    "main",
+    {
+      "name": "develop",
+      "prerelease": "beta"
+    },
+    {
+      "name": "release/*",
+      "prerelease": "rc"
+    }
+  ],
+  "repositoryUrl": "https://github.com/shaptina/projem",
+  "tagFormat": "v${version}",
+  "plugins": [
+    [
+      "@semantic-release/commit-analyzer",
+      {
+        "preset": "conventionalcommits",
+        "releaseRules": [
+          {
+            "type": "feat",
+            "release": "minor"
+          },
+          {
+            "type": "fix",
+            "release": "patch"
+          },
+          {
+            "type": "perf",
+            "release": "patch"
+          },
+          {
+            "type": "refactor",
+            "release": "patch"
+          },
+          {
+            "type": "docs",
+            "release": false
+          },
+          {
+            "type": "style",
+            "release": false
+          },
+          {
+            "type": "test",
+            "release": false
+          },
+          {
+            "type": "ci",
+            "release": false
+          },
+          {
+            "type": "build",
+            "release": false
+          },
+          {
+            "type": "chore",
+            "release": false
+          },
+          {
+            "breaking": true,
+            "release": "major"
+          }
+        ],
+        "parserOpts": {
+          "noteKeywords": [
+            "BREAKING CHANGE",
+            "BREAKING CHANGES",
+            "DEĞIŞIKLIK",
+            "BREAKING"
+          ]
+        }
+      }
+    ],
+    [
+      "@semantic-release/release-notes-generator",
+      {
+        "preset": "conventionalcommits",
+        "presetConfig": {
+          "types": [
+            {
+              "type": "feat",
+              "section": "🚀 Yeni Özellikler",
+              "hidden": false
+            },
+            {
+              "type": "fix",
+              "section": "🐛 Hata Düzeltmeleri",
+              "hidden": false
+            },
+            {
+              "type": "perf",
+              "section": "⚡ Performans İyileştirmeleri",
+              "hidden": false
+            },
+            {
+              "type": "refactor",
+              "section": "♻️ Kod Refactoring",
+              "hidden": false
+            },
+            {
+              "type": "docs",
+              "section": "📚 Dokümantasyon",
+              "hidden": false
+            },
+            {
+              "type": "style",
+              "section": "💄 Kod Stili",
+              "hidden": true
+            },
+            {
+              "type": "test",
+              "section": "🧪 Testler",
+              "hidden": true
+            },
+            {
+              "type": "ci",
+              "section": "👷 CI/CD",
+              "hidden": true
+            },
+            {
+              "type": "build",
+              "section": "📦 Build Sistemi",
+              "hidden": true
+            },
+            {
+              "type": "chore",
+              "section": "🔧 Bakım",
+              "hidden": true
+            }
+          ]
+        },
+        "writerOpts": {
+          "commitsSort": ["subject", "scope"]
+        }
+      }
+    ],
+    [
+      "@semantic-release/changelog",
+      {
+        "changelogFile": "CHANGELOG.md",
+        "changelogTitle": "# FreeCAD CNC/CAM Platform - Changelog\n\nBu proje [Semantic Versioning](https://semver.org/) kullanır ve değişiklikler [Conventional Commits](https://conventionalcommits.org/) formatında takip edilir.\n\n## Versiyon Formatı\n\n- **MAJOR**: Breaking changes (uyumsuz API değişiklikleri)\n- **MINOR**: Yeni özellikler (geriye uyumlu)\n- **PATCH**: Hata düzeltmeleri (geriye uyumlu)\n\n## Commit Mesaj Formatı\n\n```\ntype(scope): açıklama\n\n[optional body]\n\n[optional footer(s)]\n```\n\n### Türler:\n- `feat`: Yeni özellik\n- `fix`: Hata düzeltmesi\n- `perf`: Performans iyileştirmesi\n- `refactor`: Kod refactoring\n- `docs`: Dokümantasyon değişikliği\n- `style`: Kod formatı değişikliği\n- `test`: Test ekleme/düzeltme\n- `ci`: CI/CD değişikliği\n- `build`: Build sistemi değişikliği\n- `chore`: Diğer değişiklikler\n\n---\n"
+      }
+    ],
+    [
+      "@semantic-release/git",
+      {
+        "assets": ["CHANGELOG.md", "package.json", "package-lock.json"],
+        "message": "chore(release): ${nextRelease.version} [skip ci]\n\n${nextRelease.notes}"
+      }
+    ],
+    [
+      "@semantic-release/github",
+      {
+        "successComment": "🎉 Bu issue/PR **${nextRelease.version}** versiyonunda çözüldü!\n\n**Release Notları:** https://github.com/${options.repositoryUrl.split('/').slice(-2).join('/')}/releases/tag/v${nextRelease.version}\n\n**Docker Images:**\n- API: `ghcr.io/${options.repositoryUrl.split('/').slice(-2).join('/')}/api:v${nextRelease.version}`\n- Web: `ghcr.io/${options.repositoryUrl.split('/').slice(-2).join('/')}/web:v${nextRelease.version}`",
+        "failComment": "❌ Release işlemi başarısız oldu. Detaylar için [workflow loglarını](${env.GITHUB_SERVER_URL}/${env.GITHUB_REPOSITORY}/actions/runs/${env.GITHUB_RUN_ID}) kontrol edin.",
+        "releasedLabels": ["released<%= nextRelease.version %>"],
+        "addReleases": "bottom",
+        "assets": [
+          {
+            "path": "freecad-cnc-cam-v*.tar.gz",
+            "label": "Production Deployment Package (freecad-cnc-cam-v${nextRelease.version}.tar.gz)"
+          }
+        ]
+      }
+    ]
+  ]
+}

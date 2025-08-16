@@ -1,0 +1,54 @@
+{
+  "name": "freecad-cnc-cam-platform",
+  "version": "1.0.0",
+  "description": "FreeCAD-based CNC/CAM production platform with Turkish UI/UX",
+  "keywords": [
+    "freecad",
+    "cnc",
+    "cam",
+    "cad",
+    "manufacturing",
+    "gcode",
+    "3d-modeling",
+    "machining",
+    "turkish"
+  ],
+  "homepage": "https://github.com/shaptina/projem#readme",
+  "bugs": {
+    "url": "https://github.com/shaptina/projem/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shaptina/projem.git"
+  },
+  "license": "MIT",
+  "author": "FreeCAD CNC/CAM Platform Team",
+  "workspaces": [
+    "apps/api",
+    "apps/web"
+  ],
+  "scripts": {
+    "dev": "make dev",
+    "build": "make build",
+    "test": "make test",
+    "lint": "make lint",
+    "format": "make format",
+    "typecheck": "cd apps/web && npm run typecheck",
+    "release": "semantic-release",
+    "release:dry": "semantic-release --dry-run"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "^6.0.3",
+    "@semantic-release/git": "^10.0.1",
+    "conventional-changelog-conventionalcommits": "^7.0.2",
+    "semantic-release": "^21.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "volta": {
+    "node": "20.10.0",
+    "npm": "10.2.3"
+  }
+}

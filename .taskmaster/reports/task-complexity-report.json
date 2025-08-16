@@ -1,0 +1,53 @@
+{
+	"meta": {
+		"generatedAt": "2025-08-16T14:46:16.258Z",
+		"tasksAnalyzed": 5,
+		"totalTasks": 10,
+		"analysisCount": 5,
+		"thresholdScore": 5,
+		"projectName": "Taskmaster",
+		"usedResearch": true
+	},
+	"complexityAnalysis": [
+		{
+			"taskId": 6,
+			"taskTitle": "Job Orchestration, Idempotency, DLQ and Audit Chain",
+			"complexityScore": 9,
+			"recommendedSubtasks": 12,
+			"expansionPrompt": "Expand this into ~12 subtasks covering: (1) Celery/RabbitMQ topology (primary/DLX/DLQ, quorum vs classic, publisher confirms, QoS/prefetch) and routing; (2) Retry/backoff with jitter per task type, error taxonomy, time limits; (3) Job type enums, payload contracts, schema validation and routing; (4) POST /jobs with transactional idempotency (unique key, insert-on-conflict), enqueue, and rate limiting; (5) GET /jobs/:id with ETag and artefact listing; (6) Cancellation API and cooperative worker checks (Redis-backed flag) and semantics; (7) Progress update helpers and job.status.changed event publishing (internal exchange + ERP bridge); (8) Append-only audit log with hash-chain, canonical JSON, verification tool; (9) Admin DLQ inspection/replay with MFA, justification logging, rate limits; (10) Observability (structlog, Prometheus metrics, OpenTelemetry tracing, dashboards); (11) Schema/migrations and DB constraints for jobs/audit/artefacts; (12) Test plan: unit, concurrency/race, integration (DLQ replay), performance, and failure drills. For each subtask produce: scope, interfaces (HTTP/AMQP/DB), acceptance criteria, security controls, rollout plan, risks, and effort estimate.",
+			"reasoning": "Touches infra, APIs, reliability, security, and tamper-evident auditing with strong concurrency/race conditions; multiple components must work coherently."
+		},
+		{
+			"taskId": 7,
+			"taskTitle": "Model Generation Flows (Prompt, Parametric, Upload, Assembly4) with FreeCAD",
+			"complexityScore": 10,
+			"recommendedSubtasks": 17,
+			"expansionPrompt": "Decompose into ~17 subtasks spanning: (1) API contracts/guards (JWT, licenseGuard, RBAC, rate limits, idempotency); (2) Provider-agnostic AI adapter (OpenAI/Azure) with Turkish locale, PII masking, timeouts/retries/circuit breaker; (3) Deterministic normalize()/validate() engine incl. script-mode AST normalization and security policy; (4) Celery job wiring and lifecycle; (5) FreeCAD worker container and execution harness with cgroups/ulimits; (6) Parametric modeling pipeline; (7) Upload normalization/validation (units/orientation/manifold repair); (8) Assembly4 JSON parser and constraint placement + collision checks; (9) Unified, deterministic export pipeline (FCStd/STEP/STL/GLB) with version pinning; (10) Metrics extraction and telemetry; (11) Artefact storage/linking (S3/MinIO, metadata, presigned URLs); (12) Error taxonomy and user suggestions; (13) Performance tuning & caching strategy (params/prompt/AI caches, warm-ups); (14) Golden artefacts/test corpus and CI integration tests in containers; (15) Security hardening (sandboxing, script linting, PII masking verification); (16) Operational runbooks and troubleshooting; (17) Non-functional tests (determinism, reproducible hashes). Provide interfaces, acceptance tests, and guardrails for determinism and safety.",
+			"reasoning": "Combines AI preprocessing, strict deterministic normalization, CAD scripting security, multiple flows, containerized FreeCAD, exports, caching, and extensive testing."
+		},
+		{
+			"taskId": 8,
+			"taskTitle": "CAM Pipeline with FreeCAD Path WB, Tool Library, Post-Processing and Static G-code Validation",
+			"complexityScore": 9,
+			"recommendedSubtasks": 15,
+			"expansionPrompt": "Structure ~15 subtasks: (1) CAM API design/OpenAPI and validation; (2) Tool library schema, seed, and tool↔strategy/geometry validation; (3) Machine→post mapping and file extension rules; (4) Path WB headless harness (Job/WCS/stock/heights) and op sequencing; (5) Machine limits enforcement with remediation; (6) Keep-out AABB intersection and revision; (7) Post-processing to G-code with metadata and SHA256/version rev; (8) Static G-code validator (modal consistency, forbidden codes, caps) + report; (9) Artefact persistence with tags/metadata; (10) Timeouts/resource limits/cancellation; (11) Failure taxonomy and uniform error envelope; (12) Observability (logs/metrics/tracing) and persisted logs; (13) Test fixtures and CI integration E2E; (14) Performance targets and tuning; (15) Documentation and operator guidelines. For each, define inputs/outputs, deterministic settings, acceptance, and safety limits.",
+			"reasoning": "End-to-end CAM involves geometric correctness, machine constraints, deterministic posts, static validation, and robust storage/observability."
+		},
+		{
+			"taskId": 9,
+			"taskTitle": "CAMotics Simulation Integration and Reporting",
+			"complexityScore": 8,
+			"recommendedSubtasks": 10,
+			"expansionPrompt": "Plan ~10 subtasks: (1) Config/schema baseline and observability; (2) Simulation APIs with auth/licenseGuard and queuing; (3) CMX project builder (units/WCS/tools/stock); (4) CAMotics CLI runner with timeout/retry/log tailing; (5) Output parser mapped to sim_report v1 (schema validation); (6) Media capture and FFmpeg encoding (MP4/GIF/snapshot); (7) Artefact storage and DB persistence with idempotency; (8) Progress streaming and alert publishing; (9) Robust error classification, cleanup, and messaging; (10) Test matrix and CI in containers. Specify acceptance criteria, performance budgets, and retry policies.",
+			"reasoning": "Sim orchestration is IO/CPU heavy with media processing, but narrower in scope than full CAM/ERP; requires reliable tooling, parsing, and UX feedback."
+		},
+		{
+			"taskId": 10,
+			"taskTitle": "ERP/MES Integration, Reporting/Analytics, Admin Panel, SIEM & Forensics",
+			"complexityScore": 10,
+			"recommendedSubtasks": 20,
+			"expansionPrompt": "Break into ~20 subtasks: (1) Data models/migrations/config/secrets; (2) Outbound ERP publisher with HMAC and idempotency; (3) Outbound retry scheduler and DLQ/replay; (4) Inbound ERP progress API with signature/IP allowlist; (5) Reconciliation and health checks; (6) Mock ERP server container; (7) Reporting backend summary/detail and aggregates; (8) Report export jobs with signed URLs and TTL; (9) Frontend dashboards (tr-TR) and filters; (10) Alerting quiet hours and repeat policies; (11) RBAC and permissions; (12) Admin modules (users/licenses/catalog/jobs/logs/integrations); (13) Admin security: MFA and IP allowlist; (14) Incident lock and key rotation (dual-key window); (15) SIEM log shipping with masking, DLQ, replay; (16) Audit trail hash-chain and forensic export + verifier; (17) Observability dashboards and SLOs; (18) Data retention/GDPR flows; (19) E2E tests and failure drills; (20) Rollout/change management and runbooks. Include security/compliance requirements, acceptance tests, and operational SLAs for each.",
+			"reasoning": "Spans multiple domains (integrations, analytics, admin UX, security/compliance, SIEM) with strict reliability and governance requirements."
+		}
+	]
+}

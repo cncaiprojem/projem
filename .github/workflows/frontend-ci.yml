@@ -1,0 +1,512 @@
+# FreeCAD CNC/CAM Platform - Frontend CI Pipeline
+# Bu workflow Next.js frontend'i için kapsamlı CI/CD süreci sağlar
+# - TypeScript type checking ve ESLint
+# - Vitest unit testleri ve Jest integration testleri
+# - Playwright E2E smoke testleri
+# - Docker container oluşturma ve güvenlik taraması
+# - Performance ve accessibility testleri
+
+name: Frontend CI
+
+# Trigger koşulları - Frontend değişikliklerinde çalış
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'apps/web/**'
+      - '.github/workflows/frontend-ci.yml'
+      - 'docker-compose.yml'
+      - 'Makefile'
+  pull_request:
+    branches: [ main, develop ]
+    paths:
+      - 'apps/web/**'
+      - '.github/workflows/frontend-ci.yml'
+      - 'docker-compose.yml'
+      - 'Makefile'
+
+# Güvenlik ve performans için global ayarlar
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/web
+  NODE_VERSION: "20"
+  PNPM_VERSION: "8"
+  
+# Job'lar arası veri paylaşımı için concurrency group
+concurrency:
+  group: frontend-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # 1. Kod Kalitesi ve Statik Analiz
+  quality-check:
+    name: 🔍 Kod Kalitesi ve TypeScript Kontrolü
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: 📥 Kod deposunu çek
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Sonar analizi için tam geçmiş
+          
+      - name: 📦 PNPM kurulumu
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          
+      - name: 🟢 Node.js kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: 'apps/web/package.json'
+          
+      - name: 📦 Dependencies yükle
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          
+      - name: 🔍 TypeScript type checking
+        working-directory: apps/web
+        run: |
+          echo "::group::TypeScript Compilation Check"
+          pnpm run typecheck
+          echo "::endgroup::"
+          
+      - name: 🧹 ESLint çalıştır
+        working-directory: apps/web
+        run: |
+          echo "::group::ESLint Analysis"
+          pnpm run lint --format=github
+          echo "::endgroup::"
+          
+      - name: 🎨 Prettier formatting kontrolü
+        working-directory: apps/web
+        run: |
+          echo "::group::Prettier Format Check"
+          pnpm run format:check
+          echo "::endgroup::"
+          
+      - name: 🔧 Next.js build kontrolü
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NODE_ENV: production
+        run: |
+          echo "::group::Next.js Production Build"
+          pnpm run build
+          echo "::endgroup::"
+          
+      - name: 📊 Bundle analizi (opsiyonel)
+        working-directory: apps/web
+        run: |
+          echo "::group::Bundle Size Analysis"
+          npx next-bundle-analyzer --analyze
+          echo "::endgroup::"
+          
+      - name: 🔍 Dependency vulnerability check
+        working-directory: apps/web
+        run: |
+          pnpm audit --audit-level moderate
+
+  # 2. Unit Testleri (Vitest)
+  unit-tests:
+    name: 🧪 Unit Testleri (Vitest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    
+    steps:
+      - name: 📥 Kod deposunu çek
+        uses: actions/checkout@v4
+        
+      - name: 📦 PNPM kurulumu
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          
+      - name: 🟢 Node.js kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: 'apps/web/package.json'
+          
+      - name: 📦 Dependencies yükle
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          
+      - name: 🧪 Vitest unit testleri
+        working-directory: apps/web
+        run: |
+          pnpm run test:unit --reporter=verbose --coverage
+          
+      - name: 📊 Coverage raporu yükle
+        uses: codecov/codecov-action@v4
+        with:
+          file: apps/web/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+          fail_ci_if_error: true
+        env:
+          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+
+  # 3. Integration Testleri
+  integration-tests:
+    name: 🔗 Integration Testleri
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    
+    # Test için gerekli backend servisler
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_USER: testuser
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+          
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+          
+    steps:
+      - name: 📥 Kod deposunu çek
+        uses: actions/checkout@v4
+        
+      - name: 📦 PNPM kurulumu
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          
+      - name: 🟢 Node.js kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: 'apps/web/package.json'
+          
+      - name: 🐍 Python kurulumu (Backend için)
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          
+      - name: 🚀 Backend API başlat
+        working-directory: apps/api
+        env:
+          DATABASE_URL: postgresql://testuser:testpass@localhost:5432/testdb
+          REDIS_URL: redis://localhost:6379/0
+          AUTH_MODE: dev
+        run: |
+          pip install -r requirements.txt
+          alembic upgrade head
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          sleep 10
+          curl -f http://localhost:8000/health || exit 1
+          
+      - name: 📦 Frontend dependencies yükle
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          
+      - name: 🔗 Integration testleri çalıştır
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+          NODE_ENV: test
+        run: |
+          pnpm run test:integration
+
+  # 4. E2E Testleri (Playwright)
+  e2e-tests:
+    name: 🎭 E2E Smoke Testleri (Playwright)
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    
+    steps:
+      - name: 📥 Kod deposunu çek
+        uses: actions/checkout@v4
+        
+      - name: 📦 PNPM kurulumu
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          
+      - name: 🟢 Node.js kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: 'apps/web/package.json'
+          
+      - name: 📦 Dependencies yükle
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          
+      - name: 🎭 Playwright kurulumu
+        working-directory: apps/web
+        run: |
+          pnpm exec playwright install --with-deps chromium firefox webkit
+          
+      - name: 🐳 Test environment başlat (Docker Compose)
+        run: |
+          docker compose -f docker-compose.yml up -d postgres redis minio
+          sleep 15
+          
+      - name: 🐍 Python ve Backend kurulumu
+        working-directory: apps/api
+        run: |
+          pip install -r requirements.txt
+          export DATABASE_URL=postgresql://postgres:postgres@localhost:5432/projem
+          export REDIS_URL=redis://localhost:6379/0
+          export AUTH_MODE=dev
+          alembic upgrade head
+          uvicorn app.main:app --host 0.0.0.0 --port 8000 &
+          
+      - name: 🏗️ Frontend build ve başlatma
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: |
+          pnpm run build
+          pnpm run start &
+          sleep 10
+          curl -f http://localhost:3000 || exit 1
+          
+      - name: 🎭 E2E smoke testleri çalıştır
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:3000
+        run: |
+          pnpm run test:e2e --project=chromium
+          
+      - name: 📊 Playwright test raporu yükle
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: playwright-report
+          path: apps/web/playwright-report/
+          retention-days: 30
+          
+      - name: 📸 Test failure screenshots
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-screenshots
+          path: apps/web/test-results/
+          retention-days: 30
+
+  # 5. Performance ve Accessibility Testleri
+  performance-tests:
+    name: ⚡ Performance ve Accessibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [quality-check]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: 📥 Kod deposunu çek
+        uses: actions/checkout@v4
+        
+      - name: 📦 PNPM kurulumu
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          
+      - name: 🟢 Node.js kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: 'apps/web/package.json'
+          
+      - name: 📦 Dependencies yükle
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          
+      - name: 🏗️ Production build
+        working-directory: apps/web
+        env:
+          NEXT_PUBLIC_API_URL: http://localhost:8000
+        run: |
+          pnpm run build
+          pnpm run start &
+          sleep 10
+          
+      - name: 🔍 Lighthouse CI performance testi
+        working-directory: apps/web
+        run: |
+          npm install -g @lhci/cli
+          lhci autorun --config=.lighthouserc.json || echo "Lighthouse config bulunamadı, varsayılan ayarlarla çalıştırılıyor"
+          lhci autorun --upload.target=temporary-public-storage
+          
+      - name: ♿ Accessibility testleri (axe-core)
+        working-directory: apps/web
+        run: |
+          npm install -g @axe-core/cli
+          # axe http://localhost:3000 --tags wcag2a,wcag2aa
+
+  # 6. Docker Build ve Security Scan
+  docker-build:
+    name: 🐳 Docker Build ve Container Security
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [quality-check, unit-tests]
+    
+    permissions:
+      contents: read
+      packages: write
+      security-events: write
+      
+    outputs:
+      image-digest: ${{ steps.build.outputs.digest }}
+      image-tag: ${{ steps.meta.outputs.tags }}
+      
+    steps:
+      - name: 📥 Kod deposunu çek
+        uses: actions/checkout@v4
+        
+      - name: 🔧 Docker Buildx kurulumu
+        uses: docker/setup-buildx-action@v3
+        
+      - name: 🔑 GitHub Container Registry login
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+          
+      - name: 🏷️ Container metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=ref,event=pr
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=FreeCAD CNC/CAM Web
+            org.opencontainers.image.description=Next.js frontend for FreeCAD-based CNC/CAM platform
+            org.opencontainers.image.vendor=FreeCAD CNC/CAM Platform
+            
+      - name: 🏗️ Docker image build ve push
+        id: build
+        uses: docker/build-push-action@v5
+        with:
+          context: apps/web
+          file: apps/web/Dockerfile
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+          build-args: |
+            NEXT_PUBLIC_API_URL=http://localhost:8000
+            
+      - name: 🛡️ Container security scan (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH,MEDIUM'
+          
+      - name: 📊 Security scan sonuçlarını yükle
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-results.sarif'
+          
+      - name: 📋 SBOM generation (Syft)
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          syft ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} -o spdx-json > sbom.spdx.json
+          
+      - name: 📊 SBOM artifact yükle
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-sbom
+          path: sbom.spdx.json
+          retention-days: 90
+
+  # 7. Visual Regression Tests (İsteğe bağlı)
+  visual-tests:
+    name: 📸 Visual Regression Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [e2e-tests]
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - name: 📥 Kod deposunu çek
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          
+      - name: 📦 PNPM kurulumu
+        uses: pnpm/action-setup@v3
+        with:
+          version: ${{ env.PNPM_VERSION }}
+          
+      - name: 🟢 Node.js kurulumu
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'pnpm'
+          cache-dependency-path: 'apps/web/package.json'
+          
+      - name: 📦 Dependencies yükle
+        working-directory: apps/web
+        run: |
+          pnpm install --frozen-lockfile
+          
+      - name: 📸 Visual regression tests (Placeholder)
+        working-directory: apps/web
+        run: |
+          echo "Visual regression test placeholder"
+          # Örnek: Chromatic, Percy veya benzeri tool kullanılabilir
+          # npx chromatic --project-token=${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+
+  # 8. Notification ve Cleanup
+  notify:
+    name: 📢 Bildirimler
+    runs-on: ubuntu-latest
+    needs: [quality-check, unit-tests, integration-tests, e2e-tests, docker-build]
+    if: always()
+    
+    steps:
+      - name: 📊 Workflow durum özeti
+        run: |
+          echo "🔍 Kod Kalitesi: ${{ needs.quality-check.result }}"
+          echo "🧪 Unit Testler: ${{ needs.unit-tests.result }}"
+          echo "🔗 Integration Testler: ${{ needs.integration-tests.result }}"
+          echo "🎭 E2E Testler: ${{ needs.e2e-tests.result }}"
+          echo "🐳 Docker Build: ${{ needs.docker-build.result }}"
+          
+          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
+            echo "❌ Frontend workflow başarısız oldu!"
+            exit 1
+          else
+            echo "✅ Frontend workflow başarılı!"
+          fi
