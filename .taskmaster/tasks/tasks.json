@@ -128,7 +128,7 @@
               "1.12"
             ],
             "details": "Goals:\n- One-command local dev stack up; automated smoke validation.\n\nSteps:\n- Create /infra/compose/docker-compose.dev.yml version \"3.9\" with services: api, workers, beat, postgres, redis, rabbitmq (management), minio, createbuckets, freecad, camotics, ffmpeg, clamav (optional), web.\n- Define networks: backend, frontend; attach api/workers to backend; web to frontend (and backend if it calls api).\n- Add volumes: pg_data, minio_data, minio_config, clamav_db.\n- Add env_file: .env; set restart, user: non-root where applicable; resource hints (mem_limit) for dev.\n- Healthchecks:\n  - postgres: pg_isready -U $POSTGRES_USER\n  - redis: redis-cli ping\n  - rabbitmq: rabbitmq-diagnostics -q ping\n  - minio: curl -sf http://localhost:9000/minio/health/ready inside container\n  - api: curl -sf http://localhost:8000/healthz\n  - web: curl -sf http://localhost:3000/healthz\n  - workers/beat use CMD-SHELL true to ensure process stays healthy\n- Add depends_on with condition: service_healthy where supported.\n- Add /scripts/smoke.sh that waits for health and exercises key calls (healthz, MinIO presign dry-run, version checks for utilities).\n\nFiles to create/change:\n- /infra/compose/docker-compose.dev.yml\n- /scripts/smoke.sh (executable)\n\nImages/tags:\n- postgres:16\n- redis:7.2-alpine\n- rabbitmq:3.13-management\n- minio/minio:RELEASE.2024-XX\n- minio/mc:RELEASE.2024-XX (for createbuckets)\n- utility images from prior task; apps-api, apps-workers, apps-web\n\nSecurity hardening:\n- No prod-only bypasses; expose only necessary ports; set RABBITMQ_DEFAULT_USER/PASS and MINIO_ROOT_USER/PASS from .env; read-only FS for api/workers where possible; drop ALL capabilities.\n\nCaching and CI performance tips:\n- Use docker compose build --parallel; enable BuildKit; mount bind volumes for fast iteration.\n\nAcceptance criteria:\n- docker compose up -d brings all services healthy; smoke script passes.\n\nVerification commands:\n- docker compose -f infra/compose/docker-compose.dev.yml up -d --build\n- ./scripts/smoke.sh",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-16T19:58:11.709Z",
+      "updated": "2025-08-16T20:15:27.472Z",
       "description": "Tasks for master context"
     }
   }
