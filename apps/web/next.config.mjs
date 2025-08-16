@@ -1,6 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactStrictMode: true,
+  // Enterprise Docker optimization: Standalone output for minimal production image
+  output: 'standalone',
   experimental: {
     typedRoutes: true,
   },

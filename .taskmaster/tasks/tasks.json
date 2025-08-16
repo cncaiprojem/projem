@@ -40,7 +40,7 @@
               "1.2"
             ],
             "details": "Goals:\n- Bootable API with health endpoint; ready for DB integration and logging/tracing later.\n\nSteps:\n- Initialize /apps/api with pyproject.toml (Python 3.11), dependencies: fastapi ^0.115, uvicorn[standard], pydantic v2, sqlalchemy 2.x, alembic 1.13, psycopg[binary], structlog, opentelemetry-api/sdk (stubs), httpx (tests), pytest.\n- Create app package: app/main.py (FastAPI instance), app/api/routes.py, app/core/settings.py, app/db/session.py (SQLAlchemy engine/session), app/db/base.py, app/middleware/__init__.py.\n- Add Alembic: alembic.ini, /apps/api/alembic/ env.py, versions/ README; base migration.\n- Add /healthz route returning 200 and build info (git sha env injected later).\n- Add pytest scaffolding and a simple test_health.py.\n\nFiles to create/change:\n- /apps/api/pyproject.toml, /apps/api/app/... (as above), /apps/api/alembic/..., /apps/api/tests/test_health.py\n\nImages/tags: n/a (built in Dockerfiles task).\n\nSecurity hardening:\n- Enforce uvicorn --proxy-headers and forwarded allow list to avoid header spoofing in prod configs.\n- Validate settings with strict Pydantic model; default to secure values.\n\nCaching and CI performance tips:\n- Use uv loop and httptools only in prod; dev can hot-reload outside container.\n\nAcceptance criteria:\n- FastAPI boots locally (uvicorn app.main:app) and GET /healthz returns 200 JSON.\n- Alembic upgrade head runs on empty DB.\n\nVerification commands:\n- cd apps/api && uvicorn app.main:app --reload\n- curl http://localhost:8000/healthz\n- alembic upgrade head",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -77,7 +77,7 @@
               "1.4"
             ],
             "details": "Goals:\n- Consistent JSON logs with request/task correlation IDs and future-ready tracing hooks.\n\nSteps:\n- In /apps/api: add middleware to inject X-Request-ID (generate if missing), log incoming/outgoing with structlog; configure uvicorn to use JSON.\n- In /apps/workers: configure structlog processors, attach task_id/request_id where present; add logging in task base class.\n- Add OTel stubs: initialize tracer provider from env; no exporter by default; integrate with FastAPI and Celery via instrumentation stubs disabled by default.\n\nFiles to create/change:\n- /apps/api/app/core/logging.py, app/middleware/request_id.py, updates to app/main.py.\n- /apps/workers/app/core/logging.py, updates to app/celery_app.py.\n\nImages/tags: n/a.\n\nSecurity hardening:\n- Redact sensitive fields in logs; use structlog filtering processor.\n\nCaching and CI performance tips:\n- Avoid logging noise in tests; set log level via env.\n\nAcceptance criteria:\n- Logs are JSON, include request_id and service name; workers include task_id.\n\nVerification commands:\n- Run API and curl a route with header X-Request-ID=abc; observe logs.\n- Trigger a Celery task and inspect stdout logs.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -101,7 +101,7 @@
               "1.5"
             ],
             "details": "Goals:\n- Produce small runtime image using Next.js standalone output; run as non-root.\n\nSteps:\n- Builder: node:20-alpine; install deps with npm ci; run next build; output standalone.\n- Runner: node:20-alpine; add non-root node user; copy .next/standalone and .next/static and public; set PORT=3000; CMD: node server.js.\n- Add healthcheck route mapping to /healthz.\n\nFiles to create/change:\n- /apps/web/Dockerfile\n\nImages/tags:\n- apps-web: local build from node:20-alpine\n\nSecurity hardening:\n- Run as non-root; set NODE_ENV=production; enable read-only root FS if possible; set sensible ulimit in compose.\n\nCaching and CI performance tips:\n- Cache node_modules via Docker build cache (mount=cache) and CI cache.\n\nAcceptance criteria:\n- Image builds and serves app; /healthz returns 200.\n\nVerification commands:\n- docker build -t apps-web ./apps/web\n- docker run --rm -p 3000:3000 apps-web curl -I localhost:3000/healthz",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-16T16:44:18.708Z",
+      "updated": "2025-08-16T18:23:39.671Z",
       "description": "Tasks for master context"
     }
   }
