@@ -65,7 +65,7 @@
               "1.2"
             ],
             "details": "Goals:\n- Bootable Next.js app with baseline tooling and a health page for smoke tests.\n\nSteps:\n- Create /apps/web with Next.js 15.4.0 (create-next-app with TS) and add dependencies: @tanstack/react-query, @mui/material, i18next, react-i18next, zustand, zod, eslint configs, vitest, playwright.\n- Add /app/healthz/route.ts returning 200 JSON {status:\"ok\"} or a simple page /healthz.\n- Configure ESLint and TypeScript strict mode; set up vitest config and a trivial test.\n\nFiles to create/change:\n- /apps/web/package.json, tsconfig.json, next.config.js, .eslintrc.js, vitest.config.ts, playwright.config.ts, app/healthz/page.tsx or route.ts.\n\nImages/tags: n/a (built in Dockerfiles task).\n\nSecurity hardening:\n- Set React StrictMode; configure Content Security Policy headers in next.config.js (stubs).\n\nCaching and CI performance tips:\n- Use .npmrc with npm ci and cache in CI; consider pnpm for speed later.\n\nAcceptance criteria:\n- next dev runs and /healthz returns 200 in dev or renders page.\n\nVerification commands:\n- cd apps/web && npm install && npm run dev\n- curl -I http://localhost:3000/healthz",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-16T15:59:05.330Z",
+      "updated": "2025-08-16T16:15:52.981Z",
       "description": "Tasks for master context"
     }
   }
