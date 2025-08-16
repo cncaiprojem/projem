@@ -14,46 +14,77 @@ permissions:
   security-events: write
 
 jobs:
-  # 1. GitHub AI Inference (Alternative to Copilot)
-  ai-inference:
+  # 1. Code Quality Analysis (Replaces GitHub AI Inference due to 403 errors)
+  code-quality:
     runs-on: ubuntu-latest
-    name: GitHub AI Inference
+    name: Code Quality Analysis
     permissions:
       contents: read
-      models: read
       pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
       
-      - name: Create AI Code Review Prompt
-        run: |
-          echo "Analyze this pull request for security vulnerabilities, performance issues, and code quality problems. Focus on:" > prompt.txt
-          echo "1. Security: SQL injection, XSS, hardcoded secrets" >> prompt.txt
-          echo "2. Performance: Algorithm complexity, memory leaks" >> prompt.txt  
-          echo "3. Turkish localization errors" >> prompt.txt
-          echo "4. Code quality and best practices" >> prompt.txt
-          echo "\nChanged files:" >> prompt.txt
-          git diff --name-only HEAD~1 >> prompt.txt
-      
-      - name: Run AI Code Analysis
-        id: ai-review
-        uses: actions/ai-inference@v1
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          prompt-file: prompt.txt
+          python-version: '3.11'
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      
+      - name: Analyze Changed Files
+        run: |
+          echo "Analyzing changed files for code quality issues..."
+          git diff --name-only HEAD~1 | tee changed_files.txt
+          
+      - name: Python Code Analysis
+        run: |
+          pip install ruff bandit safety
+          echo "## Python Code Quality Analysis" > quality_report.md
+          echo "### Security Issues (Bandit)" >> quality_report.md
+          bandit -r apps/api/app/ -f txt -o bandit_report.txt || true
+          if [ -f bandit_report.txt ]; then
+            echo '```' >> quality_report.md
+            cat bandit_report.txt >> quality_report.md
+            echo '```' >> quality_report.md
+          fi
+          
+      - name: TypeScript/React Analysis
+        run: |
+          cd apps/web
+          npm install --prefer-offline --no-audit
+          echo "### TypeScript/React Issues" >> ../quality_report.md
+          npm run lint 2>&1 | tee ../lint_output.txt || echo "Linting completed with warnings"
+          if [ -f ../lint_output.txt ]; then
+            echo '```' >> ../quality_report.md
+            cat ../lint_output.txt >> ../quality_report.md
+            echo '```' >> ../quality_report.md
+          fi
       
       - name: Comment on PR
         if: github.event_name == 'pull_request'
         uses: actions/github-script@v7
         with:
           script: |
-            const response = `## 🤖 GitHub AI Code Review\n\n${{ steps.ai-review.outputs.response }}\n\n---\n*Reviewed by GitHub AI Models*`;
+            const fs = require('fs');
+            let report = '## 🔍 Code Quality Analysis Report\n\n';
+            try {
+              const qualityReport = fs.readFileSync('quality_report.md', 'utf8');
+              report += qualityReport;
+            } catch (error) {
+              report += 'No significant code quality issues found.\n';
+            }
+            report += '\n---\n*Automated Code Quality Check*';
+            
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: response
+              body: report
             });
 
   # 2. Google Gemini Code Assist
