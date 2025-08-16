@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 
 # ==============================================================================
-# Multi-stage Dockerfile for FastAPI Backend
+# Multi-stage Dockerfile for Celery Workers and Beat Scheduler
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
@@ -11,7 +11,7 @@ FROM python:3.11-slim-bookworm AS builder
 
 # Enable BuildKit features
 LABEL maintainer="FreeCAD Platform Team"
-LABEL description="FastAPI backend for FreeCAD-based CNC/CAM/CAD platform"
+LABEL description="Celery workers and beat scheduler for FreeCAD-based CNC/CAM/CAD platform"
 
 # Build environment variables
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -55,7 +55,7 @@ RUN --mount=type=cache,target=/root/.cache/pip \
     fi
 
 # ------------------------------------------------------------------------------
-# Runtime Stage: Minimal production image
+# Runtime Stage: Minimal production image for workers
 # ------------------------------------------------------------------------------
 FROM python:3.11-slim-bookworm AS runtime
 
@@ -64,9 +64,12 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH="/opt/venv/bin:$PATH" \
-    PYTHONPATH="/app:$PYTHONPATH"
+    PYTHONPATH="/app:$PYTHONPATH" \
+    # Celery worker optimization
+    C_FORCE_ROOT=1 \
+    CELERY_OPTIMIZE=1
 
-# Install runtime dependencies only
+# Install runtime dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     # PostgreSQL client library
     libpq5 \
@@ -80,6 +83,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgdk-pixbuf-2.0-0 \
     # Font support
     fonts-dejavu-core \
+    # Process management utilities
+    procps \
     # Timezone data
     tzdata \
     && rm -rf /var/lib/apt/lists/* \
@@ -98,21 +103,23 @@ COPY --from=builder /opt/venv /opt/venv
 # Copy application code
 COPY --chown=app:app . /app/
 
-# Make startup script executable
-RUN chmod +x /app/start.sh
+# Create directories for Celery and make startup scripts executable
+RUN mkdir -p /app/celery_logs /app/celery_beat && \
+    chown -R app:app /app/celery_logs /app/celery_beat && \
+    chmod +x /app/start-worker.sh /app/start-beat.sh
 
-# Security: Drop all capabilities and enable read-only root filesystem where possible
-# Note: Some capabilities may be needed for specific operations, adjust as needed
+# Security: Switch to non-root user
+# Note: Read-only root filesystem may not be suitable for Celery workers that need to write temp files
 USER app:app
 
-# Expose application port
-EXPOSE 8000
+# Health check for Celery workers
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
+    CMD celery -A app.tasks.worker inspect ping || exit 1
 
-# Health check endpoint
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=40s \
-    CMD curl -f http://localhost:8000/api/v1/healthz || exit 1
+# Support both worker and beat modes through CMD override
+# Default: Generic worker for the main project queues with fair scheduling
+CMD ["celery", "-A", "app.tasks.worker", "worker", "-Q", "freecad,sim,cpu,postproc", "-O", "fair", "--loglevel=INFO", "--concurrency=2"]
 
-# Default command for FastAPI with Uvicorn
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]
-
-
+# Alternative commands that can be used in docker-compose:
+# Worker CMD: ["celery", "-A", "app.tasks.worker", "worker", "-Q", "freecad,sim,cpu,postproc", "-O", "fair"]
+# Beat CMD: ["celery", "-A", "app.tasks.worker", "beat", "--loglevel=INFO"]
