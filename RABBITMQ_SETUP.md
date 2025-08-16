@@ -117,7 +117,7 @@ docker exec fc_rabbitmq rabbitmqctl list_exchanges name type
 
 ## Development vs Production
 
-### Development (`docker-compose.dev.yml`)
+### Development (`infra/compose/docker-compose.dev.yml`)
 
 - Tüm port'lar expose edilir
 - Detaylı logging aktif
@@ -126,7 +126,7 @@ docker exec fc_rabbitmq rabbitmqctl list_exchanges name type
 - Debug mode aktif
 - Local volume mount'lar
 
-### Production (`docker-compose.yml`)
+### Production (Production compose file)
 
 - Minimal port exposure
 - Production-level logging
@@ -146,8 +146,7 @@ compose/
 ├── rabbitmq-dev-plugins.txt  # Development plugin'leri
 └── ...
 
-docker-compose.yml             # Production konfigürasyonu
-docker-compose.dev.yml         # Development overrides
+infra/compose/docker-compose.dev.yml  # Development environment
 .env                           # Environment variables
 ```
 

@@ -160,7 +160,7 @@ docker run freecad-platform-workers:latest ./start-beat.sh
 ## Production Deployment
 
 ### Docker Compose Updates
-Update your `docker-compose.yml` to use the new Dockerfiles:
+Update your `infra/compose/docker-compose.dev.yml` to use the new Dockerfiles:
 
 ```yaml
 services:

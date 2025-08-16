@@ -19,7 +19,7 @@ else
   RM := rm -f
 endif
 
-DC ?= docker compose
+DC ?= docker compose -f infra/compose/docker-compose.dev.yml
 
 .DEFAULT_GOAL := help
 
@@ -29,8 +29,8 @@ help:
 	@echo.
 	@echo Available targets:
 	@echo   make init      - Create .env from .env.example
-	@echo   make dev       - Start production stack (docker compose up --build)
-	@echo   make dev-full  - Start full dev stack with monitoring (dev overrides)
+	@echo   make dev       - Start development stack with all services
+	@echo   make dev-full  - Start development stack with all services (same as dev)
 	@echo   make stop      - Stop stack (docker compose down)
 	@echo   make logs      - Follow logs from all services
 	@echo   make migrate   - Run Alembic migrations
@@ -66,7 +66,7 @@ dev:
 	$(DC) up --build
 
 dev-full:
-	$(DC) -f docker-compose.yml -f docker-compose.dev.yml up --build
+	$(DC) up --build
 
 stop:
 	$(DC) down
