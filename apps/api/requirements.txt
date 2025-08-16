@@ -22,7 +22,7 @@ python-multipart==0.0.9
 pyjwt[crypto]==2.8.0
 passlib[bcrypt]==1.7.4
 tenacity==8.3.0
-prometheus-client==0.20.0
+prometheus-client==0.22.1
 prometheus-fastapi-instrumentator==6.1.0
 sentry-sdk==2.7.1
 pytest==8.2.2
