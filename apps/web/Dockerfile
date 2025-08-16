@@ -1,18 +1,18 @@
 # syntax=docker/dockerfile:1.7
-FROM node:20-alpine AS deps
+FROM node:24-alpine AS deps
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@8.15.4 --activate
 COPY package.json pnpm-lock.yaml* .npmrc* /app/
 RUN pnpm install
 
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 RUN corepack enable && corepack prepare pnpm@8.15.4 --activate
 COPY --from=deps /app/node_modules /app/node_modules
 COPY . /app
 RUN pnpm build
 
-FROM node:20-alpine AS run
+FROM node:24-alpine AS run
 WORKDIR /app
 ENV NODE_ENV=production
 RUN corepack enable && corepack prepare pnpm@8.15.4 --activate
