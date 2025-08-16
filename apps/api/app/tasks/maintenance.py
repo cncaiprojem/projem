@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import async_session
 from ..core.s3_client import s3_client
+from ..core.queue_constants import DLQ_QUEUES, DLQ_PREFIX
 
 logger = logging.getLogger(__name__)
 
@@ -167,7 +168,7 @@ def cleanup_dead_letter_queue(self, max_messages: int = 1000) -> Dict[str, Any]:
         }
         
         # Tüm DLQ'ları işle
-        dlq_queues = ["dlq.freecad", "dlq.sim", "dlq.cpu", "dlq.postproc"]
+        dlq_queues = DLQ_QUEUES
         
         with Connection(settings.rabbitmq_url) as conn:
             with conn.channel() as channel:
@@ -209,7 +210,7 @@ def cleanup_dead_letter_queue(self, max_messages: int = 1000) -> Dict[str, Any]:
                             else:
                                 # Mesajı orijinal kuyruğa geri gönder (retry)
                                 # DLQ adından orijinal queue adını çıkar
-                                original_queue = dlq_name.replace("dlq.", "")
+                                original_queue = dlq_name.replace(DLQ_PREFIX, "")
                                 if properties.headers and "x-original-queue" in properties.headers:
                                     original_queue = properties.headers.get("x-original-queue")
                                 

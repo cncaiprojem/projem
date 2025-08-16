@@ -10,6 +10,7 @@ from typing import Dict, Any
 
 from ..tasks.worker import celery_app
 from ..config import settings
+from ..core.queue_constants import ALL_QUEUES
 
 # Logging yapılandırması
 logging.basicConfig(
@@ -81,7 +82,7 @@ def test_queue_declarations() -> bool:
         
         with Connection(settings.rabbitmq_url) as conn:
             with conn.channel() as channel:
-                expected_queues = ["freecad", "cpu", "postproc", "sim", "dlq.freecad", "dlq.cpu", "dlq.postproc", "dlq.sim"]
+                expected_queues = ALL_QUEUES
                 
                 for queue_name in expected_queues:
                     try:
