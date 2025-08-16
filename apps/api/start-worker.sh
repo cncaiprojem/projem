@@ -6,7 +6,6 @@ set -euo pipefail
 export PYTHONPATH=/app:${PYTHONPATH:-}
 export PYTHONDONTWRITEBYTECODE=1
 export PYTHONUNBUFFERED=1
-export C_FORCE_ROOT=1
 
 # Configuration variables
 WORKER_QUEUES=${WORKER_QUEUES:-"freecad,sim,cpu,postproc"}

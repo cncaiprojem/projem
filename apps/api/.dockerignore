@@ -105,9 +105,7 @@ minio_data/
 Jenkinsfile
 
 # IDE and editor files
-*.swp
 *.swo
-*~
 .project
 .classpath
 .settings/

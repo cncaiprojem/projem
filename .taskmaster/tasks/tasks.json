@@ -90,7 +90,7 @@
               "1.6"
             ],
             "details": "Goals:\n- Build minimal, non-root images for api, workers, and beat with cache-efficient layers.\n\nSteps:\n- Use python:3.11-slim-bookworm as base; enable BuildKit; multi-stage: builder (install build deps, compile wheels) -> runtime.\n- Add system deps: gcc, build-essential (builder), libpq5, curl, netcat; clean apt lists.\n- Copy pyproject.toml and lock; pip install --no-cache-dir with --require-hashes (lock recommended) to /usr/local.\n- Create non-root user app:app; set WORKDIR /app; copy source; set proper permissions; set PYTHONDONTWRITEBYTECODE=1, PYTHONUNBUFFERED=1.\n- API CMD: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2.\n- Workers CMD: celery -A app.celery_app worker -Q default,cam,sim,model,report,erp -O fair; Beat CMD: celery -A app.celery_app beat.\n\nFiles to create/change:\n- /apps/api/Dockerfile\n- /apps/workers/Dockerfile\n\nImages/tags:\n- apps-api: local build from python:3.11-slim-bookworm\n- apps-workers: local build from python:3.11-slim-bookworm\n\nSecurity hardening:\n- Run as non-root; drop capabilities; set read-only root FS with writable /tmp if possible; do not expose dev-only env in prod image.\n- Pin package versions; verify wheels; no SSH keys copied.\n\nCaching and CI performance tips:\n- Separate requirements install from source copy; use pip cache mount: --mount=type=cache,target=/root/.cache/pip.\n\nAcceptance criteria:\n- Images build successfully; containers start and respond; hadolint passes.\n\nVerification commands:\n- docker build -t apps-api ./apps/api\n- docker run --rm -p 8000:8000 apps-api curl -s localhost:8000/healthz\n- docker build -t apps-workers ./apps/workers",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -152,7 +152,7 @@
               "1.2"
             ],
             "details": "Goals:\n- Have artefacts/logs/reports/invoices buckets with versioning and lifecycle placeholders; demonstrate presign.\n\nSteps:\n- MinIO service using minio/minio:RELEASE.2024-XX with MINIO_ROOT_USER/PASS from .env.\n- Create createbuckets job using minio/mc:RELEASE.2024-XX that waits for MinIO, then:\n  - mc alias set local http://minio:9000 $MINIO_ROOT_USER $MINIO_ROOT_PASSWORD\n  - mc mb --ignore-existing local/artefacts local/logs local/reports local/invoices\n  - mc version enable local/artefacts\n  - (optional) mc ilm add for lifecycle rules placeholders\n- In /apps/api add a tiny util to generate a presigned PUT and GET using minio==7.2.7; dry-run in smoke script.\n\nFiles to create/change:\n- /infra/minio/createbuckets.sh (entrypoint for createbuckets container)\n- /apps/api/app/services/s3.py (MinIO client wrapper)\n\nImages/tags:\n- minio/minio:RELEASE.2024-XX\n- minio/mc:RELEASE.2024-XX\n\nSecurity hardening:\n- Use unique creds per environment; do not expose MinIO publicly in dev; TLS termination at ingress in prod (documented).\n\nCaching and CI performance tips:\n- Keep mc script idempotent; skip work if buckets exist.\n\nAcceptance criteria:\n- Buckets exist; presigned URL generation works.\n\nVerification commands:\n- docker compose exec minio mc ls local/\n- python -c \"from app.services.s3 import client; print(client.presign_put('artefacts','smoke.txt',60))\" (adjust path)",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-16T19:29:34.625Z",
+      "updated": "2025-08-16T19:58:11.709Z",
       "description": "Tasks for master context"
     }
   }
