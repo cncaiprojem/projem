@@ -100,9 +100,16 @@ jobs:
           
       - name: 📊 Bundle analizi (opsiyonel)
         working-directory: apps/web
+        continue-on-error: true  # Don't fail if bundle analysis fails
         run: |
           echo "::group::Bundle Size Analysis"
-          npx next-bundle-analyzer --analyze
+          # Create a simple bundle size report
+          if [ -d ".next" ]; then
+            echo "Build output size:"
+            du -sh .next/ || echo "Could not analyze build size"
+          else
+            echo "No build output found, skipping bundle analysis"
+          fi
           echo "::endgroup::"
           
       - name: 🔍 Dependency vulnerability check
@@ -148,7 +155,8 @@ jobs:
           file: apps/web/coverage/lcov.info
           flags: frontend
           name: frontend-coverage
-          fail_ci_if_error: true
+          fail_ci_if_error: false  # Don't fail CI if codecov fails
+          verbose: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
@@ -409,7 +417,7 @@ jobs:
             
       - name: 🏗️ Docker image build ve push
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: apps/web
           file: apps/web/Dockerfile

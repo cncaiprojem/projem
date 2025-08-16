@@ -34,27 +34,47 @@ jobs:
         echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
 
     - name: Create Release
-      uses: actions/create-release@v1
+      uses: softprops/action-gh-release@v1
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       with:
         tag_name: ${{ steps.version.outputs.version }}
-        release_name: Release ${{ steps.version.outputs.version }}
+        name: Release ${{ steps.version.outputs.version }}
         body: |
           ## 🚀 Release ${{ steps.version.outputs.version }}
           
-          ### ✨ Özellikler
-          - FreeCAD CNC/CAM Platform güncellendi
+          ### ✨ Features / Özellikler
+          - FreeCAD CNC/CAM Platform updated / güncellendi
+          - Performance improvements / Performans iyileştirmeleri
+          - Security enhancements / Güvenlik geliştirmeleri
           
-          ### 🐛 Düzeltmeler
-          - Çeşitli hata düzeltmeleri
+          ### 🐛 Bug Fixes / Düzeltmeler
+          - Various bug fixes / Çeşitli hata düzeltmeleri
+          - Stability improvements / Kararlılık iyileştirmeleri
           
           ### 📦 Docker Images
           - `ghcr.io/${{ github.repository }}/api:${{ steps.version.outputs.version }}`
           - `ghcr.io/${{ github.repository }}/web:${{ steps.version.outputs.version }}`
           - `ghcr.io/${{ github.repository }}/worker:${{ steps.version.outputs.version }}`
+          
+          ### 🔧 Installation / Kurulum
+          ```bash
+          # Pull the latest images
+          docker pull ghcr.io/${{ github.repository }}/api:${{ steps.version.outputs.version }}
+          docker pull ghcr.io/${{ github.repository }}/web:${{ steps.version.outputs.version }}
+          
+          # Or use docker-compose
+          docker-compose up -d
+          ```
+          
+          ### 📋 Requirements / Gereksinimler
+          - Docker 20.10+
+          - Docker Compose 2.0+
+          - 4GB RAM minimum
+          - FreeCAD 0.20+ (for local development)
         draft: false
         prerelease: false
+        generate_release_notes: true
 
     - name: Build and Push Docker Images
       env:
