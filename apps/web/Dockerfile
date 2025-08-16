@@ -7,39 +7,9 @@
 # ==============================================================================
 
 # ------------------------------------------------------------------------------
-# STAGE 1: Dependencies Installation
-# Purpose: Install and cache production dependencies only
-# Security: Minimal attack surface, no development tools
-# ------------------------------------------------------------------------------
-FROM node:20-alpine@sha256:df02558528d3d3d0d621f112e232611aecfee7cbc654f6b375765f72bb262799 AS deps
-
-# Create application directory with proper ownership
-WORKDIR /app
-
-# Security: Install security updates and required tools
-RUN apk add --no-cache \
-    dumb-init \
-    && apk upgrade --no-cache
-
-# Copy package definition files
-# Using pnpm for deterministic enterprise builds (matching project standard)
-COPY package.json pnpm-lock.yaml* .npmrc* ./
-
-# Enable pnpm with specific version for security and consistency
-RUN corepack enable && corepack prepare pnpm@8.15.4 --activate
-
-# Install production dependencies with optimizations
-# Security: No dev dependencies, deterministic builds, integrity checks
-RUN pnpm config set audit-level high \
-    && pnpm config set fund false \
-    && pnpm config set update-notifier false \
-    && pnpm install --prod --no-optional \
-    && pnpm store prune
-
-# ------------------------------------------------------------------------------
-# STAGE 2: Application Builder 
+# STAGE 1: Application Builder 
 # Purpose: Build the Next.js application in standalone mode
-# Optimization: Layer caching, minimal context copying
+# Optimization: Layer caching, minimal context copying, includes optimized dependencies
 # ------------------------------------------------------------------------------
 FROM node:20-alpine@sha256:df02558528d3d3d0d621f112e232611aecfee7cbc654f6b375765f72bb262799 AS builder
 
@@ -75,8 +45,11 @@ ENV CI=true
 # Build with optimizations
 RUN pnpm run build
 
+# Ensure public directory exists (Next.js public folder is optional)
+RUN mkdir -p /app/public
+
 # ------------------------------------------------------------------------------
-# STAGE 3: Production Runtime
+# STAGE 2: Production Runtime
 # Purpose: Minimal production runtime with security hardening
 # Security: Non-root user, read-only filesystem, minimal packages
 # ------------------------------------------------------------------------------
@@ -102,12 +75,12 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-# Copy production dependencies from deps stage
-COPY --from=deps --chown=nextjs:nodejs /app/node_modules ./node_modules
-
 # Copy built application from builder stage
+# Next.js standalone mode already includes optimized node_modules and dependencies
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+
+# Copy public directory (create empty if it doesn't exist)
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
 # Security: Switch to non-root user

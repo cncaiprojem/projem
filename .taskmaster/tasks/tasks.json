@@ -101,7 +101,7 @@
               "1.5"
             ],
             "details": "Goals:\n- Produce small runtime image using Next.js standalone output; run as non-root.\n\nSteps:\n- Builder: node:20-alpine; install deps with npm ci; run next build; output standalone.\n- Runner: node:20-alpine; add non-root node user; copy .next/standalone and .next/static and public; set PORT=3000; CMD: node server.js.\n- Add healthcheck route mapping to /healthz.\n\nFiles to create/change:\n- /apps/web/Dockerfile\n\nImages/tags:\n- apps-web: local build from node:20-alpine\n\nSecurity hardening:\n- Run as non-root; set NODE_ENV=production; enable read-only root FS if possible; set sensible ulimit in compose.\n\nCaching and CI performance tips:\n- Cache node_modules via Docker build cache (mount=cache) and CI cache.\n\nAcceptance criteria:\n- Image builds and serves app; /healthz returns 200.\n\nVerification commands:\n- docker build -t apps-web ./apps/web\n- docker run --rm -p 3000:3000 apps-web curl -I localhost:3000/healthz",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-16T18:23:39.671Z",
+      "updated": "2025-08-16T18:34:16.298Z",
       "description": "Tasks for master context"
     }
   }

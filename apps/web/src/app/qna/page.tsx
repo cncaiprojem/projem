@@ -1,9 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { api } from "@/lib/api";
 import { useSearchParams } from "next/navigation";
 
-export default function QnaPage() {
+function QnaContent() {
   const sp = useSearchParams();
   const pid = sp.get("projectId");
   const [missing,setMissing] = useState<string[]>([]);
@@ -50,6 +50,14 @@ export default function QnaPage() {
         CAM Başlat
       </button>
     </div>
+  );
+}
+
+export default function QnaPage() {
+  return (
+    <Suspense fallback={<div className="p-6"><p>Loading...</p></div>}>
+      <QnaContent />
+    </Suspense>
   );
 }
 

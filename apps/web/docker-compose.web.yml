@@ -123,11 +123,4 @@ networks:
 # ==============================================================================
 # VOLUME CONFIGURATION
 # ==============================================================================
-volumes:
-  # Persistent volumes can be defined here if needed
-  web_cache:
-    driver: local
-    driver_opts:
-      type: tmpfs
-      device: tmpfs
-      o: size=500m,uid=1001,gid=1001
+# No persistent volumes needed - using tmpfs mounts for cache directories
