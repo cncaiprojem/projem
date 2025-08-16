@@ -6,6 +6,15 @@ from ..config import settings
 from ..db import check_db
 from ..schemas import HealthStatus
 
+try:
+    import structlog
+    from ..services.s3 import get_s3_service
+    HAS_STRUCTLOG = True
+    logger = structlog.get_logger(__name__)
+except ImportError:
+    HAS_STRUCTLOG = False
+    logger = None
+
 
 router = APIRouter(prefix="/api/v1", tags=["Sağlık"]) 
 
@@ -26,6 +35,7 @@ def healthz(response: Response) -> HealthStatus:
 
     if settings.aws_s3_endpoint:
         try:
+            # Test legacy S3 connectivity
             session = boto3.session.Session(
                 aws_access_key_id=settings.aws_access_key_id,
                 aws_secret_access_key=settings.aws_secret_access_key,
@@ -33,8 +43,35 @@ def healthz(response: Response) -> HealthStatus:
             )
             s3 = session.client("s3", endpoint_url=settings.aws_s3_endpoint)
             s3.list_buckets()
-            deps["s3"] = "ok"
-        except Exception:
+            
+            # Test new S3 service and bucket availability if available
+            if HAS_STRUCTLOG:
+                try:
+                    s3_service = get_s3_service()
+                    required_buckets = ["artefacts", "logs", "reports", "invoices"]
+                    bucket_status = {}
+                    
+                    for bucket in required_buckets:
+                        try:
+                            bucket_exists = s3_service._ensure_bucket_exists(bucket)
+                            bucket_status[bucket] = "ok" if bucket_exists else "eksik"
+                        except Exception as e:
+                            if logger:
+                                logger.warning("Bucket check failed", bucket=bucket, error=str(e))
+                            bucket_status[bucket] = "hata"
+                    
+                    # Overall S3 status
+                    all_buckets_ok = all(status == "ok" for status in bucket_status.values())
+                    deps["s3"] = "ok" if all_buckets_ok else "partial"
+                    deps.update({f"s3_bucket_{bucket}": status for bucket, status in bucket_status.items()})
+                except Exception as e:
+                    if logger:
+                        logger.error("S3 service check failed", error=str(e))
+                    deps["s3"] = "ok"  # Fall back to basic connectivity
+            else:
+                deps["s3"] = "ok"  # Basic S3 connectivity works
+            
+        except Exception as e:
             deps["s3"] = "hata"
     else:
         deps["s3"] = "atılandı"

@@ -23,7 +23,7 @@ DC ?= docker compose
 
 .DEFAULT_GOAL := help
 
-.PHONY: help init dev dev-full stop logs migrate seed test lint fmt build clean gen-docs run-freecad-smoke seed-basics pre-commit-install pre-commit-run pre-commit-check rabbitmq-setup rabbitmq-status dlq-status rabbitmq-ui test-celery-rabbitmq
+.PHONY: help init dev dev-full stop logs migrate seed test lint fmt build clean gen-docs run-freecad-smoke run-s3-smoke seed-basics pre-commit-install pre-commit-run pre-commit-check rabbitmq-setup rabbitmq-status dlq-status rabbitmq-ui test-celery-rabbitmq
 
 help:
 	@echo.
@@ -41,6 +41,10 @@ help:
 	@echo   make build     - Build docker images
 	@echo   make clean     - Down and remove volumes
 	@echo   make gen-docs  - Generate API/docs (if script exists)
+	@echo.
+	@echo Smoke Tests:
+	@echo   make run-freecad-smoke - Test FreeCAD functionality
+	@echo   make run-s3-smoke      - Test S3/MinIO functionality
 	@echo.
 	@echo RabbitMQ Management:
 	@echo   make rabbitmq-setup   - Initialize RabbitMQ queues and DLX
@@ -98,6 +102,9 @@ build:
 
 run-freecad-smoke:
 	-$(DC) exec api python -m app.scripts.run_freecad_smoke
+
+run-s3-smoke:
+	-$(DC) exec api python -m app.scripts.test_s3_functionality
 
 clean:
 	$(DC) down -v
