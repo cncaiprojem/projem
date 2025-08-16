@@ -9,13 +9,13 @@
 
 ### 2. Dependencies Installed ✅
 - **@tanstack/react-query** (5.51.1) - Already present, configured with optimized defaults
-- **@mui/material** (6.3.2) - Added with Material Icons
+- **@mui/material** (^6.1.7) - Added with Material Icons
 - **@emotion/react & @emotion/styled** - Added for MUI styling
 - **i18next & react-i18next** - Added with Turkish localization
 - **zustand** (5.0.3) - Added for state management with persist middleware
 - **zod** (3.23.8) - Already present for validation
 - **ESLint configs** - Comprehensive ESLint setup with TypeScript support
-- **vitest** (2.1.8) - Upgraded with UI and coverage support
+- **vitest** (^3.2.4) - Upgraded with UI and coverage support
 - **playwright** (1.49.1) - Upgraded for E2E testing
 
 ### 3. Health Endpoint ✅

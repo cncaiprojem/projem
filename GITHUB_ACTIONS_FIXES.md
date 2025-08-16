@@ -141,7 +141,7 @@ gh pr comment <PR_NUMBER> --body "@github-copilot please review this PR for secu
 **Current Issue**: The organization `cncaiprojem` has restrictions on fine-grained personal access tokens with lifetimes > 366 days.
 
 **Temporary Solutions**:
-1. **Reduce Token Lifetime**: Visit https://github.com/settings/personal-access-tokens/8101291 and reduce token lifetime
+1. **Reduce Token Lifetime**: Visit https://github.com/settings/tokens and reduce token lifetime for the appropriate token
 2. **Use Classic Tokens**: Switch to classic personal access tokens
 3. **Organization Settings**: Update organization policies to allow longer-lived tokens
 

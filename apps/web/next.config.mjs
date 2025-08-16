@@ -41,7 +41,7 @@ const nextConfig = {
             // Content Security Policy - Production güvenliği artırıldı
             key: 'Content-Security-Policy',
             value: process.env.NODE_ENV === 'production' 
-              ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.projem.com wss://*.projem.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
+              ? "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob: https://cdn.jsdelivr.net https://fonts.gstatic.com https://images.unsplash.com; font-src 'self' data: https://fonts.gstatic.com; connect-src 'self' https://*.projem.com wss://*.projem.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
               : "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:* wss://localhost:*;"
           },
         ],
