@@ -112,7 +112,7 @@
               "1.1"
             ],
             "details": "Goals:\n- Provide containerized tooling images accessible to workers via compose.\n\nSteps:\n- FreeCAD: Dockerfile FROM freecad/freecad:1.1.x; set ENTRYPOINT [\"FreeCADCmd\"]; include a non-root user; document usage.\n- CAMotics: use camotics/camotics:1.2 directly or thin wrapper setting ENTRYPOINT [\"camotics\"]\n- FFmpeg: use jrottenberg/ffmpeg:6-slim; ensure hardware-agnostic; ENTRYPOINT [\"ffmpeg\"].\n- ClamAV (optional): clamav/clamav:1.3; expose freshclam and clamscan; mount DB volume.\n\nFiles to create/change:\n- /infra/docker/freecad/Dockerfile\n- /infra/docker/camotics/Dockerfile (optional)\n- /infra/docker/ffmpeg/Dockerfile (optional if using upstream)\n\nImages/tags:\n- freecad/freecad:1.1.x (ENTRY FreeCADCmd)\n- camotics/camotics:1.2\n- jrottenberg/ffmpeg:6-slim\n- clamav/clamav:1.3\n\nSecurity hardening:\n- Run as non-root where feasible; restrict capabilities; read-only FS; scan images with Trivy in CI.\n\nCaching and CI performance tips:\n- Pin tags; avoid latest; leverage Buildx cache for wrappers.\n\nAcceptance criteria:\n- Containers run and print version info.\n\nVerification commands:\n- docker run --rm freecad/freecad:1.1.x FreeCADCmd --version\n- docker run --rm camotics/camotics:1.2 camotics --version\n- docker run --rm jrottenberg/ffmpeg:6-slim -version\n- docker run --rm clamav/clamav:1.3 clamscan --version",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-16T18:58:29.160Z",
+      "updated": "2025-08-16T19:26:40.942Z",
       "description": "Tasks for master context"
     }
   }
