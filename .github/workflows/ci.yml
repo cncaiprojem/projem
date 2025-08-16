@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./proje/apps/api
+        working-directory: ./apps/api
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -43,13 +43,13 @@ PY
         uses: actions/upload-artifact@v4
         with:
           name: api-coverage-xml
-          path: proje/apps/api/coverage.xml
+          path: apps/api/coverage.xml
 
   web:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./proje/apps/web
+        working-directory: ./apps/web
     steps:
       - uses: actions/checkout@v4
       - name: Prepare API (.env for dev)

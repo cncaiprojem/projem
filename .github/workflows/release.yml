@@ -1,422 +1,74 @@
-# FreeCAD CNC/CAM Platform - Release Pipeline
-# Bu workflow production release'leri için semantic versioning kullanarak
-# otomatik versiyonlama, changelog oluşturma ve deployment sürecini yönetir
-# - Semantic versioning ile tag oluşturma
-# - Changelog generation (conventional commits)
-# - Multi-platform Docker image build ve tagging
-# - Production deployment trigger
-# - GitHub Release creation
-
 name: Release
 
-# Trigger koşulları - main branch'e push olan semantic commit'ler
 on:
   push:
-    branches: [ main ]
+    tags:
+      - 'v*'
   workflow_dispatch:
     inputs:
-      version_type:
-        description: 'Release türü (patch, minor, major)'
+      version:
+        description: 'Version number (e.g., 1.0.0)'
         required: true
-        default: 'patch'
-        type: choice
-        options:
-          - patch
-          - minor
-          - major
-      dry_run:
-        description: 'Dry run (test amaçlı)'
-        required: false
-        default: false
-        type: boolean
 
-# Güvenlik ve performans için global ayarlar
-env:
-  REGISTRY: ghcr.io
-  IMAGE_BASE: ${{ github.repository }}
+permissions:
+  contents: write
+  packages: write
   
-# Release işlemlerini sıralı olarak yap
-concurrency:
-  group: release
-  cancel-in-progress: false
-
 jobs:
-  # 1. Semantic Version Hesaplama
-  version-check:
-    name: 📋 Version Hesaplama ve Changelog
+  release:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    
-    outputs:
-      version: ${{ steps.semantic.outputs.new_release_version }}
-      changelog: ${{ steps.semantic.outputs.new_release_notes }}
-      should_release: ${{ steps.semantic.outputs.new_release_published }}
-      
-    steps:
-      - name: 📥 Kod deposunu çek
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Tüm commit geçmişi için
-          token: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: 🟢 Node.js kurulumu
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          
-      - name: 🏷️ Semantic Release versiyonlama
-        id: semantic
-        uses: cycjimmy/semantic-release-action@v4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          semantic_version: 21
-          extra_plugins: |
-            @semantic-release/changelog@6
-            @semantic-release/git@10
-            conventional-changelog-conventionalcommits@7
-          dry_run: ${{ github.event.inputs.dry_run == 'true' }}
-          
-      - name: 📊 Version bilgilerini göster
-        run: |
-          echo "🔖 Yeni versiyon: ${{ steps.semantic.outputs.new_release_version }}"
-          echo "📝 Release notları mevcut: ${{ steps.semantic.outputs.new_release_published }}"
-          echo "🏷️ Git tag: v${{ steps.semantic.outputs.new_release_version }}"
-
-  # 2. Production Build ve Test
-  production-build:
-    name: 🏭 Production Build ve Kalite Kontrolü
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    needs: version-check
-    if: needs.version-check.outputs.should_release == 'true'
-    
-    strategy:
-      matrix:
-        component: [api, web]
-        
-    steps:
-      - name: 📥 Kod deposunu çek
-        uses: actions/checkout@v4
-        
-      - name: 🔧 Docker Buildx kurulumu
-        uses: docker/setup-buildx-action@v3
-        
-      - name: 🔑 GitHub Container Registry login
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: 🏗️ Production Docker build
-        uses: docker/build-push-action@v5
-        with:
-          context: apps/${{ matrix.component }}
-          file: apps/${{ matrix.component }}/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: false  # Sadece build, push etme
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}/${{ matrix.component }}:v${{ needs.version-check.outputs.version }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}/${{ matrix.component }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          
-      - name: 🛡️ Final security scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}/${{ matrix.component }}:v${{ needs.version-check.outputs.version }}
-          format: 'table'
-          exit-code: 1
-          severity: 'CRITICAL,HIGH'
-
-  # 3. Multi-Platform Docker Images
-  release-images:
-    name: 🐳 Release Docker Images
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: [version-check, production-build]
-    if: needs.version-check.outputs.should_release == 'true'
-    
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      
-    strategy:
-      matrix:
-        component: [api, web]
-        
-    outputs:
-      api-digest: ${{ steps.build-api.outputs.digest }}
-      web-digest: ${{ steps.build-web.outputs.digest }}
-      
-    steps:
-      - name: 📥 Kod deposunu çek
-        uses: actions/checkout@v4
-        
-      - name: 🔧 Docker Buildx kurulumu
-        uses: docker/setup-buildx-action@v3
-        
-      - name: 🔑 GitHub Container Registry login
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: 🏷️ Container metadata
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}/${{ matrix.component }}
-          tags: |
-            type=raw,value=v${{ needs.version-check.outputs.version }}
-            type=raw,value=latest
-            type=raw,value={{date 'YYYY.MM.DD'}}
-          labels: |
-            org.opencontainers.image.title=FreeCAD CNC/CAM ${{ matrix.component }}
-            org.opencontainers.image.description=Production-ready ${{ matrix.component }} for FreeCAD-based CNC/CAM platform
-            org.opencontainers.image.vendor=FreeCAD CNC/CAM Platform
-            org.opencontainers.image.version=v${{ needs.version-check.outputs.version }}
-            org.opencontainers.image.revision=${{ github.sha }}
-            
-      - name: 🏗️ Build ve push ${{ matrix.component }}
-        id: build-${{ matrix.component }}
-        uses: docker/build-push-action@v5
-        with:
-          context: apps/${{ matrix.component }}
-          file: apps/${{ matrix.component }}/Dockerfile
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: true
-          sbom: true
-          build-args: |
-            VERSION=v${{ needs.version-check.outputs.version }}
-            BUILD_DATE={{date 'YYYY-MM-DDTHH:mm:ssZ'}}
-            VCS_REF=${{ github.sha }}
-            
-      - name: 📋 SBOM generation
-        run: |
-          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
-          syft ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}/${{ matrix.component }}:v${{ needs.version-check.outputs.version }} -o spdx-json > ${{ matrix.component }}-sbom.spdx.json
-          
-      - name: 📊 SBOM artifact yükle
-        uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.component }}-release-sbom
-          path: ${{ matrix.component }}-sbom.spdx.json
-          retention-days: 365  # 1 yıl saklama
-
-  # 4. Container Image Signing
-  sign-release-images:
-    name: ✍️ Release Images İmzalama
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    needs: [version-check, release-images]
-    if: needs.version-check.outputs.should_release == 'true'
-    
-    permissions:
-      contents: read
-      packages: write
-      id-token: write
-      
-    steps:
-      - name: 🔧 Cosign kurulumu
-        uses: sigstore/cosign-installer@v3
-        
-      - name: 🔑 GitHub Container Registry login
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-          
-      - name: ✍️ API container imzala
-        if: needs.release-images.outputs.api-digest
-        env:
-          DIGEST: ${{ needs.release-images.outputs.api-digest }}
-        run: |
-          cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}/api@${DIGEST}
-          
-      - name: ✍️ Web container imzala
-        if: needs.release-images.outputs.web-digest
-        env:
-          DIGEST: ${{ needs.release-images.outputs.web-digest }}
-        run: |
-          cosign sign --yes ${{ env.REGISTRY }}/${{ env.IMAGE_BASE }}/web@${DIGEST}
-
-  # 5. GitHub Release Creation
-  create-release:
-    name: 🎉 GitHub Release Oluşturma
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    needs: [version-check, release-images]
-    if: needs.version-check.outputs.should_release == 'true'
-    
-    permissions:
-      contents: write
-      
-    steps:
-      - name: 📥 Kod deposunu çek
-        uses: actions/checkout@v4
-        
-      - name: 📋 Release artifacts topla
-        uses: actions/download-artifact@v4
-        with:
-          pattern: "*-release-sbom"
-          merge-multiple: true
-          path: ./release-artifacts
-          
-      - name: 📦 Release ZIP oluştur
-        run: |
-          mkdir -p release-package
-          cp -r charts/ release-package/
-          cp docker-compose.prod.yml release-package/
-          cp Makefile release-package/
-          cp README.md release-package/
-          cp -r ./release-artifacts release-package/sbom/
-          
-          # Kubernetes deployment manifest'leri
-          echo "apiVersion: v1
-          kind: Namespace
-          metadata:
-            name: freecad-cnc-cam
-          ---
-          # Deployment manifests would go here
-          " > release-package/k8s-deployment.yaml
-          
-          cd release-package
-          tar -czf ../freecad-cnc-cam-v${{ needs.version-check.outputs.version }}.tar.gz .
-          
-      - name: 🎉 GitHub Release oluştur
-        uses: softprops/action-gh-release@v1
-        with:
-          tag_name: v${{ needs.version-check.outputs.version }}
-          name: 🚀 FreeCAD CNC/CAM Platform v${{ needs.version-check.outputs.version }}
-          body: |
-            ## 🎯 FreeCAD CNC/CAM Platform v${{ needs.version-check.outputs.version }}
-            
-            ### 📝 Değişiklikler
-            ${{ needs.version-check.outputs.changelog }}
-            
-            ### 📦 Container Images
-            - `ghcr.io/${{ github.repository }}/api:v${{ needs.version-check.outputs.version }}`
-            - `ghcr.io/${{ github.repository }}/web:v${{ needs.version-check.outputs.version }}`
-            
-            ### 🛡️ Güvenlik
-            - ✅ Container images Cosign ile imzalandı
-            - ✅ SBOM (Software Bill of Materials) dahil
-            - ✅ Trivy güvenlik taraması geçti
-            
-            ### 🚀 Deployment
-            ```bash
-            # Docker Compose ile çalıştırma
-            curl -L https://github.com/${{ github.repository }}/releases/download/v${{ needs.version-check.outputs.version }}/freecad-cnc-cam-v${{ needs.version-check.outputs.version }}.tar.gz | tar -xzf -
-            cd freecad-cnc-cam-v${{ needs.version-check.outputs.version }}
-            docker compose -f docker-compose.prod.yml up -d
-            
-            # Kubernetes deployment
-            kubectl apply -f k8s-deployment.yaml
-            ```
-            
-            ### 📋 Sistem Gereksinimleri
-            - Docker 24.0+
-            - Docker Compose 2.0+
-            - Kubernetes 1.25+ (Kubernetes deployment için)
-            - 4GB RAM minimum
-            - 20GB disk alanı
-            
-            ### 🔗 Bağlantılar
-            - [📚 Dokümantasyon](https://github.com/${{ github.repository }}/blob/v${{ needs.version-check.outputs.version }}/README.md)
-            - [🛡️ Güvenlik Kılavuzu](https://github.com/${{ github.repository }}/blob/v${{ needs.version-check.outputs.version }}/docs/SECURITY_CHECKLIST.md)
-            - [⚙️ Kurulum Kılavuzu](https://github.com/${{ github.repository }}/blob/v${{ needs.version-check.outputs.version }}/RUNBOOK.md)
-            
-          files: |
-            freecad-cnc-cam-v${{ needs.version-check.outputs.version }}.tar.gz
-          draft: false
-          prerelease: false
-          generate_release_notes: true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # 6. Production Deployment Trigger
-  trigger-deployment:
-    name: 🚀 Production Deployment Trigger
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    needs: [version-check, create-release, sign-release-images]
-    if: needs.version-check.outputs.should_release == 'true' && github.event.inputs.dry_run != 'true'
-    
-    environment:
-      name: production
-      url: https://freecad-cnc-cam.com  # Production URL'inizi güncelleyin
-      
-    steps:
-      - name: 🎯 Production deployment bildirim
-        run: |
-          echo "🚀 Production deployment başlatılıyor..."
-          echo "📦 Version: v${{ needs.version-check.outputs.version }}"
-          echo "🐳 Images:"
-          echo "  - ghcr.io/${{ github.repository }}/api:v${{ needs.version-check.outputs.version }}"
-          echo "  - ghcr.io/${{ github.repository }}/web:v${{ needs.version-check.outputs.version }}"
-          
-      - name: 🔧 Production deployment webhook (opsiyonel)
-        if: secrets.PRODUCTION_WEBHOOK_URL
-        run: |
-          curl -X POST ${{ secrets.PRODUCTION_WEBHOOK_URL }} \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${{ secrets.PRODUCTION_WEBHOOK_TOKEN }}" \
-            -d '{
-              "version": "v${{ needs.version-check.outputs.version }}",
-              "images": {
-                "api": "ghcr.io/${{ github.repository }}/api:v${{ needs.version-check.outputs.version }}",
-                "web": "ghcr.io/${{ github.repository }}/web:v${{ needs.version-check.outputs.version }}"
-              },
-              "changelog": "${{ needs.version-check.outputs.changelog }}"
-            }'
-
-  # 7. Notification ve Cleanup
-  notify-release:
-    name: 📢 Release Bildirimleri
-    runs-on: ubuntu-latest
-    needs: [version-check, create-release, trigger-deployment]
-    if: always() && needs.version-check.outputs.should_release == 'true'
     
     steps:
-      - name: 📊 Release durum özeti
-        run: |
-          echo "🎉 Release Summary"
-          echo "=================="
-          echo "🔖 Version: v${{ needs.version-check.outputs.version }}"
-          echo "🎯 Release Created: ${{ needs.create-release.result }}"
-          echo "🚀 Deployment Trigger: ${{ needs.trigger-deployment.result }}"
-          echo ""
-          
-          if [[ "${{ contains(needs.*.result, 'failure') }}" == "true" ]]; then
-            echo "⚠️ Bazı adımlar başarısız oldu, kontrol edin!"
-          else
-            echo "✅ Release başarıyla tamamlandı!"
-            echo "🔗 Release URL: https://github.com/${{ github.repository }}/releases/tag/v${{ needs.version-check.outputs.version }}"
-          fi
-          
-      - name: 💬 Slack/Discord bildirim (opsiyonel)
-        if: secrets.SLACK_WEBHOOK_URL
-        run: |
-          curl -X POST ${{ secrets.SLACK_WEBHOOK_URL }} \
-            -H "Content-Type: application/json" \
-            -d '{
-              "text": "🎉 FreeCAD CNC/CAM Platform v${{ needs.version-check.outputs.version }} released!",
-              "attachments": [{
-                "color": "good",
-                "fields": [
-                  {"title": "Version", "value": "v${{ needs.version-check.outputs.version }}", "short": true},
-                  {"title": "Release", "value": "https://github.com/${{ github.repository }}/releases/tag/v${{ needs.version-check.outputs.version }}", "short": false}
-                ]
-              }]
-            }'
+    - name: Checkout
+      uses: actions/checkout@v4
 
+    - name: Set up version
+      id: version
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          VERSION="v${{ github.event.inputs.version }}"
+        else
+          VERSION="${{ github.ref_name }}"
+        fi
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        echo "version_number=${VERSION#v}" >> $GITHUB_OUTPUT
+
+    - name: Create Release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ steps.version.outputs.version }}
+        release_name: Release ${{ steps.version.outputs.version }}
+        body: |
+          ## 🚀 Release ${{ steps.version.outputs.version }}
+          
+          ### ✨ Özellikler
+          - FreeCAD CNC/CAM Platform güncellendi
+          
+          ### 🐛 Düzeltmeler
+          - Çeşitli hata düzeltmeleri
+          
+          ### 📦 Docker Images
+          - `ghcr.io/${{ github.repository }}/api:${{ steps.version.outputs.version }}`
+          - `ghcr.io/${{ github.repository }}/web:${{ steps.version.outputs.version }}`
+          - `ghcr.io/${{ github.repository }}/worker:${{ steps.version.outputs.version }}`
+        draft: false
+        prerelease: false
+
+    - name: Build and Push Docker Images
+      env:
+        REGISTRY: ghcr.io
+        IMAGE_NAME: ${{ github.repository }}
+      run: |
+        echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
+        
+        # API Image
+        docker build -t ghcr.io/${{ github.repository }}/api:${{ steps.version.outputs.version }} ./apps/api
+        docker push ghcr.io/${{ github.repository }}/api:${{ steps.version.outputs.version }}
+        
+        # Web Image  
+        docker build -t ghcr.io/${{ github.repository }}/web:${{ steps.version.outputs.version }} ./apps/web
+        docker push ghcr.io/${{ github.repository }}/web:${{ steps.version.outputs.version }}
+        
+        echo "✅ Docker images pushed successfully"
