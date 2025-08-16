@@ -90,7 +90,7 @@
               "1.6"
             ],
             "details": "Goals:\n- Build minimal, non-root images for api, workers, and beat with cache-efficient layers.\n\nSteps:\n- Use python:3.11-slim-bookworm as base; enable BuildKit; multi-stage: builder (install build deps, compile wheels) -> runtime.\n- Add system deps: gcc, build-essential (builder), libpq5, curl, netcat; clean apt lists.\n- Copy pyproject.toml and lock; pip install --no-cache-dir with --require-hashes (lock recommended) to /usr/local.\n- Create non-root user app:app; set WORKDIR /app; copy source; set proper permissions; set PYTHONDONTWRITEBYTECODE=1, PYTHONUNBUFFERED=1.\n- API CMD: uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 2.\n- Workers CMD: celery -A app.celery_app worker -Q default,cam,sim,model,report,erp -O fair; Beat CMD: celery -A app.celery_app beat.\n\nFiles to create/change:\n- /apps/api/Dockerfile\n- /apps/workers/Dockerfile\n\nImages/tags:\n- apps-api: local build from python:3.11-slim-bookworm\n- apps-workers: local build from python:3.11-slim-bookworm\n\nSecurity hardening:\n- Run as non-root; drop capabilities; set read-only root FS with writable /tmp if possible; do not expose dev-only env in prod image.\n- Pin package versions; verify wheels; no SSH keys copied.\n\nCaching and CI performance tips:\n- Separate requirements install from source copy; use pip cache mount: --mount=type=cache,target=/root/.cache/pip.\n\nAcceptance criteria:\n- Images build successfully; containers start and respond; hadolint passes.\n\nVerification commands:\n- docker build -t apps-api ./apps/api\n- docker run --rm -p 8000:8000 apps-api curl -s localhost:8000/healthz\n- docker build -t apps-workers ./apps/workers",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {
@@ -112,7 +112,7 @@
               "1.1"
             ],
             "details": "Goals:\n- Provide containerized tooling images accessible to workers via compose.\n\nSteps:\n- FreeCAD: Dockerfile FROM freecad/freecad:1.1.x; set ENTRYPOINT [\"FreeCADCmd\"]; include a non-root user; document usage.\n- CAMotics: use camotics/camotics:1.2 directly or thin wrapper setting ENTRYPOINT [\"camotics\"]\n- FFmpeg: use jrottenberg/ffmpeg:6-slim; ensure hardware-agnostic; ENTRYPOINT [\"ffmpeg\"].\n- ClamAV (optional): clamav/clamav:1.3; expose freshclam and clamscan; mount DB volume.\n\nFiles to create/change:\n- /infra/docker/freecad/Dockerfile\n- /infra/docker/camotics/Dockerfile (optional)\n- /infra/docker/ffmpeg/Dockerfile (optional if using upstream)\n\nImages/tags:\n- freecad/freecad:1.1.x (ENTRY FreeCADCmd)\n- camotics/camotics:1.2\n- jrottenberg/ffmpeg:6-slim\n- clamav/clamav:1.3\n\nSecurity hardening:\n- Run as non-root where feasible; restrict capabilities; read-only FS; scan images with Trivy in CI.\n\nCaching and CI performance tips:\n- Pin tags; avoid latest; leverage Buildx cache for wrappers.\n\nAcceptance criteria:\n- Containers run and print version info.\n\nVerification commands:\n- docker run --rm freecad/freecad:1.1.x FreeCADCmd --version\n- docker run --rm camotics/camotics:1.2 camotics --version\n- docker run --rm jrottenberg/ffmpeg:6-slim -version\n- docker run --rm clamav/clamav:1.3 clamscan --version",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-16T18:58:29.160Z",
+      "updated": "2025-08-16T19:29:34.625Z",
       "description": "Tasks for master context"
     }
   }

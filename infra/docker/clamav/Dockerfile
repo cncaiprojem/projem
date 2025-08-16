@@ -75,20 +75,9 @@ RUN echo "# FreshClam Configuration" > /etc/clamav/freshclam.conf \
 WORKDIR /workspace
 RUN chown clamav:clamav /workspace
 
-# Create scanner script for easy usage
-RUN echo '#!/bin/sh\n\
-# ClamAV Scanner Script\n\
-set -e\n\
-\n\
-# Check if virus database exists, if not download it\n\
-if [ ! -f /var/lib/clamav/main.cvd ] && [ ! -f /var/lib/clamav/main.cld ]; then\n\
-    echo "Downloading virus database..."\n\
-    freshclam --no-warnings || echo "Warning: Could not update database"\n\
-fi\n\
-\n\
-# Run clamscan with provided arguments\n\
-exec clamscan "$@"\n' > /usr/local/bin/clamav-scan \
-    && chmod +x /usr/local/bin/clamav-scan
+# Copy and install scanner script for easy usage
+COPY clamav-scan.sh /usr/local/bin/clamav-scan
+RUN chmod +x /usr/local/bin/clamav-scan
 
 # Security: Switch to non-root user
 USER clamav

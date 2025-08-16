@@ -78,17 +78,10 @@ RUN chown camotics:camotics /workspace
 # Security: Switch to non-root user
 USER camotics
 
-# Create virtual display script for headless operation
+# Copy and install virtual display script for headless operation
 USER root
-RUN echo '#!/bin/bash\n\
-# Start virtual display for headless operation\n\
-Xvfb :99 -screen 0 1024x768x24 -ac +extension GLX +render -noreset &\n\
-export DISPLAY=:99\n\
-# Wait for X server to start\n\
-sleep 2\n\
-# Execute CAMotics with provided arguments\n\
-exec camotics "$@"\n' > /usr/local/bin/camotics-headless \
-    && chmod +x /usr/local/bin/camotics-headless
+COPY camotics-headless.sh /usr/local/bin/camotics-headless
+RUN chmod +x /usr/local/bin/camotics-headless
 
 USER camotics
 
