@@ -23,7 +23,7 @@
     "autoprefixer": "10.4.19",
     "@react-three/fiber": "8.15.19",
     "@react-three/drei": "9.114.6",
-    "three": "0.160.0",
+    "three": "0.179.1",
     "@tanstack/react-query": "5.51.1",
     "react-hook-form": "7.52.1",
     "zod": "3.23.8",
