@@ -40,4 +40,7 @@ hypothesis==6.103.0
 reportlab==4.2.2
 cairosvg==2.7.1
 qrcode==7.4.2
+structlog==24.4.0
+colorama==0.4.6
+python-ulid==2.7.0
 

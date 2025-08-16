@@ -123,12 +123,14 @@ jobs:
           MINIO_ROOT_USER: testuser
           MINIO_ROOT_PASSWORD: testpass123
         options: >-
-          --health-cmd "curl -f http://localhost:9000/minio/health/live"
-          --health-interval 30s
-          --health-timeout 10s
-          --health-retries 3
+          --health-cmd "curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+          --entrypoint="sh -c 'mkdir -p /data && minio server /data --console-address :9001'"
         ports:
           - 9000:9000
+          - 9001:9001
           
     steps:
       - name: 📥 Kod deposunu çek
@@ -164,11 +166,30 @@ jobs:
           # MinIO bucket oluştur
           pip install minio
           python -c "
+          import time
           from minio import Minio
-          client = Minio('localhost:9000', access_key='testuser', secret_key='testpass123', secure=False)
-          if not client.bucket_exists('freecad-files'):
-              client.make_bucket('freecad-files')
-          print('MinIO bucket hazır')
+          from minio.error import S3Error
+          
+          # Wait for MinIO to be ready
+          for i in range(30):
+              try:
+                  client = Minio('localhost:9000', access_key='testuser', secret_key='testpass123', secure=False)
+                  client.list_buckets()
+                  break
+              except Exception as e:
+                  print(f'Waiting for MinIO... {i+1}/30')
+                  time.sleep(2)
+          else:
+              raise Exception('MinIO not ready after 60 seconds')
+          
+          # Create bucket if it doesn't exist
+          try:
+              if not client.bucket_exists('freecad-files'):
+                  client.make_bucket('freecad-files')
+              print('MinIO bucket ready')
+          except S3Error as e:
+              print(f'Error creating bucket: {e}')
+              raise
           "
           
       - name: 🧪 Unit testleri çalıştır
@@ -210,7 +231,8 @@ jobs:
           file: apps/api/coverage.xml
           flags: backend
           name: backend-coverage
-          fail_ci_if_error: true
+          fail_ci_if_error: false  # Don't fail CI if codecov fails
+          verbose: true
         env:
           CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
 
@@ -291,7 +313,7 @@ jobs:
             
       - name: 🏗️ Docker image build ve push
         id: build
-        uses: docker/build-push-action@v5
+        uses: docker/build-push-action@v6
         with:
           context: apps/api
           file: apps/api/Dockerfile

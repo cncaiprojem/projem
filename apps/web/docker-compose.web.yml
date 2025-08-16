@@ -1,0 +1,126 @@
+# ==============================================================================
+# ENTERPRISE DOCKER COMPOSE - WEB SERVICE
+# ==============================================================================
+# Production-grade Docker Compose configuration for Next.js web application
+# Includes health checks, security configurations, and monitoring setup
+# ==============================================================================
+
+version: '3.8'
+
+services:
+  web:
+    # Build configuration
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runner
+      args:
+        # Build-time environment variables
+        NODE_ENV: production
+        NEXT_TELEMETRY_DISABLED: 1
+      labels:
+        - "com.projem.service=web"
+        - "com.projem.version=${VERSION:-latest}"
+        - "com.projem.build-date=${BUILD_DATE:-unknown}"
+        - "com.projem.vcs-ref=${VCS_REF:-unknown}"
+    
+    # Container configuration
+    container_name: projem-web
+    hostname: projem-web
+    
+    # Security configuration
+    user: "1001:1001"  # Non-root user matching Dockerfile
+    read_only: true    # Read-only root filesystem
+    
+    # Network configuration
+    ports:
+      - "3000:3000"
+    
+    # Environment variables
+    environment:
+      # Application configuration
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: 1
+      PORT: 3000
+      HOSTNAME: "0.0.0.0"
+      
+      # API configuration
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      
+      # Security headers (production overrides)
+      SECURITY_HEADERS_ENABLED: true
+      
+      # Logging configuration
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      
+    # Volume mounts for writable directories
+    volumes:
+      # Temporary directories (required for Next.js cache)
+      - type: tmpfs
+        target: /tmp
+        tmpfs:
+          size: 100M
+          mode: 1777
+      
+      # Next.js cache directory
+      - type: tmpfs
+        target: /app/.next/cache
+        tmpfs:
+          size: 500M
+          mode: 0755
+    
+    # Resource limits (enterprise production settings)
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # Health check configuration
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "com.projem.service,com.projem.version"
+    
+    # Labels for monitoring and service discovery
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.web.rule=Host(`localhost`)"
+      - "traefik.http.routers.web.entrypoints=web"
+      - "traefik.http.services.web.loadbalancer.server.port=3000"
+      - "com.projem.service=web"
+      - "com.projem.environment=${ENVIRONMENT:-development}"
+      - "com.projem.version=${VERSION:-latest}"
+
+# ==============================================================================
+# NETWORK CONFIGURATION
+# ==============================================================================
+networks:
+  default:
+    name: projem-network
+    external: true
+
+# ==============================================================================
+# VOLUME CONFIGURATION
+# ==============================================================================
+# No persistent volumes needed - using tmpfs mounts for cache directories

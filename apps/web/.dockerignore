@@ -1,0 +1,202 @@
+# ==============================================================================
+# ENTERPRISE .DOCKERIGNORE
+# ==============================================================================
+# Optimized Docker build context for minimal image size and faster builds
+# Excludes all non-essential files for production deployment
+# ==============================================================================
+
+# Development files
+.git
+.gitignore
+.github/
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Documentation and README files
+README.md
+CHANGELOG.md
+LICENSE
+*.md
+docs/
+TASK_*.md
+
+# Development dependencies and tools
+node_modules/
+.pnpm-store/
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and configuration
+.env
+.env.*
+!.env.example
+.env.local
+.env.development
+.env.test
+.env.production
+
+# Testing files and directories
+tests/
+test/
+__tests__/
+**/*.test.*
+**/*.spec.*
+*.test.js
+*.test.ts
+*.test.tsx
+*.spec.js
+*.spec.ts
+*.spec.tsx
+coverage/
+.nyc_output/
+jest.config.*
+vitest.config.*
+playwright.config.*
+e2e/
+
+# Build artifacts and caches
+.next/
+out/
+dist/
+build/
+.cache/
+.parcel-cache/
+.turbo/
+.swc/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional stylelint cache
+.stylelintcache
+
+# Microbundle cache
+.rpt2_cache/
+.rts2_cache_cjs/
+.rts2_cache_es/
+.rts2_cache_umd/
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# Next.js build output
+.next
+
+# Nuxt.js build / generate output
+.nuxt
+dist
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# Temporary folders
+tmp/
+temp/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Docker files (keep only necessary ones)
+Dockerfile.*
+!Dockerfile
+docker-compose*.yml
+!docker-compose.web.yml
+
+# Package manager files (keep only package.json and lock files)
+.npmrc
+.yarnrc
+.yarn/
+.pnp.*
+
+# TypeScript build info
+*.tsbuildinfo
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# Stores VSCode versions used for testing VSCode extensions
+.vscode-test
+
+# Yarn v2
+.yarn/cache
+.yarn/unplugged
+.yarn/build-state.yml
+.yarn/install-state.gz
+.pnp.*

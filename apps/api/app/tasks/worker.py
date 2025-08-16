@@ -5,6 +5,16 @@ from kombu import Exchange, Queue
 
 from ..config import settings
 from ..settings import app_settings as appset
+from ..core.queue_constants import (
+    MAIN_QUEUES,
+    DLQ_PREFIX,
+    DLQ_CONFIG,
+    QUEUE_CONFIGS,
+    QUEUE_FREECAD,
+    QUEUE_SIM,
+    QUEUE_CPU,
+    QUEUE_POSTPROC,
+)
 
 
 celery_app = Celery(
@@ -37,77 +47,50 @@ except Exception:
 default_exchange = Exchange("celery", type="direct", durable=True)
 dlx_exchange = Exchange("dlx", type="direct", durable=True)
 
-# Dead Letter Queue konfigürasyonu
-dlq_queue = Queue(
-    "dlq.freecad",
-    exchange=dlx_exchange,
-    routing_key="freecad",
-    durable=True,
-    queue_arguments={
-        "x-message-ttl": 86400000,  # 24 saat TTL
-        "x-max-length": 10000,      # Maksimum mesaj sayısı
+# Dead Letter Queue konfigürasyonu - dinamik olarak oluştur
+dlq_queues = []
+for queue_name in MAIN_QUEUES:
+    dlq = Queue(
+        f"{DLQ_PREFIX}{queue_name}",
+        exchange=dlx_exchange,
+        routing_key=queue_name,
+        durable=True,
+        queue_arguments={
+            "x-message-ttl": DLQ_CONFIG["ttl"],
+            "x-max-length": DLQ_CONFIG["max_length"],
+        }
+    )
+    dlq_queues.append(dlq)
+
+# Main queues konfigürasyonu - dinamik olarak oluştur
+main_queues = []
+for queue_name in MAIN_QUEUES:
+    config = QUEUE_CONFIGS[queue_name]
+    
+    # Priority mapping
+    priority_map = {
+        "high": settings.queue_priority_high,
+        "normal": settings.queue_priority_normal,
+        "low": settings.queue_priority_low,
     }
-)
+    
+    queue = Queue(
+        queue_name,
+        exchange=default_exchange,
+        routing_key=queue_name,
+        durable=True,
+        queue_arguments={
+            "x-dead-letter-exchange": "dlx",
+            "x-dead-letter-routing-key": queue_name,
+            "x-message-ttl": config["ttl"],
+            "x-max-retries": config["max_retries"],
+            "x-priority": priority_map[config["priority"]],
+        }
+    )
+    main_queues.append(queue)
 
 # RabbitMQ Queue konfigürasyonu (Dead Letter Exchange ile)
-celery_app.conf.task_queues = (
-    # High priority queues
-    Queue(
-        "freecad",
-        exchange=default_exchange,
-        routing_key="freecad",
-        durable=True,
-        queue_arguments={
-            "x-dead-letter-exchange": "dlx",
-            "x-dead-letter-routing-key": "freecad",
-            "x-message-ttl": 3600000,  # 1 saat TTL
-            "x-max-retries": 3,
-            "x-priority": settings.queue_priority_high,
-        }
-    ),
-    Queue(
-        "sim",
-        exchange=default_exchange,
-        routing_key="sim",
-        durable=True,
-        queue_arguments={
-            "x-dead-letter-exchange": "dlx",
-            "x-dead-letter-routing-key": "sim",
-            "x-message-ttl": 3600000,
-            "x-max-retries": 3,
-            "x-priority": settings.queue_priority_high,
-        }
-    ),
-    # Normal priority queues
-    Queue(
-        "cpu",
-        exchange=default_exchange,
-        routing_key="cpu",
-        durable=True,
-        queue_arguments={
-            "x-dead-letter-exchange": "dlx",
-            "x-dead-letter-routing-key": "cpu",
-            "x-message-ttl": 1800000,  # 30 dakika TTL
-            "x-max-retries": 2,
-            "x-priority": settings.queue_priority_normal,
-        }
-    ),
-    Queue(
-        "postproc",
-        exchange=default_exchange,
-        routing_key="postproc",
-        durable=True,
-        queue_arguments={
-            "x-dead-letter-exchange": "dlx",
-            "x-dead-letter-routing-key": "postproc",
-            "x-message-ttl": 900000,   # 15 dakika TTL
-            "x-max-retries": 2,
-            "x-priority": settings.queue_priority_low,
-        }
-    ),
-    # Dead Letter Queue
-    dlq_queue,
-)
+celery_app.conf.task_queues = tuple(main_queues + dlq_queues)
 
 # Celery konfigürasyonu
 celery_app.conf.task_default_queue = "cpu"

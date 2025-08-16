@@ -1,0 +1,393 @@
+# ==============================================================================
+# UTILITY SERVICES DOCKER COMPOSE
+# ==============================================================================
+# Production-ready utility services for FreeCAD CAM/CAD platform
+# Services: FreeCAD, CAMotics, FFmpeg, ClamAV
+# Usage: docker-compose -f docker-compose.utilities.yml up -d
+# ==============================================================================
+
+name: freecad-utilities
+
+services:
+  # ==========================================================================
+  # FREECAD UTILITY SERVICE
+  # Purpose: CAD/CAM processing and FreeCAD script execution
+  # ==========================================================================
+  freecad-utility:
+    build:
+      context: ./freecad
+      dockerfile: Dockerfile
+    image: freecad-utility:1.1
+    container_name: util_freecad
+    restart: unless-stopped
+    
+    # Security configuration
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100M
+      - /var/tmp:noexec,nosuid,size=50M
+    
+    # Resource limits for CAD processing
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 4G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    
+    # Working directory mount
+    volumes:
+      - type: bind
+        source: ./workspace/freecad
+        target: /workspace
+        read_only: false
+      - type: tmpfs
+        target: /home/freecad/.FreeCAD
+        tmpfs:
+          size: 100M
+    
+    # Environment configuration
+    environment:
+      - FREECAD_TIMEOUT_SECONDS=1200
+      - QT_QPA_PLATFORM=offscreen
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+    
+    # Health monitoring
+    healthcheck:
+      test: ["CMD", "freecadcmd", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    
+    # Network isolation
+    networks:
+      - utilities-net
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================================================
+  # CAMOTICS UTILITY SERVICE
+  # Purpose: G-code simulation and CAM verification
+  # ==========================================================================
+  camotics-utility:
+    build:
+      context: ./camotics
+      dockerfile: Dockerfile
+    image: camotics-utility:1.2
+    container_name: util_camotics
+    restart: unless-stopped
+    
+    # Security configuration
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=200M
+      - /var/tmp:noexec,nosuid,size=100M
+    
+    # Resource limits for simulation processing
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 6G
+        reservations:
+          cpus: '0.5'
+          memory: 2G
+    
+    # Working directory mount
+    volumes:
+      - type: bind
+        source: ./workspace/camotics
+        target: /workspace
+        read_only: false
+      - type: tmpfs
+        target: /home/camotics/.config
+        tmpfs:
+          size: 50M
+    
+    # Environment configuration
+    environment:
+      - DISPLAY=:99
+      - CAMOTICS_TIMEOUT_SECONDS=1800
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+    
+    # Health monitoring
+    healthcheck:
+      test: ["CMD", "camotics", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    
+    # Network isolation
+    networks:
+      - utilities-net
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================================================
+  # FFMPEG UTILITY SERVICE
+  # Purpose: Video processing for simulation recordings
+  # ==========================================================================
+  ffmpeg-utility:
+    build:
+      context: ./ffmpeg
+      dockerfile: Dockerfile
+    image: ffmpeg-utility:6.1
+    container_name: util_ffmpeg
+    restart: unless-stopped
+    
+    # Security configuration
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=500M
+      - /var/tmp:noexec,nosuid,size=100M
+    
+    # Resource limits for video processing
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 8G
+        reservations:
+          cpus: '1.0'
+          memory: 2G
+    
+    # Working directory mount
+    volumes:
+      - type: bind
+        source: ./workspace/ffmpeg
+        target: /workspace
+        read_only: false
+      - type: tmpfs
+        target: /home/ffmpeg
+        tmpfs:
+          size: 100M
+    
+    # Environment configuration
+    environment:
+      - FFMPEG_TIMEOUT_SECONDS=3600
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+    
+    # Health monitoring
+    healthcheck:
+      test: ["CMD", "ffmpeg", "-version"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    
+    # Network isolation
+    networks:
+      - utilities-net
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================================================
+  # CLAMAV UTILITY SERVICE
+  # Purpose: Antivirus scanning for uploaded and generated files
+  # ==========================================================================
+  clamav-utility:
+    build:
+      context: ./clamav
+      dockerfile: Dockerfile
+    image: clamav-utility:1.3
+    container_name: util_clamav
+    restart: unless-stopped
+    
+    # Security configuration
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100M
+      - /var/tmp:noexec,nosuid,size=50M
+    
+    # Resource limits for virus scanning
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 2G
+        reservations:
+          cpus: '0.2'
+          memory: 512M
+    
+    # Working directory and database mounts
+    volumes:
+      - type: bind
+        source: ./workspace/clamav
+        target: /workspace
+        read_only: false
+      - type: volume
+        source: clamav_db
+        target: /var/lib/clamav
+      - type: tmpfs
+        target: /var/log/clamav
+        tmpfs:
+          size: 100M
+      - type: tmpfs
+        target: /home/clamav
+        tmpfs:
+          size: 50M
+    
+    # Environment configuration
+    environment:
+      - CLAMAV_UPDATE_INTERVAL=86400  # Update database daily
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
+    
+    # Health monitoring
+    healthcheck:
+      test: ["CMD", "clamscan", "--version"]
+      interval: 60s
+      timeout: 15s
+      retries: 3
+      start_period: 120s
+    
+    # Network isolation
+    networks:
+      - utilities-net
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # ==========================================================================
+  # UTILITY COORDINATOR SERVICE (Optional)
+  # Purpose: Health monitoring and coordination of utility services
+  # ==========================================================================
+  utility-coordinator:
+    image: alpine:3.19
+    container_name: util_coordinator
+    restart: unless-stopped
+    
+    # Security configuration
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=10M
+    
+    # Minimal resource allocation
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 64M
+        reservations:
+          cpus: '0.05'
+          memory: 32M
+    
+    # Health check script
+    command: |
+      sh -c '
+        while true; do
+          echo "$(date): Utility services health check"
+          sleep 300
+        done
+      '
+    
+    # Dependencies on utility services
+    depends_on:
+      freecad-utility:
+        condition: service_healthy
+      camotics-utility:
+        condition: service_healthy
+      ffmpeg-utility:
+        condition: service_healthy
+      clamav-utility:
+        condition: service_healthy
+    
+    # Network isolation
+    networks:
+      - utilities-net
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+# ==============================================================================
+# PERSISTENT VOLUMES
+# ==============================================================================
+volumes:
+  # ClamAV virus database persistence
+  clamav_db:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/clamav
+
+# ==============================================================================
+# NETWORKS
+# ==============================================================================
+networks:
+  utilities-net:
+    driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: br-utilities
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+          gateway: 172.20.0.1
+
+# ==============================================================================
+# USAGE EXAMPLES:
+# 
+# Start all utility services:
+#   docker-compose -f docker-compose.utilities.yml up -d
+#
+# Start specific service:
+#   docker-compose -f docker-compose.utilities.yml up -d freecad-utility
+#
+# View logs:
+#   docker-compose -f docker-compose.utilities.yml logs -f freecad-utility
+#
+# Scale service:
+#   docker-compose -f docker-compose.utilities.yml up -d --scale ffmpeg-utility=3
+#
+# Health check:
+#   docker-compose -f docker-compose.utilities.yml ps
+#
+# Execute command in utility:
+#   docker-compose -f docker-compose.utilities.yml exec freecad-utility freecadcmd --version
+#
+# Stop services:
+#   docker-compose -f docker-compose.utilities.yml down
+#
+# Rebuild and restart:
+#   docker-compose -f docker-compose.utilities.yml up -d --build --force-recreate
+# ==============================================================================

@@ -3,115 +3,312 @@ name: AI Code Review
 on:
   pull_request:
     types: [opened, synchronize, reopened]
+  pull_request_review:
+    types: [submitted]
 
 permissions:
   contents: read
   pull-requests: write
   issues: write
+  security-events: write
 
 jobs:
-  review:
+  ai-review:
+    name: 🤖 AI Code Review
     runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
+    timeout-minutes: 10
+    
+    outputs:
+      is_critical: ${{ steps.analyze.outputs.is_critical }}
     
     steps:
-    - name: Checkout
+    - name: 📥 Checkout repository
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
+        token: ${{ github.token }}
 
-    - name: Request Copilot Review
-      if: github.event.pull_request.draft == false
+    - name: 🔍 Analyze changed files
+      id: analyze
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        # PR bilgilerini al
         PR_NUMBER="${{ github.event.pull_request.number }}"
-        PR_TITLE="${{ github.event.pull_request.title }}"
         
-        # Dependabot PR'ları için basit kontrol
-        if [[ "${{ github.actor }}" == "dependabot[bot]" ]]; then
-          echo "📦 Dependabot PR detected - simplified review"
-          
-          # Güvenlik güncellemesi mi kontrol et
-          if [[ "$PR_TITLE" == *"security"* ]] || [[ "$PR_TITLE" == *"vulnerability"* ]]; then
-            gh pr comment $PR_NUMBER --body "🔒 **Güvenlik Güncellemesi Tespit Edildi**
-            
-Bu PR güvenlik güncellemesi içeriyor. Hızlı merge önerilir.
-            
-✅ Otomatik onay için hazır."
-          else
-            gh pr comment $PR_NUMBER --body "📦 **Bağımlılık Güncellemesi**
-            
-Bu PR otomatik bağımlılık güncellemesi içeriyor.
-            
-- Breaking changes için changelog kontrol edilmeli
-- Major version değişiklikleri dikkatle incelenmeli"
-          fi
-        else
-          # Normal PR'lar için Copilot review isteği
-          echo "🤖 Requesting Copilot review..."
-          
-          # Copilot'a review isteği gönder (eğer mevcut değilse hata verir)
-          gh api \
-            --method POST \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            /repos/${{ github.repository }}/pulls/$PR_NUMBER/reviews \
-            -f event='COMMENT' \
-            -f body='@copilot-review' 2>/dev/null || true
-            
-          # Alternatif: GitHub Copilot for PRs kullan
-          gh pr review $PR_NUMBER --request-changes --body "🤖 **AI Review Requested**
-          
-Please review this PR for:
-- 🐛 Potential bugs
-- 🔒 Security issues  
-- ⚡ Performance concerns
-- 📝 Code quality
-- 🧪 Test coverage
-
-@github-advanced-security please analyze" 2>/dev/null || true
-        fi
-
-    - name: Check Files
-      id: check
-      run: |
-        # Değişen dosyaları kontrol et
-        FILES=$(gh pr diff ${{ github.event.pull_request.number }} --name-only)
+        # Get changed files
+        echo "📋 Analyzing changed files in PR #$PR_NUMBER..."
+        CHANGED_FILES=$(gh pr diff $PR_NUMBER --name-only)
+        echo "$CHANGED_FILES"
         
-        # Kritik dosya kontrolü
+        # Count different file types
+        PYTHON_FILES=$(echo "$CHANGED_FILES" | grep -E '\.(py)$' | wc -l || echo 0)
+        JS_TS_FILES=$(echo "$CHANGED_FILES" | grep -E '\.(js|jsx|ts|tsx)$' | wc -l || echo 0)
+        CONFIG_FILES=$(echo "$CHANGED_FILES" | grep -E '(requirements\.txt|package\.json|Dockerfile|\.yml|\.yaml)$' | wc -l || echo 0)
+        
+        echo "python_files=$PYTHON_FILES" >> $GITHUB_OUTPUT
+        echo "js_ts_files=$JS_TS_FILES" >> $GITHUB_OUTPUT
+        echo "config_files=$CONFIG_FILES" >> $GITHUB_OUTPUT
+        echo "total_files=$(echo "$CHANGED_FILES" | wc -l)" >> $GITHUB_OUTPUT
+        
+        # Determine if this is a critical change
         CRITICAL=false
-        if echo "$FILES" | grep -E "(requirements\.txt|package\.json|Dockerfile|\.github/workflows/)" > /dev/null; then
+        if [[ $CONFIG_FILES -gt 0 ]] || echo "$CHANGED_FILES" | grep -E "(\.github/workflows/|Dockerfile|requirements\.txt|package\.json)"; then
           CRITICAL=true
         fi
-        
-        echo "critical=$CRITICAL" >> $GITHUB_OUTPUT
-        echo "files<<EOF" >> $GITHUB_OUTPUT
-        echo "$FILES" >> $GITHUB_OUTPUT
-        echo "EOF" >> $GITHUB_OUTPUT
+        echo "is_critical=$CRITICAL" >> $GITHUB_OUTPUT
 
-    - name: Security Check
-      if: steps.check.outputs.critical == 'true'
-      run: |
-        gh pr comment ${{ github.event.pull_request.number }} --body "⚠️ **Kritik Dosya Değişikliği Tespit Edildi**
-        
-Bu PR kritik dosyalarda değişiklik içeriyor:
-- Dependencies (requirements.txt, package.json)
-- Docker configurations
-- CI/CD workflows
-        
-Lütfen dikkatli inceleyiniz."
-
-    - name: Label PR
+    - name: 🤖 Request GitHub Copilot Review
       env:
         GH_TOKEN: ${{ github.token }}
       run: |
-        # PR'a otomatik etiket ekle
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        PR_TITLE="${{ github.event.pull_request.title }}"
+        PR_AUTHOR="${{ github.event.pull_request.user.login }}"
+        
+        echo "🤖 Requesting GitHub Copilot code review for PR #$PR_NUMBER"
+        
+        # Check if this is a dependabot PR
         if [[ "${{ github.actor }}" == "dependabot[bot]" ]]; then
-          gh pr edit ${{ github.event.pull_request.number }} --add-label "dependencies"
+          echo "📦 Dependabot PR detected - requesting specialized review"
+          
+          if [[ "$PR_TITLE" == *"security"* ]] || [[ "$PR_TITLE" == *"vulnerability"* ]]; then
+            REVIEW_BODY="🔒 **Security Update Detected**
+
+This PR contains security updates. Requesting expedited review.
+
+@github-copilot please review this security update for:
+- ✅ Compatibility with existing code
+- 🔍 Potential breaking changes
+- 📋 Changelog verification
+
+**Priority**: High - Security Update"
+          else
+            REVIEW_BODY="📦 **Dependency Update**
+
+This PR contains automated dependency updates.
+
+@github-copilot please review for:
+- 🔄 Breaking changes
+- 📚 Major version updates  
+- 🧪 Test compatibility
+- 📋 Documentation updates
+
+**Files changed**: ${{ steps.analyze.outputs.total_files }}"
+          fi
+        else
+          # Regular PR review request
+          REVIEW_BODY="🤖 **Automated Code Review Request**
+
+@github-copilot please review this pull request for:
+
+## 🔍 Code Quality
+- Code readability and maintainability
+- Best practices adherence
+- Design patterns usage
+
+## 🐛 Bug Detection
+- Logic errors
+- Edge case handling
+- Error handling patterns
+
+## 🔒 Security Analysis
+- Input validation
+- Authentication/authorization
+- Data sanitization
+- Potential vulnerabilities
+
+## ⚡ Performance
+- Algorithmic efficiency
+- Resource usage
+- Database query optimization
+
+## 🧪 Testing
+- Test coverage adequacy
+- Test case completeness
+- Mock usage appropriateness
+
+**Analysis Summary:**
+- Python files: ${{ steps.analyze.outputs.python_files }}
+- JavaScript/TypeScript files: ${{ steps.analyze.outputs.js_ts_files }}
+- Config files: ${{ steps.analyze.outputs.config_files }}
+- Critical changes: ${{ steps.analyze.outputs.is_critical }}"
         fi
         
-        # Kritik değişiklikler için etiket
-        if [[ "${{ steps.check.outputs.critical }}" == "true" ]]; then
-          gh pr edit ${{ github.event.pull_request.number }} --add-label "needs-review"
+        # Use the new GitHub CLI pr review command with Copilot integration
+        echo "Requesting Copilot review..."
+        if command -v gh copilot > /dev/null 2>&1; then
+          # Try new gh copilot command if available
+          gh copilot review $PR_NUMBER || echo "⚠️ gh copilot command not available, using fallback"
         fi
+        
+        # Fallback: Create review request comment
+        gh pr comment $PR_NUMBER --body "$REVIEW_BODY"
+
+    - name: 🏷️ Auto-label PR
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        
+        # Add appropriate labels based on analysis
+        if [[ "${{ github.actor }}" == "dependabot[bot]" ]]; then
+          echo "📦 Adding dependency labels"
+          gh pr edit $PR_NUMBER --add-label "dependencies"
+          gh pr edit $PR_NUMBER --add-label "automated"
+        fi
+        
+        # Critical changes
+        if [[ "${{ steps.analyze.outputs.is_critical }}" == "true" ]]; then
+          echo "⚠️ Adding critical change labels"
+          gh pr edit $PR_NUMBER --add-label "needs-review"
+          gh pr edit $PR_NUMBER --add-label "critical"
+        fi
+        
+        # Language-specific labels
+        if [[ "${{ steps.analyze.outputs.python_files }}" != "0" ]]; then
+          gh pr edit $PR_NUMBER --add-label "python" || true
+        fi
+        
+        if [[ "${{ steps.analyze.outputs.js_ts_files }}" != "0" ]]; then
+          gh pr edit $PR_NUMBER --add-label "frontend" || true
+        fi
+        
+        # Add ai-reviewed label for tracking
+        gh pr edit $PR_NUMBER --add-label "ai-reviewed" || true
+
+    - name: ⚠️ Critical Changes Alert
+      if: steps.analyze.outputs.is_critical == 'true'
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        gh pr comment ${{ github.event.pull_request.number }} --body "⚠️ **Critical File Changes Detected**
+        
+🔍 This PR modifies critical infrastructure files:
+- 📦 Dependencies (requirements.txt, package.json)
+- 🐳 Docker configurations  
+- 🔧 CI/CD workflows
+- ⚙️ Configuration files
+        
+**Review Checklist:**
+- [ ] Breaking changes documented
+- [ ] Backward compatibility verified
+- [ ] Security implications assessed
+- [ ] Performance impact evaluated
+- [ ] Tests updated accordingly
+        
+**Recommended Actions:**
+1. 🧪 Run full test suite
+2. 🔒 Security scan verification
+3. 📋 Staging environment testing
+4. 👥 Manual review by senior team member"
+
+  # Additional job for security scanning on critical changes
+  security-scan:
+    name: 🔒 Security Analysis
+    runs-on: ubuntu-latest
+    needs: ai-review
+    if: needs.ai-review.outputs.is_critical == 'true'
+    timeout-minutes: 15
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        
+    - name: 🛡️ Run CodeQL Analysis
+      uses: github/codeql-action/init@v3
+      with:
+        languages: python, javascript
+        
+    - name: 🔍 Perform CodeQL Analysis
+      uses: github/codeql-action/analyze@v3
+      
+    - name: 📊 Security scan results
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        echo "🔒 Security analysis completed for critical changes"
+        gh pr comment ${{ github.event.pull_request.number }} --body "🛡️ **Security Analysis Complete**
+        
+✅ CodeQL security analysis has been completed for this critical PR.
+Results are available in the Security tab of the repository."
+
+  # Job to handle the response when Copilot provides feedback
+  copilot-feedback:
+    name: 🤖 Process Copilot Feedback
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request_review' && contains(github.event.review.body, 'github-copilot')
+    timeout-minutes: 5
+    
+    steps:
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: 📝 Process Copilot Review
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        echo "🤖 Processing GitHub Copilot feedback"
+        REVIEW_BODY="${{ github.event.review.body }}"
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        
+        # Add summary comment about Copilot review
+        gh pr comment $PR_NUMBER --body "✅ **GitHub Copilot Review Completed**
+        
+🤖 GitHub Copilot has provided feedback on this PR.
+📋 Please review the suggestions and implement recommended changes.
+        
+**Next Steps:**
+1. 📖 Review Copilot feedback carefully
+2. 🔧 Implement suggested improvements
+3. 🧪 Ensure tests pass after changes
+4. ✅ Request human review when ready"
+
+  # Summary job to track overall status
+  review-summary:
+    name: 📊 Review Summary
+    runs-on: ubuntu-latest
+    needs: [ai-review]
+    if: always()
+    timeout-minutes: 5
+    
+    steps:
+    - name: 📊 Generate Review Summary
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        PR_NUMBER="${{ github.event.pull_request.number }}"
+        
+        echo "📊 Generating AI review summary for PR #$PR_NUMBER"
+        
+        # Check job statuses
+        AI_REVIEW_STATUS="${{ needs.ai-review.result }}"
+        
+        if [[ "$AI_REVIEW_STATUS" == "success" ]]; then
+          STATUS_EMOJI="✅"
+          STATUS_TEXT="Success"
+        else
+          STATUS_EMOJI="❌"
+          STATUS_TEXT="Failed"
+        fi
+        
+        # Create summary comment
+        gh pr comment $PR_NUMBER --body "## 📊 AI Review Summary
+        
+**Review Status:** $STATUS_EMOJI $STATUS_TEXT
+        
+**Automated Checks:**
+- $STATUS_EMOJI GitHub Copilot Review Requested
+- 🏷️ Automatic labeling applied
+- 📋 Critical changes analysis completed
+        
+**What's Next:**
+1. 👀 Review GitHub Copilot suggestions
+2. 🔧 Address any identified issues
+3. ✅ Ensure all CI checks pass
+4. 👥 Request human review when ready
+        
+---
+*This summary was generated automatically by the AI Code Review workflow.*"
