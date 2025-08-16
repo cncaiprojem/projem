@@ -23,7 +23,7 @@ echo "[API] Log Level: $LOG_LEVEL"
 # Wait for database to be ready
 echo "[API] Waiting for database connection..."
 for i in {1..30}; do
-    if python3 -c "import psycopg2; psycopg2.connect('$DATABASE_URL')" 2>/dev/null; then
+    if python3 -c "import os, psycopg2; psycopg2.connect(os.environ['DATABASE_URL'])" 2>/dev/null; then
         echo "[API] Database connection successful"
         break
     fi
