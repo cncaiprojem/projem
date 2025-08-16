@@ -38,10 +38,10 @@ const nextConfig = {
             value: 'origin-when-cross-origin'
           },
           {
-            // Content Security Policy (stub for now, to be configured based on requirements)
+            // Content Security Policy - Production güvenliği artırıldı
             key: 'Content-Security-Policy',
             value: process.env.NODE_ENV === 'production' 
-              ? "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:* wss://localhost:*;"
+              ? "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://*.projem.com wss://*.projem.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self';"
               : "default-src 'self'; script-src 'self' 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' http://localhost:* ws://localhost:* wss://localhost:*;"
           },
         ],
