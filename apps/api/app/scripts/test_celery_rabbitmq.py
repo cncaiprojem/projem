@@ -81,7 +81,7 @@ def test_queue_declarations() -> bool:
         
         with Connection(settings.rabbitmq_url) as conn:
             with conn.channel() as channel:
-                expected_queues = ["freecad", "cpu", "postproc", "sim", "freecad.dlq"]
+                expected_queues = ["freecad", "cpu", "postproc", "sim", "dlq.freecad", "dlq.cpu", "dlq.postproc", "dlq.sim"]
                 
                 for queue_name in expected_queues:
                     try:

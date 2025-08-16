@@ -35,7 +35,7 @@ def collect_queue_metrics(self) -> Dict[str, Any]:
         try:
             with Connection(settings.rabbitmq_url) as conn:
                 with conn.channel() as channel:
-                    queue_names = ["freecad", "cpu", "postproc", "sim", "freecad.dlq"]
+                    queue_names = ["freecad", "cpu", "postproc", "sim", "dlq.freecad", "dlq.cpu", "dlq.postproc", "dlq.sim"]
                     
                     for queue_name in queue_names:
                         try:
@@ -45,7 +45,7 @@ def collect_queue_metrics(self) -> Dict[str, Any]:
                                 "consumer_count": getattr(queue_info, "consumer_count", 0),
                             }
                             
-                            if queue_name != "freecad.dlq":
+                            if not queue_name.startswith("dlq."):
                                 metrics["total_pending_tasks"] += queue_info.message_count
                                 
                         except Exception as e:

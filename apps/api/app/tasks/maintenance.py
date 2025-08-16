@@ -163,53 +163,68 @@ def cleanup_dead_letter_queue(self, max_messages: int = 1000) -> Dict[str, Any]:
             "messages_requeued": 0,
             "messages_discarded": 0,
             "start_time": time.time(),
+            "queues_processed": [],
         }
+        
+        # Tüm DLQ'ları işle
+        dlq_queues = ["dlq.freecad", "dlq.sim", "dlq.cpu", "dlq.postproc"]
         
         with Connection(settings.rabbitmq_url) as conn:
             with conn.channel() as channel:
-                # DLQ'yu kontrol et
-                dlq_info = channel.queue_declare("freecad.dlq", passive=True)
-                message_count = dlq_info.message_count
-                
-                if message_count <= max_messages:
-                    logger.info(f"DLQ message count ({message_count}) within limit ({max_messages})")
-                    return cleanup_stats
-                
-                # Eski mesajları işle
-                messages_to_process = message_count - max_messages
-                
-                for _ in range(messages_to_process):
-                    method, properties, body = channel.basic_get("freecad.dlq", auto_ack=False)
+                for dlq_name in dlq_queues:
+                    try:
+                        # DLQ'yu kontrol et
+                        dlq_info = channel.queue_declare(dlq_name, passive=True)
+                        message_count = dlq_info.message_count
+                        
+                        if message_count <= max_messages:
+                            logger.info(f"DLQ {dlq_name} message count ({message_count}) within limit ({max_messages})")
+                            continue
+                        
+                        cleanup_stats["queues_processed"].append(dlq_name)
+                        
+                        # Eski mesajları işle
+                        messages_to_process = message_count - max_messages
+                        
+                        for _ in range(messages_to_process):
+                            method, properties, body = channel.basic_get(dlq_name, auto_ack=False)
                     
-                    if method is None:
-                        break
+                            if method is None:
+                                break
+                            
+                            cleanup_stats["messages_processed"] += 1
+                            
+                            # Mesaj yaşını kontrol et (headers'da timestamp varsa)
+                            message_age_hours = 0
+                            if properties and properties.headers:
+                                timestamp = properties.headers.get("timestamp")
+                                if timestamp:
+                                    message_age_hours = (time.time() - timestamp) / 3600
+                            
+                            # 7 günden eski mesajları sil, yenileri tekrar kuyruğa koy
+                            if message_age_hours > 168:  # 7 gün
+                                channel.basic_ack(method.delivery_tag)
+                                cleanup_stats["messages_discarded"] += 1
+                                logger.debug(f"Discarded old DLQ message from {dlq_name} (age: {message_age_hours:.1f}h)")
+                            else:
+                                # Mesajı orijinal kuyruğa geri gönder (retry)
+                                # DLQ adından orijinal queue adını çıkar
+                                original_queue = dlq_name.replace("dlq.", "")
+                                if properties.headers and "x-original-queue" in properties.headers:
+                                    original_queue = properties.headers.get("x-original-queue")
+                                
+                                channel.basic_publish(
+                                    exchange="celery",
+                                    routing_key=original_queue,
+                                    body=body,
+                                    properties=properties
+                                )
+                                channel.basic_ack(method.delivery_tag)
+                                cleanup_stats["messages_requeued"] += 1
+                                logger.debug(f"Requeued DLQ message from {dlq_name} to {original_queue}")
                     
-                    cleanup_stats["messages_processed"] += 1
-                    
-                    # Mesaj yaşını kontrol et (headers'da timestamp varsa)
-                    message_age_hours = 0
-                    if properties and properties.headers:
-                        timestamp = properties.headers.get("timestamp")
-                        if timestamp:
-                            message_age_hours = (time.time() - timestamp) / 3600
-                    
-                    # 7 günden eski mesajları sil, yenileri tekrar kuyruğa koy
-                    if message_age_hours > 168:  # 7 gün
-                        channel.basic_ack(method.delivery_tag)
-                        cleanup_stats["messages_discarded"] += 1
-                        logger.debug(f"Discarded old DLQ message (age: {message_age_hours:.1f}h)")
-                    else:
-                        # Mesajı orijinal kuyruğa geri gönder (retry)
-                        original_queue = properties.headers.get("x-original-queue", "cpu")
-                        channel.basic_publish(
-                            exchange="freecad.direct",
-                            routing_key=original_queue,
-                            body=body,
-                            properties=properties
-                        )
-                        channel.basic_ack(method.delivery_tag)
-                        cleanup_stats["messages_requeued"] += 1
-                        logger.debug(f"Requeued DLQ message to {original_queue}")
+                    except Exception as e:
+                        logger.warning(f"Failed to process DLQ {dlq_name}: {e}")
         
         cleanup_stats["duration_seconds"] = time.time() - cleanup_stats["start_time"]
         

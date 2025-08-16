@@ -38,10 +38,43 @@ default_exchange = Exchange("celery", type="direct", durable=True)
 dlx_exchange = Exchange("dlx", type="direct", durable=True)
 
 # Dead Letter Queue konfigürasyonu
-dlq_queue = Queue(
+dlq_freecad = Queue(
     "dlq.freecad",
     exchange=dlx_exchange,
     routing_key="freecad",
+    durable=True,
+    queue_arguments={
+        "x-message-ttl": 86400000,  # 24 saat TTL
+        "x-max-length": 10000,      # Maksimum mesaj sayısı
+    }
+)
+
+dlq_sim = Queue(
+    "dlq.sim",
+    exchange=dlx_exchange,
+    routing_key="sim",
+    durable=True,
+    queue_arguments={
+        "x-message-ttl": 86400000,  # 24 saat TTL
+        "x-max-length": 10000,      # Maksimum mesaj sayısı
+    }
+)
+
+dlq_cpu = Queue(
+    "dlq.cpu",
+    exchange=dlx_exchange,
+    routing_key="cpu",
+    durable=True,
+    queue_arguments={
+        "x-message-ttl": 86400000,  # 24 saat TTL
+        "x-max-length": 10000,      # Maksimum mesaj sayısı
+    }
+)
+
+dlq_postproc = Queue(
+    "dlq.postproc",
+    exchange=dlx_exchange,
+    routing_key="postproc",
     durable=True,
     queue_arguments={
         "x-message-ttl": 86400000,  # 24 saat TTL
@@ -105,8 +138,11 @@ celery_app.conf.task_queues = (
             "x-priority": settings.queue_priority_low,
         }
     ),
-    # Dead Letter Queue
-    dlq_queue,
+    # Dead Letter Queues
+    dlq_freecad,
+    dlq_sim,
+    dlq_cpu,
+    dlq_postproc,
 )
 
 # Celery konfigürasyonu
