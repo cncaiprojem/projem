@@ -37,12 +37,12 @@ The `docker-compose.dev.yml` file provides a complete development stack includin
 
 | Service    | Port  | Health Check | Purpose |
 |------------|-------|--------------|---------|
-| postgres   | 5432  | pg_isready   | Primary database |
-| redis      | 6379  | redis ping   | Cache & sessions |
-| rabbitmq   | 5672/15672 | rabbitmq-diagnostics | Message broker |
-| minio      | 9000/9001 | HTTP health | Object storage |
-| api        | 8000  | /api/v1/healthz | Backend API |
-| web        | 3000  | /healthz | Frontend app |
+| postgres   | 5432  | pg_isready (command) | Primary database |
+| redis      | 6379  | redis ping (command) | Cache & sessions |
+| rabbitmq   | 5672/15672 | rabbitmq-diagnostics (command) | Message broker |
+| minio      | 9000/9001 | /minio/health/live (HTTP GET) | Object storage |
+| api        | 8000  | /api/v1/healthz (HTTP GET) | Backend API |
+| web        | 3000  | /healthz (HTTP GET) | Frontend app |
 
 ### Worker Services
 
@@ -52,7 +52,7 @@ The `docker-compose.dev.yml` file provides a complete development stack includin
 ### Utility Services
 
 - **freecad**: CAD/CAM processing utility
-- **camotics**: G-code simulation utility  
+- **camotics**: G-code simulation utility
 - **ffmpeg**: Video processing utility
 - **clamav**: Antivirus scanning (optional, security profile)
 
