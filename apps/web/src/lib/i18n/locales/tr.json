@@ -1,0 +1,206 @@
+{
+  "app": {
+    "title": "FreeCAD CNC/CAM Üretim Platformu",
+    "description": "3D modelleme ve CNC üretim yönetimi",
+    "loading": "Yükleniyor...",
+    "error": "Hata oluştu",
+    "retry": "Tekrar Dene",
+    "cancel": "İptal",
+    "save": "Kaydet",
+    "delete": "Sil",
+    "edit": "Düzenle",
+    "create": "Oluştur",
+    "update": "Güncelle",
+    "back": "Geri",
+    "next": "İleri",
+    "finish": "Bitir",
+    "confirm": "Onayla",
+    "search": "Ara",
+    "filter": "Filtrele",
+    "refresh": "Yenile",
+    "download": "İndir",
+    "upload": "Yükle",
+    "export": "Dışa Aktar",
+    "import": "İçe Aktar"
+  },
+  "nav": {
+    "home": "Ana Sayfa",
+    "projects": "Projeler",
+    "designs": "Tasarımlar",
+    "jobs": "İşler",
+    "assemblies": "Montajlar",
+    "reports": "Raporlar",
+    "settings": "Ayarlar",
+    "help": "Yardım",
+    "status": "Durum",
+    "viewer": "3D Görüntüleyici",
+    "downloads": "İndirilenler",
+    "qna": "Soru & Cevap"
+  },
+  "health": {
+    "status": "Sistem Durumu",
+    "ok": "Sistem Sağlıklı",
+    "error": "Sistem Hatası",
+    "checking": "Kontrol Ediliyor..."
+  },
+  "jobs": {
+    "title": "İşler",
+    "new": "Yeni İş",
+    "list": "İş Listesi",
+    "status": {
+      "pending": "Bekliyor",
+      "running": "Çalışıyor",
+      "completed": "Tamamlandı",
+      "failed": "Başarısız",
+      "cancelled": "İptal Edildi"
+    },
+    "columns": {
+      "id": "ID",
+      "name": "İsim",
+      "type": "Tip",
+      "status": "Durum",
+      "createdAt": "Oluşturulma",
+      "updatedAt": "Güncellenme",
+      "actions": "İşlemler"
+    },
+    "actions": {
+      "view": "Görüntüle",
+      "edit": "Düzenle",
+      "delete": "Sil",
+      "cancel": "İptal Et",
+      "restart": "Yeniden Başlat",
+      "download": "İndir"
+    },
+    "types": {
+      "cad": "CAD Modelleme",
+      "cam": "CAM İşleme",
+      "gcode": "G-Code Üretimi",
+      "simulation": "Simülasyon"
+    }
+  },
+  "projects": {
+    "title": "Projeler",
+    "new": "Yeni Proje",
+    "list": "Proje Listesi",
+    "details": "Proje Detayları",
+    "setups": "Kurulumlar",
+    "fields": {
+      "name": "Proje Adı",
+      "description": "Açıklama",
+      "customer": "Müşteri",
+      "deadline": "Teslim Tarihi",
+      "priority": "Öncelik"
+    },
+    "priority": {
+      "low": "Düşük",
+      "medium": "Orta",
+      "high": "Yüksek",
+      "urgent": "Acil"
+    }
+  },
+  "designs": {
+    "title": "Tasarımlar",
+    "new": "Yeni Tasarım",
+    "list": "Tasarım Listesi",
+    "upload": "Tasarım Yükle",
+    "fields": {
+      "name": "Tasarım Adı",
+      "type": "Tasarım Tipi",
+      "material": "Malzeme",
+      "dimensions": "Boyutlar",
+      "weight": "Ağırlık"
+    },
+    "types": {
+      "part": "Parça",
+      "assembly": "Montaj",
+      "drawing": "Teknik Çizim",
+      "model3d": "3D Model"
+    }
+  },
+  "assemblies": {
+    "title": "Montajlar",
+    "new": "Yeni Montaj",
+    "list": "Montaj Listesi",
+    "fields": {
+      "name": "Montaj Adı",
+      "partCount": "Parça Sayısı",
+      "totalWeight": "Toplam Ağırlık",
+      "complexity": "Karmaşıklık"
+    },
+    "complexity": {
+      "simple": "Basit",
+      "moderate": "Orta",
+      "complex": "Karmaşık",
+      "veryComplex": "Çok Karmaşık"
+    }
+  },
+  "cam": {
+    "title": "CAM İşlemleri",
+    "toolpath": "Takım Yolu",
+    "tool": "Takım",
+    "operation": "Operasyon",
+    "parameters": "Parametreler",
+    "simulation": "Simülasyon",
+    "fields": {
+      "feedRate": "İlerleme Hızı",
+      "spindleSpeed": "İş Mili Hızı",
+      "depthOfCut": "Kesme Derinliği",
+      "stepover": "Yan Adım",
+      "toolDiameter": "Takım Çapı",
+      "toolLength": "Takım Boyu"
+    },
+    "operations": {
+      "facing": "Yüzey İşleme",
+      "pocketing": "Cep Açma",
+      "contouring": "Kontur İşleme",
+      "drilling": "Delme",
+      "tapping": "Kılavuz Çekme",
+      "boring": "Delik Büyütme"
+    }
+  },
+  "materials": {
+    "aluminum": "Alüminyum",
+    "steel": "Çelik",
+    "stainlessSteel": "Paslanmaz Çelik",
+    "brass": "Pirinç",
+    "copper": "Bakır",
+    "plastic": "Plastik",
+    "wood": "Ahşap",
+    "composite": "Kompozit"
+  },
+  "units": {
+    "mm": "mm",
+    "cm": "cm",
+    "m": "m",
+    "inch": "inç",
+    "kg": "kg",
+    "g": "g",
+    "rpm": "dev/dak",
+    "mmMin": "mm/dak",
+    "sec": "sn",
+    "min": "dk",
+    "hour": "saat"
+  },
+  "errors": {
+    "generic": "Bir hata oluştu",
+    "network": "Ağ hatası",
+    "unauthorized": "Yetkilendirme hatası",
+    "notFound": "Bulunamadı",
+    "validation": "Doğrulama hatası",
+    "serverError": "Sunucu hatası",
+    "timeout": "Zaman aşımı"
+  },
+  "success": {
+    "saved": "Başarıyla kaydedildi",
+    "deleted": "Başarıyla silindi",
+    "updated": "Başarıyla güncellendi",
+    "created": "Başarıyla oluşturuldu",
+    "completed": "İşlem tamamlandı"
+  },
+  "confirm": {
+    "delete": "Silmek istediğinizden emin misiniz?",
+    "cancel": "İptal etmek istediğinizden emin misiniz?",
+    "save": "Değişiklikleri kaydetmek istiyor musunuz?",
+    "discard": "Değişiklikleri atmak istediğinizden emin misiniz?"
+  }
+}
