@@ -23,7 +23,7 @@ DC ?= docker compose
 
 .DEFAULT_GOAL := help
 
-.PHONY: help init dev dev-full stop logs migrate seed test lint fmt build clean gen-docs run-freecad-smoke seed-basics pre-commit-install pre-commit-run pre-commit-check rabbitmq-setup rabbitmq-status dlq-status rabbitmq-ui
+.PHONY: help init dev dev-full stop logs migrate seed test lint fmt build clean gen-docs run-freecad-smoke seed-basics pre-commit-install pre-commit-run pre-commit-check rabbitmq-setup rabbitmq-status dlq-status rabbitmq-ui test-celery-rabbitmq
 
 help:
 	@echo.
@@ -47,6 +47,7 @@ help:
 	@echo   make rabbitmq-status  - Show RabbitMQ cluster status
 	@echo   make dlq-status       - Show Dead Letter Queue status
 	@echo   make rabbitmq-ui      - Open RabbitMQ Management UI
+	@echo   make test-celery-rabbitmq - Test Celery RabbitMQ configuration
 	@echo.
 	@echo Pre-commit hooks:
 	@echo   make pre-commit-install - Install pre-commit hooks
@@ -196,3 +197,8 @@ else
 	@echo "Checking hook installation status..."
 	@if [ -f .git/hooks/pre-commit ]; then echo "✓ Pre-commit hook is installed"; else echo "✗ Pre-commit hook is NOT installed - run: make pre-commit-install"; fi
 endif
+
+# Celery RabbitMQ konfigürasyon testi
+test-celery-rabbitmq:
+	@echo Testing Celery RabbitMQ configuration...
+	$(DC) exec api python -m app.scripts.test_celery_rabbitmq
