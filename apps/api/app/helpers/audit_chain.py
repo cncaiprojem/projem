@@ -362,8 +362,8 @@ class AuditChainHelper:
         )
 
 
-class CanonicalJSONHelper:
-    """Helper for canonical JSON operations ensuring hash consistency."""
+class AuditChainJSONHelper:
+    """Helper for canonical JSON operations in audit chain context ensuring hash consistency."""
     
     @staticmethod
     def to_canonical_json(data: Any) -> str:
@@ -396,7 +396,7 @@ class CanonicalJSONHelper:
         """
         try:
             data = json.loads(json_str)
-            canonical = CanonicalJSONHelper.to_canonical_json(data)
+            canonical = AuditChainJSONHelper.to_canonical_json(data)
             return json_str == canonical
         except (json.JSONDecodeError, TypeError):
             return False
@@ -422,12 +422,12 @@ class CanonicalJSONHelper:
         for key in sorted(payload.keys()):
             value = payload[key]
             if isinstance(value, dict):
-                normalized[key] = CanonicalJSONHelper.normalize_audit_payload(value)
+                normalized[key] = AuditChainJSONHelper.normalize_audit_payload(value)
             elif isinstance(value, list):
                 # Sort list items if they're dictionaries
                 if value and isinstance(value[0], dict):
                     normalized[key] = [
-                        CanonicalJSONHelper.normalize_audit_payload(item) 
+                        AuditChainJSONHelper.normalize_audit_payload(item) 
                         if isinstance(item, dict) else item 
                         for item in value
                     ]
@@ -439,8 +439,8 @@ class CanonicalJSONHelper:
         return normalized
 
 
-class TurkishComplianceHelper:
-    """Helper for Turkish regulatory compliance (KVKV/GDPR/KDV)."""
+class TurkishComplianceAuditHelper:
+    """Helper for Turkish regulatory compliance in audit context (KVKV/GDPR/KDV)."""
     
     @staticmethod
     def audit_gdpr_action(
@@ -542,6 +542,6 @@ class TurkishComplianceHelper:
 # Export main helper classes
 __all__ = [
     "AuditChainHelper",
-    "CanonicalJSONHelper", 
-    "TurkishComplianceHelper"
+    "AuditChainJSONHelper", 
+    "TurkishComplianceAuditHelper"
 ]
