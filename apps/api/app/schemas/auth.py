@@ -1,6 +1,6 @@
 """
-Authentication schemas for Task 3.1 ultra enterprise authentication.
-These schemas define the API contracts for authentication endpoints.
+Authentication schemas for Task 3.1 and 3.3 ultra enterprise authentication.
+These schemas define the API contracts for authentication endpoints including JWT.
 """
 
 from datetime import datetime
@@ -261,6 +261,58 @@ class SecurityEventResponse(BaseModel):
     details: Dict[str, Any] = Field(..., description="Olay detayları")
 
 
+# Task 3.3: JWT Token Management Schemas
+
+class TokenRefreshResponse(BaseModel):
+    """JWT token refresh response schema."""
+    
+    access_token: str = Field(..., description="Yeni JWT erişim token'ı")
+    token_type: str = Field(default="bearer", description="Token türü")
+    expires_in: int = Field(..., description="Token geçerlilik süresi (saniye)")
+
+
+class LogoutResponse(BaseModel):
+    """Logout response schema."""
+    
+    message: str = Field(
+        default="Oturum başarıyla kapatıldı",
+        description="Başarı mesajı"
+    )
+
+
+class LogoutAllResponse(BaseModel):
+    """Logout all sessions response schema."""
+    
+    message: str = Field(
+        default="Tüm oturumlar başarıyla kapatıldı",
+        description="Başarı mesajı"
+    )
+    sessions_revoked: int = Field(..., description="İptal edilen oturum sayısı")
+
+
+class SessionInfo(BaseModel):
+    """Session information schema."""
+    
+    session_id: str = Field(..., description="Oturum ID'si")
+    created_at: datetime = Field(..., description="Oluşturulma zamanı")
+    last_used_at: Optional[datetime] = Field(None, description="Son kullanım zamanı")
+    expires_at: datetime = Field(..., description="Geçerlilik sonu")
+    is_current: bool = Field(..., description="Mevcut oturum mu?")
+    device_fingerprint: Optional[str] = Field(None, description="Cihaz parmak izi (kısaltılmış)")
+    ip_address: Optional[str] = Field(None, description="IP adresi (maskelenmiş)")
+    is_suspicious: bool = Field(..., description="Şüpheli oturum mu?")
+    age_days: int = Field(..., description="Oturum yaşı (gün)")
+    expires_in_days: int = Field(..., description="Geçerlilik süresi (gün)")
+
+
+class ActiveSessionsResponse(BaseModel):
+    """Active sessions list response schema."""
+    
+    sessions: List[SessionInfo] = Field(..., description="Aktif oturum listesi")
+    total_count: int = Field(..., description="Toplam oturum sayısı")
+    current_session_id: str = Field(..., description="Mevcut oturum ID'si")
+
+
 # Error code mappings for consistent error responses
 AUTH_ERROR_CODES = {
     'ERR-AUTH-INVALID-BODY': 'Geçersiz istek verisi',
@@ -274,4 +326,19 @@ AUTH_ERROR_CODES = {
     'ERR-AUTH-REGISTRATION-FAILED': 'Kayıt işlemi başarısız',
     'ERR-AUTH-RESET-FAILED': 'Şifre sıfırlama işlemi başarısız',
     'ERR-AUTH-SYSTEM-ERROR': 'Sistem hatası',
+    
+    # Task 3.3: JWT-specific error codes
+    'ERR-TOKEN-INVALID': 'Geçersiz token',
+    'ERR-TOKEN-EXPIRED': 'Token süresi dolmuş',
+    'ERR-TOKEN-REVOKED': 'Token iptal edilmiş',
+    'ERR-TOKEN-MALFORMED': 'Token formatı geçersiz',
+    'ERR-REFRESH-MISSING': 'Refresh token bulunamadı',
+    'ERR-REFRESH-INVALID': 'Refresh token geçersiz veya süresi dolmuş',
+    'ERR-REFRESH-REUSE': 'Refresh token yeniden kullanım girişimi tespit edildi',
+    'ERR-REFRESH-ROTATION-FAILED': 'Token rotasyonu başarısız',
+    'ERR-LOGOUT-FAILED': 'Oturum kapatma başarısız',
+    'ERR-LOGOUT-ALL-FAILED': 'Tüm oturumları kapatma başarısız',
+    'ERR-SESSION-NOT-FOUND': 'Oturum bulunamadı',
+    'ERR-INSUFFICIENT-SCOPES': 'Yetersiz yetki',
+    'ERR-ADMIN-REQUIRED': 'Admin yetkisi gerekli',
 }

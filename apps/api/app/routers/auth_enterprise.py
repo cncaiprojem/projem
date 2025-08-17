@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 import ipaddress
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
+from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
@@ -29,7 +29,10 @@ from ..schemas.auth import (
 )
 from ..services.auth_service import auth_service, AuthenticationError
 from ..services.password_service import password_service
-from ..auth import create_token_pair, get_current_user
+# Legacy auth import disabled - using new JWT system
+# from ..auth import create_token_pair, get_current_user
+from ..services.token_service import token_service
+from ..services.jwt_service import jwt_service
 from ..schemas import UserOut
 from ..core.logging import get_logger
 from ..middleware.auth_limiter import limiter
@@ -160,6 +163,7 @@ async def register_user(
 @limiter.limit("10/minute")  # Rate limit: 10 login attempts per minute
 async def login_user(
     request: Request,
+    response: Response,
     login_data: UserLoginRequest,
     db: Session = Depends(get_db)
 ) -> UserLoginResponse:
@@ -189,13 +193,22 @@ async def login_user(
             user_agent=client_info["user_agent"]
         )
         
-        # Create JWT tokens
-        token_pair = create_token_pair(user.email)
+        # Create refresh session with JWT access token (Task 3.3)
+        token_result = token_service.create_refresh_session(
+            db=db,
+            user=user,
+            device_fingerprint=login_data.device_fingerprint,
+            ip_address=client_info["ip_address"],
+            user_agent=client_info["user_agent"]
+        )
+        
+        # Set refresh token in httpOnly cookie
+        token_service.set_refresh_cookie(response, token_result.refresh_token)
         
         return UserLoginResponse(
-            access_token=token_pair.access_token,
+            access_token=token_result.access_token,
             token_type="bearer",
-            expires_in=token_pair.expires_in,
+            expires_in=token_result.expires_in,
             user_id=user.id,
             email=user.email,
             full_name=user.full_name,

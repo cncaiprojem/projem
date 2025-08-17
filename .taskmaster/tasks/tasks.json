@@ -350,7 +350,7 @@
               "3.2"
             ],
             "details": "Design:\n- PyJWT 2.8; access token: 30m exp; claims: sub (user_id), role, scopes, sid (session id), iat, exp.\n- Refresh token: random 256-bit opaque; 7d TTL; stored as httpOnly cookie; rotation on each refresh; detect reuse → revoke all in chain.\nAPIs:\n- POST /auth/token/refresh → reads refresh cookie; 200 {access_token, expires_in}; sets new refresh cookie; 401 if invalid/revoked.\n- POST /auth/logout → revoke current session; 204; clears refresh cookie.\n- POST /auth/logout/all → revoke all sessions for user; 204; clears cookie.\nCookies:\n- Name: rt; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=604800; Domain configurable; Same attributes on rotation; clear on logout.\nErrors:\n- 401 ERR-TOKEN-INVALID, ERR-TOKEN-EXPIRED, ERR-TOKEN-REVOKED, ERR-REFRESH-REUSE.\n- 400 ERR-TOKEN-MALFORMED.\nAcceptance:\n- Refresh rotates: old session revoked_at set; new session inserted; new cookie set with correct attributes.\n- Reuse of an already-rotated refresh cookie triggers global revocation and 401.\n- Access token in Authorization: Bearer <jwt> works for protected routes.\nLogging:\n- audit_logs: token_refreshed, logout, logout_all.\n- security_events: refresh_reuse, invalid_refresh_cookie, suspicious_refresh_ip_change.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T16:36:23.352Z",
+      "updated": "2025-08-17T16:54:22.664Z",
       "description": "Tasks for master context"
     }
   }
