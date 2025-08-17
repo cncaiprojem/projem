@@ -293,7 +293,7 @@
               "2.8"
             ],
             "details": "- Run alembic upgrade head on clean DB and downgrade to base; ensure no residual objects.\n- Constraints: attempt duplicates for each unique; expect errors. Validate currency checks with GUC app.multi_currency on/off.\n- FKs: verify RESTRICT on delete for users with sessions; verify CASCADE for artefacts on job delete.\n- Audit chain: insert two audit_logs within a tx; verify chain_hash = sha256(prev || canonical_json(payload)) deterministically.\n- Query plans: EXPLAIN (ANALYZE, BUFFERS) on key queries to confirm index usage (jobs status+created_at; licenses status+ends_at; JSONB GIN probe).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T12:11:12.102Z",
+      "updated": "2025-08-17T12:59:33.171Z",
       "description": "Tasks for master context"
     }
   }
