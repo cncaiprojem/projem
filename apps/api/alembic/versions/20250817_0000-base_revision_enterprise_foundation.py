@@ -267,9 +267,12 @@ def upgrade() -> None:
     print("   - Performance monitoring baseline established")
     print("   - Enterprise configuration framework initialized")
     print("   - PostgreSQL 17.6 optimizations applied")
-    finally:
-        # Release advisory lock
+    
+    # Release advisory lock
+    try:
         op.execute(sa.text("SELECT pg_advisory_unlock(1234567890)"))
+    except Exception:
+        pass  # Lock might already be released
 
 
 def downgrade() -> None:

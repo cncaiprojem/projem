@@ -293,8 +293,8 @@ def upgrade():
     try:
         op.create_index('idx_licenses_expiring_soon', 'licenses', 
                        ['ends_at'], 
-                       postgresql_where=sa.text("status = 'ACTIVE' AND ends_at > NOW() AND ends_at < NOW() + INTERVAL '30 days'"))
-        print("   [OK] Created partial index: expiring licenses")
+                       postgresql_where=sa.text("status = 'ACTIVE'"))
+        print("   [OK] Created partial index for active licenses by expiry date")
     except Exception:
         print("   [OK] Expiring licenses index already exists")
     
@@ -414,40 +414,49 @@ def upgrade():
         op.execute(sa.text("""
         CREATE MATERIALIZED VIEW IF NOT EXISTS system_performance_summary AS
         SELECT 
-            'jobs'::text as entity_type,
-            COUNT(*)::bigint as total_count,
-            COUNT(*) FILTER (WHERE status = 'PENDING')::bigint as active_count,
-            COUNT(*) FILTER (WHERE status = 'RUNNING')::bigint as processing_count,
-            COUNT(*) FILTER (WHERE status = 'COMPLETED')::bigint as completed_count,
-            COUNT(*) FILTER (WHERE status = 'FAILED')::bigint as failed_count,
-            AVG(EXTRACT(EPOCH FROM (finished_at - started_at)))::numeric FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL) as avg_duration_seconds,
-            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '1 day')::bigint as created_today,
+            entity_type,
+            total_count,
+            active_count,
+            processing_count,
+            completed_count,
+            failed_count,
+            avg_duration_seconds,
+            created_today,
             NOW() as last_updated
-        FROM jobs
-        UNION ALL
-        SELECT 
-            'users'::text as entity_type,
-            COUNT(*)::bigint as total_count,
-            COUNT(*) FILTER (WHERE status = 'active')::bigint as active_count,
-            COUNT(*) FILTER (WHERE is_verified = true)::bigint as processing_count,
-            COUNT(*) FILTER (WHERE last_login_at >= NOW() - INTERVAL '30 days')::bigint as completed_count,
-            COUNT(*) FILTER (WHERE status = 'inactive')::bigint as failed_count,
-            NULL::numeric as avg_duration_seconds,
-            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '1 day')::bigint as created_today,
-            NOW() as last_updated
-        FROM users
-        UNION ALL
-        SELECT 
-            'licenses'::text as entity_type,
-            COUNT(*)::bigint as total_count,
-            COUNT(*) FILTER (WHERE status = 'ACTIVE')::bigint as active_count,
-            COUNT(*) FILTER (WHERE status = 'TRIAL')::bigint as processing_count,
-            COUNT(*) FILTER (WHERE ends_at > NOW())::bigint as completed_count,
-            COUNT(*) FILTER (WHERE status = 'EXPIRED')::bigint as failed_count,
-            AVG(EXTRACT(EPOCH FROM (ends_at - starts_at)))::numeric as avg_duration_seconds,
-            COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '1 day')::bigint as created_today,
-            NOW() as last_updated
-        FROM licenses
+        FROM (
+            SELECT 
+                'jobs'::text as entity_type,
+                COUNT(*)::bigint as total_count,
+                COUNT(*) FILTER (WHERE status = 'PENDING')::bigint as active_count,
+                COUNT(*) FILTER (WHERE status = 'RUNNING')::bigint as processing_count,
+                COUNT(*) FILTER (WHERE status = 'COMPLETED')::bigint as completed_count,
+                COUNT(*) FILTER (WHERE status = 'FAILED')::bigint as failed_count,
+                AVG(EXTRACT(EPOCH FROM (finished_at - started_at)))::numeric FILTER (WHERE finished_at IS NOT NULL AND started_at IS NOT NULL) as avg_duration_seconds,
+                COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '1 day')::bigint as created_today
+            FROM jobs
+            UNION ALL
+            SELECT 
+                'users'::text as entity_type,
+                COUNT(*)::bigint as total_count,
+                COUNT(*) FILTER (WHERE status = 'active')::bigint as active_count,
+                COUNT(*) FILTER (WHERE is_verified = true)::bigint as processing_count,
+                COUNT(*) FILTER (WHERE last_login_at >= NOW() - INTERVAL '30 days')::bigint as completed_count,
+                COUNT(*) FILTER (WHERE status = 'inactive')::bigint as failed_count,
+                NULL::numeric as avg_duration_seconds,
+                COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '1 day')::bigint as created_today
+            FROM users
+            UNION ALL
+            SELECT 
+                'licenses'::text as entity_type,
+                COUNT(*)::bigint as total_count,
+                COUNT(*) FILTER (WHERE status = 'ACTIVE')::bigint as active_count,
+                COUNT(*) FILTER (WHERE status = 'TRIAL')::bigint as processing_count,
+                COUNT(*) FILTER (WHERE ends_at > NOW())::bigint as completed_count,
+                COUNT(*) FILTER (WHERE status = 'EXPIRED')::bigint as failed_count,
+                AVG(EXTRACT(EPOCH FROM (ends_at - starts_at)))::numeric as avg_duration_seconds,
+                COUNT(*) FILTER (WHERE created_at >= NOW() - INTERVAL '1 day')::bigint as created_today
+            FROM licenses
+        ) subquery
         WITH DATA;
         """))
         print("   [OK] Created system performance monitoring view")

@@ -66,7 +66,7 @@ def upgrade():
         print("   ✓ materials(category, name) unique constraint already exists")
     
     # Add unique constraint for tool manufacturer + part_number (natural key)
-    # Part number is essential for tools as same manufacturer can have multiple tools with same name but different part numbers
+    # Use (manufacturer, part_number) as natural key for idempotency
     try:
         op.create_unique_constraint('uq_tools_manufacturer_part', 'tools', ['manufacturer', 'part_number'])
         print("   ✅ Added unique constraint: tools(manufacturer, part_number)")
@@ -83,7 +83,7 @@ def upgrade():
     valid_machine_types = {
         'mill_3axis', 'mill_4axis', 'mill_5axis', 'lathe', 'turn_mill',
         'router', 'plasma', 'laser', 'waterjet', 'edm_wire', 'edm_sinker',
-        'grinder', 'swiss'
+        'grinder', 'swiss', '3d_printer'
     }
     
     machines_data = [
@@ -145,7 +145,7 @@ def upgrade():
             'name': 'Prusa i3 MK3S+',
             'manufacturer': 'Prusa Research',
             'model': 'i3 MK3S+',
-            'type': 'mill_3axis',  # Using mill_3axis for 3D printer as closest type
+            'type': '3d_printer',  # Proper 3D printer type
             'axes': 3,
             'work_envelope_x_mm': 250.0,
             'work_envelope_y_mm': 210.0,
@@ -666,7 +666,7 @@ def upgrade():
         SELECT name, type FROM machines 
         WHERE type NOT IN ('mill_3axis', 'mill_4axis', 'mill_5axis', 'lathe', 'turn_mill',
                           'router', 'plasma', 'laser', 'waterjet', 'edm_wire', 'edm_sinker',
-                          'grinder', 'swiss')
+                          'grinder', 'swiss', '3d_printer')
     """)).fetchall()
     
     if invalid_machines:
