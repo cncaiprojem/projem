@@ -275,7 +275,7 @@ services:
     
     # Health monitoring
     healthcheck:
-      test: ["CMD-SHELL", "timeout 10s bash -c '</dev/tcp/localhost/9000' || exit 1"]
+      test: ["CMD-SHELL", "/usr/bin/healthcheck.sh http://localhost:9000/minio/health/live"]
       interval: 30s
       timeout: 10s
       retries: 5
@@ -449,7 +449,6 @@ services:
     command: >
       /bin/sh -c "
       echo 'Starting API in development mode...' && 
-      pip install watchdog[watchmedo] && 
       uvicorn app.main:app 
         --host 0.0.0.0 
         --port 8000 
@@ -715,7 +714,7 @@ services:
       echo 'Starting web in development mode...' &&
       corepack enable && 
       corepack prepare pnpm@8.15.4 --activate && 
-      pnpm install && 
+      [ ! -d node_modules ] && pnpm install || echo 'node_modules exists, skipping install' && 
       pnpm dev --port 3000 --hostname 0.0.0.0
       "
     

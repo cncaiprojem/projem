@@ -15,14 +15,14 @@ on:
     paths:
       - 'apps/web/**'
       - '.github/workflows/frontend-ci.yml'
-      - 'docker-compose.yml'
+      - 'infra/compose/docker-compose.dev.yml'
       - 'Makefile'
   pull_request:
     branches: [ main, develop ]
     paths:
       - 'apps/web/**'
       - '.github/workflows/frontend-ci.yml'
-      - 'docker-compose.yml'
+      - 'infra/compose/docker-compose.dev.yml'
       - 'Makefile'
 
 # Güvenlik ve performans için global ayarlar

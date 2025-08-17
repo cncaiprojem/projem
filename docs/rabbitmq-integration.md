@@ -188,7 +188,7 @@ docker exec fc_worker celery -A app.tasks.worker inspect registered
 ### Worker Scaling
 
 ```yaml
-# docker-compose.yml
+# infra/compose/docker-compose.dev.yml
 worker:
   command: ["celery", "-A", "app.tasks.worker", "worker", "--loglevel=INFO", "-Q", "cpu,postproc", "-c", "4"]
   deploy:

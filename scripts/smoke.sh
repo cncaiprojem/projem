@@ -3,7 +3,7 @@
 # ==============================================================================
 # FREECAD PLATFORM DEVELOPMENT SMOKE TEST SCRIPT
 # ==============================================================================
-# Comprehensive smoke test suite for development docker-compose stack
+# Comprehensive smoke test suite for development docker compose stack
 # Tests all services, health endpoints, and critical functionality
 # Usage: ./scripts/smoke.sh [--timeout=300] [--verbose] [--skip-utilities]
 # ==============================================================================
@@ -95,9 +95,9 @@ wait_for_service() {
     print_info "Waiting for service '$service_name' to be healthy (timeout: ${timeout}s)..."
     
     while [[ $retries -lt $max_retries ]]; do
-        if docker-compose -f "$COMPOSE_FILE" ps -q "$service_name" > /dev/null 2>&1; then
+        if docker compose -f "$COMPOSE_FILE" ps -q "$service_name" > /dev/null 2>&1; then
             local health_status
-            health_status=$(docker-compose -f "$COMPOSE_FILE" ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" | grep "^$service_name" | awk '{print $3}' || echo "unknown")
+            health_status=$(docker compose -f "$COMPOSE_FILE" ps --format "table {{.Service}}\t{{.State}}\t{{.Health}}" | grep "^$service_name" | awk '{print $3}' || echo "unknown")
             
             print_debug "Service '$service_name' health status: $health_status"
             
@@ -156,7 +156,7 @@ test_service_version() {
     print_debug "Testing service version: $service_name"
     
     local version_output
-    if version_output=$(docker-compose -f "$COMPOSE_FILE" exec -T "$service_name" $version_command 2>/dev/null); then
+    if version_output=$(docker compose -f "$COMPOSE_FILE" exec -T "$service_name" $version_command 2>/dev/null); then
         if echo "$version_output" | grep -qE "$expected_pattern"; then
             print_success "Service '$service_name' version check passed: $(echo "$version_output" | head -1 | cut -c1-50)..."
             return 0
@@ -181,7 +181,7 @@ test_database_connectivity() {
     print_debug "Testing database connectivity: $service_name"
     
     local query="SELECT version();"
-    if docker-compose -f "$COMPOSE_FILE" exec -T "$service_name" psql -U "$user" -d "$database" -c "$query" > /dev/null 2>&1; then
+    if docker compose -f "$COMPOSE_FILE" exec -T "$service_name" psql -U "$user" -d "$database" -c "$query" > /dev/null 2>&1; then
         print_success "Database '$service_name' connectivity test passed"
         return 0
     else
@@ -197,7 +197,7 @@ test_redis_connectivity() {
     inc_test
     print_debug "Testing Redis connectivity: $service_name"
     
-    if docker-compose -f "$COMPOSE_FILE" exec -T "$service_name" redis-cli ping | grep -q "PONG"; then
+    if docker compose -f "$COMPOSE_FILE" exec -T "$service_name" redis-cli ping | grep -q "PONG"; then
         print_success "Redis '$service_name' connectivity test passed"
         return 0
     else
@@ -213,7 +213,7 @@ test_rabbitmq_connectivity() {
     inc_test
     print_debug "Testing RabbitMQ connectivity: $service_name"
     
-    if docker-compose -f "$COMPOSE_FILE" exec -T "$service_name" rabbitmq-diagnostics -q ping > /dev/null 2>&1; then
+    if docker compose -f "$COMPOSE_FILE" exec -T "$service_name" rabbitmq-diagnostics -q ping > /dev/null 2>&1; then
         print_success "RabbitMQ '$service_name' connectivity test passed"
         return 0
     else
@@ -271,7 +271,7 @@ while [[ $# -gt 0 ]]; do
             echo ""
             echo "Options:"
             echo "  --timeout=SECONDS        Maximum wait time for services (default: $DEFAULT_TIMEOUT)"
-            echo "  --compose-file=PATH      Path to docker-compose file (default: $DEFAULT_COMPOSE_FILE)"
+            echo "  --compose-file=PATH      Path to docker compose file (default: $DEFAULT_COMPOSE_FILE)"
             echo "  --verbose                Enable verbose output"
             echo "  --skip-utilities         Skip utility services tests"
             echo "  --help, -h               Show this help message"
@@ -310,9 +310,9 @@ main() {
         exit 1
     fi
     
-    # Verify docker-compose is available
-    if ! command -v docker-compose &> /dev/null; then
-        print_error "docker-compose command not found. Please install Docker Compose."
+    # Verify docker compose is available
+    if ! command -v docker &> /dev/null || ! docker compose version &> /dev/null; then
+        print_error "docker compose command not found. Please install Docker Compose."
         exit 1
     fi
     
@@ -349,7 +349,7 @@ main() {
         wait_for_service "camotics" "$TIMEOUT" || print_warning "CAMotics service not healthy (continuing...)"
         wait_for_service "ffmpeg" "$TIMEOUT" || print_warning "FFmpeg service not healthy (continuing...)"
         # ClamAV is optional (profile-based)
-        if docker-compose -f "$COMPOSE_FILE" ps -q clamav > /dev/null 2>&1; then
+        if docker compose -f "$COMPOSE_FILE" ps -q clamav > /dev/null 2>&1; then
             wait_for_service "clamav" "$TIMEOUT" || print_warning "ClamAV service not healthy (continuing...)"
         fi
     fi
@@ -436,7 +436,7 @@ main() {
         test_service_version "ffmpeg" "ffmpeg -version" "ffmpeg version" || print_warning "FFmpeg version check failed (continuing...)"
         
         # ClamAV version (if running)
-        if docker-compose -f "$COMPOSE_FILE" ps -q clamav > /dev/null 2>&1; then
+        if docker compose -f "$COMPOSE_FILE" ps -q clamav > /dev/null 2>&1; then
             test_service_version "clamav" "clamscan --version" "ClamAV" || print_warning "ClamAV version check failed (continuing...)"
         fi
     fi
@@ -452,7 +452,7 @@ main() {
     # Test MinIO bucket creation
     inc_test
     print_info "Testing MinIO bucket functionality..."
-    if docker-compose -f "$COMPOSE_FILE" logs minio-bootstrap 2>/dev/null | grep -q "Bootstrap complete"; then
+    if docker compose -f "$COMPOSE_FILE" logs minio-bootstrap 2>/dev/null | grep -q "Bootstrap complete"; then
         print_success "MinIO bucket creation completed successfully"
     else
         print_error "MinIO bucket creation failed or incomplete"
@@ -461,7 +461,7 @@ main() {
     # Test Celery worker functionality
     inc_test
     print_info "Testing Celery worker functionality..."
-    if docker-compose -f "$COMPOSE_FILE" exec -T workers celery -A app.tasks.worker inspect stats > /dev/null 2>&1; then
+    if docker compose -f "$COMPOSE_FILE" exec -T workers celery -A app.tasks.worker inspect stats > /dev/null 2>&1; then
         print_success "Celery workers are responding to inspect commands"
     else
         print_error "Celery workers failed to respond to inspect commands"
@@ -470,8 +470,8 @@ main() {
     # Test Celery beat functionality
     inc_test
     print_info "Testing Celery beat functionality..."
-    if docker-compose -f "$COMPOSE_FILE" logs beat 2>/dev/null | grep -q "beat" || \
-       docker-compose -f "$COMPOSE_FILE" exec -T beat pgrep -f "celery.*beat" > /dev/null 2>&1; then
+    if docker compose -f "$COMPOSE_FILE" logs beat 2>/dev/null | grep -q "beat" || \
+       docker compose -f "$COMPOSE_FILE" exec -T beat pgrep -f "celery.*beat" > /dev/null 2>&1; then
         print_success "Celery beat scheduler is running"
     else
         print_error "Celery beat scheduler is not running properly"
@@ -517,10 +517,10 @@ main() {
         
         echo ""
         print_info "Troubleshooting tips:"
-        print_info "  • Check service logs: docker-compose -f $COMPOSE_FILE logs [service_name]"
-        print_info "  • Restart services: docker-compose -f $COMPOSE_FILE restart [service_name]"
-        print_info "  • Check service status: docker-compose -f $COMPOSE_FILE ps"
-        print_info "  • Rebuild services: docker-compose -f $COMPOSE_FILE up -d --build"
+        print_info "  • Check service logs: docker compose -f $COMPOSE_FILE logs [service_name]"
+        print_info "  • Restart services: docker compose -f $COMPOSE_FILE restart [service_name]"
+        print_info "  • Check service status: docker compose -f $COMPOSE_FILE ps"
+        print_info "  • Rebuild services: docker compose -f $COMPOSE_FILE up -d --build"
         
         exit 1
     fi
