@@ -373,7 +373,7 @@
               "3.2"
             ],
             "details": "Design:\n- Authlib 1.3 OAuth2Client; use PKCE (S256) and state in server-side store; nonce in auth request.\n- Persist mapping: oidc_accounts(user_id, provider='google', sub, email_verified, picture, created_at).\nAPIs:\n- GET /auth/oidc/google/start → 302 redirect to Google (sets pkce_verifier in server store).\n- GET /auth/oidc/google/callback?code&state → 302 to FE; on success set refresh cookie and return short-lived page that exchanges for access token if needed.\nCookies:\n- Sets refresh cookie (rt) per Subtask 3 upon successful OIDC login.\nErrors:\n- 400 ERR-OIDC-STATE, 400 ERR-OIDC-NONCE, 401 ERR-OIDC-TOKEN-EXCHANGE, 409 ERR-OIDC-EMAIL-CONFLICT (if email claimed by another flow and policy forbids auto-link).\nAcceptance:\n- PKCE verifier and state validated; code exchange succeeds; new or existing user linked via sub.\n- Audit log contains oidc_login with provider, sub; PII masked.\nLogging:\n- audit_logs: oidc_login_started, oidc_login_succeeded, oidc_login_linked.\n- security_events: oidc_state_mismatch, oidc_token_exchange_failed.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T17:21:18.595Z",
+      "updated": "2025-08-17T17:46:43.172Z",
       "description": "Tasks for master context"
     }
   }

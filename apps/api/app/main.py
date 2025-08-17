@@ -10,6 +10,7 @@ from .middleware.limiter import RateLimitMiddleware
 from .routers import auth as auth_router
 from .routers import auth_jwt as auth_jwt_router
 from .routers import auth_enterprise as auth_enterprise_router
+from .routers import oidc_auth as oidc_auth_router
 from .routers import health as health_router
 from .routers import freecad as freecad_router
 from .routers import assemblies as assemblies_router
@@ -55,6 +56,7 @@ app.include_router(health_router.router)
 app.include_router(auth_router.router)
 app.include_router(auth_jwt_router.router)
 app.include_router(auth_enterprise_router.router)
+app.include_router(oidc_auth_router.router)
 app.include_router(freecad_router.router)
 app.include_router(assemblies_router.router)
 app.include_router(cam_router.router)

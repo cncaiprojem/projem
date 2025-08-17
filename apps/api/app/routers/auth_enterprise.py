@@ -34,6 +34,7 @@ from ..services.password_service import password_service
 from ..services.token_service import token_service
 from ..services.jwt_service import jwt_service
 from ..schemas import UserOut
+from ..middleware.jwt_middleware import get_current_user, AuthenticatedUser
 from ..core.logging import get_logger
 from ..middleware.auth_limiter import limiter
 from ..settings import app_settings as settings
@@ -399,7 +400,7 @@ async def reset_password(
     response_description="Kullanıcı profil bilgileri"
 )
 async def get_current_user_profile(
-    current_user: UserOut = Depends(get_current_user),
+    current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db)
 ) -> UserProfileResponse:
     """
@@ -417,7 +418,7 @@ async def get_current_user_profile(
     try:
         # Get full user details from database
         from ..models.user import User
-        user = db.query(User).filter(User.email == current_user.email).first()
+        user = db.query(User).filter(User.email == current_user.user.email).first()
         
         if not user:
             raise HTTPException(
@@ -446,7 +447,7 @@ async def get_current_user_profile(
         raise
     except Exception as e:
         logger.error("Failed to get user profile", exc_info=True, extra={
-            "user_email": current_user.email
+            "user_email": current_user.user.email
         })
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

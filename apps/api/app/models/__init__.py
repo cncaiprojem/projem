@@ -28,6 +28,7 @@ from .erp_mes_sync import ErpMesSync
 from .audit_log import AuditLog
 from .security_event import SecurityEvent
 from .tool import Tool
+from .oidc_account import OIDCAccount
 
 # All models are now in the models/ package - no additional modules needed
 _additional_models_loaded = False
@@ -42,6 +43,7 @@ __all__ = [
     "User",
     "Session",
     "License",
+    "OIDCAccount",
     
     # Billing
     "Invoice",

@@ -61,13 +61,25 @@ class AppSettings:
         )
         # CORS
         self.cors_allowed_origins: list[str] = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
-        # OIDC / SSO
+        # OIDC / SSO (Legacy JWT verification)
         self.oidc_enabled: bool = _get_bool("OIDC_ENABLED", False)
         self.oidc_issuer_url: str | None = os.getenv("OIDC_ISSUER_URL")
         self.oidc_jwks_url: str | None = os.getenv("OIDC_JWKS_URL")
         self.oidc_audience: str | None = os.getenv("OIDC_AUDIENCE")
         self.oidc_client_id: str | None = os.getenv("OIDC_CLIENT_ID")
         self.roles_claim: str = os.getenv("ROLES_CLAIM", "realm_access.roles")
+        
+        # Google OAuth2/OIDC Authentication (Task 3.5)
+        self.google_oauth_enabled: bool = _get_bool("GOOGLE_OAUTH_ENABLED", True)
+        self.google_client_id: str | None = os.getenv("GOOGLE_CLIENT_ID")
+        self.google_client_secret: str | None = os.getenv("GOOGLE_CLIENT_SECRET")
+        self.google_discovery_url: str = os.getenv("GOOGLE_DISCOVERY_URL", "https://accounts.google.com/.well-known/openid-configuration")
+        self.google_oauth_scopes: list[str] = ["openid", "email", "profile"]
+        
+        # OAuth2 security settings
+        self.oauth_state_expire_minutes: int = _get_int("OAUTH_STATE_EXPIRE_MINUTES", 15)
+        self.oauth_pkce_verifier_expire_minutes: int = _get_int("OAUTH_PKCE_VERIFIER_EXPIRE_MINUTES", 15)
+        self.oauth_callback_timeout_seconds: int = _get_int("OAUTH_CALLBACK_TIMEOUT_SECONDS", 30)
         # Rate limit kuralları (route bazlı)
         self.rate_limit_rules: Dict[str, str] = _get_json_dict(
             "RATE_LIMIT_RULES", {"assemblies": "60/m", "cam": "120/m", "simulate": "30/m"}
