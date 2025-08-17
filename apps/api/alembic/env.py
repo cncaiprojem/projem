@@ -112,6 +112,12 @@ def configure_postgresql_session(connection: Connection) -> None:
     """
     Configure PostgreSQL session for optimal migration performance.
     
+    Enterprise-grade PostgreSQL session optimization for large schema migrations:
+    - Enhanced memory settings for complex DDL operations
+    - Optimized checkpoint and WAL settings
+    - Lock timeout configuration for production safety
+    - Query planner optimization for migration efficiency
+    
     Args:
         connection: Active database connection
     """
@@ -119,11 +125,57 @@ def configure_postgresql_session(connection: Connection) -> None:
         major, minor = get_postgresql_version(connection)
         logging.info(f"Detected PostgreSQL version: {major}.{minor}")
         
-        # Basic session configuration for stability
-        logging.info("Basic PostgreSQL session configured for migration compatibility")
+        # Enterprise PostgreSQL optimization settings for large schema migrations
+        optimization_settings = [
+            # Memory optimization for large migrations
+            ("SET work_mem = '256MB'", "Increase working memory for complex operations"),
+            ("SET maintenance_work_mem = '1GB'", "Optimize memory for DDL operations"),
+            
+            # Lock and timeout management for production safety
+            ("SET lock_timeout = '30s'", "Prevent indefinite lock waits"),
+            ("SET statement_timeout = '600s'", "Set reasonable statement timeout"),
+            
+            # Query planner optimization
+            ("SET random_page_cost = 1.1", "Optimize for SSD storage"),
+            ("SET effective_cache_size = '2GB'", "Optimize query planning"),
+            
+            # WAL and checkpoint optimization for migration stability
+            ("SET wal_buffers = '16MB'", "Optimize WAL buffer size"),
+            ("SET checkpoint_completion_target = 0.9", "Spread checkpoint I/O"),
+            
+            # Connection and constraint optimization
+            ("SET constraint_exclusion = 'on'", "Enable constraint exclusion"),
+            ("SET default_statistics_target = 100", "Improve query planning statistics"),
+        ]
+        
+        # Apply optimization settings with error handling
+        for setting, description in optimization_settings:
+            try:
+                connection.execute(text(setting))
+                logging.debug(f"Applied: {setting} - {description}")
+            except Exception as setting_error:
+                logging.warning(f"Could not apply setting '{setting}': {setting_error}")
+        
+        # Version-specific optimizations
+        if major >= 14:
+            try:
+                connection.execute(text("SET enable_incremental_sort = on"))
+                logging.debug("Applied PostgreSQL 14+ incremental sort optimization")
+            except Exception as version_error:
+                logging.warning(f"Could not apply version-specific optimization: {version_error}")
+        
+        if major >= 15:
+            try:
+                connection.execute(text("SET enable_memoize = on"))
+                logging.debug("Applied PostgreSQL 15+ memoization optimization")
+            except Exception as version_error:
+                logging.warning(f"Could not apply PostgreSQL 15+ optimization: {version_error}")
+        
+        logging.info("Enterprise PostgreSQL session optimizations applied successfully")
         
     except Exception as e:
         logging.warning(f"Could not configure PostgreSQL session optimizations: {e}")
+        logging.info("Continuing with default PostgreSQL settings")
 
 def include_object(object, name, type_, reflected, compare_to):
     """

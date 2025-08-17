@@ -1,20 +1,26 @@
 from __future__ import annotations
 
 from datetime import datetime
-from fastapi import APIRouter, Header, HTTPException, status
+from fastapi import APIRouter, Header, HTTPException, status, Depends
 
 from ..db import db_session
 from ..models import Job
 from ..schemas.design import DesignJobCreate, DesignBrief, DesignAnalysisQuestion, DesignJobResult
 from ..tasks.design import design_orchestrate
 from ..services.job_control import is_queue_paused
+from ..dependencies.auth_dependencies import require_scopes, require_read_access, optional_auth
+from ..middleware.jwt_middleware import AuthenticatedUser
 
 
 router = APIRouter(prefix="/api/v1/designs", tags=["Tasarım (P2D)"])
 
 
 @router.post("/analyze", response_model=list[DesignAnalysisQuestion])
-def analyze(body: DesignBrief):
+def analyze(
+    body: DesignBrief,
+    current_user: AuthenticatedUser = Depends(require_scopes("designs:read"))
+):
+  """Design analysis endpoint - requires designs:read scope."""
   qs: list[DesignAnalysisQuestion] = []
   text = (body.prompt or '').strip()
   if not text:
@@ -29,7 +35,12 @@ def analyze(body: DesignBrief):
 
 
 @router.post("", response_model=dict)
-def create(body: DesignJobCreate, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+def create(
+    body: DesignJobCreate,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    current_user: AuthenticatedUser = Depends(require_scopes("designs:write"))
+):
+  """Create design job - requires designs:write scope."""
   if is_queue_paused('cpu'):
     raise HTTPException(status_code=409, detail="cpu kuyruğu geçici olarak duraklatıldı.")
   with db_session() as s:
@@ -40,7 +51,13 @@ def create(body: DesignJobCreate, idempotency_key: str | None = Header(default=N
     job = Job(
       type='design',
       status='pending',
-      metrics={"params": body.model_dump(), "created_at": datetime.utcnow().isoformat(), "queue": "cpu"},
+      metrics={
+        "params": body.model_dump(), 
+        "created_at": datetime.utcnow().isoformat(), 
+        "queue": "cpu",
+        "user_id": current_user.user_id,
+        "user_role": current_user.role.value
+      },
       idempotency_key=idempotency_key,
     )
     s.add(job)
@@ -51,7 +68,11 @@ def create(body: DesignJobCreate, idempotency_key: str | None = Header(default=N
 
 
 @router.get("/{job_id}", response_model=DesignJobResult)
-def get(job_id: int):
+def get(
+    job_id: int,
+    current_user: AuthenticatedUser = Depends(require_scopes("designs:read"))
+):
+  """Get design job - requires designs:read scope."""
   with db_session() as s:
     job = s.get(Job, job_id)
     if not job:

@@ -361,7 +361,7 @@
               "3.3"
             ],
             "details": "Design:\n- Roles: user, admin; scopes per endpoint (e.g., designs:read, designs:write).\n- Dependencies: require_auth(), require_role('admin'), require_scopes('x','y'). Reject if missing.\nAPIs:\n- Example protected: GET /admin/users (admin only), GET /me (user).\nCookies: N/A.\nErrors:\n- 401 ERR-AUTH-REQUIRED (no/invalid token), 403 ERR-RBAC-FORBIDDEN (insufficient role/scope).\nAcceptance:\n- Endpoints annotated with dependencies enforce correct access; admin-only endpoints deny user role.\n- Scope mismatch returns 403 without leaking resource existence.\nLogging:\n- security_events: rbac_forbidden (endpoint, required, provided), missing_auth_header.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T16:54:22.664Z",
+      "updated": "2025-08-17T17:21:18.595Z",
       "description": "Tasks for master context"
     }
   }
