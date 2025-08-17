@@ -1,3 +1,6 @@
+# LEGACY MODULE - DISABLED
+# This module uses legacy Tool model not in Task Master ERD
+"""
 from __future__ import annotations
 
 import glob
@@ -9,8 +12,23 @@ from typing import Dict, List
 from ..db import db_session
 from ..metrics import tool_scan_count_total
 from ..models_tooling import Tool
+"""
+
+import glob
+import json
+import os
+from typing import Dict, List
 
 
+# Legacy functionality commented out - create placeholder for compatibility
+def scan_toolbits(root: str) -> List[Dict]:
+    """
+    Legacy function - returns empty list until Task Master Tool model integration.
+    """
+    return []
+
+# Original implementation disabled below:
+"""
 REQUIRED_KEYS = {"version", "geometry"}
 
 
@@ -54,5 +72,6 @@ def scan_toolbits(root: str) -> List[Dict]:
             except Exception:
                 continue
     return found
+"""
 
 

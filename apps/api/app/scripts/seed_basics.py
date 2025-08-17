@@ -1,3 +1,6 @@
+# LEGACY SEED SCRIPT - DISABLED
+# This script uses legacy models not in Task Master ERD
+"""
 from __future__ import annotations
 
 import json
@@ -8,6 +11,11 @@ from ..db import db_session
 from ..models_tooling import Tool, Holder
 from ..models_cutting import CuttingData
 from ..models_project import Fixture
+"""
+
+import json
+from pathlib import Path
+from typing import Any, Dict
 
 
 def _load_json(path: Path) -> Any:

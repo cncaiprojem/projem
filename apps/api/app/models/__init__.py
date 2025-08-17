@@ -23,18 +23,8 @@ from .audit_log import AuditLog
 from .security_event import SecurityEvent
 from .tool import Tool
 
-# Import additional models from separate modules to ensure they're registered
-try:
-    from ..models_cutting import CuttingData
-    from ..models_project import (
-        Project, ProjectFile, AIQnA, Fixture, Setup, Op3D, Collision, PostRun
-    )
-    from ..models_tooling import (
-        ToolLegacy, Holder, ToolPreset, ShopPackage
-    )
-    _additional_models_loaded = True
-except ImportError:
-    _additional_models_loaded = False
+# All models are now in the models/ package - no additional modules needed
+_additional_models_loaded = False
 
 __all__ = [
     # Base
@@ -70,25 +60,4 @@ __all__ = [
     "SecurityEvent",
 ]
 
-# Add additional models to __all__ if they were loaded successfully
-if _additional_models_loaded:
-    __all__.extend([
-        # Cutting Data
-        "CuttingData",
-        
-        # Project Management
-        "Project",
-        "ProjectFile", 
-        "AIQnA",
-        "Fixture",
-        "Setup",
-        "Op3D",
-        "Collision",
-        "PostRun",
-        
-        # Tooling (Legacy)
-        "ToolLegacy",
-        "Holder",
-        "ToolPreset", 
-        "ShopPackage",
-    ])
+# All Task Master ERD models are now included in the main __all__ list above
