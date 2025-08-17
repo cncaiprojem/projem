@@ -77,8 +77,6 @@ class OIDCService:
     """Ultra enterprise OIDC service with banking-level security."""
     
     def __init__(self):
-        pass  # Redis will be injected via dependency injection
-        
         # Google OAuth2 configuration
         self.google_client_id = settings.google_client_id
         self.google_client_secret = settings.google_client_secret
@@ -102,11 +100,6 @@ class OIDCService:
         # JWKS client for JWT signature verification
         self._jwks_client = None
         self._jwks_client_expires = None
-    
-    async def _ensure_redis(self):
-        """Ensure Redis connection is initialized."""
-        if self.redis is None:
-            self.redis = await get_redis()
     
     async def get_google_config(self) -> Dict[str, Any]:
         """
@@ -206,6 +199,7 @@ class OIDCService:
     
     async def store_oauth_state(
         self,
+        redis_client,
         state: str,
         pkce_verifier: str,
         nonce: str,
@@ -215,6 +209,7 @@ class OIDCService:
         Securely store OAuth state data in Redis.
         
         Args:
+            redis_client: Redis client instance from dependency injection
             state: OAuth state parameter
             pkce_verifier: PKCE code verifier
             nonce: OIDC nonce
@@ -229,25 +224,22 @@ class OIDCService:
             'user_agent': None   # Will be set by router
         }
         
-        # Ensure Redis is connected
-        await self._ensure_redis()
-        
         # Store state data
-        await self.redis.setex(
+        await redis_client.setex(
             f"{self.state_prefix}{state}",
             self.state_expire_seconds,
             json.dumps(state_data)
         )
         
         # Also store PKCE verifier separately for additional security
-        await self.redis.setex(
+        await redis_client.setex(
             f"{self.pkce_prefix}{state}",
             self.pkce_verifier_expire_seconds,
             pkce_verifier
         )
         
         # Store nonce for validation
-        await self.redis.setex(
+        await redis_client.setex(
             f"{self.nonce_prefix}{state}",
             self.state_expire_seconds,
             nonce
@@ -261,6 +253,7 @@ class OIDCService:
     
     async def retrieve_and_validate_state(
         self,
+        redis_client,
         state: str,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None
@@ -269,6 +262,7 @@ class OIDCService:
         Retrieve and validate OAuth state data.
         
         Args:
+            redis_client: Redis client instance from dependency injection
             state: OAuth state parameter
             ip_address: Client IP address for security validation
             user_agent: Client user agent for security validation
@@ -280,11 +274,8 @@ class OIDCService:
             OIDCServiceError: If state is invalid or expired
         """
         try:
-            # Ensure Redis is connected
-            await self._ensure_redis()
-            
             # Retrieve state data
-            state_json = await self.redis.get(f"{self.state_prefix}{state}")
+            state_json = await redis_client.get(f"{self.state_prefix}{state}")
             if not state_json:
                 raise OIDCServiceError(
                     'ERR-OIDC-STATE',
@@ -294,7 +285,7 @@ class OIDCService:
             state_data = json.loads(state_json)
             
             # Verify PKCE verifier exists
-            pkce_verifier = await self.redis.get(f"{self.pkce_prefix}{state}")
+            pkce_verifier = await redis_client.get(f"{self.pkce_prefix}{state}")
             if not pkce_verifier:
                 raise OIDCServiceError(
                     'ERR-OIDC-PKCE-MISSING',
@@ -302,7 +293,7 @@ class OIDCService:
                 )
             
             # Verify nonce exists
-            nonce = await self.redis.get(f"{self.nonce_prefix}{state}")
+            nonce = await redis_client.get(f"{self.nonce_prefix}{state}")
             if not nonce:
                 raise OIDCServiceError(
                     'ERR-OIDC-NONCE',
@@ -314,9 +305,9 @@ class OIDCService:
             state_data['nonce'] = nonce.decode('utf-8')
             
             # Clean up used state data
-            await self.redis.delete(f"{self.state_prefix}{state}")
-            await self.redis.delete(f"{self.pkce_prefix}{state}")
-            await self.redis.delete(f"{self.nonce_prefix}{state}")
+            await redis_client.delete(f"{self.state_prefix}{state}")
+            await redis_client.delete(f"{self.pkce_prefix}{state}")
+            await redis_client.delete(f"{self.nonce_prefix}{state}")
             
             logger.debug("OAuth state validated and cleaned", extra={
                 'operation': 'retrieve_and_validate_state',
@@ -345,6 +336,7 @@ class OIDCService:
     
     async def create_authorization_url(
         self,
+        redis_client,
         redirect_uri: str,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None
@@ -353,6 +345,7 @@ class OIDCService:
         Create Google OAuth2 authorization URL with PKCE and state.
         
         Args:
+            redis_client: Redis client instance from dependency injection
             redirect_uri: OAuth redirect URI
             ip_address: Client IP address for audit
             user_agent: Client user agent for audit
@@ -374,7 +367,7 @@ class OIDCService:
             code_verifier, code_challenge = self.generate_pkce_pair()
             
             # Store state data securely
-            await self.store_oauth_state(state, code_verifier, nonce, redirect_uri)
+            await self.store_oauth_state(redis_client, state, code_verifier, nonce, redirect_uri)
             
             # Build authorization URL
             auth_params = {
@@ -417,6 +410,7 @@ class OIDCService:
     
     async def exchange_code_for_tokens(
         self,
+        redis_client,
         code: str,
         state: str,
         redirect_uri: str,
@@ -427,6 +421,7 @@ class OIDCService:
         Exchange authorization code for tokens using PKCE verification.
         
         Args:
+            redis_client: Redis client instance from dependency injection
             code: Authorization code from Google
             state: OAuth state parameter
             redirect_uri: OAuth redirect URI
@@ -442,7 +437,7 @@ class OIDCService:
         try:
             # Validate state and get PKCE verifier
             state_data = await self.retrieve_and_validate_state(
-                state, ip_address, user_agent
+                redis_client, state, ip_address, user_agent
             )
             
             # Verify redirect URI matches
