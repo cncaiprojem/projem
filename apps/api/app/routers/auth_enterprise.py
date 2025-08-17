@@ -37,6 +37,11 @@ from ..schemas import UserOut
 from ..middleware.jwt_middleware import get_current_user, AuthenticatedUser
 from ..core.logging import get_logger
 from ..middleware.auth_limiter import limiter
+from ..middleware.enterprise_rate_limiter import (
+    login_rate_limit, 
+    registration_rate_limit, 
+    password_reset_rate_limit
+)
 from ..settings import app_settings as settings
 
 logger = get_logger(__name__)
@@ -100,11 +105,11 @@ def create_auth_error_response(error: AuthenticationError) -> JSONResponse:
     description="Yeni kullanıcı kaydı oluşturur. KVKV uyumlu veri işleme rızası gereklidir.",
     response_description="Başarılı kayıt sonucu"
 )
-@limiter.limit("5/minute")  # Rate limit: 5 registration attempts per minute
 async def register_user(
     request: Request,
     user_data: UserRegisterRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit_check: None = Depends(registration_rate_limit)
 ) -> UserRegisterResponse:
     """
     Kullanıcı kaydı oluşturur.
@@ -161,12 +166,12 @@ async def register_user(
     description="Kullanıcı kimlik doğrulaması yapar. Başarısız denemeler hesap kilitleme ile sonuçlanabilir.",
     response_description="Başarılı giriş sonucu"
 )
-@limiter.limit("10/minute")  # Rate limit: 10 login attempts per minute
 async def login_user(
     request: Request,
     response: Response,
     login_data: UserLoginRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit_check: None = Depends(login_rate_limit)
 ) -> UserLoginResponse:
     """
     Kullanıcı girişi yapar.
@@ -290,11 +295,11 @@ async def check_password_strength(
     description="Şifre sıfırlama sürecini başlatır. Güvenlik için her zaman başarılı yanıt verir.",
     response_description="Şifre sıfırlama talebi sonucu"
 )
-@limiter.limit("3/minute")  # Rate limit: 3 reset requests per minute
 async def forgot_password(
     request: Request,
     forgot_data: PasswordForgotRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit_check: None = Depends(password_reset_rate_limit)
 ) -> PasswordForgotResponse:
     """
     Şifre sıfırlama sürecini başlatır.
@@ -339,11 +344,11 @@ async def forgot_password(
     description="Şifre sıfırlama token'ı ile yeni şifre belirleme.",
     response_description="Şifre sıfırlama sonucu"
 )
-@limiter.limit("5/minute")  # Rate limit: 5 reset completions per minute
 async def reset_password(
     request: Request,
     reset_data: PasswordResetRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit_check: None = Depends(password_reset_rate_limit)
 ) -> PasswordResetResponse:
     """
     Şifre sıfırlama işlemini tamamlar.

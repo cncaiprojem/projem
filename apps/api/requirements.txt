@@ -48,4 +48,5 @@ qrcode==7.4.2
 structlog==24.4.0
 colorama==0.4.6
 python-ulid==2.7.0
+fastapi-limiter==0.1.6
 

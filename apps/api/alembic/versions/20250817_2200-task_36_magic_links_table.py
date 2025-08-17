@@ -79,7 +79,7 @@ def upgrade() -> None:
                   comment='Number of consumption attempts'),
         
         # Security metadata
-        sa.Column('security_metadata', sa.Text(), nullable=True,
+        sa.Column('security_metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True,
                   comment='Additional security metadata as JSON'),
         
         # Timestamps from TimestampMixin
@@ -103,8 +103,6 @@ def upgrade() -> None:
                           name='ck_magic_links_consumed_after_issued'),
         sa.CheckConstraint('invalidated_at IS NULL OR invalidated_at >= issued_at',
                           name='ck_magic_links_invalidated_after_issued'),
-        sa.CheckConstraint('(consumed_at IS NULL) = (consumed_ip_address IS NULL)',
-                          name='ck_magic_links_consumption_consistency'),
         sa.CheckConstraint(
             "invalidation_reason IS NULL OR invalidation_reason IN ('expired', 'consumed', 'security_revoked', 'admin_revoked')",
             name='ck_magic_links_invalidation_reason_valid'

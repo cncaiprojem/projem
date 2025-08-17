@@ -416,7 +416,7 @@
             "description": "Configure fastapi-limiter with Redis and apply per-route policies, including login 5/min and AI prompt 30/min.",
             "dependencies": [],
             "details": "Design:\n- fastapi-limiter with IP + user keying; trust X-Forwarded-For when behind proxy.\n- Policies: /auth/login 5/min, /auth/magic-link/request 3/min, /auth/token/refresh 60/min per session, AI prompt endpoints 30/min per user.\nAPIs: N/A (decorators/middleware on endpoints).\nCookies: N/A.\nErrors:\n- 429 ERR-RATE-LIMIT with Retry-After header.\nAcceptance:\n- Exceeding thresholds yields 429; counters reset after window; per-user limits respect JWT sub.\nLogging:\n- security_events: rate_limited (route, key), potential_bruteforce_detected.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -425,7 +425,7 @@
             "description": "Add Starlette middleware for CSP, HSTS, frame-ancestors deny, and sanitize inputs to mitigate XSS/Injection.",
             "dependencies": [],
             "details": "Design:\n- Headers: Content-Security-Policy (default-src 'self'; frame-ancestors 'none'; object-src 'none'), Strict-Transport-Security (max-age=31536000; includeSubDomains), X-Frame-Options: DENY, X-Content-Type-Options: nosniff, Referrer-Policy: no-referrer, Permissions-Policy minimal.\n- Input sanitization: pydantic validation; strip HTML from text fields where applicable; encode outputs.\nAPIs: N/A.\nCookies: Ensure Secure and SameSite per auth cookies.\nErrors: N/A.\nAcceptance:\n- Responses include required headers; sample reflective XSS payload is neutralized.\n- SQLAlchemy ORM used to prevent SQLi patterns in queries.\nLogging:\n- security_events: csp_violation_report (if enabled), xss_attempt_detected.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T18:23:33.665Z",
+      "updated": "2025-08-17T19:19:07.471Z",
       "description": "Tasks for master context"
     }
   }

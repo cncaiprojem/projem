@@ -31,6 +31,7 @@ from ..services.jwt_service import jwt_service
 from ..middleware.jwt_middleware import get_current_user, AuthenticatedUser
 from ..core.logging import get_logger
 from ..models.audit_log import AuditLog
+from ..middleware.enterprise_rate_limiter import token_refresh_rate_limit
 
 logger = get_logger(__name__)
 
@@ -99,7 +100,8 @@ router = APIRouter(
 async def refresh_access_token(
     request: Request,
     response: Response,
-    db: DBSession = Depends(get_db)
+    db: DBSession = Depends(get_db),
+    _rate_limit_check: None = Depends(token_refresh_rate_limit)
 ):
     """
     Refresh access token using refresh token from httpOnly cookie.

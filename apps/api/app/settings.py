@@ -84,8 +84,13 @@ class AppSettings:
         self.rate_limit_rules: Dict[str, str] = _get_json_dict(
             "RATE_LIMIT_RULES", {"assemblies": "60/m", "cam": "120/m", "simulate": "30/m"}
         )
-        # Güvenlik başlıkları
+        # Güvenlik başlıkları ve politikalar (Task 3.10)
         self.security_hsts_enabled: bool = _get_bool("SECURITY_HSTS_ENABLED", True)
+        self.security_csp_enabled: bool = _get_bool("SECURITY_CSP_ENABLED", True)
+        self.security_csp_report_uri: str | None = os.getenv("SECURITY_CSP_REPORT_URI")
+        self.security_environment: str = os.getenv("SECURITY_ENVIRONMENT", "production")
+        self.security_input_validation_enabled: bool = _get_bool("SECURITY_INPUT_VALIDATION_ENABLED", True)
+        self.security_xss_detection_enabled: bool = _get_bool("SECURITY_XSS_DETECTION_ENABLED", True)
 
         # M18 Feature Flags
         self.m18_multiple_setups_enabled: bool = _get_bool("M18_MULTIPLE_SETUPS_ENABLED", True)
