@@ -42,12 +42,25 @@ class MonetaryAmount(BaseModel):
     @field_validator('amount_cents')
     @classmethod
     def validate_amount_cents(cls, v: int) -> int:
-        """Validate monetary amount is positive."""
+        """ULTRA ENTERPRISE VALIDATION: Validate monetary amount with strict bounds."""
+        # Reject zero or negative amounts immediately
         if v <= 0:
-            raise ValueError('Amount must be positive')
+            raise ValueError('Amount must be positive (greater than 0 cents)')
+        
+        # Ultra-strict minimum check (1 cent minimum)
+        if v < 1:
+            raise ValueError('Amount must be at least 1 cent')
+        
         # Maximum amount check for financial safety (100 million TRY)
         if v > 10_000_000_000:  # 100,000,000.00 in cents
-            raise ValueError('Amount exceeds maximum allowed value')
+            raise ValueError('Amount exceeds maximum allowed value (100,000,000.00)')
+        
+        # Additional business rule validation for suspicious amounts
+        if v > 1_000_000_000:  # 10 million TRY warning threshold
+            # Log warning for amounts over 10 million (could be data entry error)
+            import logging
+            logging.warning(f"Large monetary amount detected: {v} cents ({v/100:.2f})")
+        
         return v
     
     def to_display_string(self) -> str:
@@ -92,11 +105,61 @@ class TaxCalculation(BaseModel):
         """Total as decimal."""
         return Decimal(self.total_cents) / Decimal('100')
     
+    @field_validator('tax_rate_percent')
+    @classmethod
+    def validate_tax_rate(cls, v: Decimal) -> Decimal:
+        """ULTRA ENTERPRISE VALIDATION: Validate tax rate with Turkish compliance."""
+        # Standard Turkish KDV rates validation
+        valid_turkish_rates = [
+            Decimal('0'),      # Tax-exempt
+            Decimal('1'),      # Special rate
+            Decimal('10'),     # Reduced rate
+            Decimal('20'),     # Standard rate
+            Decimal('25'),     # Higher rate (rare)
+        ]
+        
+        # Allow common international rates but warn
+        if v not in valid_turkish_rates and v not in [
+            Decimal('5'), Decimal('15'), Decimal('18'), Decimal('21'), Decimal('24')
+        ]:
+            if v > Decimal('50'):
+                raise ValueError(f'Tax rate {v}% exceeds reasonable maximum (50%)')
+            import logging
+            logging.warning(f"Non-standard tax rate detected: {v}% (not standard Turkish KDV)")
+        
+        return v
+
     @model_validator(mode='after')
     def validate_tax_calculation(self) -> 'TaxCalculation':
-        """Validate tax calculation integrity."""
+        """ULTRA ENTERPRISE VALIDATION: Comprehensive tax calculation integrity checks."""
+        # Basic arithmetic validation
         if self.subtotal_cents + self.tax_cents != self.total_cents:
-            raise ValueError('Tax calculation error: subtotal + tax must equal total')
+            raise ValueError(
+                f'Tax calculation error: subtotal ({self.subtotal_cents}) + tax ({self.tax_cents}) '
+                f'= {self.subtotal_cents + self.tax_cents} ≠ total ({self.total_cents})'
+            )
+        
+        # Validate tax calculation precision using Decimal arithmetic
+        expected_tax = int(
+            (Decimal(str(self.subtotal_cents)) * self.tax_rate_percent / Decimal('100'))
+            .quantize(Decimal('1'), rounding='ROUND_HALF_UP')
+        )
+        
+        # Allow maximum 1 cent difference due to rounding
+        tax_difference = abs(self.tax_cents - expected_tax)
+        if tax_difference > 1:
+            raise ValueError(
+                f'Tax calculation precision error: expected {expected_tax} cents '
+                f'({self.tax_rate_percent}% of {self.subtotal_cents}), got {self.tax_cents} cents '
+                f'(difference: {tax_difference} cents exceeds 1 cent tolerance)'
+            )
+        
+        # Validate reasonable tax ratios (tax should not exceed subtotal for normal rates)
+        if self.tax_rate_percent <= Decimal('50') and self.tax_cents > self.subtotal_cents:
+            raise ValueError(
+                f'Tax amount ({self.tax_cents}) exceeds subtotal ({self.subtotal_cents}) '
+                f'for rate {self.tax_rate_percent}% - possible calculation error'
+            )
         
         return self
 
@@ -157,25 +220,69 @@ class InvoiceLineItem(BaseModel):
         """Total as decimal."""
         return Decimal(self.total_cents) / Decimal('100')
     
+    @field_validator('quantity')
+    @classmethod
+    def validate_quantity(cls, v: int) -> int:
+        """ULTRA ENTERPRISE VALIDATION: Validate quantity bounds."""
+        if v <= 0:
+            raise ValueError('Quantity must be positive')
+        if v > 1_000_000:  # Reasonable maximum for line items
+            raise ValueError('Quantity exceeds reasonable maximum (1,000,000)')
+        return v
+
+    @field_validator('unit_price_cents')
+    @classmethod
+    def validate_unit_price(cls, v: int) -> int:
+        """ULTRA ENTERPRISE VALIDATION: Validate unit price bounds."""
+        if v <= 0:
+            raise ValueError('Unit price must be positive')
+        if v > 100_000_000:  # 1 million TRY per unit maximum
+            raise ValueError('Unit price exceeds reasonable maximum (1,000,000.00)')
+        return v
+
     @model_validator(mode='after')
     def validate_line_calculations(self) -> 'InvoiceLineItem':
-        """Validate line item calculations."""
-        # Validate subtotal calculation
+        """ULTRA ENTERPRISE VALIDATION: Comprehensive line item calculation validation."""
+        # Critical arithmetic validation: subtotal = quantity * unit_price
         expected_subtotal = self.quantity * self.unit_price_cents
         if self.subtotal_cents != expected_subtotal:
-            raise ValueError(f'Subtotal calculation error: {self.quantity} * {self.unit_price_cents} = {expected_subtotal}, got {self.subtotal_cents}')
+            raise ValueError(
+                f'Subtotal calculation error: {self.quantity} × {self.unit_price_cents} '
+                f'= {expected_subtotal}, got {self.subtotal_cents}'
+            )
         
-        # Validate tax calculation using Decimal precision
+        # Critical tax calculation validation using Decimal precision
         expected_tax = int(
             (Decimal(str(self.subtotal_cents)) * self.tax_rate_percent / Decimal('100'))
             .quantize(Decimal('1'), rounding='ROUND_HALF_UP')
         )
-        if abs(self.tax_cents - expected_tax) > 1:  # Allow 1 cent rounding difference
-            raise ValueError(f'Tax calculation error: expected {expected_tax}, got {self.tax_cents}')
+        tax_difference = abs(self.tax_cents - expected_tax)
+        if tax_difference > 1:  # Ultra-strict: maximum 1 cent rounding tolerance
+            raise ValueError(
+                f'Tax calculation precision error: expected {expected_tax} cents '
+                f'({self.tax_rate_percent}% of {self.subtotal_cents}), got {self.tax_cents} cents '
+                f'(difference: {tax_difference} cents exceeds 1 cent tolerance)'
+            )
         
-        # Validate total calculation
-        if self.subtotal_cents + self.tax_cents != self.total_cents:
-            raise ValueError('Total calculation error: subtotal + tax must equal total')
+        # Critical total validation: total = subtotal + tax
+        expected_total = self.subtotal_cents + self.tax_cents
+        if self.total_cents != expected_total:
+            raise ValueError(
+                f'Total calculation error: subtotal ({self.subtotal_cents}) + tax ({self.tax_cents}) '
+                f'= {expected_total}, got {self.total_cents}'
+            )
+        
+        # Business logic validation: detect potential overflow/underflow
+        if self.total_cents < self.subtotal_cents:
+            raise ValueError(
+                f'Invalid calculation: total ({self.total_cents}) less than subtotal ({self.subtotal_cents})'
+            )
+        
+        # Validate reasonable proportions
+        if self.tax_rate_percent > Decimal('0') and self.tax_cents == 0:
+            raise ValueError(
+                f'Inconsistent data: tax rate {self.tax_rate_percent}% specified but tax amount is 0'
+            )
         
         return self
 
@@ -275,16 +382,70 @@ class InvoiceUpdate(BaseModel):
 
 
 class PaymentCreate(PaymentBase):
-    """Create payment request."""
+    """Create payment request with ultra enterprise validation."""
     
     invoice_id: int = Field(
         ...,
-        description="Invoice ID for the payment"
+        description="Invoice ID for the payment",
+        gt=0  # Must be positive
+    )
+    user_id: int = Field(
+        ...,
+        description="User ID who owns the payment",
+        gt=0  # Must be positive
     )
     meta: Optional[Dict[str, Any]] = Field(
         None,
         description="Payment metadata"
     )
+    
+    @field_validator('provider')
+    @classmethod
+    def validate_provider(cls, v: str) -> str:
+        """ULTRA ENTERPRISE VALIDATION: Validate payment provider."""
+        # Known Turkish payment providers
+        known_providers = {
+            'iyzico', 'payu', 'stripe', 'paypal', 'masterpass', 
+            'bkm', 'garanti', 'akbank', 'isbank', 'yapikredi'
+        }
+        
+        # Clean and normalize provider name
+        provider_clean = v.lower().strip()
+        
+        if not provider_clean:
+            raise ValueError('Provider name cannot be empty')
+        
+        if len(provider_clean) < 2:
+            raise ValueError('Provider name too short (minimum 2 characters)')
+        
+        # Warning for unknown providers (log but don't fail)
+        if provider_clean not in known_providers:
+            import logging
+            logging.warning(f"Unknown payment provider: {provider_clean}")
+        
+        return provider_clean
+    
+    @field_validator('provider_ref')
+    @classmethod
+    def validate_provider_ref(cls, v: str) -> str:
+        """ULTRA ENTERPRISE VALIDATION: Validate provider reference."""
+        if not v or not v.strip():
+            raise ValueError('Provider reference cannot be empty')
+        
+        ref_clean = v.strip()
+        
+        if len(ref_clean) < 3:
+            raise ValueError('Provider reference too short (minimum 3 characters)')
+        
+        if len(ref_clean) > 255:
+            raise ValueError('Provider reference too long (maximum 255 characters)')
+        
+        # Basic format validation (alphanumeric plus common separators)
+        import re
+        if not re.match(r'^[A-Za-z0-9\-_\.]+$', ref_clean):
+            raise ValueError('Provider reference contains invalid characters (only A-Z, 0-9, -, _, . allowed)')
+        
+        return ref_clean
 
 
 class PaymentUpdate(BaseModel):

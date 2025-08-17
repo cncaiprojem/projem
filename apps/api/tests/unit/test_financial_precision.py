@@ -99,12 +99,21 @@ class TestFinancialPrecision:
         expected_subtotal = int((Decimal('12000') / Decimal('1.20')).to_integral_value(ROUND_HALF_UP))
         assert subtotal == expected_subtotal
         
-        # Test tax amount calculation
-        tax_amount = invoice.calculate_tax_amount_cents(20.0)
+        # Test tax amount calculation (tax-inclusive scenario - default)
+        tax_amount_inclusive = invoice.calculate_tax_amount_cents(20.0, tax_inclusive=True)
         
-        # Should calculate tax on the given amount
-        expected_tax = int((Decimal('12000') * Decimal('20') / Decimal('100')).to_integral_value(ROUND_HALF_UP))
-        assert tax_amount == expected_tax
+        # For tax-inclusive: Tax = Total - (Total / (1 + rate/100))
+        # 12000 - (12000 / 1.20) = 12000 - 10000 = 2000
+        expected_tax_inclusive = 2000
+        assert tax_amount_inclusive == expected_tax_inclusive
+        
+        # Test tax amount calculation (tax-exclusive scenario)
+        tax_amount_exclusive = invoice.calculate_tax_amount_cents(20.0, tax_inclusive=False)
+        
+        # For tax-exclusive: Tax = Amount * rate/100
+        # 12000 * 20 / 100 = 2400
+        expected_tax_exclusive = int((Decimal('12000') * Decimal('20') / Decimal('100')).to_integral_value(ROUND_HALF_UP))
+        assert tax_amount_exclusive == expected_tax_exclusive
         
         # Test tax breakdown
         breakdown = invoice.get_tax_breakdown(20.0)

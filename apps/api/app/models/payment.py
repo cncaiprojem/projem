@@ -18,6 +18,7 @@ from .enums import Currency, PaymentStatus
 
 if TYPE_CHECKING:
     from .invoice import Invoice
+    from .user import User
 
 
 class Payment(Base, TimestampMixin):
@@ -43,6 +44,15 @@ class Payment(Base, TimestampMixin):
         ForeignKey("invoices.id", ondelete="RESTRICT"),
         nullable=False,
         index=True
+    )
+    
+    # User who initiated the payment (derived from invoice, but cached for query performance)
+    user_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+        comment="User who owns the invoice and payment"
     )
     
     # Payment provider integration
@@ -104,6 +114,11 @@ class Payment(Base, TimestampMixin):
         back_populates="payments",
         lazy="select"
     )
+    user: Mapped[User] = relationship(
+        "User",
+        back_populates="payments",
+        lazy="select"
+    )
     
     # Enterprise constraints and indexes
     __table_args__ = (
@@ -142,6 +157,11 @@ class Payment(Base, TimestampMixin):
             "idx_payments_invoice_status",
             "invoice_id", "status",
             postgresql_where="status IN ('PENDING', 'PROCESSING')"
+        ),
+        Index(
+            "idx_payments_user_status",
+            "user_id", "status",
+            postgresql_where="status IN ('PENDING', 'PROCESSING', 'COMPLETED')"
         ),
         Index(
             "idx_payments_paid_at",
