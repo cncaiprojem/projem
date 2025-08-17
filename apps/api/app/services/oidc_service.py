@@ -19,6 +19,8 @@ from typing import Dict, Any, Optional, Tuple
 from urllib.parse import urlencode
 
 import httpx
+import jwt
+from jwt import PyJWKClient
 from authlib.integrations.httpx_client import OAuth2Session
 from authlib.oauth2 import OAuth2Token
 from authlib.oidc.core import CodeIDToken, UserInfo
@@ -75,7 +77,7 @@ class OIDCService:
     """Ultra enterprise OIDC service with banking-level security."""
     
     def __init__(self):
-        self.redis = None  # Will be initialized async
+        pass  # Redis will be injected via dependency injection
         
         # Google OAuth2 configuration
         self.google_client_id = settings.google_client_id
@@ -96,6 +98,10 @@ class OIDCService:
         # Cache for Google discovery document
         self._google_config_cache = None
         self._google_config_expires = None
+        
+        # JWKS client for JWT signature verification
+        self._jwks_client = None
+        self._jwks_client_expires = None
     
     async def _ensure_redis(self):
         """Ensure Redis connection is initialized."""
@@ -489,8 +495,8 @@ class OIDCService:
                     'OIDC ID token bulunamadı'
                 )
             
-            # Verify nonce in ID token
-            id_token_claims = self._verify_id_token(id_token, state_data['nonce'])
+            # Verify nonce in ID token with proper signature verification
+            id_token_claims = await self._verify_id_token(id_token, state_data['nonce'])
             
             logger.info("OIDC token exchange successful", extra={
                 'operation': 'exchange_code_for_tokens',
@@ -521,9 +527,69 @@ class OIDCService:
                 'OIDC token değişimi başarısız'
             )
     
-    def _verify_id_token(self, id_token: str, expected_nonce: str) -> Dict[str, Any]:
+    async def _get_jwks_client(self) -> PyJWKClient:
         """
-        Verify ID token signature and claims.
+        Get or create JWKS client for JWT signature verification.
+        
+        Returns:
+            PyJWKClient instance for Google's JWKS endpoint
+            
+        Raises:
+            OIDCServiceError: If JWKS client creation fails
+        """
+        now = datetime.now(timezone.utc)
+        
+        # Check if client is cached and not expired
+        if (self._jwks_client and 
+            self._jwks_client_expires and 
+            now < self._jwks_client_expires):
+            return self._jwks_client
+        
+        try:
+            # Get Google configuration for JWKS URI
+            google_config = await self.get_google_config()
+            jwks_uri = google_config.get('jwks_uri')
+            
+            if not jwks_uri:
+                raise OIDCServiceError(
+                    'ERR-OIDC-NO-JWKS-URI',
+                    'OIDC JWKS endpoint bulunamadı'
+                )
+            
+            # Create JWKS client with proper security settings
+            self._jwks_client = PyJWKClient(
+                jwks_uri,
+                cache_keys=True,
+                max_cached_keys=10,
+                cache_jwks=True,
+                jwks_cache_ttl=3600,  # 1 hour cache
+                timeout=10.0
+            )
+            
+            # Cache client for 30 minutes
+            self._jwks_client_expires = now + timedelta(minutes=30)
+            
+            logger.debug("JWKS client created", extra={
+                'operation': '_get_jwks_client',
+                'jwks_uri': jwks_uri,
+                'cache_ttl': 3600
+            })
+            
+            return self._jwks_client
+            
+        except Exception as e:
+            logger.error("Failed to create JWKS client", exc_info=True, extra={
+                'operation': '_get_jwks_client',
+                'error_type': type(e).__name__
+            })
+            raise OIDCServiceError(
+                'ERR-OIDC-JWKS-CLIENT-FAILED',
+                'OIDC JWKS istemcisi oluşturulamadı'
+            )
+    
+    async def _verify_id_token(self, id_token: str, expected_nonce: str) -> Dict[str, Any]:
+        """
+        Verify ID token signature and claims using Google's JWKS.
         
         Args:
             id_token: JWT ID token from Google
@@ -536,21 +602,37 @@ class OIDCService:
             OIDCServiceError: If verification fails
         """
         try:
-            # For production, we should verify the JWT signature using Google's JWKS
-            # For now, we'll decode without verification (NOT RECOMMENDED FOR PRODUCTION)
-            import jwt
+            # Get JWKS client for signature verification
+            jwks_client = await self._get_jwks_client()
             
-            # Decode without verification (SECURITY WARNING)
-            claims = jwt.decode(id_token, options={"verify_signature": False})
+            # Get signing key from JWKS
+            signing_key = jwks_client.get_signing_key_from_jwt(id_token)
             
-            # Verify issuer
-            if claims.get('iss') not in ['https://accounts.google.com', 'accounts.google.com']:
+            # Verify JWT signature and decode claims
+            claims = jwt.decode(
+                id_token,
+                signing_key.key,
+                algorithms=["RS256"],  # Google uses RS256
+                audience=self.google_client_id,
+                issuer="https://accounts.google.com",
+                options={
+                    "verify_signature": True,
+                    "verify_aud": True,
+                    "verify_iss": True,
+                    "verify_exp": True,
+                    "verify_iat": True,
+                    "require": ["aud", "iss", "exp", "iat", "sub"]
+                }
+            )
+            
+            # Additional verification: issuer and audience are already verified by PyJWT
+            # But we double-check for security
+            if claims.get('iss') != 'https://accounts.google.com':
                 raise OIDCServiceError(
                     'ERR-OIDC-INVALID-ISSUER',
                     'OIDC issuer geçersiz'
                 )
             
-            # Verify audience (client ID)
             if claims.get('aud') != self.google_client_id:
                 raise OIDCServiceError(
                     'ERR-OIDC-INVALID-AUDIENCE',
@@ -564,30 +646,44 @@ class OIDCService:
                     'OIDC nonce doğrulaması başarısız'
                 )
             
-            # Verify expiration
+            # Expiration is already verified by PyJWT, but we can add additional checks
+            # Verify token was issued recently (not older than 24 hours)
             now = datetime.now(timezone.utc).timestamp()
-            if claims.get('exp', 0) < now:
+            iat = claims.get('iat', 0)
+            if now - iat > 86400:  # 24 hours
                 raise OIDCServiceError(
-                    'ERR-OIDC-TOKEN-EXPIRED',
-                    'OIDC token süresi dolmuş'
+                    'ERR-OIDC-TOKEN-TOO-OLD',
+                    'OIDC token çok eski'
                 )
             
-            logger.debug("ID token verified successfully", extra={
+            logger.info("ID token signature and claims verified successfully", extra={
                 'operation': '_verify_id_token',
                 'subject': claims.get('sub'),
-                'email': claims.get('email', 'unknown')
+                'email': claims.get('email', 'unknown'),
+                'verified_signature': True,
+                'algorithm': 'RS256'
             })
             
             return claims
             
         except jwt.PyJWTError as e:
-            logger.error("ID token verification failed", exc_info=True, extra={
+            logger.error("ID token JWT verification failed", exc_info=True, extra={
+                'operation': '_verify_id_token',
+                'error_type': type(e).__name__,
+                'jwt_error': str(e)
+            })
+            raise OIDCServiceError(
+                'ERR-OIDC-TOKEN-INVALID',
+                'OIDC token imza doğrulaması başarısız'
+            )
+        except Exception as e:
+            logger.error("ID token verification failed with unexpected error", exc_info=True, extra={
                 'operation': '_verify_id_token',
                 'error_type': type(e).__name__
             })
             raise OIDCServiceError(
-                'ERR-OIDC-TOKEN-INVALID',
-                'OIDC token geçersiz'
+                'ERR-OIDC-TOKEN-VERIFICATION-FAILED',
+                'OIDC token doğrulaması başarısız'
             )
     
     async def authenticate_or_link_user(

@@ -22,7 +22,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.orm import Session
 
-from ..db import get_db
+from ..db import get_db, get_redis
 from ..schemas.oidc_schemas import (
     OIDCAuthStartResponse, OIDCCallbackRequest, OIDCAuthResponse,
     OIDCErrorResponse, OIDCStatusResponse, OIDCUserProfile,
@@ -157,7 +157,8 @@ async def start_google_auth(
         None,
         description="Kimlik doğrulama sonrası yönlendirilecek URL",
         max_length=2048
-    )
+    ),
+    redis_client = Depends(get_redis)
 ) -> OIDCAuthStartResponse:
     """
     Start Google OAuth2/OIDC authentication flow.
@@ -189,6 +190,7 @@ async def start_google_auth(
         
         # Create authorization URL with PKCE and state
         authorization_url, state = await oidc_service.create_authorization_url(
+            redis_client=redis_client,
             redirect_uri=redirect_uri,
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"]
@@ -244,7 +246,8 @@ async def google_auth_callback(
     state: str = Query(..., description="OAuth2 state parametresi"),
     error: Optional[str] = Query(None, description="OAuth2 hata kodu"),
     error_description: Optional[str] = Query(None, description="OAuth2 hata açıklaması"),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    redis_client = Depends(get_redis)
 ) -> OIDCAuthResponse:
     """
     Handle Google OAuth2 callback and authenticate user.
@@ -308,6 +311,7 @@ async def google_auth_callback(
         
         # Exchange authorization code for tokens
         token_data = await oidc_service.exchange_code_for_tokens(
+            redis_client=redis_client,
             code=code,
             state=state,
             redirect_uri=redirect_uri,

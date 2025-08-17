@@ -1,7 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 
 from .config import settings
+from .db import create_redis_client, close_redis_client
+from .core.logging import get_logger
+
+logger = get_logger(__name__)
 from .instrumentation import setup_metrics, setup_tracing, setup_celery_instrumentation
 from .sentry_setup import setup_sentry
 from .logging_setup import setup_logging
@@ -44,7 +49,55 @@ setup_logging()
 setup_tracing()
 setup_sentry()
 
-app = FastAPI(title="FreeCAD Üretim Platformu API", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan manager for startup and shutdown events."""
+    # Startup
+    logger.info("Starting FreeCAD API application", extra={
+        'operation': 'application_startup',
+        'version': '0.1.0'
+    })
+    
+    try:
+        # Initialize Redis client
+        app.state.redis = await create_redis_client()
+        logger.info("Redis client initialized successfully", extra={
+            'operation': 'redis_startup'
+        })
+    except Exception as e:
+        logger.error("Failed to initialize Redis client", exc_info=True, extra={
+            'operation': 'redis_startup_failed',
+            'error_type': type(e).__name__
+        })
+        # Continue without Redis - some features may be unavailable
+        app.state.redis = None
+    
+    logger.info("Application startup completed", extra={
+        'operation': 'application_startup_complete'
+    })
+    
+    yield
+    
+    # Shutdown
+    logger.info("Shutting down FreeCAD API application", extra={
+        'operation': 'application_shutdown'
+    })
+    
+    # Close Redis connection
+    if hasattr(app.state, 'redis'):
+        await close_redis_client(app.state.redis)
+    
+    logger.info("Application shutdown completed", extra={
+        'operation': 'application_shutdown_complete'
+    })
+
+
+app = FastAPI(
+    title="FreeCAD Üretim Platformu API",
+    version="0.1.0",
+    lifespan=lifespan
+)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(CORSMiddlewareStrict)
 app.add_middleware(RateLimitMiddleware)
@@ -86,6 +139,7 @@ def root():
 
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
+
 
 @app.exception_handler(Exception)
 async def unhandled_exc(request: Request, exc: Exception):
