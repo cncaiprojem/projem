@@ -255,7 +255,7 @@
               "2.2"
             ],
             "details": "- audit_logs: id, scope_type, scope_id, actor_user_id FK (RESTRICT, nullable), event_type, payload JSONB, prev_chain_hash, chain_hash, created_at.\n- Constraints: chain_hash and prev_chain_hash are 64-char hex; NOT NULL for chain_hash; CHECK on hex format.\n- Indexes: (scope_type, scope_id, created_at), event_type; GIN on payload if filtered.\n- App responsibility: compute chain_hash = sha256(prev_chain_hash || canonical_json(payload)) within the same transaction; store prev_chain_hash from last scope record (or global) as per ERD rules.\n- security_events: id, user_id FK (RESTRICT), type, ip, ua, created_at; indexes: user_id, type, created_at.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T10:05:20.926Z",
+      "updated": "2025-08-17T11:14:35.596Z",
       "description": "Tasks for master context"
     }
   }

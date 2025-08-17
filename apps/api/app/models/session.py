@@ -69,10 +69,6 @@ class Session(Base):
     
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="sessions")
-    audit_logs: Mapped[list["AuditLog"]] = relationship(
-        "AuditLog",
-        back_populates="session"
-    )
     
     # Indexes
     __table_args__ = (

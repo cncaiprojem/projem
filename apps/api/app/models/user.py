@@ -125,8 +125,8 @@ class User(Base, TimestampMixin):
     )
     audit_logs: Mapped[List["AuditLog"]] = relationship(
         "AuditLog",
-        back_populates="user",
-        foreign_keys="AuditLog.user_id"
+        back_populates="actor_user",
+        foreign_keys="AuditLog.actor_user_id"
     )
     security_events: Mapped[List["SecurityEvent"]] = relationship(
         "SecurityEvent",
