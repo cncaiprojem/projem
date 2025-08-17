@@ -280,7 +280,7 @@
               "2.7"
             ],
             "details": "- Minimal machines and materials per PRD; ensure stable primary keys or natural keys.\n- tools: insert '6mm Carbide Endmill (4F)' and '10mm Drill HSS' with proper enums (type, material) and metadata.\n- Use INSERT ... ON CONFLICT DO NOTHING or upsert on natural key to make seeding idempotent.\n- Wrap in a separate migration file; provide downgrade that deletes only seeded rows by natural key.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T11:58:25.206Z",
+      "updated": "2025-08-17T12:11:12.102Z",
       "description": "Tasks for master context"
     }
   }
