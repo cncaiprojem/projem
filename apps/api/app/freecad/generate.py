@@ -11,7 +11,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ..config import settings
 from ..logging_setup import get_logger
 from ..schemas.cad import AssemblyRequestV1
-from ..llm import generate_freecad_script_for_planetary
+# from ..llm import generate_freecad_script_for_planetary  # Temporarily disabled
 from .script_host import build_exec_env
 from .service import detect_freecad
 from .subprocess_runner import run_subprocess_with_timeout
@@ -75,8 +75,9 @@ def generate_and_validate(req: AssemblyRequestV1, pid_file: Optional[str] = None
     if not fc.found or not fc.path:
         raise RuntimeError("FreeCADCmd bulunamadı")
 
-    bundle = generate_freecad_script_for_planetary(req.spec.model_dump())
-    script_body = bundle["script"]
+    # bundle = generate_freecad_script_for_planetary(req.spec.model_dump())  # Temporarily disabled
+    # script_body = bundle["script"]  # Temporarily disabled
+    script_body = "# Placeholder script\nprint('LLM generation temporarily disabled')"
     validate_script_security(script_body)
     full_script = build_freecad_python(script_body)
     out_dir = Path(tempfile.mkdtemp())

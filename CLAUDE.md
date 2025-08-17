@@ -4,366 +4,384 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-This is a FreeCAD-based CNC/CAM/CAD production platform with Turkish UI/UX. Users can generate 3D models and CAM simulations through prompts or parameters, create G-code, and manage manufacturing jobs through a scalable queue system.
+FreeCAD-based CNC/CAM/CAD production platform with Turkish UI/UX. Users generate 3D models and CAM simulations through prompts/parameters, create G-code, and manage manufacturing jobs via scalable queue system.
+
+**Tech Stack**: FastAPI + Celery + Next.js + PostgreSQL + Redis + MinIO + RabbitMQ + FreeCAD  
+**Repository**: https://github.com/shaptina/projem  
+**Development**: Docker Compose orchestration with hot-reload
 
 ## Commands
 
-### Development
+### Quick Start
 ```bash
-# Start full development stack (API, Web, PostgreSQL, Redis, MinIO, workers)
-make dev
+# Initial setup
+make init          # Copy .env.example to .env
+make dev          # Start full stack (all services)
 
-# Start individual services
-make api        # Start API only
-make web        # Start web frontend only
-make worker     # Start Celery workers
-make beat       # Start Celery beat scheduler
-
-# Development with hot reload
-make dev-api    # API with code reload
-make dev-web    # Next.js with hot reload
+# Individual services
+docker compose -f infra/compose/docker-compose.dev.yml up api web
+docker compose -f infra/compose/docker-compose.dev.yml up postgres redis minio rabbitmq
 ```
 
-### Testing
+### Testing & Quality
 ```bash
-# Run all tests
-make test
+# Run tests
+make test                                    # All tests
+pytest apps/api/tests -v                    # API tests verbose
+pytest apps/api/tests/test_file.py::test_name  # Single test
+cd apps/web && pnpm test                    # Web unit tests
+cd apps/web && pnpm test:e2e               # Web E2E tests
 
-# API tests
-make test-api          # Run all API tests
-pytest apps/api/tests  # Run specific test file/directory
-pytest -k "test_name"  # Run tests matching pattern
-pytest -v             # Verbose output
+# Code quality
+make lint                                    # Run all linters
+make fmt                                     # Auto-format all code
+ruff check apps/api --fix                   # Fix Python linting issues
+cd apps/web && pnpm typecheck              # TypeScript type checking
 
-# Web tests
-make test-web                    # Run all web tests
-npm run test --prefix apps/web   # Run unit tests
-npm run test:integration --prefix apps/web  # Run integration tests
-npm run test:e2e --prefix apps/web         # Run E2E tests
+# Smoke tests
+make run-freecad-smoke                      # Test FreeCAD integration
+make run-s3-smoke                          # Test MinIO/S3 functionality
+make test-celery-rabbitmq                   # Test queue configuration
 ```
 
-### Code Quality
-```bash
-# Linting
-make lint        # Run all linters
-make lint-api    # Python linting (Ruff)
-make lint-web    # TypeScript/React linting (ESLint)
-
-# Formatting
-make format      # Format all code
-make format-api  # Format Python (Black)
-make format-web  # Format TypeScript/React (Prettier)
-
-# Type checking
-make typecheck-web  # TypeScript type checking
-```
-
-### Database
+### Database Operations
 ```bash
 # Migrations
-make migrate     # Apply database migrations
-make makemigrations  # Generate new migrations
-make seed        # Seed database with sample data
-make db-reset    # Reset database (drop and recreate)
+make migrate                                 # Apply migrations
+alembic revision --autogenerate -m "desc"   # Create new migration
+alembic downgrade -1                        # Rollback one migration
+alembic history                             # View migration history
 
-# Direct Alembic commands
-alembic upgrade head    # Apply all migrations
-alembic downgrade -1    # Rollback one migration
-alembic revision --autogenerate -m "description"  # Create migration
+# Data management
+make seed                                    # Full seed data
+make seed-basics                           # Basic seed data only
+docker exec -it fc_postgres_dev psql -U freecad -d freecad  # Direct DB access
 ```
 
-### Build & Deploy
+### Development Utilities
 ```bash
-# Build Docker images
-make build       # Build all images
-make build-api   # Build API image
-make build-web   # Build web image
+# Service management
+docker compose -f infra/compose/docker-compose.dev.yml logs -f api  # Follow logs
+docker compose -f infra/compose/docker-compose.dev.yml restart api   # Restart service
+docker compose -f infra/compose/docker-compose.dev.yml exec api bash # Shell access
 
-# Kubernetes deployment
-make deploy      # Deploy to Kubernetes
-make rollback    # Rollback deployment
+# RabbitMQ management
+make rabbitmq-setup                         # Initialize queues and DLX
+make rabbitmq-status                        # Check cluster status
+make dlq-status                            # Check Dead Letter Queue
+make rabbitmq-ui                           # Open management UI (localhost:15672)
+
+# Pre-commit hooks
+make pre-commit-install                     # Install git hooks
+make pre-commit-run                        # Run hooks on all files
 ```
 
 ## Architecture
 
-### Monorepo Structure
+### Service Ports
+- **API**: http://localhost:8000 (FastAPI with Swagger at /docs)
+- **Web**: http://localhost:3000 (Next.js)
+- **PostgreSQL**: localhost:5432
+- **Redis**: localhost:6379
+- **MinIO**: http://localhost:9000 (Console: 9001)
+- **RabbitMQ**: localhost:5672 (Management: http://localhost:15672)
+
+### Project Structure
 ```
 apps/
-├── api/           # FastAPI backend
-│   ├── app/       # Application code
-│   │   ├── routers/   # API endpoints
-│   │   ├── models/    # SQLAlchemy models
-│   │   ├── schemas/   # Pydantic schemas
-│   │   ├── services/  # Business logic
-│   │   ├── tasks/     # Celery tasks
-│   │   └── core/      # Core utilities
-│   └── tests/     # API tests
-└── web/           # Next.js frontend
+├── api/                    # FastAPI backend
+│   ├── app/
+│   │   ├── routers/       # API endpoints (auth, jobs, models, files)
+│   │   ├── models/        # SQLAlchemy ORM models
+│   │   ├── schemas/       # Pydantic validation schemas
+│   │   ├── services/      # Business logic (freecad_service, s3, auth)
+│   │   ├── tasks/         # Celery async tasks
+│   │   ├── core/          # Settings, logging, database, security
+│   │   └── scripts/       # Utility scripts (smoke tests, seeds)
+│   └── alembic/           # Database migrations
+│
+└── web/                    # Next.js frontend
     ├── src/
-    │   ├── app/       # Next.js App Router pages
-    │   ├── components/  # React components
-    │   ├── lib/       # API clients and utilities
-    │   └── hooks/     # Custom React hooks
-    └── tests/     # Frontend tests
+    │   ├── app/           # App Router pages (Turkish UI)
+    │   ├── components/    # React components (3D viewer, forms)
+    │   ├── lib/          # API clients, utilities
+    │   └── hooks/        # Custom React hooks
+    └── public/           # Static assets
+
+infra/
+├── compose/               # Docker Compose configs
+├── docker/               # Dockerfiles
+├── minio/               # MinIO bootstrap scripts
+└── rabbitmq/            # RabbitMQ init scripts
 ```
 
-### Technology Stack
+### Key Services & Queues
 
-**Backend (API)**
-- FastAPI with async/await support
-- SQLAlchemy ORM with Alembic migrations
-- Celery for distributed task processing
-- Redis for caching and task queue
-- MinIO/S3 for file storage
-- FreeCAD integration via subprocess
+**Celery Queues**:
+- `default`: General tasks
+- `freecad`: CAD model generation
+- `cam`: CAM path generation
+- `simulation`: Process simulation
+- `gcode`: G-code generation
+- `analysis`: FEA/optimization
 
-**Frontend (Web)**
-- Next.js 14 with App Router
-- TypeScript with strict mode
-- Tailwind CSS for styling
-- react-three-fiber for 3D visualization
-- TanStack Query for data fetching
-- Zustand for state management
+**MinIO Buckets**:
+- `artefacts`: CAD models, G-code files (versioned)
+- `logs`: Application logs
+- `reports`: Analysis reports
+- `invoices`: Generated invoices
 
-**Infrastructure**
-- PostgreSQL database
-- Redis for caching/queues
-- MinIO for object storage
-- Docker Compose for local development
-- Kubernetes with Helm for production
-- OpenTelemetry for observability
+## Development Patterns
 
-### Key Patterns
+### API Development
+```python
+# Router pattern (apps/api/app/routers/jobs.py)
+@router.post("/jobs", response_model=JobResponse)
+async def create_job(
+    job: JobCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    # Business logic in service layer
+    return await job_service.create_job(db, job, current_user)
 
-1. **Queue-Based Processing**: All heavy operations (CAD generation, CAM simulation, G-code generation) are processed asynchronously through Celery queues
+# Celery task pattern (apps/api/app/tasks/freecad_tasks.py)
+@celery_app.task(bind=True, name="generate_model", queue="freecad")
+def generate_model_task(self, job_id: str, params: dict):
+    try:
+        result = freecad_service.generate_model(params)
+        s3_service.upload_file(result.file_path, f"models/{job_id}")
+        return {"status": "success", "url": presigned_url}
+    except Exception as e:
+        self.retry(exc=e, countdown=60, max_retries=3)
+```
 
-2. **File Storage**: All generated files (STL, STEP, G-code) are stored in MinIO/S3 with presigned URLs for secure access
+### Frontend Development
+```typescript
+// API client pattern (apps/web/src/lib/api/jobs.ts)
+export const jobsApi = {
+  list: (params?: JobParams) => 
+    apiClient.get<JobList>('/jobs', { params }),
+  
+  create: (data: JobCreate) =>
+    apiClient.post<Job>('/jobs', data),
+    
+  getStatus: (id: string) =>
+    apiClient.get<JobStatus>(`/jobs/${id}/status`)
+}
 
-3. **API Client Pattern**: Frontend uses dedicated API client modules (`lib/*.ts`) for each resource type
+// Component pattern with Turkish UI
+export function JobList() {
+  const { data, isLoading } = useQuery({
+    queryKey: ['jobs'],
+    queryFn: jobsApi.list
+  })
+  
+  return (
+    <div>
+      <h1>İş Listesi</h1>
+      {/* Turkish UI elements */}
+    </div>
+  )
+}
+```
 
-4. **Turkish Localization**: All UI text must be in Turkish. Use existing translations as reference
+### FreeCAD Integration
+```python
+# FreeCAD subprocess execution (apps/api/app/services/freecad_service.py)
+def execute_freecad_script(script_path: str, params: dict) -> dict:
+    cmd = [
+        FREECADCMD_PATH,
+        "-M", "/usr/share/freecad/Mod",
+        "-c", script_path,
+        "--", json.dumps(params)
+    ]
+    
+    result = subprocess.run(
+        cmd,
+        capture_output=True,
+        timeout=FREECAD_TIMEOUT,
+        check=True
+    )
+    return json.loads(result.stdout)
+```
 
-5. **Dev Auth Mode**: Local development can bypass authentication using `AUTH_MODE=dev`
+## Environment Configuration
 
-## Development Workflows
-
-### Adding a New API Endpoint
-1. Create router in `apps/api/app/routers/`
-2. Define Pydantic schemas in `apps/api/app/schemas/`
-3. Add SQLAlchemy models if needed in `apps/api/app/models/`
-4. Write service logic in `apps/api/app/services/`
-5. Add tests in `apps/api/tests/`
-6. Register router in `apps/api/app/main.py`
-
-### Adding a New Frontend Page
-1. Create page component in `apps/web/src/app/[route]/page.tsx`
-2. Add API client functions in `apps/web/src/lib/`
-3. Create reusable components in `apps/web/src/components/`
-4. Add tests in `apps/web/tests/`
-5. Ensure Turkish translations for all text
-
-### Working with FreeCAD
-- FreeCAD operations run in headless mode via `FreeCADCmd`
-- Scripts are executed through subprocess in `apps/api/app/services/freecad_service.py`
-- Generated files are uploaded to MinIO immediately after creation
-- All FreeCAD tasks run in dedicated `freecad` Celery queue
-
-### Database Changes
-1. Modify models in `apps/api/app/models/`
-2. Generate migration: `make makemigrations`
-3. Review migration in `apps/api/alembic/versions/`
-4. Apply migration: `make migrate`
-5. Update seed data if needed in `apps/api/app/db/seed.py`
-
-## Testing Strategy
-
-- **Unit Tests**: Test individual functions and classes in isolation
-- **Integration Tests**: Test API endpoints with database
-- **E2E Tests**: Test full user workflows with Playwright
-- **FreeCAD Tests**: Smoke tests for FreeCAD operations in `apps/api/app/scripts/run_freecad_smoke.py`
-
-## Environment Variables
-
-Key environment variables to be aware of:
-- `AUTH_MODE=dev` - Enable dev auth bypass
-- `DATABASE_URL` - PostgreSQL connection string
-- `REDIS_URL` - Redis connection string
-- `S3_ENDPOINT_URL` - MinIO/S3 endpoint
-- `FREECAD_PATH` - Path to FreeCAD installation
-- `CELERY_BROKER_URL` - Celery broker URL
-- `NEXT_PUBLIC_API_URL` - API URL for frontend
-
-## Troubleshooting
-
-### Common Issues
-1. **FreeCAD not found**: Ensure FreeCAD is installed and `FREECAD_PATH` is set
-2. **Database connection failed**: Check PostgreSQL is running with `docker ps`
-3. **MinIO access denied**: Verify MinIO credentials in `.env`
-4. **Celery tasks not processing**: Check workers are running with `make worker`
-5. **Frontend API calls failing**: Verify `NEXT_PUBLIC_API_URL` is correct
-
-### Debugging Commands
+### Critical Environment Variables
 ```bash
-# Check service health
-docker ps
-docker logs <container_name>
+# Authentication & Security
+DEV_AUTH_BYPASS=true                       # Skip auth in dev (NEVER in prod)
+SECRET_KEY=dev-secret-key-minimum-32-chars # Change in production
+GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
 
-# Access database
-docker exec -it projem-postgres-1 psql -U postgres -d projem
+# Database
+DATABASE_URL=postgresql+psycopg2://freecad:password@postgres:5432/freecad
 
-# Monitor Celery tasks
-celery -A apps.api.app.tasks.celery_app inspect active
-celery -A apps.api.app.tasks.celery_app events
+# Storage
+AWS_S3_ENDPOINT=http://minio:9000
+S3_BUCKET_NAME=dev-artifacts
 
-# Check Redis
-docker exec -it projem-redis-1 redis-cli
+# Message Queue
+RABBITMQ_URL=amqp://freecad:freecad@rabbitmq:5672/
+
+# FreeCAD
+FREECADCMD_PATH=/usr/bin/FreeCADCmd       # Path to FreeCAD binary
+
+# Frontend
+NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
 ```
 
-## Claude Code Agents Usage
+## Turkish Localization
 
-### Recommended Agent Structure by Domain
+All UI text must be in Turkish. Common terms:
+- İş = Job
+- Model = Model  
+- Simülasyon = Simulation
+- G-kodu = G-code
+- Dosya = File
+- Kullanıcı = User
+- Ayarlar = Settings
+- Rapor = Report
+- Analiz = Analysis
+- İşlem = Process/Operation
 
-**1. Backend API Agent** (general-purpose)
-- FastAPI router development and optimization
-- Pydantic schema design and validation
-- Service layer business logic
-- API endpoint testing and debugging
-- Python async/await patterns
+## Debugging
 
-**2. Database Agent** (general-purpose)
-- SQLAlchemy model design and relationships
-- Alembic migration creation and management
-- Complex query optimization and performance
-- Database schema evolution
-- Seed data management and fixtures
-
-**3. Queue & Worker Agent** (general-purpose)
-- Celery task definition and orchestration
-- Background job queue management
-- FreeCAD subprocess integration patterns
-- Error handling and retry strategies
-- Worker scaling and monitoring
-
-**4. Frontend Agent** (general-purpose)
-- Next.js component architecture and patterns
-- TypeScript type definitions and validation
-- React state management with Zustand
-- 3D visualization with react-three-fiber
-- Turkish localization and UI/UX patterns
-
-**5. DevOps & Infrastructure Agent** (general-purpose)
-- Docker Compose service orchestration
-- Kubernetes deployment and scaling
-- MinIO/S3 storage integration
-- OpenTelemetry observability setup
-- Environment configuration management
-
-**6. Test Agent** (general-purpose)
-- Pytest test suite design and optimization
-- API integration test patterns
-- Frontend unit/integration tests with Vitest
-- E2E test scenarios with Playwright
-- FreeCAD smoke test development
-- Mock strategies for external services
-
-**7. Debug & Performance Agent** (general-purpose)
-- Production error analysis and resolution
-- Performance bottleneck identification
-- Memory leak detection in FreeCAD processes
-- Database query optimization debugging
-- Distributed tracing analysis
-- Log aggregation and error pattern recognition
-
-**8. Security Agent** (general-purpose)
-- Authentication and authorization implementation
-- API security hardening (rate limiting, input validation)
-- File upload security and sanitization
-- Secret management and environment variable security
-- Container security scanning and hardening
-- Database access control and SQL injection prevention
-- FreeCAD script injection prevention
-- OWASP compliance and vulnerability assessment
-
-**9. Research & Technology Scout Agent** (general-purpose)
-- Latest technology trends and best practices research
-- Framework version updates and migration strategies
-- Performance optimization techniques discovery
-- Security vulnerability research and mitigation
-- Open source library evaluation and recommendation
-- Industry standard compliance research
-- Competitive analysis and feature benchmarking
-- Documentation and tutorial discovery
-
-### Specialized Monitoring Agents
-
-**statusline-setup**
-- Monitor all Docker services health
-- Track Celery queue lengths and worker status  
-- Display database connection status
-- Show MinIO storage availability
-
-**output-mode-setup**
-- Format structured logs for each service
-- Create colored output for test results
-- Parse and display FreeCAD processing status
-- Format API response debugging
-
-### Domain-Specific Usage Examples
-
+### Check Service Health
 ```bash
-# Backend API development
-/task general-purpose "Analyze FastAPI dependency injection patterns in routers/"
+# Service status
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
-# Database optimization
-/task general-purpose "Review SQLAlchemy query performance in models/ and suggest optimizations"
+# API health
+curl http://localhost:8000/healthz
 
-# Queue system debugging  
-/task general-purpose "Find and fix Celery task retry patterns in tasks/"
+# View logs
+docker logs fc_api_dev --tail 50 -f
 
-# Frontend component work
-/task general-purpose "Analyze React component patterns for 3D viewer integration"
-
-# Infrastructure monitoring
-/task general-purpose "Review Docker Compose health checks and suggest improvements"
-
-# Test development and maintenance
-/task general-purpose "Create comprehensive pytest fixtures for FreeCAD testing scenarios"
-/task general-purpose "Design E2E test suite for CAM processing workflow using Playwright"
-/task general-purpose "Add integration tests for MinIO file upload/download patterns"
-
-# Debug and performance analysis
-/task general-purpose "Analyze memory usage patterns in FreeCAD subprocess execution"
-/task general-purpose "Debug Celery task failures and implement proper error recovery"
-/task general-purpose "Profile database queries causing slow API responses"
-/task general-purpose "Investigate OpenTelemetry traces for bottleneck identification"
-
-# Security hardening and compliance
-/task general-purpose "Audit FastAPI endpoints for proper authentication and authorization"
-/task general-purpose "Review file upload endpoints for security vulnerabilities and sanitization"
-/task general-purpose "Scan container images for security vulnerabilities and apply hardening"
-/task general-purpose "Validate FreeCAD script inputs to prevent code injection attacks"
-/task general-purpose "Implement rate limiting and DDoS protection for API endpoints"
-/task general-purpose "Review database queries for SQL injection vulnerabilities"
-
-# Research and technology discovery
-/task general-purpose "Research latest FastAPI performance optimization techniques and patterns"
-/task general-purpose "Investigate new React 18+ features for 3D visualization improvements"
-/task general-purpose "Analyze current FreeCAD Python API updates and new capabilities"
-/task general-purpose "Research modern CAM processing algorithms and implementation approaches"
-/task general-purpose "Discover latest Docker and Kubernetes security best practices"
-/task general-purpose "Investigate new TypeScript features for better type safety"
-
-# Development workflow setup
-/task statusline-setup "Create status line showing all service health indicators"
-/task output-mode-setup "Format Celery task logs with priority and status colors"
-/task output-mode-setup "Create colored test output for pytest and Vitest results"
+# Celery task monitoring
+docker exec fc_worker_dev celery -A app.tasks.celery_app inspect active
+docker exec fc_worker_dev celery -A app.tasks.celery_app inspect reserved
 ```
 
-## Important Notes
+### Common Issues & Solutions
 
-1. **Turkish UI Requirement**: All user-facing text must be in Turkish
-2. **File Handling**: Always use MinIO/S3 for file storage, never local filesystem
-3. **Async Operations**: Use Celery for any operation taking >1 second
-4. **Error Handling**: Always return proper HTTP status codes and error messages
-5. **Security**: Never commit secrets, use environment variables
-6. **Cross-platform**: Makefile supports both Windows cmd.exe and Unix shells
+**Database connection failed**:
+```bash
+docker exec fc_postgres_dev pg_isready
+# If fails: docker compose -f infra/compose/docker-compose.dev.yml restart postgres
+```
+
+**MinIO access denied**:
+```bash
+# Check credentials match .env
+docker exec fc_minio_dev mc admin info minio
+```
+
+**Celery tasks not processing**:
+```bash
+# Check worker status
+docker logs fc_worker_dev --tail 100
+# Check RabbitMQ connection
+docker exec fc_rabbitmq_dev rabbitmqctl status
+```
+
+**FreeCAD not found**:
+```bash
+# Verify FreeCAD installation in container
+docker exec fc_freecad_dev FreeCADCmd --version
+```
+
+## Security Notes
+
+- Never commit `.env` files (only `.env.example`)
+- All file uploads go through MinIO/S3, never local filesystem
+- Use presigned URLs for file access (expire in 1 hour)
+- Input validation with Pydantic schemas
+- SQL injection prevention via SQLAlchemy ORM
+- Rate limiting on API endpoints
+- CORS configured for frontend origin only
+
+## Financial System Guidelines
+
+### Enterprise Financial Precision Standards
+
+Following Gemini Code Assist feedback, all financial operations must maintain the highest precision standards:
+
+**1. Decimal-Only Financial Calculations**
+```python
+# ✅ CORRECT: Use Decimal for all monetary calculations
+from decimal import Decimal, ROUND_HALF_UP
+
+amount_decimal = Decimal(amount_cents) / Decimal('100')
+tax_amount = (base_amount * tax_rate / Decimal('100')).quantize(
+    Decimal('1'), rounding=ROUND_HALF_UP
+)
+
+# ❌ WRONG: Never use float for financial calculations
+amount_float = amount_cents / 100.0  # Precision loss risk
+```
+
+**2. Enhanced Migration Safety**
+```python
+# ✅ CORRECT: Use enhanced enum creation
+from alembic.migration_helpers import create_enum_type_safe
+
+create_enum_type_safe('payment_status', ['pending', 'completed', 'failed'])
+
+# ❌ WRONG: Direct enum creation without safety checks
+op.execute("CREATE TYPE payment_status AS ENUM ('pending', 'completed', 'failed')")
+```
+
+**3. Import Organization Best Practices**
+```python
+# ✅ CORRECT: Organized imports with TYPE_CHECKING
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import TYPE_CHECKING, List, Optional
+
+from sqlalchemy import BigInteger, CheckConstraint, DateTime
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from .payment import Payment
+
+# ❌ WRONG: Disorganized imports causing circular dependencies
+from .payment import Payment  # Can cause circular import
+```
+
+**4. Financial Schema Validation**
+```python
+# ✅ CORRECT: Pydantic schemas with Decimal validation
+class MonetaryAmount(BaseModel):
+    amount_cents: PositiveInt
+    
+    @property
+    def amount_decimal(self) -> Decimal:
+        return Decimal(self.amount_cents) / Decimal('100')
+
+# ❌ WRONG: Float-based financial schemas
+class MonetaryAmount(BaseModel):
+    amount_float: float  # Precision loss risk
+```
+
+**5. Turkish Financial Compliance**
+- All monetary calculations use Turkish KDV standards (20% default)
+- Currency constraints support TRY-first with multi-currency options
+- Financial precision maintained for regulatory compliance
+- Tax calculations use Decimal with ROUND_HALF_UP for consistency
+
+## Task Management Integration
+
+This project uses Task Master for task tracking. Common commands:
+```bash
+# View current tasks
+mcp__task-master__get_tasks --projectRoot "$(pwd)"
+
+# Get next task to work on
+mcp__task-master__next_task --projectRoot "$(pwd)"
+
+# Update task status
+mcp__task-master__set_task_status --id "1.10" --status "done" --projectRoot "$(pwd)"
+```

@@ -1,3 +1,6 @@
+# LEGACY ROUTER - DISABLED
+# This router uses legacy Fixture model not in Task Master ERD
+"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
@@ -28,5 +31,9 @@ def list_fixtures():
     with db_session() as s:
         rows = s.query(Fixture).order_by(Fixture.id.desc()).limit(100).all()
         return {"items": [FixtureOut(id=r.id, name=r.name, type=r.type, safety_clear_mm=r.safety_clear_mm) for r in rows]}
+"""
+
+from fastapi import APIRouter
+router = APIRouter(prefix="/api/v1/legacy-disabled", tags=["Disabled"])
 
 

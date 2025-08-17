@@ -1,3 +1,6 @@
+# LEGACY ROUTER - DISABLED
+# This router uses legacy Setup/Project models not in Task Master ERD
+"""
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Header, HTTPException, status
@@ -15,11 +18,14 @@ from ..tasks.m18_sim import setup_sim_task
 from ..tasks.m18_post import setup_post_task
 
 router = APIRouter(prefix="/api/v1/setups", tags=["m18-setups"])
+"""
 
+from fastapi import APIRouter
+router = APIRouter(prefix="/api/v1/legacy-disabled", tags=["Disabled"])
 
-ROLE_OPERATOR_OR_VIEWER = "operator" if appset.oidc_enabled else "viewer"
+# All legacy setup functionality disabled - not part of Task Master ERD
 
-
+"""
 @router.post("", response_model=SetupOut, status_code=201, dependencies=[Depends(require_role(ROLE_OPERATOR_OR_VIEWER))])
 def create_setup(payload: SetupCreate, idempotency_key: Optional[str] = Header(default=None, alias="Idempotency-Key")):
     if appset.require_idempotency and not idempotency_key:
@@ -129,5 +135,5 @@ def list_setups(project_id: int):
             for r in rows
         ]
         return {"items": [i.model_dump() for i in items]}
-
+"""
 

@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from ..db import db_session
 from ..schemas.cad_build import CadBuildRequest, CadBuildResult, CadArtifactsOut
 from ..tasks.cad import cad_build_task
-from ..models_project import Project
+# from ..models_project import Project  # Module not found
 from ..schemas.cam_build import CamBuildRequest, CamBuildOut, CamArtifactsOut as CamArtifactsOut2, CamBuildArtifacts, CamOpSummary
 from ..tasks.cam_build import cam_build_task  # noqa: F401
 from ..config import settings

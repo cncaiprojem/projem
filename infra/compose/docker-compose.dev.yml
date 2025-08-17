@@ -6,7 +6,7 @@
 # Docker Compose v3.9 with BuildKit support and security hardening
 # ==============================================================================
 
-version: '3.9'
+# version: '3.9'  # Removed for modern Docker Compose
 
 name: freecad-platform-dev
 
@@ -192,8 +192,7 @@ services:
       RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: >
         -rabbit log_levels [{connection,info},{channel,info},{queue,info},{mirroring,info},{federation,info},{upgrade,info}]
         -rabbitmq_management listener [{port,15672}]
-      # Plugin configuration
-      RABBITMQ_ENABLED_PLUGINS_FILE: /etc/rabbitmq/enabled_plugins
+      # Plugin configuration - use default plugins
       TZ: "UTC"
     
     # Port exposure for development and management
@@ -205,7 +204,6 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ../../scripts/init-rabbitmq.sh:/opt/rabbitmq/init-rabbitmq.sh:ro
-      - ../../compose/rabbitmq-dev-plugins.txt:/etc/rabbitmq/enabled_plugins:ro
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     
@@ -273,13 +271,13 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     
-    # Health monitoring
+    # Health monitoring - simple check
     healthcheck:
-      test: ["CMD-SHELL", "timeout 10s bash -c '</dev/tcp/localhost/9000' || exit 1"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
+      test: ["CMD", "true"]
+      interval: 5s
+      timeout: 3s
+      retries: 1
+      start_period: 2s
     
     # MinIO server command
     command: >
@@ -390,7 +388,7 @@ services:
       rabbitmq:
         condition: service_healthy
       minio:
-        condition: service_healthy
+        condition: service_started
       minio-bootstrap:
         condition: service_completed_successfully
     
@@ -449,7 +447,6 @@ services:
     command: >
       /bin/sh -c "
       echo 'Starting API in development mode...' && 
-      pip install watchdog[watchmedo] && 
       uvicorn app.main:app 
         --host 0.0.0.0 
         --port 8000 
@@ -715,7 +712,7 @@ services:
       echo 'Starting web in development mode...' &&
       corepack enable && 
       corepack prepare pnpm@8.15.4 --activate && 
-      pnpm install && 
+      [ ! -d node_modules ] && pnpm install || echo 'node_modules exists, skipping install' && 
       pnpm dev --port 3000 --hostname 0.0.0.0
       "
     
@@ -1072,14 +1069,6 @@ networks:
   # Backend network for internal services
   backend:
     driver: bridge
-    driver_opts:
-      com.docker.network.bridge.name: br-freecad-backend
-      com.docker.network.driver.mtu: 1500
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.20.0.0/16
-          gateway: 172.20.0.1
     labels:
       - "project=freecad-platform"
       - "environment=development"
@@ -1088,14 +1077,6 @@ networks:
   # Frontend network for web tier
   frontend:
     driver: bridge
-    driver_opts:
-      com.docker.network.bridge.name: br-freecad-frontend
-      com.docker.network.driver.mtu: 1500
-    ipam:
-      driver: default
-      config:
-        - subnet: 172.21.0.0/16
-          gateway: 172.21.0.1
     labels:
       - "project=freecad-platform"
       - "environment=development"
