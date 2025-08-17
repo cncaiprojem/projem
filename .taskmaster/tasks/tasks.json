@@ -244,7 +244,7 @@
               "2.3"
             ],
             "details": "- invoices: id, user_id FK (RESTRICT), number (unique), amount_cents, currency, status, issued_at, due_at, meta JSONB; indexes: user_id, status, issued_at.\n- payments: id, invoice_id FK (RESTRICT), provider, provider_ref (unique), amount_cents, currency, status, paid_at, meta JSONB; indexes: invoice_id, status, paid_at.\n- Currency check constraint: currency in allowed set; allow multi-currency when current_setting('app.multi_currency', true) = 'on' else enforce 'TRY'.\n- Ensure consistent money precision and non-negative checks.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T09:45:01.128Z",
+      "updated": "2025-08-17T10:05:20.926Z",
       "description": "Tasks for master context"
     }
   }
