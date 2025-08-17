@@ -77,36 +77,40 @@ class InputSanitizationService:
         r'behavior\s*:',
     ]
     
-    # SQL injection patterns
+    # SQL injection patterns - more specific to avoid false positives
     SQL_INJECTION_PATTERNS = [
-        # SQL keywords
-        r'\b(union|select|insert|update|delete|drop|create|alter|exec|execute)\b',
+        # Union-based injections
+        r'\bunion\s+select\b',
+        r'\bunion\s+all\s+select\b',
         
-        # SQL operators
-        r'--\s*',
+        # SQL comment patterns in injection context
+        r"'\s*--",
+        r'"\s*--',
         r'/\*.*?\*/',
-        r';\s*(drop|delete|update|insert)',
         
-        # SQL functions
-        r'\b(char|ascii|substring|length|mid|user|database|version)\s*\(',
+        # Stacked queries with dangerous operations
+        r';\s*(drop|delete|update|insert|create|alter)\s+',
         
-        # Common injection patterns
-        r"'\s*(or|and)\s*'",
-        r'"\s*(or|and)\s*"',
-        r"'\s*=\s*'",
-        r'"\s*=\s*"',
-        r"'\s*;\s*",
-        r'1\s*=\s*1',
-        r"'\s*or\s*1\s*=\s*1",
-        r'admin\s*--',
+        # SQL functions in injection context
+        r"'\s*(or|and)\s+\w+\s*\(",
+        r'"\s*(or|and)\s+\w+\s*\(',
         
-        # Database-specific patterns
-        r'xp_\w+',
-        r'sp_\w+',
-        r'@@\w+',
+        # Classic injection patterns
+        r"'\s*(or|and)\s+'[^']*'\s*=\s*'[^']*'",
+        r'"\s*(or|and)\s+"[^"]*"\s*=\s*"[^"]*"',
+        r"'\s*or\s+1\s*=\s*1\s*(--|\s*$)",
+        r'"\s*or\s+1\s*=\s*1\s*(--|\s*$)',
+        r"admin'\s*--",
+        r'admin"\s*--',
         
-        # Hex encoding
-        r'0x[0-9a-f]+',
+        # Database-specific stored procedures
+        r'xp_cmdshell',
+        r'sp_executesql',
+        r'@@version',
+        
+        # Blind injection patterns
+        r"'\s*and\s+\d+\s*=\s*\d+\s*--",
+        r'"\s*and\s+\d+\s*=\s*\d+\s*--',
     ]
     
     # Path traversal patterns
@@ -120,14 +124,28 @@ class InputSanitizationService:
         r'\.\.%5c',
     ]
     
-    # Command injection patterns
+    # Command injection patterns - more specific to avoid false positives
     COMMAND_INJECTION_PATTERNS = [
-        r'[;&|`]',
-        r'\$\(\s*',
-        r'`[^`]*`',
-        r'\|\s*\w+',
-        r'&&\s*\w+',
-        r'\|\|\s*\w+',
+        # Shell command chains with dangerous commands
+        r'[;&|]\s*(rm|del|format|cat|type|ls|dir|ps|kill|chmod|chown|sudo|su)\s+',
+        r'`[^`]*\s*(rm|del|cat|ls|ps|wget|curl|nc|telnet|ssh)\s+[^`]*`',
+        
+        # Command substitution patterns
+        r'\$\(\s*(rm|del|cat|ls|ps|wget|curl|nc|telnet|ssh)\s+',
+        r'`\s*(rm|del|cat|ls|ps|wget|curl|nc|telnet|ssh)\s+',
+        
+        # Pipe to dangerous commands
+        r'\|\s*(sh|bash|cmd|powershell|python|perl|ruby)\s*$',
+        r'\|\s*(rm|del|format)\s+',
+        
+        # Logic operators with commands
+        r'&&\s*(rm|del|format|cat|wget|curl|nc)\s+',
+        r'\|\|\s*(rm|del|format|cat|wget|curl|nc)\s+',
+        
+        # File redirection patterns
+        r'>\s*/etc/',
+        r'>\s*c:\\windows',
+        r'>>\s*/var/log',
     ]
     
     def __init__(self):
@@ -233,8 +251,10 @@ class InputSanitizationService:
         
         threats = []
         
-        # Only check longer inputs (avoid false positives on short text)
-        if len(input_text) > 10:
+        # Only check inputs that could realistically contain SQL injection
+        # Minimum length and must contain SQL-like patterns
+        if len(input_text) > 5 and any(keyword in input_text.lower() 
+                                      for keyword in ['select', 'union', 'insert', 'update', 'delete', 'drop', "'", '"']):
             for pattern in self.compiled_sql_patterns:
                 matches = pattern.findall(input_text.lower())
                 if matches:
@@ -293,14 +313,18 @@ class InputSanitizationService:
         
         threats = []
         
-        for pattern in self.compiled_cmd_patterns:
-            matches = pattern.findall(input_text)
-            if matches:
-                threats.append({
-                    "type": "COMMAND_INJECTION",
-                    "pattern": pattern.pattern,
-                    "matches": matches[:5]
-                })
+        # Only check inputs that could realistically contain command injection
+        # Must contain shell operators or command-like patterns
+        if len(input_text) > 3 and any(operator in input_text 
+                                      for operator in [';', '|', '&', '`', '$', '>', '<', 'rm ', 'del ', 'cat ', 'ls ']):
+            for pattern in self.compiled_cmd_patterns:
+                matches = pattern.findall(input_text)
+                if matches:
+                    threats.append({
+                        "type": "COMMAND_INJECTION",
+                        "pattern": pattern.pattern,
+                        "matches": matches[:5]
+                    })
         
         return {
             "is_safe": len(threats) == 0,
