@@ -63,11 +63,12 @@ class Job(Base, TimestampMixin):
         index=True
     )
     
-    # Input/Output
-    input_params: Mapped[dict] = mapped_column(
+    # Input/Output (Task 2.3 requirements)
+    params: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
-        default={}
+        default={},
+        name="input_params"  # Database column remains input_params
     )
     output_data: Mapped[Optional[dict]] = mapped_column(JSONB)
     
@@ -130,25 +131,24 @@ class Job(Base, TimestampMixin):
         back_populates="job"
     )
     
-    # Constraints and indexes
+    # Constraints and indexes (Task 2.3 requirements)
     __table_args__ = (
         CheckConstraint('progress >= 0 AND progress <= 100',
                        name='ck_jobs_progress_valid'),
         CheckConstraint('retry_count >= 0', name='ck_jobs_retry_count_non_negative'),
         CheckConstraint('max_retries >= 0', name='ck_jobs_max_retries_non_negative'),
         CheckConstraint('timeout_seconds > 0', name='ck_jobs_timeout_positive'),
+        Index('idx_jobs_status_created_at', 'status', 'created_at'),
+        Index('idx_jobs_user_id', 'user_id'),
+        Index('idx_jobs_type', 'type'),
         Index('idx_jobs_idempotency_key', 'idempotency_key',
               postgresql_where='idempotency_key IS NOT NULL'),
-        Index('idx_jobs_user_id', 'user_id',
-              postgresql_where='user_id IS NOT NULL'),
-        Index('idx_jobs_type_status', 'type', 'status'),
-        Index('idx_jobs_status', 'status',
-              postgresql_where="status IN ('pending', 'queued', 'running')"),
-        Index('idx_jobs_task_id', 'task_id',
-              postgresql_where='task_id IS NOT NULL'),
-        Index('idx_jobs_created_at', 'created_at'),
-        Index('idx_jobs_started_at', 'started_at',
-              postgresql_where='started_at IS NOT NULL'),
+        Index('idx_jobs_metrics', 'metrics',
+              postgresql_using='gin',
+              postgresql_where='metrics IS NOT NULL'),
+        Index('idx_jobs_input_params', 'input_params',
+              postgresql_using='gin',
+              postgresql_where='input_params IS NOT NULL'),
     )
     
     def __repr__(self) -> str:

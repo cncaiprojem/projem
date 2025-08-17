@@ -32,9 +32,10 @@ class License(Base, TimestampMixin):
     )
     
     # License details
-    type: Mapped[LicenseType] = mapped_column(
+    plan: Mapped[LicenseType] = mapped_column(
         SQLEnum(LicenseType),
-        nullable=False
+        nullable=False,
+        name="type"  # Database column remains 'type'
     )
     status: Mapped[LicenseStatus] = mapped_column(
         SQLEnum(LicenseStatus),
@@ -81,16 +82,14 @@ class License(Base, TimestampMixin):
     __table_args__ = (
         CheckConstraint('seats > 0', name='ck_licenses_seats_positive'),
         CheckConstraint('ends_at > starts_at', name='ck_licenses_valid_period'),
-        Index('idx_licenses_status', 'status',
-              postgresql_where="status = 'active'"),
-        Index('idx_licenses_ends_at', 'ends_at',
-              postgresql_where="status = 'active'"),
+        Index('idx_licenses_user_id', 'user_id'),
+        Index('idx_licenses_status_ends_at', 'status', 'ends_at'),
         Index('idx_licenses_features', 'features',
               postgresql_using='gin'),
     )
     
     def __repr__(self) -> str:
-        return f"<License(id={self.id}, type={self.type.value}, status={self.status.value})>"
+        return f"<License(id={self.id}, plan={self.plan.value}, status={self.status.value})>"
     
     @property
     def is_active(self) -> bool:
@@ -118,7 +117,7 @@ class License(Base, TimestampMixin):
         if feature in self.features:
             return bool(self.features[feature])
         
-        # Check default features by license type
+        # Check default features by license plan
         default_features = {
             LicenseType.TRIAL: {
                 'cad_basic': True,
@@ -158,5 +157,5 @@ class License(Base, TimestampMixin):
             }
         }
         
-        type_features = default_features.get(self.type, {})
-        return type_features.get(feature, False)
+        plan_features = default_features.get(self.plan, {})
+        return plan_features.get(feature, False)

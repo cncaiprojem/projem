@@ -42,7 +42,16 @@ class User(Base, TimestampMixin):
     role: Mapped[UserRole] = mapped_column(
         SQLEnum(UserRole), 
         nullable=False, 
-        default=UserRole.ENGINEER
+        default=UserRole.ENGINEER,
+        index=True
+    )
+    
+    # Account status (Task 2.3 requirement for status field)
+    status: Mapped[str] = mapped_column(
+        String(20),
+        nullable=False,
+        default="active",
+        index=True
     )
     
     # Company information
@@ -65,7 +74,7 @@ class User(Base, TimestampMixin):
         default="Europe/Istanbul"
     )
     
-    # Account status
+    # Legacy account status fields (kept for compatibility)
     is_active: Mapped[bool] = mapped_column(
         Boolean, 
         nullable=False,

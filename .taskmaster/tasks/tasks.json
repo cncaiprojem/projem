@@ -222,7 +222,7 @@
               "2.2"
             ],
             "details": "- users: id, email (unique), phone (unique), role, status, locale, created_at/updated_at.\n- sessions: id, user_id FK (RESTRICT), refresh_token_hash (unique), device_fingerprint, last_used_at, expires_at; index on user_id, expires_at.\n- licenses: id, user_id FK (RESTRICT), plan, status, starts_at, ends_at; index on (user_id), (status, ends_at).\n- models: id, user_id FK (RESTRICT), type, params JSONB, metrics JSONB, created_at; optional GIN on params if filtered.\n- jobs: id, user_id FK (RESTRICT), type, status, params JSONB, metrics JSONB, idempotency_key (unique), created_at, updated_at; indexes: (status, created_at), user_id, type; GIN on metrics (and params if needed).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T08:37:37.195Z",
+      "updated": "2025-08-17T09:20:32.819Z",
       "description": "Tasks for master context"
     }
   }
