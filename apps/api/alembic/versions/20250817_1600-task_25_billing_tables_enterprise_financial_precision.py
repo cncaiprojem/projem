@@ -157,7 +157,6 @@ def upgrade() -> None:
             'provider_ref', 
             sa.String(255), 
             nullable=False,
-            unique=True,
             comment='Unique provider transaction reference'
         ),
         
@@ -259,6 +258,15 @@ def upgrade() -> None:
         'payments',
         "(status != 'COMPLETED' OR paid_at IS NOT NULL)",
         info={'comment': 'Ensure completed payments have paid_at timestamp'}
+    )
+    
+    # CRITICAL FIX: Composite unique constraint for payment provider references
+    # Prevents duplicate payments across different providers
+    op.create_unique_constraint(
+        'uq_payments_provider_provider_ref',
+        'payments',
+        ['provider', 'provider_ref'],
+        info={'comment': 'Ensure uniqueness of provider references within each provider namespace'}
     )
     
     # Create indexes for optimal billing query performance

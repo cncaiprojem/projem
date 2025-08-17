@@ -1,6 +1,7 @@
 """Invoice model for billing and accounting - Task Master ERD compliant."""
 
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Optional, List
 
 from sqlalchemy import (
@@ -172,9 +173,11 @@ class Invoice(Base, TimestampMixin):
     @property
     def paid_amount_cents(self) -> int:
         """Calculate total amount paid in cents."""
+        # OPTIMIZATION: Direct enum comparison (more efficient than .value string comparison)
+        from .enums import PaymentStatus
         return sum(
             payment.amount_cents for payment in self.payments
-            if payment.status.value == 'completed'
+            if payment.status == PaymentStatus.COMPLETED
         )
     
     @property
@@ -214,7 +217,11 @@ class Invoice(Base, TimestampMixin):
             self.meta['line_items'] = []
             
         subtotal_cents = quantity * unit_price_cents
-        tax_cents = int(subtotal_cents * tax_rate_percent / 100)
+        # CRITICAL FIX: Use Decimal for precise tax calculations (no floating-point errors)
+        tax_cents = int(
+            (Decimal(str(subtotal_cents)) * Decimal(str(tax_rate_percent)) / Decimal('100'))
+            .to_integral_value(rounding=ROUND_HALF_UP)
+        )
         total_cents = subtotal_cents + tax_cents
         
         line_item = {
@@ -227,6 +234,7 @@ class Invoice(Base, TimestampMixin):
             'total_cents': total_cents
         }
         
+        # Add line item with precision-calculated totals
         self.meta['line_items'].append(line_item)
         self.recalculate_amount()
     
@@ -238,3 +246,66 @@ class Invoice(Base, TimestampMixin):
         self.amount_cents = sum(
             item['total_cents'] for item in self.meta['line_items']
         )
+    
+    def calculate_tax_amount_cents(self, tax_rate_percent: float = 20.0) -> int:
+        """Calculate tax amount using Decimal precision for financial accuracy.
+        
+        Args:
+            tax_rate_percent: Tax rate as percentage (default: 20.0 for Turkish KDV)
+            
+        Returns:
+            Tax amount in cents using precise Decimal calculations
+        """
+        if self.amount_cents <= 0:
+            return 0
+            
+        # Use Decimal for precise financial calculations
+        base_amount = Decimal(str(self.amount_cents))
+        tax_rate = Decimal(str(tax_rate_percent))
+        
+        # Calculate tax with proper rounding
+        tax_amount = (base_amount * tax_rate / Decimal('100')).to_integral_value(rounding=ROUND_HALF_UP)
+        return int(tax_amount)
+    
+    def calculate_subtotal_from_total_cents(self, tax_rate_percent: float = 20.0) -> int:
+        """Calculate subtotal from total amount (reverse tax calculation).
+        
+        Args:
+            tax_rate_percent: Tax rate as percentage
+            
+        Returns:
+            Subtotal amount in cents (excluding tax)
+        """
+        if self.amount_cents <= 0:
+            return 0
+            
+        # Use Decimal for precise reverse tax calculation
+        total_amount = Decimal(str(self.amount_cents))
+        tax_rate = Decimal(str(tax_rate_percent))
+        
+        # Subtotal = Total / (1 + tax_rate/100)
+        divisor = Decimal('1') + (tax_rate / Decimal('100'))
+        subtotal = (total_amount / divisor).to_integral_value(rounding=ROUND_HALF_UP)
+        return int(subtotal)
+    
+    def get_tax_breakdown(self, tax_rate_percent: float = 20.0) -> dict:
+        """Get detailed tax breakdown for Turkish financial compliance.
+        
+        Args:
+            tax_rate_percent: Tax rate as percentage
+            
+        Returns:
+            Dictionary with subtotal, tax, and total amounts in cents
+        """
+        subtotal_cents = self.calculate_subtotal_from_total_cents(tax_rate_percent)
+        tax_cents = self.amount_cents - subtotal_cents
+        
+        return {
+            'subtotal_cents': subtotal_cents,
+            'tax_cents': tax_cents,
+            'total_cents': self.amount_cents,
+            'tax_rate_percent': tax_rate_percent,
+            'subtotal_decimal': subtotal_cents / 100.0,
+            'tax_decimal': tax_cents / 100.0,
+            'total_decimal': self.amount_cents / 100.0
+        }
