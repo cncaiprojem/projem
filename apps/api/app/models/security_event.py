@@ -2,7 +2,7 @@
 Security event model for incident tracking.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -127,7 +127,7 @@ class SecurityEvent(Base, TimestampMixin):
     def resolve(self, resolver_id: int, notes: str = None):
         """Mark event as resolved."""
         self.resolved = True
-        self.resolved_at = datetime.utcnow()
+        self.resolved_at = datetime.now(timezone.utc)
         self.resolved_by = resolver_id
         if notes:
             self.notes = notes

@@ -2,7 +2,7 @@
 Base model classes and mixins for SQLAlchemy ORM.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import MetaData, DateTime, func
@@ -32,10 +32,35 @@ class Base(DeclarativeBase):
             return f"<{self.__class__.__name__}(id={self.id})>"
         return f"<{self.__class__.__name__}>"
     
-    def to_dict(self) -> dict[str, Any]:
-        """Convert model instance to dictionary."""
+    def to_dict(self, exclude: set[str] | None = None) -> dict[str, Any]:
+        """
+        Convert model instance to dictionary with security controls.
+        
+        SECURITY NOTE: Sensitive fields are automatically excluded by default to prevent
+        data leakage. Always review what data is being serialized for API responses.
+        Consider using Pydantic schemas for API endpoints instead of direct model serialization.
+        
+        Args:
+            exclude: Set of column names to exclude from output (for security)
+        
+        Returns:
+            Dictionary representation of the model
+        """
+        if exclude is None:
+            exclude = set()
+        
+        # Always exclude sensitive columns by default
+        default_exclude = {
+            'password_hash', 'refresh_token_hash', 'chain_hash', 'prev_chain_hash',
+            'access_token_jti', 'provider_ref'  # Additional sensitive fields
+        }
+        exclude = exclude | default_exclude
+        
         result = {}
         for column in self.__table__.columns:
+            if column.name in exclude:
+                continue
+                
             value = getattr(self, column.name)
             if isinstance(value, datetime):
                 value = value.isoformat()

@@ -80,8 +80,8 @@ class User(Base, TimestampMixin):
     # Timestamps
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     
-    # Additional metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB)
+    # Additional user metadata (renamed to avoid SQLAlchemy conflict)
+    user_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, name="metadata")
     
     # Relationships
     sessions: Mapped[List["Session"]] = relationship(

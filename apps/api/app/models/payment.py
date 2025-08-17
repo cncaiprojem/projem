@@ -2,7 +2,7 @@
 Payment model for transaction processing.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
 
@@ -74,8 +74,8 @@ class Payment(Base, TimestampMixin):
         index=True
     )
     
-    # Provider metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB)
+    # Provider metadata (renamed to avoid SQLAlchemy conflict)
+    payment_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, name="metadata")
     
     # Refund information
     refund_amount: Mapped[Decimal] = mapped_column(
@@ -140,7 +140,13 @@ class Payment(Base, TimestampMixin):
         reason: str,
         provider_ref: str
     ) -> bool:
-        """Process a refund for this payment."""
+        """
+        Process a refund for this payment.
+        
+        FINANCIAL PRECISION & SECURITY NOTE: Refund amounts are stored as strings
+        to preserve decimal precision. Timestamps use timezone-aware UTC to ensure
+        consistent audit trails across different deployment environments.
+        """
         if self.status != PaymentStatus.COMPLETED:
             raise ValueError("Can only refund completed payments")
             
@@ -159,17 +165,17 @@ class Payment(Base, TimestampMixin):
         else:
             self.status = PaymentStatus.PARTIAL_REFUND
         
-        # Store refund reference in metadata
-        if not self.metadata:
-            self.metadata = {}
-        if 'refunds' not in self.metadata:
-            self.metadata['refunds'] = []
+        # Store refund reference in payment metadata
+        if not self.payment_metadata:
+            self.payment_metadata = {}
+        if 'refunds' not in self.payment_metadata:
+            self.payment_metadata['refunds'] = []
         
-        self.metadata['refunds'].append({
-            'amount': float(amount),
+        self.payment_metadata['refunds'].append({
+            'amount': str(amount),  # Store as string to preserve precision
             'reason': reason,
             'provider_ref': provider_ref,
-            'timestamp': datetime.utcnow().isoformat()
+            'timestamp': datetime.now(timezone.utc).isoformat()
         })
         
         return True

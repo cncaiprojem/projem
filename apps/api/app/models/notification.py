@@ -2,7 +2,7 @@
 Notification model for user alerts and messages.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -95,7 +95,7 @@ class Notification(Base, TimestampMixin):
         """Check if notification has expired."""
         if not self.expires_at:
             return False
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(timezone.utc) > self.expires_at
     
     @property
     def is_actionable(self) -> bool:
@@ -106,7 +106,7 @@ class Notification(Base, TimestampMixin):
         """Mark notification as read."""
         if not self.is_read:
             self.is_read = True
-            self.read_at = datetime.utcnow()
+            self.read_at = datetime.now(timezone.utc)
     
     def mark_as_unread(self):
         """Mark notification as unread."""

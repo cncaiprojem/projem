@@ -2,7 +2,7 @@
 ERP/MES synchronization model for external system integration.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -104,7 +104,7 @@ class ErpMesSync(Base, TimestampMixin):
     def mark_synced(self):
         """Mark sync as successful."""
         self.sync_status = SyncStatus.SYNCED
-        self.synced_at = datetime.utcnow()
+        self.synced_at = datetime.now(timezone.utc)
         self.error_message = None
     
     def mark_failed(self, error: str):
