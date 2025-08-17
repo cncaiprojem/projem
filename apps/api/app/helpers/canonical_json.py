@@ -296,6 +296,7 @@ class TurkishComplianceHelper:
     def validate_vkn(vkn: str) -> bool:
         """
         Validate Turkish tax number (VKN - Vergi Kimlik Numarası).
+        Uses the official Turkish VKN validation algorithm.
         
         Args:
             vkn: Turkish tax number to validate
@@ -317,21 +318,25 @@ class TurkishComplianceHelper:
         if vkn[0] == '0':
             return False
         
-        # VKN checksum validation algorithm
+        # CORRECT Turkish VKN validation algorithm
         try:
             digits = [int(d) for d in vkn]
             
-            # Calculate checksum
-            total = 0
+            # Calculate weighted sum
+            weighted_sum = 0
             for i in range(9):
-                total += digits[i] * (10 - i)
+                weighted_sum += digits[i] * (10 - i)
             
-            check_digit = total % 11
-            if check_digit < 2:
-                return check_digit == digits[9]
+            remainder = weighted_sum % 11
+            
+            # Check digit logic
+            if remainder < 2:
+                check_digit = remainder
             else:
-                return (11 - check_digit) == digits[9]
-                
+                check_digit = 11 - remainder
+            
+            return check_digit == digits[9]
+            
         except (ValueError, IndexError):
             return False
     

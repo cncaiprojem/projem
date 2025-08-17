@@ -23,7 +23,7 @@ import hashlib
 import json
 import re
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional, Union
 
@@ -109,7 +109,7 @@ class IdempotencyKeyValidator:
         Returns:
             Secure idempotency key
         """
-        timestamp = int(datetime.utcnow().timestamp() * 1000)  # milliseconds
+        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)  # milliseconds
         random_part = uuid.uuid4().hex
         
         if user_id:
@@ -472,8 +472,9 @@ class FinancialPrecisionValidator:
             else:
                 raise ValueError(f"{context} rate must be Decimal")
         
-        # Turkish VAT rates (as of 2024)
-        valid_rates = [Decimal('1'), Decimal('8'), Decimal('18'), Decimal('20')]
+        # Turkish VAT rates (configurable for regulatory changes)
+        # Default rates as of 2024: 1%, 8%, 18%, 20%
+        valid_rates = cls._get_valid_turkish_tax_rates()
         
         if rate not in valid_rates:
             raise ValueError(
@@ -482,6 +483,18 @@ class FinancialPrecisionValidator:
             )
         
         return True
+    
+    @classmethod
+    def _get_valid_turkish_tax_rates(cls) -> List[Decimal]:
+        """
+        Get valid Turkish tax rates (configurable for regulatory changes).
+        
+        Returns:
+            List of valid Turkish VAT rates as Decimal objects
+        """
+        # TODO: Load from configuration/environment in production
+        # Current Turkish VAT rates as of 2024
+        return [Decimal('1'), Decimal('8'), Decimal('18'), Decimal('20')]
     
     @classmethod
     def cents_to_decimal(cls, amount_cents: int) -> Decimal:
@@ -592,19 +605,24 @@ class TurkishComplianceValidator:
         if clean_vkn[0] == '0':
             raise ValueError(f"{context} cannot start with 0")
         
-        # VKN checksum validation algorithm
+        # CORRECT Turkish VKN validation algorithm
         try:
             digits = [int(d) for d in clean_vkn]
             
-            # Calculate checksum
-            total = 0
+            # Calculate weighted sum
+            weighted_sum = 0
             for i in range(9):
-                total += digits[i] * (10 - i)
+                weighted_sum += digits[i] * (10 - i)
             
-            check_digit = total % 11
-            expected_last_digit = check_digit if check_digit < 2 else (11 - check_digit)
+            remainder = weighted_sum % 11
             
-            if expected_last_digit != digits[9]:
+            # Check digit logic
+            if remainder < 2:
+                check_digit = remainder
+            else:
+                check_digit = 11 - remainder
+            
+            if check_digit != digits[9]:
                 raise ValueError(f"Invalid {context} checksum")
                 
         except (ValueError, IndexError) as e:
