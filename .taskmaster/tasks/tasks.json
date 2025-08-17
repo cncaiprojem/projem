@@ -269,7 +269,7 @@
               "2.6"
             ],
             "details": "- Uniques: users.email, users.phone, sessions.refresh_token_hash, jobs.idempotency_key, artefacts.s3_key, invoices.number, payments.provider_ref.\n- FKs: RESTRICT by default; artefacts.job_id CASCADE; verify others match PRD.\n- Indexes: jobs(user_id), jobs(type), jobs(status, created_at); licenses(user_id), licenses(status, ends_at); add missing per PRD.\n- JSONB GIN indexes: jobs.metrics, jobs.params (if filtered), models.params, artefacts.meta as needed.\n- Check constraints: currency rules; non-negative amounts; any domain-specific checks per PRD.\n- Add comments to schema objects for maintainability.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -280,7 +280,7 @@
               "2.7"
             ],
             "details": "- Minimal machines and materials per PRD; ensure stable primary keys or natural keys.\n- tools: insert '6mm Carbide Endmill (4F)' and '10mm Drill HSS' with proper enums (type, material) and metadata.\n- Use INSERT ... ON CONFLICT DO NOTHING or upsert on natural key to make seeding idempotent.\n- Wrap in a separate migration file; provide downgrade that deletes only seeded rows by natural key.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T11:14:35.596Z",
+      "updated": "2025-08-17T12:11:12.102Z",
       "description": "Tasks for master context"
     }
   }
