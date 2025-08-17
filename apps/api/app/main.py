@@ -8,6 +8,7 @@ from .logging_setup import setup_logging
 from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict
 from .middleware.limiter import RateLimitMiddleware
 from .routers import auth as auth_router
+from .routers import auth_jwt as auth_jwt_router
 from .routers import health as health_router
 from .routers import freecad as freecad_router
 from .routers import assemblies as assemblies_router
@@ -49,6 +50,7 @@ setup_celery_instrumentation()
 
 app.include_router(health_router.router)
 app.include_router(auth_router.router)
+app.include_router(auth_jwt_router.router)
 app.include_router(freecad_router.router)
 app.include_router(assemblies_router.router)
 app.include_router(cam_router.router)
