@@ -253,11 +253,15 @@ class Invoice(Base, TimestampMixin):
             item['total_cents'] for item in self.meta['line_items']
         )
     
-    def calculate_tax_amount_cents(self, tax_rate_percent: float = 20.0) -> int:
+    def calculate_tax_amount_cents(self, tax_rate_percent: float = 20.0, tax_inclusive: bool = True) -> int:
         """Calculate tax amount using Decimal precision for financial accuracy.
+        
+        CRITICAL FIX: This method now correctly handles both tax-inclusive and tax-exclusive scenarios.
         
         Args:
             tax_rate_percent: Tax rate as percentage (default: 20.0 for Turkish KDV)
+            tax_inclusive: If True, amount_cents includes tax (extract tax from total)
+                          If False, amount_cents excludes tax (calculate tax on subtotal)
             
         Returns:
             Tax amount in cents using precise Decimal calculations
@@ -266,12 +270,20 @@ class Invoice(Base, TimestampMixin):
             return 0
             
         # Use Decimal for precise financial calculations
-        base_amount = Decimal(str(self.amount_cents))
+        amount = Decimal(str(self.amount_cents))
         tax_rate = Decimal(str(tax_rate_percent))
         
-        # Calculate tax with proper rounding
-        tax_amount = (base_amount * tax_rate / Decimal('100')).to_integral_value(rounding=ROUND_HALF_UP)
-        return int(tax_amount)
+        if tax_inclusive:
+            # Amount includes tax, extract tax portion: Tax = Total - (Total / (1 + rate/100))
+            divisor = Decimal('1') + (tax_rate / Decimal('100'))
+            subtotal = amount / divisor
+            tax_amount = amount - subtotal
+        else:
+            # Amount excludes tax, calculate tax on amount: Tax = Amount * rate/100
+            tax_amount = amount * tax_rate / Decimal('100')
+        
+        # Round to nearest cent with banker's rounding
+        return int(tax_amount.to_integral_value(rounding=ROUND_HALF_UP))
     
     def calculate_subtotal_from_total_cents(self, tax_rate_percent: float = 20.0) -> int:
         """Calculate subtotal from total amount (reverse tax calculation).
