@@ -45,11 +45,11 @@ def validate_migration_file() -> Dict[str, Any]:
     migration_file = Path(__file__).parent / "alembic" / "versions" / "20250817_1800-task_27_global_constraints_performance_indexes.py"
     
     if not migration_file.exists():
-        validation_results['summary'].append("❌ Migration file does not exist")
+        validation_results['summary'].append("[FAIL] Migration file does not exist")
         return validation_results
     
     validation_results['file_exists'] = True
-    validation_results['summary'].append("✅ Migration file exists")
+    validation_results['summary'].append("[OK] Migration file exists")
     
     # Read and analyze migration content
     with open(migration_file, 'r', encoding='utf-8') as f:
@@ -58,10 +58,10 @@ def validate_migration_file() -> Dict[str, Any]:
     # Check revision ID and dependencies
     if 'revision = \'20250817_1800_task_27\'' in content:
         validation_results['has_correct_revision'] = True
-        validation_results['summary'].append("✅ Correct revision ID: 20250817_1800_task_27")
+        validation_results['summary'].append("[OK] Correct revision ID: 20250817_1800_task_27")
     
     if 'down_revision = \'20250817_1700-task_26_security_audit_tables\'' in content:
-        validation_results['summary'].append("✅ Correct dependency on Task 2.6")
+        validation_results['summary'].append("[OK] Correct dependency on Task 2.6")
     
     # Check enterprise imports
     enterprise_imports = [
@@ -74,7 +74,7 @@ def validate_migration_file() -> Dict[str, Any]:
     
     if all(imp in content for imp in enterprise_imports):
         validation_results['has_enterprise_imports'] = True
-        validation_results['summary'].append("✅ Enterprise migration helpers imported")
+        validation_results['summary'].append("[OK] Enterprise migration helpers imported")
     
     # Check unique constraints implementation
     unique_constraints = [
@@ -90,7 +90,7 @@ def validate_migration_file() -> Dict[str, Any]:
     unique_found = sum(1 for constraint in unique_constraints if constraint in content)
     if unique_found >= 6:  # Most constraints should be present
         validation_results['implements_unique_constraints'] = True
-        validation_results['summary'].append(f"✅ Unique constraints implemented ({unique_found}/7)")
+        validation_results['summary'].append(f"[OK] Unique constraints implemented ({unique_found}/7)")
     
     # Check check constraints implementation
     check_constraints = [
@@ -103,7 +103,7 @@ def validate_migration_file() -> Dict[str, Any]:
     check_found = sum(1 for constraint in check_constraints if constraint in content)
     if check_found >= 3:
         validation_results['implements_check_constraints'] = True
-        validation_results['summary'].append(f"✅ Check constraints implemented ({check_found}/4)")
+        validation_results['summary'].append(f"[OK] Check constraints implemented ({check_found}/4)")
     
     # Check performance indexes
     performance_indexes = [
@@ -119,7 +119,7 @@ def validate_migration_file() -> Dict[str, Any]:
     perf_found = sum(1 for index in performance_indexes if index in content)
     if perf_found >= 5:
         validation_results['implements_performance_indexes'] = True
-        validation_results['summary'].append(f"✅ Performance indexes implemented ({perf_found}/7)")
+        validation_results['summary'].append(f"[OK] Performance indexes implemented ({perf_found}/7)")
     
     # Check JSONB GIN indexes
     jsonb_tables = ['users', 'jobs', 'licenses', 'invoices', 'payments', 'artefacts', 'audit_logs']
@@ -127,7 +127,7 @@ def validate_migration_file() -> Dict[str, Any]:
     
     if jsonb_found >= 5:
         validation_results['implements_jsonb_gin_indexes'] = True
-        validation_results['summary'].append(f"✅ JSONB GIN indexes implemented ({jsonb_found}/7)")
+        validation_results['summary'].append(f"[OK] JSONB GIN indexes implemented ({jsonb_found}/7)")
     
     # Check documentation
     doc_elements = [
@@ -140,17 +140,17 @@ def validate_migration_file() -> Dict[str, Any]:
     doc_found = sum(1 for element in doc_elements if element in content)
     if doc_found >= 3:
         validation_results['has_comprehensive_documentation'] = True
-        validation_results['summary'].append("✅ Comprehensive documentation included")
+        validation_results['summary'].append("[OK] Comprehensive documentation included")
     
     # Check monitoring views
     if 'system_performance_summary' in content and 'CREATE MATERIALIZED VIEW' in content:
         validation_results['has_monitoring_views'] = True
-        validation_results['summary'].append("✅ Performance monitoring views created")
+        validation_results['summary'].append("[OK] Performance monitoring views created")
     
     # Check downgrade function
     if 'def downgrade():' in content and 'DROP' in content:
         validation_results['has_proper_downgrade'] = True
-        validation_results['summary'].append("✅ Proper downgrade function implemented")
+        validation_results['summary'].append("[OK] Proper downgrade function implemented")
     
     # Check naming conventions
     naming_patterns = [
@@ -163,7 +163,7 @@ def validate_migration_file() -> Dict[str, Any]:
     naming_found = sum(1 for pattern in naming_patterns if re.search(pattern, content))
     if naming_found >= 3:
         validation_results['follows_naming_conventions'] = True
-        validation_results['summary'].append("✅ PostgreSQL naming conventions followed")
+        validation_results['summary'].append("[OK] PostgreSQL naming conventions followed")
     
     # Check error handling
     error_handling = [
@@ -173,7 +173,7 @@ def validate_migration_file() -> Dict[str, Any]:
     error_found = sum(1 for handler in error_handling if handler in content)
     if error_found >= 3:
         validation_results['has_error_handling'] = True
-        validation_results['summary'].append("✅ Comprehensive error handling implemented")
+        validation_results['summary'].append("[OK] Comprehensive error handling implemented")
     
     return validation_results
 
@@ -193,18 +193,18 @@ def validate_erd_compliance() -> Dict[str, Any]:
     models_dir = Path(__file__).parent / "app" / "models"
     
     if not models_dir.exists():
-        compliance_results['summary'].append("❌ Models directory not found")
+        compliance_results['summary'].append("[FAIL] Models directory not found")
         return compliance_results
     
     # Validate foreign key CASCADE behavior per ERD
     artefact_file = models_dir / "artefact.py"
     if artefact_file.exists():
-        with open(artefact_file, 'r') as f:
+        with open(artefact_file, 'r', encoding='utf-8') as f:
             artefact_content = f.read()
         
         if 'ondelete="CASCADE"' in artefact_content and 'job_id' in artefact_content:
             compliance_results['foreign_key_cascade_correct'] = True
-            compliance_results['summary'].append("✅ Artefact.job_id uses CASCADE per ERD")
+            compliance_results['summary'].append("[OK] Artefact.job_id uses CASCADE per ERD")
     
     # Validate unique constraints match ERD requirements
     user_file = models_dir / "user.py"
@@ -214,23 +214,23 @@ def validate_erd_compliance() -> Dict[str, Any]:
     unique_checks = []
     
     if user_file.exists():
-        with open(user_file, 'r') as f:
+        with open(user_file, 'r', encoding='utf-8') as f:
             user_content = f.read()
         unique_checks.append('unique=True' in user_content and 'email' in user_content)
     
     if session_file.exists():
-        with open(session_file, 'r') as f:
+        with open(session_file, 'r', encoding='utf-8') as f:
             session_content = f.read()
         unique_checks.append('unique=True' in session_content and 'refresh_token_hash' in session_content)
     
     if job_file.exists():
-        with open(job_file, 'r') as f:
+        with open(job_file, 'r', encoding='utf-8') as f:
             job_content = f.read()
         unique_checks.append('unique=True' in job_content and 'idempotency_key' in job_content)
     
     if sum(unique_checks) >= 2:
         compliance_results['unique_constraints_match_erd'] = True
-        compliance_results['summary'].append("✅ Unique constraints match ERD requirements")
+        compliance_results['summary'].append("[OK] Unique constraints match ERD requirements")
     
     # Validate financial precision (Decimal/BigInteger)
     invoice_file = models_dir / "invoice.py"
@@ -239,39 +239,39 @@ def validate_erd_compliance() -> Dict[str, Any]:
     financial_checks = []
     
     if invoice_file.exists():
-        with open(invoice_file, 'r') as f:
+        with open(invoice_file, 'r', encoding='utf-8') as f:
             invoice_content = f.read()
         financial_checks.append('amount_cents' in invoice_content and 'BigInteger' in invoice_content)
         financial_checks.append('Decimal' in invoice_content and 'ROUND_HALF_UP' in invoice_content)
     
     if payment_file.exists():
-        with open(payment_file, 'r') as f:
+        with open(payment_file, 'r', encoding='utf-8') as f:
             payment_content = f.read()
         financial_checks.append('amount_cents' in payment_content and 'BigInteger' in payment_content)
     
     if sum(financial_checks) >= 2:
         compliance_results['financial_precision_maintained'] = True
-        compliance_results['summary'].append("✅ Banking-level financial precision maintained")
+        compliance_results['summary'].append("[OK] Banking-level financial precision maintained")
     
     # Check Turkish compliance features
     turkish_features = []
     
     if user_file.exists():
-        with open(user_file, 'r') as f:
+        with open(user_file, 'r', encoding='utf-8') as f:
             user_content = f.read()
         turkish_features.append('tax_no' in user_content)  # VKN/TCKN support
         turkish_features.append('Locale.TR' in user_content)  # Turkish locale
         turkish_features.append('Europe/Istanbul' in user_content)  # Turkish timezone
     
     if invoice_file.exists():
-        with open(invoice_file, 'r') as f:
+        with open(invoice_file, 'r', encoding='utf-8') as f:
             invoice_content = f.read()
         turkish_features.append('TRY' in invoice_content)  # Turkish Lira support
         turkish_features.append('KDV' in invoice_content or 'tax_rate_percent: float = 20.0' in invoice_content)  # Turkish VAT
     
     if sum(turkish_features) >= 3:
         compliance_results['turkish_compliance_addressed'] = True
-        compliance_results['summary'].append("✅ Turkish financial compliance (GDPR/KVKV + KDV) implemented")
+        compliance_results['summary'].append("[OK] Turkish financial compliance (GDPR/KVKV + KDV) implemented")
     
     return compliance_results
 
@@ -290,7 +290,7 @@ def validate_performance_optimization() -> Dict[str, Any]:
     migration_file = Path(__file__).parent / "alembic" / "versions" / "20250817_1800-task_27_global_constraints_performance_indexes.py"
     
     if migration_file.exists():
-        with open(migration_file, 'r') as f:
+        with open(migration_file, 'r', encoding='utf-8') as f:
             content = f.read()
         
         # Check composite indexes
@@ -303,22 +303,22 @@ def validate_performance_optimization() -> Dict[str, Any]:
         composite_found = sum(1 for pattern in composite_patterns if re.search(pattern, content, re.DOTALL))
         if composite_found >= 2:
             perf_results['has_composite_indexes'] = True
-            perf_results['summary'].append("✅ Composite indexes for complex queries")
+            perf_results['summary'].append("[OK] Composite indexes for complex queries")
         
         # Check partial indexes
         if 'postgresql_where' in content and 'status IN' in content:
             perf_results['has_partial_indexes'] = True
-            perf_results['summary'].append("✅ Partial indexes for filtered queries")
+            perf_results['summary'].append("[OK] Partial indexes for filtered queries")
         
         # Check JSONB optimization
         if 'create_gin_index' in content and 'fastupdate' in content:
             perf_results['has_jsonb_optimization'] = True
-            perf_results['summary'].append("✅ JSONB GIN indexes with PostgreSQL 17.6 optimizations")
+            perf_results['summary'].append("[OK] JSONB GIN indexes with PostgreSQL 17.6 optimizations")
         
         # Check monitoring infrastructure
         if 'system_performance_summary' in content:
             perf_results['has_monitoring_infrastructure'] = True
-            perf_results['summary'].append("✅ Performance monitoring infrastructure")
+            perf_results['summary'].append("[OK] Performance monitoring infrastructure")
     
     return perf_results
 
@@ -326,14 +326,14 @@ def validate_performance_optimization() -> Dict[str, Any]:
 def main():
     """Main validation function."""
     
-    print("🔍 TASK 2.7 IMPLEMENTATION VALIDATION")
+    print("TASK 2.7 IMPLEMENTATION VALIDATION")
     print("=" * 60)
     print("Ultra Enterprise FreeCAD CNC/CAM Production Platform")
     print("Global Constraints and Performance Indexes Validation")
     print()
     
     # Validate migration file
-    print("📋 PHASE 1: Migration File Validation")
+    print("PHASE 1: Migration File Validation")
     print("-" * 40)
     migration_results = validate_migration_file()
     
@@ -344,10 +344,10 @@ def main():
                          if key != 'summary' and value is True)
     total_migration_checks = len([k for k in migration_results.keys() if k != 'summary'])
     
-    print(f"\n   📊 Migration Score: {migration_score}/{total_migration_checks}")
+    print(f"\n   Migration Score: {migration_score}/{total_migration_checks}")
     
     # Validate ERD compliance
-    print(f"\n🎯 PHASE 2: Task Master ERD Compliance")
+    print(f"\nPHASE 2: Task Master ERD Compliance")
     print("-" * 40)
     erd_results = validate_erd_compliance()
     
@@ -358,10 +358,10 @@ def main():
                    if key != 'summary' and value is True)
     total_erd_checks = len([k for k in erd_results.keys() if k != 'summary'])
     
-    print(f"\n   📊 ERD Compliance Score: {erd_score}/{total_erd_checks}")
+    print(f"\n   ERD Compliance Score: {erd_score}/{total_erd_checks}")
     
     # Validate performance optimization
-    print(f"\n⚡ PHASE 3: Performance Optimization")
+    print(f"\nPHASE 3: Performance Optimization")
     print("-" * 40)
     perf_results = validate_performance_optimization()
     
@@ -372,34 +372,34 @@ def main():
                     if key != 'summary' and value is True)
     total_perf_checks = len([k for k in perf_results.keys() if k != 'summary'])
     
-    print(f"\n   📊 Performance Score: {perf_score}/{total_perf_checks}")
+    print(f"\n   Performance Score: {perf_score}/{total_perf_checks}")
     
     # Overall assessment
     total_score = migration_score + erd_score + perf_score
     total_checks = total_migration_checks + total_erd_checks + total_perf_checks
     success_rate = (total_score / total_checks) * 100
     
-    print(f"\n🎯 OVERALL ASSESSMENT")
+    print(f"\nOVERALL ASSESSMENT")
     print("=" * 60)
-    print(f"📊 Total Score: {total_score}/{total_checks} ({success_rate:.1f}%)")
+    print(f"Total Score: {total_score}/{total_checks} ({success_rate:.1f}%)")
     
     if success_rate >= 90:
-        print("🏆 EXCELLENT: Ready for enterprise production deployment")
+        print("EXCELLENT: Ready for enterprise production deployment")
         status = "READY_FOR_PRODUCTION"
     elif success_rate >= 80:
-        print("✅ GOOD: Minor adjustments recommended before deployment")
+        print("GOOD: Minor adjustments recommended before deployment")
         status = "MINOR_ADJUSTMENTS_NEEDED"
     elif success_rate >= 70:
-        print("⚠️ ADEQUATE: Significant improvements needed")
+        print("ADEQUATE: Significant improvements needed")
         status = "IMPROVEMENTS_NEEDED"
     else:
-        print("❌ INSUFFICIENT: Major issues must be resolved")
+        print("INSUFFICIENT: Major issues must be resolved")
         status = "MAJOR_ISSUES"
     
-    print(f"\n🚀 DEPLOYMENT STATUS: {status}")
+    print(f"\nDEPLOYMENT STATUS: {status}")
     
     # Implementation readiness checklist
-    print(f"\n📋 IMPLEMENTATION READINESS CHECKLIST")
+    print(f"\nIMPLEMENTATION READINESS CHECKLIST")
     print("-" * 40)
     
     checklist_items = [
@@ -418,16 +418,16 @@ def main():
     ]
     
     for item_name, item_status in checklist_items:
-        status_icon = "✅" if item_status else "❌"
+        status_icon = "[OK]" if item_status else "[FAIL]"
         print(f"   {status_icon} {item_name}")
     
-    print(f"\n🎯 TASK 2.7 VALIDATION COMPLETE")
+    print(f"\nTASK 2.7 VALIDATION COMPLETE")
     
     if success_rate >= 85:
-        print("🚀 Implementation meets ultra enterprise standards!")
-        print("💫 Ready for FreeCAD CNC/CAM production deployment!")
+        print("Implementation meets ultra enterprise standards!")
+        print("Ready for FreeCAD CNC/CAM production deployment!")
     else:
-        print("🔧 Review and address identified issues before deployment")
+        print("Review and address identified issues before deployment")
     
     return success_rate >= 85
 
