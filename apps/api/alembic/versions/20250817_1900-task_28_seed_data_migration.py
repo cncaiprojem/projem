@@ -1,5 +1,5 @@
 """
-Task 2.8: Seed Data via Data Migration
+Task 2.8: Seed Data via Data Migration - GEMINI CODE ASSIST FIXES
 
 Ultra enterprise implementation of idempotent seed data migration for essential
 CNC/CAM manufacturing data following the current Task Master ERD with banking-level precision.
@@ -8,14 +8,22 @@ Revision ID: 20250817_1900_task_28
 Revises: 20250817_1800-task_27_global_constraints_performance_indexes
 Create Date: 2025-08-17 19:00:00.000000
 
+GEMINI CODE ASSIST IMPROVEMENTS APPLIED:
+- FIXED: Tools table natural key now uses (name, manufacturer, part_number) for proper uniqueness
+- ENHANCED: Strict validation with fail-fast migration on invalid data (no more warnings)
+- STRENGTHENED: Pre-insertion data validation with comprehensive field checks
+- IMPROVED: Minimum data count validation to ensure seed data actually inserted
+- SECURED: Natural key consistency between unique constraints and ON CONFLICT clauses
+
 Features:
-- Idempotent operations: INSERT ... ON CONFLICT DO NOTHING with natural keys
+- Idempotent operations: INSERT ... ON CONFLICT DO NOTHING with corrected natural keys
 - Minimal essential machines: CNC mills, lathes, 3D printers (Turkish market standards)
 - Essential materials: Aluminum, steel, plastics (Turkish manufacturing compliance)
 - Critical tools: 6mm Carbide Endmill (4F) and 10mm Drill HSS with proper metadata
-- Stable primary keys: Natural key-based consistency across environments
-- Ultra enterprise precision: Banking-level error handling and rollback
+- Stable primary keys: Natural key-based consistency across environments with part_number
+- Ultra enterprise precision: Banking-level error handling with fail-fast validation
 - Turkish compliance: Manufacturing data aligned with Turkish industry standards
+- Data integrity: Comprehensive pre-validation and post-validation checks
 """
 
 from alembic import op
@@ -57,15 +65,26 @@ def upgrade():
     except Exception:
         print("   ✓ materials(category, name) unique constraint already exists")
     
-    # Add unique constraint for tool name + manufacturer (natural key)
+    # Add unique constraint for tool name + manufacturer + part_number (natural key)
+    # Part number is essential for tools as same manufacturer can have multiple versions
     try:
-        op.create_unique_constraint('uq_tools_name_manufacturer', 'tools', ['name', 'manufacturer'])
-        print("   ✅ Added unique constraint: tools(name, manufacturer)")
+        op.create_unique_constraint('uq_tools_name_manufacturer_part', 'tools', ['name', 'manufacturer', 'part_number'])
+        print("   ✅ Added unique constraint: tools(name, manufacturer, part_number)")
     except Exception:
-        print("   ✓ tools(name, manufacturer) unique constraint already exists")
+        print("   ✓ tools(name, manufacturer, part_number) unique constraint already exists")
     
     # PHASE 1: Seed Essential Machines
     print("\n🏭 PHASE 1: Seeding Essential CNC Machines")
+    
+    # Pre-validation: Check seed data integrity before insertion
+    print("   🔍 Pre-validating machine data integrity...")
+    
+    # Define valid enum values for strict validation
+    valid_machine_types = {
+        'mill_3axis', 'mill_4axis', 'mill_5axis', 'lathe', 'turn_mill',
+        'router', 'plasma', 'laser', 'waterjet', 'edm_wire', 'edm_sinker',
+        'grinder', 'swiss'
+    }
     
     machines_data = [
         {
@@ -151,6 +170,33 @@ def upgrade():
         }
     ]
     
+    # Validate all machine data before insertion
+    for machine in machines_data:
+        # Validate machine type
+        if machine['type'] not in valid_machine_types:
+            error_msg = f"MIGRATION FAILED: Invalid machine type '{machine['type']}' for machine '{machine['name']}'. Valid types: {sorted(valid_machine_types)}"
+            print(f"   ❌ {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Validate required numeric fields
+        numeric_fields = ['axes', 'work_envelope_x_mm', 'work_envelope_y_mm', 'work_envelope_z_mm', 
+                         'spindle_max_rpm', 'spindle_power_kw', 'tool_capacity', 'hourly_rate']
+        for field in numeric_fields:
+            if not isinstance(machine[field], (int, float)) or machine[field] < 0:
+                error_msg = f"MIGRATION FAILED: Invalid {field} value '{machine[field]}' for machine '{machine['name']}'. Must be non-negative number."
+                print(f"   ❌ {error_msg}")
+                raise ValueError(error_msg)
+        
+        # Validate required string fields are not empty
+        string_fields = ['name', 'manufacturer', 'model', 'controller', 'post_processor']
+        for field in string_fields:
+            if not machine[field] or not isinstance(machine[field], str) or not machine[field].strip():
+                error_msg = f"MIGRATION FAILED: Missing or invalid {field} for machine '{machine.get('name', 'UNKNOWN')}'"
+                print(f"   ❌ {error_msg}")
+                raise ValueError(error_msg)
+    
+    print("   ✅ Machine data validation passed")
+    
     for machine in machines_data:
         try:
             # Use machine name as natural key for idempotency
@@ -197,6 +243,17 @@ def upgrade():
     
     # PHASE 2: Seed Essential Materials
     print("\n🔩 PHASE 2: Seeding Essential Materials")
+    
+    # Pre-validation: Check material data integrity before insertion
+    print("   🔍 Pre-validating material data integrity...")
+    
+    # Define valid material categories for strict validation
+    valid_material_categories = {
+        'steel_carbon', 'steel_alloy', 'steel_stainless', 'steel_tool',
+        'aluminum', 'titanium', 'copper', 'brass', 'bronze', 'cast_iron',
+        'nickel', 'magnesium', 'plastic_soft', 'plastic_hard', 'plastic_fiber',
+        'composite', 'wood_soft', 'wood_hard', 'wood_mdf', 'foam', 'ceramic', 'graphite'
+    }
     
     materials_data = [
         {
@@ -316,6 +373,39 @@ def upgrade():
         }
     ]
     
+    # Validate all material data before insertion
+    for material in materials_data:
+        # Validate material category
+        if material['category'] not in valid_material_categories:
+            error_msg = f"MIGRATION FAILED: Invalid material category '{material['category']}' for material '{material['name']}'. Valid categories: {sorted(valid_material_categories)}"
+            print(f"   ❌ {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Validate required numeric fields
+        numeric_fields = ['density_g_cm3', 'hardness_hb', 'tensile_strength_mpa', 
+                         'machinability_rating', 'cutting_speed_m_min', 'feed_rate_mm_tooth', 'cost_per_kg']
+        for field in numeric_fields:
+            if not isinstance(material[field], (int, float)) or material[field] < 0:
+                error_msg = f"MIGRATION FAILED: Invalid {field} value '{material[field]}' for material '{material['name']}'. Must be non-negative number."
+                print(f"   ❌ {error_msg}")
+                raise ValueError(error_msg)
+        
+        # Validate machinability rating is within range
+        if not 0 <= material['machinability_rating'] <= 100:
+            error_msg = f"MIGRATION FAILED: Invalid machinability_rating '{material['machinability_rating']}' for material '{material['name']}'. Must be 0-100."
+            print(f"   ❌ {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Validate required string fields are not empty
+        string_fields = ['category', 'name', 'grade', 'supplier']
+        for field in string_fields:
+            if not material[field] or not isinstance(material[field], str) or not material[field].strip():
+                error_msg = f"MIGRATION FAILED: Missing or invalid {field} for material '{material.get('name', 'UNKNOWN')}'"
+                print(f"   ❌ {error_msg}")
+                raise ValueError(error_msg)
+    
+    print("   ✅ Material data validation passed")
+    
     for material in materials_data:
         try:
             # Use (category, name) as natural key for idempotency
@@ -354,6 +444,21 @@ def upgrade():
     
     # PHASE 3: Seed Essential Tools
     print("\n🔧 PHASE 3: Seeding Essential Cutting Tools")
+    
+    # Pre-validation: Check tool data integrity before insertion
+    print("   🔍 Pre-validating tool data integrity...")
+    
+    # Define valid tool types and materials for strict validation
+    valid_tool_types = {
+        'endmill_flat', 'endmill_ball', 'endmill_bull', 'endmill_chamfer',
+        'endmill_taper', 'face_mill', 'slot_mill', 'drill_twist', 'drill_center',
+        'drill_spot', 'drill_peck', 'drill_gun', 'reamer', 'tap', 'thread_mill',
+        'boring_bar', 'countersink', 'counterbore', 'engraver', 'probe'
+    }
+    
+    valid_tool_materials = {
+        'hss', 'carbide', 'carbide_coated', 'ceramic', 'cbn', 'pcd', 'cobalt'
+    }
     
     tools_data = [
         {
@@ -425,6 +530,50 @@ def upgrade():
         }
     ]
     
+    # Validate all tool data before insertion
+    for tool in tools_data:
+        # Validate tool type
+        if tool['type'] not in valid_tool_types:
+            error_msg = f"MIGRATION FAILED: Invalid tool type '{tool['type']}' for tool '{tool['name']}'. Valid types: {sorted(valid_tool_types)}"
+            print(f"   ❌ {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Validate tool material
+        if tool['material'] not in valid_tool_materials:
+            error_msg = f"MIGRATION FAILED: Invalid tool material '{tool['material']}' for tool '{tool['name']}'. Valid materials: {sorted(valid_tool_materials)}"
+            print(f"   ❌ {error_msg}")
+            raise ValueError(error_msg)
+        
+        # Validate required numeric fields
+        numeric_fields = ['diameter_mm', 'flute_count', 'flute_length_mm', 'overall_length_mm', 
+                         'shank_diameter_mm', 'helix_angle_deg', 'max_depth_of_cut_mm', 
+                         'tool_life_minutes', 'cost', 'quantity_available', 'minimum_stock']
+        for field in numeric_fields:
+            if not isinstance(tool[field], (int, float)) or tool[field] < 0:
+                error_msg = f"MIGRATION FAILED: Invalid {field} value '{tool[field]}' for tool '{tool['name']}'. Must be non-negative number."
+                print(f"   ❌ {error_msg}")
+                raise ValueError(error_msg)
+        
+        # Validate required string fields are not empty
+        string_fields = ['name', 'type', 'material', 'manufacturer', 'part_number', 'location']
+        for field in string_fields:
+            if not tool[field] or not isinstance(tool[field], str) or not tool[field].strip():
+                error_msg = f"MIGRATION FAILED: Missing or invalid {field} for tool '{tool.get('name', 'UNKNOWN')}'"
+                print(f"   ❌ {error_msg}")
+                raise ValueError(error_msg)
+        
+        # Validate part_number uniqueness across manufacturers
+        part_number = tool['part_number']
+        manufacturer = tool['manufacturer']
+        duplicate_tools = [t for t in tools_data if t != tool and 
+                          t['part_number'] == part_number and t['manufacturer'] == manufacturer]
+        if duplicate_tools:
+            error_msg = f"MIGRATION FAILED: Duplicate part_number '{part_number}' for manufacturer '{manufacturer}' found in tools data"
+            print(f"   ❌ {error_msg}")
+            raise ValueError(error_msg)
+    
+    print("   ✅ Tool data validation passed")
+    
     for tool in tools_data:
         try:
             # Use (name, manufacturer, part_number) as natural key for idempotency
@@ -444,7 +593,7 @@ def upgrade():
                     :cost, :quantity_available, :minimum_stock, :location,
                     :is_active, NOW(), NOW()
                 )
-                ON CONFLICT (name, manufacturer) DO NOTHING
+                ON CONFLICT (name, manufacturer, part_number) DO NOTHING
             """)
             
             connection.execute(insert_sql, {
@@ -476,20 +625,38 @@ def upgrade():
             print(f"   ⚠️ Error seeding tool {tool['name']}: {e}")
             # Continue with other tools
     
-    # PHASE 4: Verify Data Integrity
-    print("\n🔍 PHASE 4: Verifying Data Integrity")
+    # PHASE 4: Verify Data Integrity and Minimum Counts
+    print("\n🔍 PHASE 4: Verifying Data Integrity and Minimum Counts")
     
-    # Check machine count
+    # Check machine count and validate minimum expected data
     machine_count = connection.execute(sa.text("SELECT COUNT(*) FROM machines")).scalar()
     print(f"   📊 Total machines in database: {machine_count}")
     
-    # Check material count
+    expected_min_machines = 3  # HAAS VF-2, DMG MORI NLX 2500, Prusa i3 MK3S+
+    if machine_count < expected_min_machines:
+        error_msg = f"MIGRATION FAILED: Expected at least {expected_min_machines} machines, but found only {machine_count}. Seed data insertion may have failed."
+        print(f"   ❌ {error_msg}")
+        raise ValueError(error_msg)
+    
+    # Check material count and validate minimum expected data
     material_count = connection.execute(sa.text("SELECT COUNT(*) FROM materials")).scalar()
     print(f"   📊 Total materials in database: {material_count}")
     
-    # Check tool count
+    expected_min_materials = 5  # Al 6061-T6, Steel S235JR, SS 316L, POM, Brass CuZn37
+    if material_count < expected_min_materials:
+        error_msg = f"MIGRATION FAILED: Expected at least {expected_min_materials} materials, but found only {material_count}. Seed data insertion may have failed."
+        print(f"   ❌ {error_msg}")
+        raise ValueError(error_msg)
+    
+    # Check tool count and validate minimum expected data
     tool_count = connection.execute(sa.text("SELECT COUNT(*) FROM tools")).scalar()
     print(f"   📊 Total tools in database: {tool_count}")
+    
+    expected_min_tools = 2  # 6mm Carbide Endmill (4F), 10mm Drill HSS
+    if tool_count < expected_min_tools:
+        error_msg = f"MIGRATION FAILED: Expected at least {expected_min_tools} tools, but found only {tool_count}. Seed data insertion may have failed."
+        print(f"   ❌ {error_msg}")
+        raise ValueError(error_msg)
     
     # Verify foreign key relationships and constraints
     print("   🔗 Verifying constraint compliance...")
@@ -503,7 +670,10 @@ def upgrade():
     """)).fetchall()
     
     if invalid_machines:
-        print(f"   ⚠️ Found {len(invalid_machines)} machines with invalid types")
+        machine_details = [f"{name} (type: {type})" for name, type in invalid_machines]
+        error_msg = f"MIGRATION FAILED: Found {len(invalid_machines)} machines with invalid types: {', '.join(machine_details)}"
+        print(f"   ❌ {error_msg}")
+        raise ValueError(error_msg)
     else:
         print("   ✅ All machine types are valid")
     
@@ -516,7 +686,10 @@ def upgrade():
     """)).fetchall()
     
     if invalid_materials:
-        print(f"   ⚠️ Found {len(invalid_materials)} materials with invalid categories")
+        material_details = [f"{name} (category: {category})" for name, category in invalid_materials]
+        error_msg = f"MIGRATION FAILED: Found {len(invalid_materials)} materials with invalid categories: {', '.join(material_details)}"
+        print(f"   ❌ {error_msg}")
+        raise ValueError(error_msg)
     else:
         print("   ✅ All material categories are valid")
     
@@ -531,20 +704,27 @@ def upgrade():
     """)).fetchall()
     
     if invalid_tools:
-        print(f"   ⚠️ Found {len(invalid_tools)} tools with invalid types or materials")
+        tool_details = [f"{name} (type: {type}, material: {material})" for name, type, material in invalid_tools]
+        error_msg = f"MIGRATION FAILED: Found {len(invalid_tools)} tools with invalid types or materials: {', '.join(tool_details)}"
+        print(f"   ❌ {error_msg}")
+        raise ValueError(error_msg)
     else:
         print("   ✅ All tool types and materials are valid")
     
     # Final validation summary
     print("\n✅ TASK 2.8 COMPLETED SUCCESSFULLY!")
     print("🌱 Essential Manufacturing Seed Data Inserted")
+    print("🔧 GEMINI CODE ASSIST FIXES APPLIED")
     print("\n📊 SEEDING SUMMARY:")
     print(f"   🏭 Machines: {machine_count} total (HAAS VF-2, DMG MORI NLX 2500, Prusa i3 MK3S+)")
     print(f"   🔩 Materials: {material_count} total (Al 6061-T6, Steel S235JR, SS 316L, POM, Brass CuZn37)")
     print(f"   🔧 Tools: {tool_count} total (6mm Carbide Endmill 4F, 10mm HSS Drill)")
-    print("\n🎯 KEY FEATURES:")
+    print("\n🎯 KEY FEATURES & GEMINI IMPROVEMENTS:")
     print("   ✅ Idempotent Operations: Safe to run multiple times")
-    print("   🔑 Natural Keys: Consistent across environments")
+    print("   🔑 Fixed Natural Keys: Tools now use (name, manufacturer, part_number)")
+    print("   ⚡ Fail-Fast Validation: Migration fails on invalid data (no warnings)")
+    print("   🛡️ Pre-Insertion Checks: Comprehensive data validation before insert")
+    print("   📊 Minimum Count Validation: Ensures seed data actually inserted")
     print("   🇹🇷 Turkish Compliance: Manufacturing standards and suppliers")
     print("   🏦 Banking Precision: Enterprise-grade error handling")
     print("   📈 Ready for Production: Complete metadata and specifications")
@@ -574,19 +754,20 @@ def downgrade():
     print("\n🔧 PHASE 1: Removing Seeded Tools")
     
     seeded_tools = [
-        ('6mm Carbide Endmill (4F)', 'WALTER'),
-        ('10mm Drill HSS', 'GÜHRING')
+        ('6mm Carbide Endmill (4F)', 'WALTER', 'F2339.UB.060.Z04.17'),
+        ('10mm Drill HSS', 'GÜHRING', 'RT100U 10.0')
     ]
     
-    for tool_name, manufacturer in seeded_tools:
+    for tool_name, manufacturer, part_number in seeded_tools:
         try:
             delete_sql = sa.text("""
                 DELETE FROM tools 
-                WHERE name = :name AND manufacturer = :manufacturer
+                WHERE name = :name AND manufacturer = :manufacturer AND part_number = :part_number
             """)
             result = connection.execute(delete_sql, {
                 'name': tool_name,
-                'manufacturer': manufacturer
+                'manufacturer': manufacturer,
+                'part_number': part_number
             })
             if result.rowcount > 0:
                 print(f"   ✅ Removed tool: {tool_name}")
@@ -665,7 +846,7 @@ def downgrade():
     
     # Remove unique constraints that were added for seed data
     constraints_to_remove = [
-        ('uq_tools_name_manufacturer', 'tools'),
+        ('uq_tools_name_manufacturer_part', 'tools'),
         ('uq_materials_category_name', 'materials'),
         ('uq_machines_name', 'machines')
     ]
