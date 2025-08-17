@@ -16,6 +16,21 @@ from .base import (
     ArtefactInfo,
     JobResult,
 )
+from .auth import (
+    UserRegisterRequest,
+    UserRegisterResponse,
+    UserLoginRequest,
+    UserLoginResponse,
+    PasswordStrengthRequest,
+    PasswordStrengthResponse,
+    PasswordForgotRequest,
+    PasswordForgotResponse,
+    PasswordResetRequest,
+    PasswordResetResponse,
+    AuthErrorResponse,
+    UserProfileResponse,
+    AUTH_ERROR_CODES,
+)
 
 __all__ = [
     "GearStage",
@@ -32,6 +47,20 @@ __all__ = [
     "JobMetrics",
     "ArtefactInfo",
     "JobResult",
+    # Enterprise authentication schemas
+    "UserRegisterRequest",
+    "UserRegisterResponse",
+    "UserLoginRequest",
+    "UserLoginResponse",
+    "PasswordStrengthRequest",
+    "PasswordStrengthResponse",
+    "PasswordForgotRequest",
+    "PasswordForgotResponse",
+    "PasswordResetRequest",
+    "PasswordResetResponse",
+    "AuthErrorResponse",
+    "UserProfileResponse",
+    "AUTH_ERROR_CODES",
 ]
 
 
