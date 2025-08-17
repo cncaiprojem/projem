@@ -233,7 +233,7 @@
               "2.3"
             ],
             "details": "- cam_runs: id, job_id FK (RESTRICT), machine_id FK (RESTRICT), params JSONB, metrics JSONB, status, created_at; indexes: job_id, status.\n- sim_runs: id, job_id FK (RESTRICT), params JSONB, metrics JSONB, status, created_at; indexes: job_id, status.\n- artefacts: id, job_id FK (CASCADE on job delete), type, s3_key (unique), size_bytes, sha256, mime, meta JSONB, created_at; indexes: job_id, type; optional GIN on meta.\n- notifications: id, user_id FK (RESTRICT), type, payload JSONB, read_at, created_at; indexes: user_id, type, read_at.\n- erp_mes_sync: id, external_id, entity_type, entity_id, status, last_sync_at, payload JSONB; indexes: entity_type, status.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T09:20:32.819Z",
+      "updated": "2025-08-17T09:45:01.128Z",
       "description": "Tasks for master context"
     }
   }

@@ -109,6 +109,7 @@ def create_gin_index(
     column_name: str, 
     index_name: str | None = None,
     schema: str | None = None,
+    condition: str | None = None,
     **kwargs: Any
 ) -> None:
     """
@@ -119,28 +120,40 @@ def create_gin_index(
         column_name: Name of the JSONB column
         index_name: Optional custom index name
         schema: Optional schema name
+        condition: Optional WHERE condition for partial index
         **kwargs: Additional index options
         
     Example:
-        create_gin_index('projects', 'summary_json')
+        create_gin_index('projects', 'summary_json', condition='summary_json IS NOT NULL')
     """
     try:
         if not index_name:
             index_name = f"gin_{table_name}_{column_name}"
             
+        # Prepare index options
+        index_options = {
+            "postgresql_using": "gin",
+            "schema": schema,
+            # PostgreSQL 17.6 GIN optimizations
+            "postgresql_with": {
+                "fastupdate": "on",         # Enable fast updates for better performance
+                "gin_pending_list_limit": 4096,  # Larger pending list for bulk operations
+            }
+        }
+        
+        # Add WHERE condition if provided
+        if condition:
+            index_options["postgresql_where"] = condition
+            
+        # Merge with additional kwargs
+        index_options.update(kwargs)
+        
         # PostgreSQL 17.6 optimized GIN index with enhanced options
         op.create_index(
             index_name,
             table_name,
             [column_name],
-            postgresql_using="gin",
-            schema=schema,
-            # PostgreSQL 17.6 GIN optimizations
-            postgresql_with={
-                "fastupdate": "on",         # Enable fast updates for better performance
-                "gin_pending_list_limit": 4096,  # Larger pending list for bulk operations
-            },
-            **kwargs
+            **index_options
         )
         
         logger.info(f"Created GIN index: {index_name} on {table_name}.{column_name}")

@@ -1,143 +1,161 @@
-"""
-Simulation run model for collision detection and verification.
+"""Simulation run model for collision detection and verification.
+
+Enterprise-grade simulation execution tracking with strict Task Master ERD compliance.
 """
 
 from datetime import datetime
-from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (
     String, Integer, ForeignKey, Index,
-    DateTime, Numeric, Enum as SQLEnum
+    DateTime, Enum as SQLEnum
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
-from .enums import SimulationType, SimulationStatus
+from .enums import JobStatus
 
 
 class SimRun(Base, TimestampMixin):
-    """Simulation runs for collision detection and verification."""
+    """Simulation runs for collision detection and verification.
+    
+    Task Master ERD Compliance:
+    - job_id FK with RESTRICT cascade behavior
+    - params JSONB for simulation configuration
+    - metrics JSONB for performance data
+    - status enum with proper indexing
+    - Enterprise security and audit trail
+    """
     
     __tablename__ = "sim_runs"
     
     # Primary key
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(
+        primary_key=True, 
+        autoincrement=True
+    )
     
-    # Foreign keys
+    # Foreign key with RESTRICT behavior per ERD
     job_id: Mapped[int] = mapped_column(
-        ForeignKey("jobs.id", ondelete="RESTRICT"),
-        nullable=False,
-        index=True
-    )
-    cam_run_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("cam_runs.id", ondelete="CASCADE"),
-        index=True
-    )
-    machine_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("machines.id", ondelete="RESTRICT"),
-        index=True
-    )
-    
-    # Simulation configuration
-    type: Mapped[SimulationType] = mapped_column(
-        SQLEnum(SimulationType),
-        nullable=False
-    )
-    
-    # Collision detection
-    collision_count: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        default=0
-    )
-    collision_details: Mapped[Optional[dict]] = mapped_column(JSONB)
-    
-    # Material removal accuracy
-    material_removal_accuracy: Mapped[Optional[Decimal]] = mapped_column(
-        Numeric(5, 2)
-    )
-    
-    # Performance
-    simulation_time_ms: Mapped[Optional[int]] = mapped_column(Integer)
-    
-    # Output files
-    video_s3_key: Mapped[Optional[str]] = mapped_column(String(1024))
-    report_s3_key: Mapped[Optional[str]] = mapped_column(String(1024))
-    
-    # Status
-    status: Mapped[SimulationStatus] = mapped_column(
-        SQLEnum(SimulationStatus),
+        ForeignKey("jobs.id", ondelete="RESTRICT", name="fk_sim_runs_job_id"),
         nullable=False,
         index=True
     )
     
-    # Completion timestamp
-    completed_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
+    # Simulation configuration parameters (Task Master ERD requirement)
+    params: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict
+    )
+    
+    # Performance and execution metrics (Task Master ERD requirement) 
+    metrics: Mapped[dict] = mapped_column(
+        JSONB,
+        nullable=False,
+        default=dict
+    )
+    
+    # Status with enterprise indexing
+    status: Mapped[JobStatus] = mapped_column(
+        SQLEnum(JobStatus, name="sim_run_status"),
+        nullable=False,
+        default=JobStatus.PENDING,
+        index=True
     )
     
     # Relationships
-    job: Mapped["Job"] = relationship("Job", back_populates="sim_runs")
-    cam_run: Mapped[Optional["CamRun"]] = relationship(
-        "CamRun",
-        back_populates="sim_runs"
-    )
-    machine: Mapped[Optional["Machine"]] = relationship(
-        "Machine",
-        back_populates="sim_runs"
+    job: Mapped["Job"] = relationship(
+        "Job", 
+        back_populates="sim_runs",
+        foreign_keys=[job_id]
     )
     
-    # Indexes
+    # Enterprise-grade indexing strategy
     __table_args__ = (
-        Index('idx_sim_runs_cam_run_id', 'cam_run_id',
-              postgresql_where='cam_run_id IS NOT NULL'),
-        Index('idx_sim_runs_machine_id', 'machine_id',
-              postgresql_where='machine_id IS NOT NULL'),
+        Index(
+            'idx_sim_runs_job_id_status', 
+            'job_id', 
+            'status'
+        ),
+        Index(
+            'idx_sim_runs_status', 
+            'status',
+            postgresql_where="status IN ('pending', 'running')"
+        ),
+        Index(
+            'idx_sim_runs_created_at', 
+            'created_at'
+        )
     )
     
     def __repr__(self) -> str:
-        return f"<SimRun(id={self.id}, type={self.type.value}, status={self.status.value})>"
+        """Developer-friendly representation."""
+        return (
+            f"<SimRun(id={self.id}, job_id={self.job_id}, "
+            f"status={self.status.value})>"
+        )
+    
+    def __str__(self) -> str:
+        """User-friendly representation."""
+        return f"Simulation Run #{self.id} - {self.status.value}"
     
     @property
-    def has_collisions(self) -> bool:
-        """Check if simulation detected collisions."""
-        return self.collision_count > 0
+    def is_active(self) -> bool:
+        """Check if simulation run is currently active."""
+        return self.status in [JobStatus.PENDING, JobStatus.RUNNING]
     
     @property
-    def is_passed(self) -> bool:
-        """Check if simulation passed."""
-        return self.status in [
-            SimulationStatus.PASSED,
-            SimulationStatus.PASSED_WARNINGS
-        ]
+    def is_completed(self) -> bool:
+        """Check if simulation run completed successfully."""
+        return self.status == JobStatus.COMPLETED
     
     @property
-    def simulation_time_seconds(self) -> Optional[float]:
-        """Get simulation time in seconds."""
-        if not self.simulation_time_ms:
-            return None
-        return self.simulation_time_ms / 1000.0
+    def is_failed(self) -> bool:
+        """Check if simulation run failed."""
+        return self.status == JobStatus.FAILED
     
-    def add_collision(
-        self,
-        timestamp: float,
-        tool_id: int,
-        component: str,
-        severity: str,
-        position: dict
-    ):
-        """Add a collision to the simulation results."""
-        if not self.collision_details:
-            self.collision_details = {'collisions': []}
-        
-        self.collision_details['collisions'].append({
-            'timestamp': timestamp,
-            'tool_id': tool_id,
-            'component': component,
-            'severity': severity,
-            'position': position
-        })
-        
-        self.collision_count = len(self.collision_details['collisions'])
+    def get_param(self, key: str, default=None):
+        """Get simulation parameter value safely."""
+        return self.params.get(key, default)
+    
+    def set_param(self, key: str, value) -> None:
+        """Set simulation parameter value safely."""
+        if self.params is None:
+            self.params = {}
+        self.params[key] = value
+    
+    def get_metric(self, key: str, default=None):
+        """Get metric value safely."""
+        return self.metrics.get(key, default)
+    
+    def set_metric(self, key: str, value) -> None:
+        """Set metric value safely."""
+        if self.metrics is None:
+            self.metrics = {}
+        self.metrics[key] = value
+    
+    def add_collision_results(
+        self, 
+        collision_count: int,
+        collision_details: dict,
+        severity_level: str
+    ) -> None:
+        """Add collision detection results."""
+        self.set_metric('collision_count', collision_count)
+        self.set_metric('collision_details', collision_details)
+        self.set_metric('severity_level', severity_level)
+        self.set_metric('updated_at', datetime.utcnow().isoformat())
+    
+    def add_performance_metrics(
+        self, 
+        simulation_time_ms: int,
+        accuracy_percentage: float,
+        memory_usage_mb: float
+    ) -> None:
+        """Add simulation performance metrics."""
+        self.set_metric('simulation_time_ms', simulation_time_ms)
+        self.set_metric('accuracy_percentage', accuracy_percentage)
+        self.set_metric('memory_usage_mb', memory_usage_mb)
+        self.set_metric('updated_at', datetime.utcnow().isoformat())

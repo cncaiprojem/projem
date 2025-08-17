@@ -91,8 +91,8 @@ class Machine(Base, TimestampMixin):
     )
     
     # Relationships
-    sim_runs: Mapped[List["SimRun"]] = relationship(
-        "SimRun",
+    cam_runs: Mapped[List["CamRun"]] = relationship(
+        "CamRun",
         back_populates="machine"
     )
     
