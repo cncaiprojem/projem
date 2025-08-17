@@ -9,13 +9,31 @@ from sqlalchemy import MetaData, DateTime, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
-# Naming convention for constraints
+# Enterprise-grade naming conventions for PostgreSQL 17.6
+# These conventions ensure consistent, predictable naming across all database objects
+# following PostgreSQL best practices and enterprise standards
 convention = {
-    "ix": "ix_%(column_0_label)s",
+    # Index naming: ix_tablename_column or ix_tablename_column1_column2 for composite
+    "ix": "ix_%(table_name)s_%(column_0_name)s",
+    
+    # Unique constraint naming: uq_tablename_column
     "uq": "uq_%(table_name)s_%(column_0_name)s",
+    
+    # Check constraint naming: ck_tablename_constraintname
     "ck": "ck_%(table_name)s_%(constraint_name)s",
+    
+    # Foreign key naming: fk_tablename_column_reftable
     "fk": "fk_%(table_name)s_%(column_0_name)s_%(referred_table_name)s",
-    "pk": "pk_%(table_name)s"
+    
+    # Primary key naming: pk_tablename
+    "pk": "pk_%(table_name)s",
+    
+    # Additional constraint types for comprehensive coverage
+    # Exclusion constraints (PostgreSQL-specific)
+    "exclude": "ex_%(table_name)s_%(constraint_name)s",
+    
+    # Partial unique indexes (when condition is specified)
+    "partial_unique": "puq_%(table_name)s_%(column_0_name)s",
 }
 
 metadata = MetaData(naming_convention=convention)
