@@ -9,7 +9,7 @@
         "testStrategy": "Smoke boot all containers locally; health endpoints return 200; verify MinIO bucket creation and presigned URL generation in a dry run. CI runs lint/tests on PR. Validate FreeCADCmd, CAMotics, FFmpeg versions available in containers. Security: Trivy scan images, check no secrets in repo. E2E: Playwright hits login page and fetches health.",
         "priority": "high",
         "dependencies": [],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -192,7 +192,7 @@
         "dependencies": [
           1
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -200,7 +200,7 @@
             "description": "Produce the final PostgreSQL ERD and enum/type definitions per PRD, and define canonical JSON and audit hash-chain scopes.",
             "dependencies": [],
             "details": "- Deliverables: ERD (tables/columns/FKs), enum specs for tools.type and tools.material, JSONB usage map, timestamp and soft-delete policy, naming conventions.\n- Map PRD entities: users, sessions, licenses, invoices, payments, models, jobs, cam_runs, sim_runs, artefacts, machines, materials, notifications, erp_mes_sync, audit_logs, security_events, tools.\n- Define JSONB fields (e.g., jobs.metrics, jobs.params) and which get GIN indexes.\n- Enumerate unique constraints and indexes per PRD (users.email/phone, sessions.refresh_token_hash, jobs.idempotency_key, artefacts.s3_key, invoices.number, payments.provider_ref; indexes on jobs user_id/type/status/created_at; licenses user_id/status/ends_at).\n- Audit chain scope: global or per-scope (e.g., per user or job). Specify fields scope_type and scope_id semantics.\n- Canonical JSON rules: UTF-8; stable key sort; no whitespace; numbers as strings with fixed precision if required or use JSONB deterministic dumps; exclude non-deterministic fields; nulls explicit.\n- Idempotency key policy for jobs (string length, charset, uniqueness, retry semantics).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -211,7 +211,7 @@
               "2.1"
             ],
             "details": "- Configure alembic.ini and env.py (UTC timestamps, timezone-aware, async not required).\n- Apply naming convention for constraints and indexes for reproducible diffs.\n- Wire metadata from SQLAlchemy models; enable render_as_batch=False for Postgres.\n- Create initial empty base revision (\"base\") to anchor subsequent DDL.\n- Add helper utilities for creating enums, GIN indexes, and check constraints.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-16T20:15:27.472Z",
+      "updated": "2025-08-17T08:37:37.195Z",
       "description": "Tasks for master context"
     }
   }
