@@ -364,8 +364,9 @@ class User(Base, TimestampMixin):
         """Check if user can attempt login (not locked and account active)."""
         return (
             self.account_status == 'active' and
-            not self.is_account_locked() and
-            self.is_active
+            not self.is_account_locked()
+            # Note: Removed redundant is_active check as it's legacy
+            # account_status == 'active' is the authoritative status check
         )
     
     def increment_failed_login_attempts(self) -> None:

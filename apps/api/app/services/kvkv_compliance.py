@@ -20,6 +20,11 @@ from sqlalchemy.orm import Session
 
 from ..models.user import User
 from ..models.audit_log import AuditLog
+from ..models.job import Job
+from ..models.model import Model
+from ..models.invoice import Invoice
+from ..models.security_event import SecurityEvent
+from ..models.artefact import Artefact
 from ..core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -263,12 +268,14 @@ class KVKVComplianceService:
                 }
             }
             
-            # Get related data counts (for transparency)
+            # Get related data counts (for transparency and KVKV "right to access" compliance)
             data_summary["related_data_counts"] = {
-                "jobs": db.query(db.model_class).filter_by(user_id=user_id).count() if hasattr(db, 'model_class') else 0,
-                "models": 0,  # Would be actual count
-                "invoices": 0,  # Would be actual count
-                "security_events": 0  # Would be actual count
+                "jobs": db.query(Job).filter(Job.user_id == user_id).count(),
+                "models": db.query(Model).filter(Model.user_id == user_id).count(),
+                "invoices": db.query(Invoice).filter(Invoice.user_id == user_id).count(),
+                "security_events": db.query(SecurityEvent).filter(SecurityEvent.user_id == user_id).count(),
+                "artefacts": db.query(Artefact).join(Job).filter(Job.user_id == user_id).count(),
+                "audit_logs": db.query(AuditLog).filter(AuditLog.actor_user_id == user_id).count()
             }
             
             logger.info("User data summary generated for KVKV compliance", extra={

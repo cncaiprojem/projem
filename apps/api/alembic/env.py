@@ -249,9 +249,9 @@ def run_migrations_online() -> None:
                 logging.info("Inside transaction - starting migrations")
                 context.run_migrations()
                 logging.info("Inside transaction - migration execution completed")
-                # Explicit commit to ensure changes persist
-                connection.commit()
-                logging.info("Transaction committed successfully")
+                # Note: context.begin_transaction() handles commit automatically
+                # Removing redundant connection.commit() to prevent nested transaction issues
+                logging.info("Transaction will be committed automatically by context manager")
                 
     except Exception as e:
         logging.error(f"Migration failed with error: {e}")
