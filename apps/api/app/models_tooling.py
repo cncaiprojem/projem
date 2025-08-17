@@ -6,8 +6,10 @@ from datetime import datetime
 from .models import Base
 
 
-class Tool(Base):
-    __tablename__ = "tools"
+# Note: Tool model is now defined in app.models.tool - this is legacy
+# Rename to avoid conflicts with the canonical Tool model
+class ToolLegacy(Base):
+    __tablename__ = "tools_legacy"
     id = Column(Integer, primary_key=True)
     name = Column(String(200), nullable=False)
     type = Column(String(50), nullable=False)

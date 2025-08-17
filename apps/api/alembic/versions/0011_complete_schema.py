@@ -30,6 +30,7 @@ Create Date: 2025-08-17
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from sqlalchemy import exc as sa_exc
 
 revision = "0011_complete_schema"
 down_revision = "0010_m18_multi_setup"
@@ -236,7 +237,7 @@ def upgrade():
     # Rename existing 'size' column to 'file_size' if it exists, otherwise add file_size column
     try:
         op.alter_column('artefacts', 'size', new_column_name='file_size')
-    except Exception:
+    except sa_exc.ProgrammingError:
         # If size column doesn't exist, add new file_size column
         op.add_column('artefacts', sa.Column('file_size', sa.BigInteger(), nullable=False, server_default='0'))
     
@@ -606,7 +607,7 @@ def downgrade():
         op.drop_column('users', 'tax_no')
         op.drop_column('users', 'company_name')
         op.drop_column('users', 'phone')
-    except Exception:
+    except sa_exc.ProgrammingError:
         # If columns don't exist, continue (they may have been added in a different migration)
         pass
     
@@ -614,7 +615,7 @@ def downgrade():
     try:
         op.execute("ALTER TABLE users ALTER COLUMN role TYPE VARCHAR(50)")
         op.execute("ALTER TABLE users ALTER COLUMN locale TYPE VARCHAR(10)")
-    except Exception:
+    except sa_exc.ProgrammingError:
         # If conversion fails, the columns may not exist yet
         pass
     
@@ -633,7 +634,7 @@ def downgrade():
         op.drop_column('jobs', 'task_id')
         op.drop_column('jobs', 'priority')
         op.drop_column('jobs', 'user_id')
-    except Exception:
+    except sa_exc.ProgrammingError:
         # If columns don't exist, continue
         pass
     
@@ -641,7 +642,7 @@ def downgrade():
     try:
         op.execute("ALTER TABLE jobs ALTER COLUMN type TYPE VARCHAR(50)")
         op.execute("ALTER TABLE jobs ALTER COLUMN status TYPE VARCHAR(50)")
-    except Exception:
+    except sa_exc.ProgrammingError:
         pass
     
     # Only modify artefacts table if it exists and has the columns we added
@@ -656,7 +657,7 @@ def downgrade():
         op.drop_column('artefacts', 'mime_type')
         op.drop_column('artefacts', 'file_size')
         op.drop_column('artefacts', 'name')
-    except Exception:
+    except sa_exc.ProgrammingError:
         # If columns don't exist, continue
         pass
     
@@ -675,6 +676,6 @@ def downgrade():
     for enum_type in enum_types:
         try:
             op.execute(f"DROP TYPE IF EXISTS {enum_type} CASCADE")
-        except Exception:
+        except sa_exc.ProgrammingError:
             # If type doesn't exist or can't be dropped, continue
             pass
