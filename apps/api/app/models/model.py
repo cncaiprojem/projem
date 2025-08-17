@@ -78,7 +78,7 @@ class Model(Base, TimestampMixin):
     metrics: Mapped[Optional[dict]] = mapped_column(JSONB, default={})
     
     # Legacy metadata (kept for compatibility)
-    model_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, name="metadata")
+    model_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, name="metadata", default={})
     
     # Thumbnail
     thumbnail_s3_key: Mapped[Optional[str]] = mapped_column(String(1024))
@@ -130,23 +130,23 @@ class Model(Base, TimestampMixin):
     @property
     def dimensions(self) -> Optional[dict]:
         """Extract dimensions from metadata."""
-        if not self.metadata:
+        if not self.model_metadata:
             return None
-        return self.metadata.get('dimensions')
+        return self.model_metadata.get('dimensions')
     
     @property
     def materials(self) -> Optional[list]:
         """Extract materials from metadata."""
-        if not self.metadata:
+        if not self.model_metadata:
             return None
-        return self.metadata.get('materials', [])
+        return self.model_metadata.get('materials', [])
     
     @property
     def bounding_box(self) -> Optional[dict]:
         """Extract bounding box from metadata."""
-        if not self.metadata:
+        if not self.model_metadata:
             return None
-        return self.metadata.get('bounding_box')
+        return self.model_metadata.get('bounding_box')
     
     def create_version(self, **kwargs) -> "Model":
         """Create a new version of this model."""
@@ -161,13 +161,13 @@ class Model(Base, TimestampMixin):
             file_size=kwargs['file_size'],  # Required
             sha256_hash=kwargs['sha256_hash'],  # Required
             version=self.version + 1,
-            metadata=kwargs.get('metadata', self.metadata),
+            model_metadata=kwargs.get('metadata', self.model_metadata),
             thumbnail_s3_key=kwargs.get('thumbnail_s3_key')
         )
         return new_version
     
     def update_metadata(self, key: str, value: any):
         """Update specific metadata field."""
-        if not self.metadata:
-            self.metadata = {}
-        self.metadata[key] = value
+        if not self.model_metadata:
+            self.model_metadata = {}
+        self.model_metadata[key] = value
