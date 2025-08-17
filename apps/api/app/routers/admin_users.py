@@ -41,7 +41,7 @@ logger = get_logger(__name__)
 router = APIRouter(
     prefix="/api/v1/admin",
     tags=["Admin - Kullanıcı Yönetimi"],
-    dependencies=[Depends(require_admin())],  # All endpoints require admin
+    dependencies=[Depends(require_scopes("admin:users"))],  # All endpoints require admin:users scope
     responses={
         401: {"description": "Kimlik doğrulama gerekli"},
         403: {"description": "Admin yetkisi gerekli"},
@@ -55,7 +55,7 @@ router = APIRouter(
 def list_users(
     request: Request,
     db: DBSession = Depends(get_db),
-    current_user: AuthenticatedUser = Depends(require_admin()),
+    current_user: AuthenticatedUser = Depends(require_scopes("admin:users")),
     skip: int = Query(0, ge=0, description="Atlanacak kayıt sayısı"),
     limit: int = Query(100, ge=1, le=1000, description="Maksimum kayıt sayısı"),
     role: Optional[UserRole] = Query(None, description="Role göre filtrele"),

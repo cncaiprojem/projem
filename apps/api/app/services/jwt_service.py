@@ -270,8 +270,9 @@ class JWTService:
                     "Token iptal edilmiş veya süresi dolmuş"
                 )
             
-            # Update session last used timestamp
-            session.update_last_used()
+            # Note: Session.update_last_used() removed to eliminate database side effect
+            # in verification method. Session last_used should only be updated during
+            # login/refresh operations, not during every JWT verification.
             
             elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
             

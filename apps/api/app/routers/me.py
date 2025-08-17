@@ -170,7 +170,8 @@ def update_current_user_profile(
 @router.get("/permissions", response_model=UserPermissionSummary)
 def get_current_user_permissions(
     request: Request,
-    current_user: AuthenticatedUser = Depends(require_auth())
+    current_user: AuthenticatedUser = Depends(require_auth()),
+    db: DBSession = Depends(get_db)
 ):
     """
     Get current user permission summary.
@@ -178,7 +179,7 @@ def get_current_user_permissions(
     Requires: Basic authentication (any authenticated user)
     """
     # Get permissions from RBAC service
-    permissions = rbac_business_service.get_user_permissions(None, current_user.user_id)
+    permissions = rbac_business_service.get_user_permissions(db, current_user.user_id)
     
     # Log permission access
     logger.info("User accessed own permissions", extra={

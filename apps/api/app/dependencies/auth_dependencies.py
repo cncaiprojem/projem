@@ -37,6 +37,31 @@ from ..db import get_db
 logger = get_logger(__name__)
 
 
+def _log_rbac_security_event(
+    db: DBSession,
+    request: Request,
+    current_user: AuthenticatedUser,
+    event_type: str
+) -> None:
+    """
+    Shared helper function to log RBAC security events.
+    
+    Args:
+        db: Database session for event logging
+        request: FastAPI request object for metadata extraction
+        current_user: Current authenticated user
+        event_type: Type of security event to log
+    """
+    request_meta = extract_request_metadata(request)
+    create_security_event_in_db(
+        db=db,
+        event_type=event_type,
+        user_id=current_user.user_id,
+        ip=request_meta.get('client_ip'),
+        user_agent=request_meta.get('user_agent')
+    )
+
+
 def require_auth() -> Callable:
     """
     Dependency to require basic authentication.
@@ -74,14 +99,7 @@ def require_auth() -> Callable:
             
         except RBACError:
             # Log security event for account status issues
-            request_meta = extract_request_metadata(request)
-            create_security_event_in_db(
-                db=db,
-                event_type="account_inactive",
-                user_id=current_user.user_id,
-                ip=request_meta.get('client_ip'),
-                user_agent=request_meta.get('user_agent')
-            )
+            _log_rbac_security_event(db, request, current_user, "account_inactive")
             raise
             
         except Exception as e:
@@ -147,14 +165,7 @@ def require_role(required_role: Union[UserRole, str]) -> Callable:
             
         except RBACError as e:
             # Log security event for role access denial
-            request_meta = extract_request_metadata(request)
-            create_security_event_in_db(
-                db=db,
-                event_type="role_required",
-                user_id=current_user.user_id,
-                ip=request_meta.get('client_ip'),
-                user_agent=request_meta.get('user_agent')
-            )
+            _log_rbac_security_event(db, request, current_user, "role_required")
             raise
     
     return role_dependency
@@ -207,14 +218,7 @@ def require_scopes(*required_scopes: str, require_all: bool = True) -> Callable:
             
         except RBACError as e:
             # Log security event for scope access denial
-            request_meta = extract_request_metadata(request)
-            create_security_event_in_db(
-                db=db,
-                event_type="insufficient_scopes",
-                user_id=current_user.user_id,
-                ip=request_meta.get('client_ip'),
-                user_agent=request_meta.get('user_agent')
-            )
+            _log_rbac_security_event(db, request, current_user, "insufficient_scopes")
             raise
     
     return scope_dependency
@@ -259,14 +263,7 @@ def require_admin() -> Callable:
             
         except RBACError as e:
             # Log security event for admin access denial
-            request_meta = extract_request_metadata(request)
-            create_security_event_in_db(
-                db=db,
-                event_type="admin_required",
-                user_id=current_user.user_id,
-                ip=request_meta.get('client_ip'),
-                user_agent=request_meta.get('user_agent')
-            )
+            _log_rbac_security_event(db, request, current_user, "admin_required")
             raise
     
     return admin_dependency
