@@ -1,18 +1,24 @@
 """Invoice model for billing and accounting - Task Master ERD compliant."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional, List
+from typing import TYPE_CHECKING, List, Optional
 
 from sqlalchemy import (
-    BigInteger, String, ForeignKey, Index, DateTime,
-    CheckConstraint, Enum as SQLEnum, text, func
+    BigInteger, CheckConstraint, DateTime, Enum as SQLEnum, 
+    ForeignKey, Index, String, func, text
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
-from .enums import InvoiceStatus, Currency
+from .enums import Currency, InvoiceStatus
+
+if TYPE_CHECKING:
+    from .payment import Payment
+    from .user import User
 
 
 class Invoice(Base, TimestampMixin):
@@ -96,12 +102,12 @@ class Invoice(Base, TimestampMixin):
     )
     
     # Relationships
-    user: Mapped["User"] = relationship(
+    user: Mapped[User] = relationship(
         "User", 
         back_populates="invoices",
         lazy="select"
     )
-    payments: Mapped[List["Payment"]] = relationship(
+    payments: Mapped[List[Payment]] = relationship(
         "Payment",
         back_populates="invoice",
         cascade="all, delete-orphan",
@@ -154,12 +160,12 @@ class Invoice(Base, TimestampMixin):
         return f"<Invoice(id={self.id}, number='{self.number}', amount_cents={self.amount_cents})>"
     
     def __str__(self) -> str:
-        return f"Invoice {self.number}: {self.amount_cents/100:.2f} {self.currency.value}"
+        return f"Invoice {self.number}: {self.amount_decimal:.2f} {self.currency.value}"
     
     @property
-    def amount_decimal(self) -> float:
-        """Convert cents to decimal amount for display."""
-        return self.amount_cents / 100.0
+    def amount_decimal(self) -> Decimal:
+        """Convert cents to decimal amount for display with precision."""
+        return Decimal(self.amount_cents) / Decimal('100')
     
     @property
     def is_overdue(self) -> bool:
@@ -305,7 +311,7 @@ class Invoice(Base, TimestampMixin):
             'tax_cents': tax_cents,
             'total_cents': self.amount_cents,
             'tax_rate_percent': tax_rate_percent,
-            'subtotal_decimal': subtotal_cents / 100.0,
-            'tax_decimal': tax_cents / 100.0,
-            'total_decimal': self.amount_cents / 100.0
+            'subtotal_decimal': Decimal(subtotal_cents) / Decimal('100'),
+            'tax_decimal': Decimal(tax_cents) / Decimal('100'),
+            'total_decimal': self.amount_decimal
         }

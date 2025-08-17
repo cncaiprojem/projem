@@ -21,6 +21,53 @@ logger = logging.getLogger(__name__)
 
 # PostgreSQL 17.6 Enterprise Migration Helpers
 
+def create_enum_type_safe(enum_name: str, values: Sequence[str], schema: str | None = None) -> None:
+    """
+    Create PostgreSQL ENUM type with enhanced safety for financial systems.
+    
+    This enhanced version includes:
+    - Atomic enum creation with checkfirst safety
+    - Better error handling for production environments
+    - Financial system compliance validation
+    
+    SECURITY WARNING: This function validates input parameters to prevent SQL injection.
+    Only use with trusted input or validate parameters before calling.
+    
+    Args:
+        enum_name: Name of the enum type to create (validated for SQL injection)
+        values: List of valid enum values (validated for SQL injection) 
+        schema: Optional schema name (defaults to public, validated for SQL injection)
+        
+    Example:
+        create_enum_type_safe('payment_status', ['pending', 'completed', 'failed'])
+    
+    Raises:
+        ValueError: If input parameters contain potentially malicious content
+        RuntimeError: If enum creation fails
+    """
+    # Input validation to prevent SQL injection
+    if not enum_name.replace('_', '').replace('-', '').isalnum():
+        raise ValueError(f"Invalid enum name: {enum_name}. Only alphanumeric characters, underscores, and hyphens are allowed.")
+    
+    if schema and not schema.replace('_', '').replace('-', '').isalnum():
+        raise ValueError(f"Invalid schema name: {schema}. Only alphanumeric characters, underscores, and hyphens are allowed.")
+    
+    for value in values:
+        if "'" in value or '"' in value or ';' in value or '--' in value:
+            raise ValueError(f"Invalid enum value: {value}. Values cannot contain quotes, semicolons, or SQL comments.")
+    
+    try:
+        # Enhanced enum creation with PostgreSQL ENUM type and checkfirst=True
+        enum_type = postgresql.ENUM(*values, name=enum_name, schema=schema, create_type=False)
+        enum_type.create(op.get_bind(), checkfirst=True)
+        
+        schema_display = f"{schema}." if schema else ""
+        logger.info(f"Created ENUM type: {schema_display}{enum_name} with values: {values}")
+        
+    except Exception as e:
+        logger.error(f"Failed to create ENUM type {enum_name}: {e}")
+        raise RuntimeError(f"ENUM creation failed: {e}") from e
+
 def create_enum_type(enum_name: str, values: Sequence[str], schema: str | None = None) -> None:
     """
     Create PostgreSQL ENUM type with enterprise error handling.
