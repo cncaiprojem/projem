@@ -165,10 +165,6 @@ class MagicLink(Base, TimestampMixin):
             name='ck_magic_links_invalidated_after_issued'
         ),
         CheckConstraint(
-            '(consumed_at IS NULL) != (consumed_ip_address IS NULL)',
-            name='ck_magic_links_consumption_consistency'
-        ),
-        CheckConstraint(
             "invalidation_reason IS NULL OR invalidation_reason IN ('expired', 'consumed', 'security_revoked', 'admin_revoked')",
             name='ck_magic_links_invalidation_reason_valid'
         ),
