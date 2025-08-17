@@ -97,10 +97,8 @@ class Model(Base, TimestampMixin):
         remote_side=[id],
         backref="versions"
     )
-    cam_runs: Mapped[List["CamRun"]] = relationship(
-        "CamRun",
-        back_populates="model"
-    )
+    # Note: cam_runs relationship removed due to Task Master ERD compliance
+    # CAM runs now only link to jobs, not models directly
     
     # Constraints and indexes  
     __table_args__ = (
