@@ -288,9 +288,13 @@ class AuditChainManager:
         return sanitized
 
 
-# Turkish compliance helpers
+# Turkish compliance helpers - Use validators.py as single source of truth
 class TurkishComplianceHelper:
-    """Helper utilities for Turkish regulatory compliance."""
+    """Helper utilities for Turkish regulatory compliance.
+    
+    This class delegates to the authoritative validators in models.validators
+    to maintain DRY principles and single source of truth.
+    """
     
     @staticmethod
     def validate_vkn(vkn: str) -> bool:
@@ -304,40 +308,10 @@ class TurkishComplianceHelper:
         Returns:
             True if valid VKN format
         """
-        if not vkn or not isinstance(vkn, str):
-            return False
-        
-        # Remove spaces and non-digits
-        vkn = ''.join(filter(str.isdigit, vkn))
-        
-        # VKN must be exactly 10 digits
-        if len(vkn) != 10:
-            return False
-        
-        # Cannot start with 0
-        if vkn[0] == '0':
-            return False
-        
-        # CORRECT Turkish VKN validation algorithm
+        from ..models.validators import TurkishComplianceValidator
         try:
-            digits = [int(d) for d in vkn]
-            
-            # Calculate weighted sum
-            weighted_sum = 0
-            for i in range(9):
-                weighted_sum += digits[i] * (10 - i)
-            
-            remainder = weighted_sum % 11
-            
-            # Check digit logic
-            if remainder < 2:
-                check_digit = remainder
-            else:
-                check_digit = 11 - remainder
-            
-            return check_digit == digits[9]
-            
-        except (ValueError, IndexError):
+            return TurkishComplianceValidator.validate_vkn(vkn)
+        except ValueError:
             return False
     
     @staticmethod
@@ -351,38 +325,10 @@ class TurkishComplianceHelper:
         Returns:
             True if valid TCKN format
         """
-        if not tckn or not isinstance(tckn, str):
-            return False
-        
-        # Remove spaces and non-digits
-        tckn = ''.join(filter(str.isdigit, tckn))
-        
-        # TCKN must be exactly 11 digits
-        if len(tckn) != 11:
-            return False
-        
-        # Cannot start with 0
-        if tckn[0] == '0':
-            return False
-        
-        # TCKN checksum validation algorithm
+        from ..models.validators import TurkishComplianceValidator
         try:
-            digits = [int(d) for d in tckn]
-            
-            # Calculate checksums
-            odd_sum = sum(digits[i] for i in range(0, 9, 2))  # 1st, 3rd, 5th, 7th, 9th
-            even_sum = sum(digits[i] for i in range(1, 8, 2))  # 2nd, 4th, 6th, 8th
-            
-            # Check 10th digit
-            check10 = ((odd_sum * 7) - even_sum) % 10
-            if check10 != digits[9]:
-                return False
-            
-            # Check 11th digit
-            check11 = (odd_sum + even_sum + digits[9]) % 10
-            return check11 == digits[10]
-            
-        except (ValueError, IndexError):
+            return TurkishComplianceValidator.validate_tckn(tckn)
+        except ValueError:
             return False
     
     @staticmethod
