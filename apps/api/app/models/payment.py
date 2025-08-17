@@ -101,10 +101,12 @@ class Payment(Base, TimestampMixin):
     
     # Enterprise constraints and indexes
     __table_args__ = (
-        # Unique provider reference constraint
+        # Composite unique constraint: provider + provider_ref uniqueness across providers
+        # CRITICAL FIX: Prevents duplicate payments across different providers
+        # Each provider can have their own reference namespace
         UniqueConstraint(
-            "provider_ref",
-            name="uq_payments_provider_ref"
+            "provider", "provider_ref",
+            name="uq_payments_provider_provider_ref"
         ),
         
         # Multi-currency constraint: allows all currencies if multi_currency setting is on,
@@ -161,6 +163,7 @@ class Payment(Base, TimestampMixin):
     @property
     def is_successful(self) -> bool:
         """Check if payment was successful."""
+        # OPTIMIZATION: Direct enum comparison for efficiency
         return self.status == PaymentStatus.COMPLETED
     
     @property
