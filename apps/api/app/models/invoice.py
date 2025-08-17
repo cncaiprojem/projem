@@ -149,7 +149,13 @@ class Invoice(Base, TimestampMixin):
         unit_price: Decimal,
         tax_rate: Optional[Decimal] = None
     ) -> dict:
-        """Add a line item to the invoice."""
+        """
+        Add a line item to the invoice.
+        
+        FINANCIAL PRECISION NOTE: All monetary values are stored as strings
+        in JSONB to preserve precision and prevent floating-point rounding errors.
+        This ensures accurate financial calculations for enterprise applications.
+        """
         if tax_rate is None:
             tax_rate = self.tax_rate
             
@@ -160,11 +166,11 @@ class Invoice(Base, TimestampMixin):
         item = {
             'description': description,
             'quantity': quantity,
-            'unit_price': float(unit_price),
-            'tax_rate': float(tax_rate),
-            'subtotal': float(subtotal),
-            'tax': float(tax),
-            'total': float(total)
+            'unit_price': str(unit_price),  # Store as string to preserve precision
+            'tax_rate': str(tax_rate),      # Store as string to preserve precision
+            'subtotal': str(subtotal),      # Store as string to preserve precision
+            'tax': str(tax),               # Store as string to preserve precision
+            'total': str(total)            # Store as string to preserve precision
         }
         
         if not isinstance(self.line_items, list):
@@ -182,9 +188,9 @@ class Invoice(Base, TimestampMixin):
             return
             
         self.subtotal = Decimal(
-            sum(item['subtotal'] for item in self.line_items)
+            sum(Decimal(str(item['subtotal'])) for item in self.line_items)
         )
         self.tax_amount = Decimal(
-            sum(item['tax'] for item in self.line_items)
+            sum(Decimal(str(item['tax'])) for item in self.line_items)
         )
         self.total = self.subtotal + self.tax_amount

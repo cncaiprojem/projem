@@ -2,7 +2,7 @@
 Session model for JWT refresh token management.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import String, ForeignKey, Index, DateTime
@@ -84,7 +84,7 @@ class Session(Base):
     @property
     def is_expired(self) -> bool:
         """Check if session has expired."""
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(timezone.utc) > self.expires_at
     
     @property
     def is_active(self) -> bool:

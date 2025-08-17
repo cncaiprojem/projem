@@ -2,7 +2,7 @@
 License model for subscription and feature management.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -95,7 +95,7 @@ class License(Base, TimestampMixin):
     @property
     def is_active(self) -> bool:
         """Check if license is currently active."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return (
             self.status == LicenseStatus.ACTIVE and
             self.starts_at <= now <= self.ends_at
@@ -106,7 +106,7 @@ class License(Base, TimestampMixin):
         """Calculate days remaining until expiration."""
         if not self.is_active:
             return 0
-        delta = self.ends_at - datetime.utcnow()
+        delta = self.ends_at - datetime.now(timezone.utc)
         return max(0, delta.days)
     
     def has_feature(self, feature: str) -> bool:

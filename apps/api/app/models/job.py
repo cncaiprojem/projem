@@ -2,7 +2,7 @@
 Job model for asynchronous task processing.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from sqlalchemy import (
@@ -182,7 +182,7 @@ class Job(Base, TimestampMixin):
         """Calculate job execution time."""
         if not self.started_at:
             return None
-        end_time = self.finished_at or datetime.utcnow()
+        end_time = self.finished_at or datetime.now(timezone.utc)
         return end_time - self.started_at
     
     @property
@@ -190,20 +190,20 @@ class Job(Base, TimestampMixin):
         """Check if job has timed out."""
         if not self.started_at or self.is_complete:
             return False
-        elapsed = (datetime.utcnow() - self.started_at).total_seconds()
+        elapsed = (datetime.now(timezone.utc) - self.started_at).total_seconds()
         return elapsed > self.timeout_seconds
     
     def set_running(self, task_id: str):
         """Mark job as running."""
         self.status = JobStatus.RUNNING
         self.task_id = task_id
-        self.started_at = datetime.utcnow()
+        self.started_at = datetime.now(timezone.utc)
         self.progress = 0
     
     def set_completed(self, output_data: dict = None):
         """Mark job as completed."""
         self.status = JobStatus.COMPLETED
-        self.finished_at = datetime.utcnow()
+        self.finished_at = datetime.now(timezone.utc)
         self.progress = 100
         if output_data:
             self.output_data = output_data
@@ -211,7 +211,7 @@ class Job(Base, TimestampMixin):
     def set_failed(self, error_code: str, error_message: str):
         """Mark job as failed."""
         self.status = JobStatus.FAILED
-        self.finished_at = datetime.utcnow()
+        self.finished_at = datetime.now(timezone.utc)
         self.error_code = error_code
         self.error_message = error_message
         self.retry_count += 1
@@ -219,7 +219,7 @@ class Job(Base, TimestampMixin):
     def set_cancelled(self):
         """Mark job as cancelled."""
         self.status = JobStatus.CANCELLED
-        self.finished_at = datetime.utcnow()
+        self.finished_at = datetime.now(timezone.utc)
     
     def update_progress(self, progress: int, message: str = None):
         """Update job progress."""
@@ -228,4 +228,4 @@ class Job(Base, TimestampMixin):
             self.metrics = {}
         if message:
             self.metrics['last_progress_message'] = message
-            self.metrics['last_progress_update'] = datetime.utcnow().isoformat()
+            self.metrics['last_progress_update'] = datetime.now(timezone.utc).isoformat()

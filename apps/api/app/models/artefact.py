@@ -2,7 +2,7 @@
 Artefact model for generated files and outputs.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -60,8 +60,8 @@ class Artefact(Base, TimestampMixin):
         index=True
     )
     
-    # Additional metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB)
+    # Additional file metadata (renamed to avoid SQLAlchemy conflict)
+    file_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, name="metadata")
     
     # Expiration for temporary files
     expires_at: Mapped[Optional[datetime]] = mapped_column(
@@ -88,7 +88,7 @@ class Artefact(Base, TimestampMixin):
         """Check if artifact has expired."""
         if not self.expires_at:
             return False
-        return datetime.utcnow() > self.expires_at
+        return datetime.now(timezone.utc) > self.expires_at
     
     @property
     def file_extension(self) -> str:

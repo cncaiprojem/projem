@@ -74,7 +74,7 @@ class Model(Base, TimestampMixin):
     )
     
     # Model metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(JSONB)
+    model_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, name="metadata")
     
     # Thumbnail
     thumbnail_s3_key: Mapped[Optional[str]] = mapped_column(String(1024))
