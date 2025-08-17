@@ -5,13 +5,13 @@ Task 2.10: App-layer helper functions for banking-level precision
 This package provides helper functions with clear separation of concerns:
 
 AUDIT CHAIN HELPERS (audit_chain.py):
-- AuditChainHelper: Enterprise audit chain management with cryptographic integrity
+- AuditChainHelper: High-level database operations and business logic for audit trail management
 - AuditChainJSONHelper: Canonical JSON operations for audit chain hash consistency
 - TurkishComplianceAuditHelper: Turkish regulatory compliance in audit context (KVKV/GDPR/KDV)
 
 CANONICAL JSON HELPERS (canonical_json.py):
 - CanonicalJSONEncoder: Ultra enterprise canonical JSON encoder for audit chains
-- AuditChainManager: Audit chain manager with cryptographic integrity
+- AuditChainManager: Low-level hash chain operations and cryptographic integrity validation
 - TurkishComplianceHelper: Turkish compliance validation delegating to validators.py
 
 SINGLE SOURCE OF TRUTH:
