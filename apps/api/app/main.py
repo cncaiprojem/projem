@@ -12,6 +12,7 @@ from .sentry_setup import setup_sentry
 from .logging_setup import setup_logging
 from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict
 from .middleware.limiter import RateLimitMiddleware
+from .services.rate_limiting_service import rate_limiting_service
 from .routers import auth as auth_router
 from .routers import auth_jwt as auth_jwt_router
 from .routers import auth_enterprise as auth_enterprise_router
@@ -74,6 +75,19 @@ async def lifespan(app: FastAPI):
         # Continue without Redis - some features may be unavailable
         app.state.redis = None
     
+    try:
+        # Initialize enterprise rate limiting
+        await rate_limiting_service.initialize()
+        logger.info("Enterprise rate limiting initialized successfully", extra={
+            'operation': 'rate_limiting_startup'
+        })
+    except Exception as e:
+        logger.error("Failed to initialize rate limiting", exc_info=True, extra={
+            'operation': 'rate_limiting_startup_failed',
+            'error_type': type(e).__name__
+        })
+        # Continue without rate limiting - service will fail-open
+    
     logger.info("Application startup completed", extra={
         'operation': 'application_startup_complete'
     })
@@ -88,6 +102,18 @@ async def lifespan(app: FastAPI):
     # Close Redis connection
     if hasattr(app.state, 'redis'):
         await close_redis_client(app.state.redis)
+    
+    # Close rate limiting service
+    try:
+        await rate_limiting_service.close()
+        logger.info("Enterprise rate limiting closed successfully", extra={
+            'operation': 'rate_limiting_shutdown'
+        })
+    except Exception as e:
+        logger.error("Failed to close rate limiting service", exc_info=True, extra={
+            'operation': 'rate_limiting_shutdown_failed',
+            'error_type': type(e).__name__
+        })
     
     logger.info("Application shutdown completed", extra={
         'operation': 'application_shutdown_complete'

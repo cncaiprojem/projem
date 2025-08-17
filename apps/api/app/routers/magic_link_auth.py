@@ -31,6 +31,7 @@ from ..services.magic_link_service import magic_link_service, MagicLinkError
 from ..services.token_service import token_service
 from ..core.logging import get_logger
 from ..middleware.auth_limiter import limiter
+from ..middleware.enterprise_rate_limiter import magic_link_rate_limit
 
 logger = get_logger(__name__)
 
@@ -101,11 +102,11 @@ def create_magic_link_error_response(error: MagicLinkError) -> JSONResponse:
     description="Magic link oluşturur ve e-posta gönderir. Güvenlik için her zaman başarılı yanıt verir.",
     response_description="Magic link talep sonucu"
 )
-@limiter.limit("5/hour")  # Rate limit: 5 magic link requests per hour
 async def request_magic_link(
     request: Request,
     magic_link_data: MagicLinkRequestRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    _rate_limit_check: None = Depends(magic_link_rate_limit)
 ) -> MagicLinkRequestResponse:
     """
     Magic link talebi oluşturur.
