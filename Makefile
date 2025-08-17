@@ -23,7 +23,7 @@ DC ?= docker compose -f infra/compose/docker-compose.dev.yml
 
 .DEFAULT_GOAL := help
 
-.PHONY: help init dev dev-full stop logs migrate seed test lint fmt build clean gen-docs run-freecad-smoke run-s3-smoke seed-basics pre-commit-install pre-commit-run pre-commit-check rabbitmq-setup rabbitmq-status dlq-status rabbitmq-ui test-celery-rabbitmq
+.PHONY: help init dev dev-full stop logs migrate seed test lint fmt build clean gen-docs run-freecad-smoke run-s3-smoke seed-basics pre-commit-install pre-commit-run pre-commit-check rabbitmq-setup rabbitmq-status dlq-status rabbitmq-ui test-celery-rabbitmq test-migration-integrity test-migration-safety test-constraints test-audit-integrity test-performance test-turkish-compliance
 
 help:
 	@echo.
@@ -57,6 +57,14 @@ help:
 	@echo   make pre-commit-install - Install pre-commit hooks
 	@echo   make pre-commit-run     - Run pre-commit on all files
 	@echo   make pre-commit-check   - Check pre-commit configuration
+	@echo.
+	@echo Migration and Integrity Tests (Task 2.9):
+	@echo   make test-migration-integrity - Run complete migration integrity test suite
+	@echo   make test-migration-safety    - Run migration upgrade/downgrade safety tests
+	@echo   make test-constraints         - Run database constraint validation tests
+	@echo   make test-audit-integrity     - Run audit chain cryptographic integrity tests
+	@echo   make test-performance         - Run query performance and index usage tests
+	@echo   make test-turkish-compliance  - Run Turkish KVKV/GDPR compliance tests
 	@echo.
 
 init:
@@ -209,3 +217,31 @@ endif
 test-celery-rabbitmq:
 	@echo Testing Celery RabbitMQ configuration...
 	$(DC) exec api python -m app.scripts.test_celery_rabbitmq
+
+# Migration and Integrity Tests (Task 2.9) - Banking-Level Precision
+# Comprehensive test suite for migration safety, database integrity,
+# audit chain security, and performance validation
+
+test-migration-integrity:
+	@echo Running complete migration integrity test suite (Task 2.9)...
+	$(DC) exec api python scripts/run_migration_integrity_tests.py --suite all --verbose --report --safety-check
+
+test-migration-safety:
+	@echo Running migration upgrade/downgrade safety tests...
+	$(DC) exec api python scripts/run_migration_integrity_tests.py --suite migration --verbose --safety-check
+
+test-constraints:
+	@echo Running database constraint validation tests...
+	$(DC) exec api python scripts/run_migration_integrity_tests.py --suite constraints --verbose
+
+test-audit-integrity:
+	@echo Running audit chain cryptographic integrity tests...
+	$(DC) exec api python scripts/run_migration_integrity_tests.py --suite audit --verbose
+
+test-performance:
+	@echo Running query performance and index usage tests...
+	$(DC) exec api python scripts/run_migration_integrity_tests.py --suite performance --verbose --performance
+
+test-turkish-compliance:
+	@echo Running Turkish KVKV/GDPR compliance tests...
+	$(DC) exec api python scripts/run_migration_integrity_tests.py --compliance --verbose

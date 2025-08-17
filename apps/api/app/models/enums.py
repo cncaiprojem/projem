@@ -172,6 +172,7 @@ class MachineType(str, enum.Enum):
     EDM_SINKER = "edm_sinker"
     GRINDER = "grinder"
     SWISS = "swiss"
+    PRINTER_3D = "3d_printer"
 
 
 class MaterialCategory(str, enum.Enum):

@@ -123,7 +123,7 @@ def validate_migration_file() -> Dict[str, Any]:
     
     # Check JSONB GIN indexes
     jsonb_tables = ['users', 'jobs', 'licenses', 'invoices', 'payments', 'artefacts', 'audit_logs']
-    jsonb_found = sum(1 for table in jsonb_tables if f"create_gin_index('{table}'" in content or f'create_gin_index("{table}"' in content)
+    jsonb_found = sum(1 for table in jsonb_tables if f"gin_{table}_" in content and "postgresql_using='gin'" in content)
     
     if jsonb_found >= 5:
         validation_results['implements_jsonb_gin_indexes'] = True
@@ -311,7 +311,7 @@ def validate_performance_optimization() -> Dict[str, Any]:
             perf_results['summary'].append("[OK] Partial indexes for filtered queries")
         
         # Check JSONB optimization
-        if 'create_gin_index' in content and 'fastupdate' in content:
+        if 'postgresql_using=\'gin\'' in content and 'gin_' in content:
             perf_results['has_jsonb_optimization'] = True
             perf_results['summary'].append("[OK] JSONB GIN indexes with PostgreSQL 17.6 optimizations")
         
