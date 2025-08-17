@@ -9,6 +9,7 @@ from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict
 from .middleware.limiter import RateLimitMiddleware
 from .routers import auth as auth_router
 from .routers import auth_jwt as auth_jwt_router
+from .routers import auth_enterprise as auth_enterprise_router
 from .routers import health as health_router
 from .routers import freecad as freecad_router
 from .routers import assemblies as assemblies_router
@@ -17,7 +18,9 @@ from .routers import cam as cam_router
 from .routers import jobs as jobs_router
 from .routers import admin_dlq as admin_dlq_router
 from .routers import admin_unmask as admin_unmask_router
-# from .routers import designs as designs_router  # Temporarily disabled
+from .routers import designs as designs_router  # Re-enabled with RBAC protection
+from .routers import admin_users as admin_users_router  # New admin router
+from .routers import me as me_router  # New user profile router
 # Legacy routers disabled - not part of Task Master ERD
 # from .routers import projects as projects_router
 # from .routers import design as design_router
@@ -51,6 +54,7 @@ setup_celery_instrumentation()
 app.include_router(health_router.router)
 app.include_router(auth_router.router)
 app.include_router(auth_jwt_router.router)
+app.include_router(auth_enterprise_router.router)
 app.include_router(freecad_router.router)
 app.include_router(assemblies_router.router)
 app.include_router(cam_router.router)
@@ -58,10 +62,12 @@ app.include_router(cam_router.router)
 app.include_router(jobs_router.router)
 app.include_router(admin_dlq_router.router)
 app.include_router(admin_unmask_router.router)
+app.include_router(designs_router.router)  # Re-enabled with RBAC protection
+app.include_router(admin_users_router.router)  # New admin router with RBAC
+app.include_router(me_router.router)  # New user profile router with RBAC
 if _sim_available and sim_router is not None:
     app.include_router(sim_router.router)
 app.include_router(events_router)
-# app.include_router(designs_router.router)  # Temporarily disabled
 # Legacy routers disabled - not part of Task Master ERD
 # app.include_router(projects_router.router)
 # app.include_router(design_router.router)
