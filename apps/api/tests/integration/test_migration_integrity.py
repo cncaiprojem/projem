@@ -34,7 +34,13 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core.database import get_db
+# Add the API directory to Python path for imports
+import sys
+import os
+api_dir = os.path.dirname(os.path.dirname(__file__))
+if api_dir not in sys.path:
+    sys.path.insert(0, api_dir)
+
 from app.models import (
     Base, User, Job, Invoice, Payment, AuditLog, SecurityEvent,
     License, Machine, Material, Tool, Artefact, CamRun, SimRun
@@ -43,6 +49,9 @@ from app.models.enums import (
     JobStatus, PaymentStatus, UserRole, MachineType, 
     MaterialType, AuditScope, SecurityEventType
 )
+
+# Import migration_session fixture from test config
+from tests.test_migration_config import migration_session
 
 
 class TestMigrationSafety:
@@ -242,16 +251,7 @@ class TestMigrationSafety:
 class TestDatabaseConstraints:
     """Test database constraints with ultra enterprise precision."""
     
-    @pytest.fixture
-    def test_session(self) -> Session:
-        """Create test session for constraint testing."""
-        from app.core.database import SessionLocal
-        session = SessionLocal()
-        yield session
-        session.rollback()
-        session.close()
-    
-    def test_unique_constraints_enforcement(self, test_session: Session):
+    def test_unique_constraints_enforcement(self, migration_session: Session):
         """Test unique constraint enforcement - Banking Level Precision."""
         print("\n🔒 Testing unique constraint enforcement")
         
@@ -262,8 +262,8 @@ class TestDatabaseConstraints:
             full_name="User One",
             role=UserRole.USER
         )
-        test_session.add(user1)
-        test_session.commit()
+        migration_session.add(user1)
+        migration_session.commit()
         
         # Attempt duplicate email
         user2 = User(
@@ -272,11 +272,11 @@ class TestDatabaseConstraints:
             full_name="User Two", 
             role=UserRole.USER
         )
-        test_session.add(user2)
+        migration_session.add(user2)
         
         with pytest.raises(IntegrityError, match="duplicate key value violates unique constraint"):
-            test_session.commit()
-        test_session.rollback()
+            migration_session.commit()
+        migration_session.rollback()
         
         print("   ✅ users.email unique constraint enforced")
         
@@ -287,15 +287,15 @@ class TestDatabaseConstraints:
             full_name="User Three",
             role=UserRole.USER
         )
-        test_session.add(user3)
+        migration_session.add(user3)
         
         with pytest.raises(IntegrityError, match="duplicate key value violates unique constraint"):
-            test_session.commit()
-        test_session.rollback()
+            migration_session.commit()
+        migration_session.rollback()
         
         print("   ✅ users.phone unique constraint enforced")
     
-    def test_foreign_key_constraints(self, test_session: Session):
+    def test_foreign_key_constraints(self, migration_session: Session):
         """Test foreign key constraint behavior - CASCADE and RESTRICT."""
         print("\n🔗 Testing foreign key constraint behavior")
         
@@ -306,8 +306,8 @@ class TestDatabaseConstraints:
             full_name="FK Test User", 
             role=UserRole.USER
         )
-        test_session.add(user)
-        test_session.commit()
+        migration_session.add(user)
+        migration_session.commit()
         
         # Create job that references user
         job = Job(
@@ -317,14 +317,14 @@ class TestDatabaseConstraints:
             model_type="bracket",
             prompt="Test bracket for FK testing"
         )
-        test_session.add(job)
-        test_session.commit()
+        migration_session.add(job)
+        migration_session.commit()
         
         # Try to delete user with existing job - should be RESTRICTED
-        test_session.delete(user)
+        migration_session.delete(user)
         with pytest.raises(IntegrityError, match="violates foreign key constraint"):
-            test_session.commit()
-        test_session.rollback()
+            migration_session.commit()
+        migration_session.rollback()
         
         print("   ✅ User deletion RESTRICTED when jobs exist")
         
@@ -335,22 +335,22 @@ class TestDatabaseConstraints:
             content_type="application/step",
             size_bytes=1024
         )
-        test_session.add(artefact)
-        test_session.commit()
+        migration_session.add(artefact)
+        migration_session.commit()
         
-        artefact_count_before = test_session.query(Artefact).filter_by(job_id=job.id).count()
+        artefact_count_before = migration_session.query(Artefact).filter_by(job_id=job.id).count()
         assert artefact_count_before == 1
         
         # Delete job - should CASCADE to artefacts
-        test_session.delete(job)
-        test_session.commit()
+        migration_session.delete(job)
+        migration_session.commit()
         
-        artefact_count_after = test_session.query(Artefact).filter_by(job_id=job.id).count()
+        artefact_count_after = migration_session.query(Artefact).filter_by(job_id=job.id).count()
         assert artefact_count_after == 0
         
         print("   ✅ Job deletion CASCADES to artefacts")
     
-    def test_check_constraints_financial_precision(self, test_session: Session):
+    def test_check_constraints_financial_precision(self, migration_session: Session):
         """Test check constraints for financial precision - Turkish Compliance."""
         print("\n💰 Testing financial check constraints")
         
@@ -361,16 +361,16 @@ class TestDatabaseConstraints:
             full_name="Financial Test User",
             role=UserRole.USER
         )
-        test_session.add(user)
-        test_session.commit()
+        migration_session.add(user)
+        migration_session.commit()
         
         license = License(
             user_id=user.id,
             license_type="professional",
             status="active"
         )
-        test_session.add(license)
-        test_session.commit()
+        migration_session.add(license)
+        migration_session.commit()
         
         # Test non-negative amount constraints on invoice
         invoice = Invoice(
@@ -380,11 +380,11 @@ class TestDatabaseConstraints:
             currency="TRY",
             status="pending"
         )
-        test_session.add(invoice)
+        migration_session.add(invoice)
         
         with pytest.raises(IntegrityError, match="violates check constraint"):
-            test_session.commit()
-        test_session.rollback()
+            migration_session.commit()
+        migration_session.rollback()
         
         print("   ✅ Non-negative amount constraint enforced on invoices")
         
@@ -396,12 +396,12 @@ class TestDatabaseConstraints:
             currency="TRY",
             status="pending"
         )
-        test_session.add(valid_invoice)
-        test_session.commit()
+        migration_session.add(valid_invoice)
+        migration_session.commit()
         
         print("   ✅ Valid invoice with non-negative amount accepted")
     
-    def test_currency_validation_constraints(self, test_session: Session):
+    def test_currency_validation_constraints(self, migration_session: Session):
         """Test currency validation with Turkish KDV compliance."""
         print("\n🏦 Testing currency validation constraints")
         
@@ -412,16 +412,16 @@ class TestDatabaseConstraints:
             full_name="Currency Test User",
             role=UserRole.USER
         )
-        test_session.add(user)
-        test_session.commit()
+        migration_session.add(user)
+        migration_session.commit()
         
         license = License(
             user_id=user.id,
             license_type="professional", 
             status="active"
         )
-        test_session.add(license)
-        test_session.commit()
+        migration_session.add(license)
+        migration_session.commit()
         
         # Test valid Turkish Lira invoice
         invoice_try = Invoice(
@@ -431,8 +431,8 @@ class TestDatabaseConstraints:
             currency="TRY", 
             status="pending"
         )
-        test_session.add(invoice_try)
-        test_session.commit()
+        migration_session.add(invoice_try)
+        migration_session.commit()
         
         print("   ✅ TRY currency validation passed")
         
@@ -444,8 +444,8 @@ class TestDatabaseConstraints:
             currency="USD",
             status="pending"
         )
-        test_session.add(invoice_usd)
-        test_session.commit()
+        migration_session.add(invoice_usd)
+        migration_session.commit()
         
         print("   ✅ USD currency validation passed")
         
@@ -457,11 +457,11 @@ class TestDatabaseConstraints:
             currency="INVALID",  # Invalid currency
             status="pending"
         )
-        test_session.add(invoice_invalid)
+        migration_session.add(invoice_invalid)
         
         with pytest.raises(IntegrityError, match="violates check constraint"):
-            test_session.commit()
-        test_session.rollback()
+            migration_session.commit()
+        migration_session.rollback()
         
         print("   ✅ Invalid currency code rejected")
 
@@ -469,16 +469,7 @@ class TestDatabaseConstraints:
 class TestAuditChainIntegrity:
     """Test audit chain cryptographic integrity - Banking Level Security."""
     
-    @pytest.fixture
-    def test_session(self) -> Session:
-        """Create test session for audit testing."""
-        from app.core.database import SessionLocal
-        session = SessionLocal()
-        yield session
-        session.rollback()
-        session.close()
-    
-    def test_audit_chain_hash_determinism(self, test_session: Session):
+    def test_audit_chain_hash_determinism(self, migration_session: Session):
         """Test audit chain hash determinism - Cryptographic Precision."""
         print("\n🔐 Testing audit chain hash determinism")
         
@@ -489,8 +480,8 @@ class TestAuditChainIntegrity:
             full_name="Audit Test User",
             role=UserRole.USER
         )
-        test_session.add(user)
-        test_session.commit()
+        migration_session.add(user)
+        migration_session.commit()
         
         # Insert first audit log (genesis)
         audit_log_1 = AuditLog(
@@ -502,8 +493,8 @@ class TestAuditChainIntegrity:
             prev_chain_hash="0" * 64,  # Genesis hash
             chain_hash="calculated_hash_1"  # Will be calculated by trigger
         )
-        test_session.add(audit_log_1)
-        test_session.commit()
+        migration_session.add(audit_log_1)
+        migration_session.commit()
         
         # Insert second audit log within same transaction
         audit_log_2 = AuditLog(
@@ -515,11 +506,11 @@ class TestAuditChainIntegrity:
             prev_chain_hash=audit_log_1.chain_hash,
             chain_hash="calculated_hash_2"  # Will be calculated by trigger
         )
-        test_session.add(audit_log_2)
-        test_session.commit()
+        migration_session.add(audit_log_2)
+        migration_session.commit()
         
         # Verify hash chain integrity
-        audit_logs = test_session.query(AuditLog).filter_by(scope_id=user.id).order_by(AuditLog.id).all()
+        audit_logs = migration_session.query(AuditLog).filter_by(scope_id=user.id).order_by(AuditLog.id).all()
         
         assert len(audit_logs) == 2
         assert audit_logs[0].prev_chain_hash == "0" * 64  # Genesis
@@ -531,7 +522,7 @@ class TestAuditChainIntegrity:
         print(f"   ✅ Audit log 2 hash: {audit_logs[1].chain_hash[:16]}...")
         print("   ✅ Hash chain integrity verified")
     
-    def test_audit_chain_canonical_json(self, test_session: Session):
+    def test_audit_chain_canonical_json(self, migration_session: Session):
         """Test canonical JSON serialization for audit payloads."""
         print("\n📋 Testing canonical JSON serialization")
         
@@ -542,8 +533,8 @@ class TestAuditChainIntegrity:
             full_name="Canonical Test User",
             role=UserRole.USER
         )
-        test_session.add(user)
-        test_session.commit()
+        migration_session.add(user)
+        migration_session.commit()
         
         # Test payload with consistent ordering
         payload_1 = {"b": 2, "a": 1, "c": 3}
@@ -558,8 +549,8 @@ class TestAuditChainIntegrity:
             prev_chain_hash="0" * 64,
             chain_hash="hash_1"
         )
-        test_session.add(audit_1)
-        test_session.commit()
+        migration_session.add(audit_1)
+        migration_session.commit()
         
         audit_2 = AuditLog(
             scope_type=AuditScope.USER, 
@@ -570,13 +561,13 @@ class TestAuditChainIntegrity:
             prev_chain_hash="0" * 64,
             chain_hash="hash_2"
         )
-        test_session.add(audit_2)
-        test_session.commit()
+        migration_session.add(audit_2)
+        migration_session.commit()
         
         # Verify canonical JSON produces consistent results
         # Note: The actual hash calculation is done by database triggers
         # Here we verify the payloads are stored correctly
-        stored_payloads = test_session.query(AuditLog.payload).filter(
+        stored_payloads = migration_session.query(AuditLog.payload).filter(
             AuditLog.scope_id == user.id,
             AuditLog.event_type.in_(["TEST_1", "TEST_2"])
         ).all()
@@ -584,7 +575,7 @@ class TestAuditChainIntegrity:
         assert len(stored_payloads) == 2
         print("   ✅ Canonical JSON payloads stored correctly")
     
-    def test_turkish_compliance_audit_trail(self, test_session: Session):
+    def test_turkish_compliance_audit_trail(self, migration_session: Session):
         """Test Turkish GDPR/KVKV compliance audit trail requirements."""
         print("\n🇹🇷 Testing Turkish compliance audit trail")
         
@@ -595,8 +586,8 @@ class TestAuditChainIntegrity:
             full_name="KVKV Test User",
             role=UserRole.USER
         )
-        test_session.add(user)
-        test_session.commit()
+        migration_session.add(user)
+        migration_session.commit()
         
         # Create compliance-related audit events
         compliance_events = [
@@ -640,13 +631,13 @@ class TestAuditChainIntegrity:
                 prev_chain_hash=prev_hash,
                 chain_hash=f"compliance_hash_{i+1}"
             )
-            test_session.add(audit_log)
-            test_session.commit()
+            migration_session.add(audit_log)
+            migration_session.commit()
             
             prev_hash = audit_log.chain_hash
         
         # Verify compliance audit trail
-        compliance_logs = test_session.query(AuditLog).filter_by(scope_id=user.id).order_by(AuditLog.id).all()
+        compliance_logs = migration_session.query(AuditLog).filter_by(scope_id=user.id).order_by(AuditLog.id).all()
         
         assert len(compliance_logs) == 3
         
@@ -664,21 +655,12 @@ class TestAuditChainIntegrity:
 class TestQueryPerformance:
     """Test query performance and index usage - Enterprise Scale."""
     
-    @pytest.fixture
-    def test_session(self) -> Session:
-        """Create test session for performance testing."""
-        from app.core.database import SessionLocal
-        session = SessionLocal()
-        yield session
-        session.rollback()
-        session.close()
-    
-    def test_index_usage_verification(self, test_session: Session):
+    def test_index_usage_verification(self, migration_session: Session):
         """Test index usage on critical queries - Banking Performance."""
         print("\n⚡ Testing index usage verification")
         
         # Test jobs status+created_at index usage
-        explain_result = test_session.execute(text("""
+        explain_result = migration_session.execute(text("""
             EXPLAIN (ANALYZE, BUFFERS) 
             SELECT id, status, created_at 
             FROM jobs 
@@ -696,7 +678,7 @@ class TestQueryPerformance:
         print("   ✅ jobs (status, created_at) index usage verified")
         
         # Test licenses status+ends_at index usage
-        explain_result = test_session.execute(text("""
+        explain_result = migration_session.execute(text("""
             EXPLAIN (ANALYZE, BUFFERS)
             SELECT id, status, ends_at
             FROM licenses 
@@ -712,7 +694,7 @@ class TestQueryPerformance:
         
         print("   ✅ Critical query index usage verified")
     
-    def test_jsonb_gin_index_performance(self, test_session: Session):
+    def test_jsonb_gin_index_performance(self, migration_session: Session):
         """Test JSONB GIN index probe performance."""
         print("\n🔍 Testing JSONB GIN index performance")
         
@@ -723,8 +705,8 @@ class TestQueryPerformance:
             full_name="GIN Test User", 
             role=UserRole.USER
         )
-        test_session.add(user)
-        test_session.commit()
+        migration_session.add(user)
+        migration_session.commit()
         
         # Create audit log with complex JSONB payload
         complex_payload = {
@@ -751,11 +733,11 @@ class TestQueryPerformance:
             prev_chain_hash="0" * 64,
             chain_hash="gin_test_hash"
         )
-        test_session.add(audit_log)
-        test_session.commit()
+        migration_session.add(audit_log)
+        migration_session.commit()
         
         # Test JSONB GIN index usage for complex queries
-        explain_result = test_session.execute(text("""
+        explain_result = migration_session.execute(text("""
             EXPLAIN (ANALYZE, BUFFERS)
             SELECT id, payload
             FROM audit_logs
@@ -768,7 +750,7 @@ class TestQueryPerformance:
         print("   ✅ JSONB GIN index query structure verified")
         
         # Test complex JSONB path queries
-        result = test_session.execute(text("""
+        result = migration_session.execute(text("""
             SELECT payload->'parameters'->>'model_type' as model_type
             FROM audit_logs 
             WHERE payload->'parameters'->>'material' = 'steel'
@@ -780,7 +762,7 @@ class TestQueryPerformance:
         print("   ✅ Complex JSONB path queries functional")
         print("   ✅ GIN index probe performance verified")
     
-    def test_performance_baseline_metrics(self, test_session: Session):
+    def test_performance_baseline_metrics(self, migration_session: Session):
         """Establish performance baseline metrics for Turkish manufacturing workloads."""
         print("\n📊 Testing performance baseline metrics")
         
@@ -791,8 +773,8 @@ class TestQueryPerformance:
             full_name="Performance Test User",
             role=UserRole.USER
         )
-        test_session.add(user)
-        test_session.commit()
+        migration_session.add(user)
+        migration_session.commit()
         
         # Create multiple jobs to test batch query performance
         jobs = []
@@ -806,14 +788,14 @@ class TestQueryPerformance:
             )
             jobs.append(job)
         
-        test_session.add_all(jobs)
-        test_session.commit()
+        migration_session.add_all(jobs)
+        migration_session.commit()
         
         # Test batch query performance
         import time
         
         start_time = time.time()
-        result = test_session.query(Job).filter(
+        result = migration_session.query(Job).filter(
             Job.user_id == user.id,
             Job.status == JobStatus.PENDING
         ).order_by(Job.created_at.desc()).limit(5).all()
@@ -826,7 +808,7 @@ class TestQueryPerformance:
         
         # Test pagination performance
         start_time = time.time()
-        paginated_result = test_session.query(Job).filter(
+        paginated_result = migration_session.query(Job).filter(
             Job.user_id == user.id
         ).offset(0).limit(5).all()
         pagination_time = time.time() - start_time
