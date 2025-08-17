@@ -338,7 +338,7 @@
             "description": "Create sessions persistence for refresh rotation with hashed refresh_token, device metadata, and revocation fields.",
             "dependencies": [],
             "details": "Design (DB/model):\n- Table sessions: id (uuid), user_id (fk users), refresh_token_hash (unique, sha256/HMAC), device_fingerprint (string), ip, user_agent, created_at, last_used_at, expires_at (7d), revoked_at, rotated_from (fk sessions.id), reason.\n- Indexes: user_id, (user_id, revoked_at IS NULL), expires_at.\n- Store only hash of refresh token; never store plaintext.\nAPIs: N/A (internal usage by auth flows).\nCookies: N/A.\nErrors: N/A.\nAcceptance:\n- Unique constraint enforced on refresh_token_hash; revoked_at prevents reuse.\n- Rotation chain (rotated_from) preserved; device_fingerprint stored when provided.\nLogging:\n- audit_logs: session_created, session_rotated, session_revoked (with session_id, masked ua/ip).\n- security_events: refresh_reuse_detected, anomalous_device_detected.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T16:08:15.073Z",
+      "updated": "2025-08-17T16:36:23.352Z",
       "description": "Tasks for master context"
     }
   }
