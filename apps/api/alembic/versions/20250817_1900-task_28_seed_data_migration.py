@@ -9,7 +9,7 @@ Revises: 20250817_1800-task_27_global_constraints_performance_indexes
 Create Date: 2025-08-17 19:00:00.000000
 
 GEMINI CODE ASSIST IMPROVEMENTS APPLIED:
-- FIXED: Tools table natural key now uses (name, manufacturer, part_number) for proper uniqueness
+- FIXED: Tools table natural key now uses (manufacturer, part_number) for robust uniqueness
 - ENHANCED: Strict validation with fail-fast migration on invalid data (no more warnings)
 - STRENGTHENED: Pre-insertion data validation with comprehensive field checks
 - IMPROVED: Minimum data count validation to ensure seed data actually inserted
@@ -65,13 +65,13 @@ def upgrade():
     except Exception:
         print("   ✓ materials(category, name) unique constraint already exists")
     
-    # Add unique constraint for tool name + manufacturer + part_number (natural key)
-    # Part number is essential for tools as same manufacturer can have multiple versions
+    # Add unique constraint for tool manufacturer + part_number (natural key)
+    # Part number is essential for tools as same manufacturer can have multiple tools with same name but different part numbers
     try:
-        op.create_unique_constraint('uq_tools_name_manufacturer_part', 'tools', ['name', 'manufacturer', 'part_number'])
-        print("   ✅ Added unique constraint: tools(name, manufacturer, part_number)")
+        op.create_unique_constraint('uq_tools_manufacturer_part', 'tools', ['manufacturer', 'part_number'])
+        print("   ✅ Added unique constraint: tools(manufacturer, part_number)")
     except Exception:
-        print("   ✓ tools(name, manufacturer, part_number) unique constraint already exists")
+        print("   ✓ tools(manufacturer, part_number) unique constraint already exists")
     
     # PHASE 1: Seed Essential Machines
     print("\n🏭 PHASE 1: Seeding Essential CNC Machines")
@@ -576,7 +576,7 @@ def upgrade():
     
     for tool in tools_data:
         try:
-            # Use (name, manufacturer, part_number) as natural key for idempotency
+            # Use (manufacturer, part_number) as natural key for idempotency
             insert_sql = sa.text("""
                 INSERT INTO tools (
                     name, type, material, coating, manufacturer, part_number,
@@ -593,7 +593,7 @@ def upgrade():
                     :cost, :quantity_available, :minimum_stock, :location,
                     :is_active, NOW(), NOW()
                 )
-                ON CONFLICT (name, manufacturer, part_number) DO NOTHING
+                ON CONFLICT (manufacturer, part_number) DO NOTHING
             """)
             
             connection.execute(insert_sql, {
@@ -671,9 +671,7 @@ def upgrade():
     
     if invalid_machines:
         machine_details = [f"{name} (type: {type})" for name, type in invalid_machines]
-        error_msg = f"MIGRATION FAILED: Found {len(invalid_machines)} machines with invalid types: {', '.join(machine_details)}"
-        print(f"   ❌ {error_msg}")
-        raise ValueError(error_msg)
+        raise ValueError(f"Found {len(invalid_machines)} machines with invalid types: {', '.join(machine_details)}")
     else:
         print("   ✅ All machine types are valid")
     
@@ -687,9 +685,7 @@ def upgrade():
     
     if invalid_materials:
         material_details = [f"{name} (category: {category})" for name, category in invalid_materials]
-        error_msg = f"MIGRATION FAILED: Found {len(invalid_materials)} materials with invalid categories: {', '.join(material_details)}"
-        print(f"   ❌ {error_msg}")
-        raise ValueError(error_msg)
+        raise ValueError(f"Found {len(invalid_materials)} materials with invalid categories: {', '.join(material_details)}")
     else:
         print("   ✅ All material categories are valid")
     
@@ -705,9 +701,7 @@ def upgrade():
     
     if invalid_tools:
         tool_details = [f"{name} (type: {type}, material: {material})" for name, type, material in invalid_tools]
-        error_msg = f"MIGRATION FAILED: Found {len(invalid_tools)} tools with invalid types or materials: {', '.join(tool_details)}"
-        print(f"   ❌ {error_msg}")
-        raise ValueError(error_msg)
+        raise ValueError(f"Found {len(invalid_tools)} tools with invalid types or materials: {', '.join(tool_details)}")
     else:
         print("   ✅ All tool types and materials are valid")
     
@@ -721,7 +715,7 @@ def upgrade():
     print(f"   🔧 Tools: {tool_count} total (6mm Carbide Endmill 4F, 10mm HSS Drill)")
     print("\n🎯 KEY FEATURES & GEMINI IMPROVEMENTS:")
     print("   ✅ Idempotent Operations: Safe to run multiple times")
-    print("   🔑 Fixed Natural Keys: Tools now use (name, manufacturer, part_number)")
+    print("   🔑 Fixed Natural Keys: Tools now use (manufacturer, part_number)")
     print("   ⚡ Fail-Fast Validation: Migration fails on invalid data (no warnings)")
     print("   🛡️ Pre-Insertion Checks: Comprehensive data validation before insert")
     print("   📊 Minimum Count Validation: Ensures seed data actually inserted")
@@ -762,10 +756,9 @@ def downgrade():
         try:
             delete_sql = sa.text("""
                 DELETE FROM tools 
-                WHERE name = :name AND manufacturer = :manufacturer AND part_number = :part_number
+                WHERE manufacturer = :manufacturer AND part_number = :part_number
             """)
             result = connection.execute(delete_sql, {
-                'name': tool_name,
                 'manufacturer': manufacturer,
                 'part_number': part_number
             })
@@ -846,7 +839,7 @@ def downgrade():
     
     # Remove unique constraints that were added for seed data
     constraints_to_remove = [
-        ('uq_tools_name_manufacturer_part', 'tools'),
+        ('uq_tools_manufacturer_part', 'tools'),
         ('uq_materials_category_name', 'materials'),
         ('uq_machines_name', 'machines')
     ]
