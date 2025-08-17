@@ -1,7 +1,13 @@
 """
 Database models package for the FreeCAD CNC/CAM/CAD Production Platform.
+Task 2.10: Ultra Enterprise SQLAlchemy models with banking-level precision.
 
-This package contains all SQLAlchemy ORM models organized by domain.
+This package contains all SQLAlchemy ORM models organized by domain with:
+- Automatic enterprise validation via SQLAlchemy events
+- Banking-level financial precision with Decimal arithmetic
+- Turkish compliance (KVKV/GDPR/KDV) built-in
+- Cryptographic audit chain integrity
+- Idempotency key validation with enterprise constraints
 """
 
 from .base import Base, TimestampMixin, metadata
@@ -61,3 +67,29 @@ __all__ = [
 ]
 
 # All Task Master ERD models are now included in the main __all__ list above
+
+# Import and setup ultra enterprise validators
+from .validators import (
+    IdempotencyKeyValidator,
+    EnumValidator, 
+    JSONBValidator,
+    FinancialPrecisionValidator,
+    AuditChainValidator,
+    TurkishComplianceValidator,
+    EnhancedSecurityValidator,
+    setup_model_validators
+)
+
+# Automatically setup enterprise validation when models are imported
+setup_model_validators()
+
+# Add validators to __all__ for external use
+__all__.extend([
+    "IdempotencyKeyValidator",
+    "EnumValidator", 
+    "JSONBValidator",
+    "FinancialPrecisionValidator",
+    "AuditChainValidator",
+    "TurkishComplianceValidator",
+    "EnhancedSecurityValidator",
+])
