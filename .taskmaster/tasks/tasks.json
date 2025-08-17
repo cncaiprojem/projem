@@ -416,7 +416,7 @@
             "description": "Configure fastapi-limiter with Redis and apply per-route policies, including login 5/min and AI prompt 30/min.",
             "dependencies": [],
             "details": "Design:\n- fastapi-limiter with IP + user keying; trust X-Forwarded-For when behind proxy.\n- Policies: /auth/login 5/min, /auth/magic-link/request 3/min, /auth/token/refresh 60/min per session, AI prompt endpoints 30/min per user.\nAPIs: N/A (decorators/middleware on endpoints).\nCookies: N/A.\nErrors:\n- 429 ERR-RATE-LIMIT with Retry-After header.\nAcceptance:\n- Exceeding thresholds yields 429; counters reset after window; per-user limits respect JWT sub.\nLogging:\n- security_events: rate_limited (route, key), potential_bruteforce_detected.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T18:23:33.665Z",
+      "updated": "2025-08-17T18:45:58.232Z",
       "description": "Tasks for master context"
     }
   }
