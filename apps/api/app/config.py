@@ -22,7 +22,7 @@ class Settings(BaseSettings):
     jwt_audience: str = "freecad-users"
     
     # Refresh token security configuration
-    refresh_token_length: int = 64  # 512 bits (64 bytes = 512 bits when base64url encoded)
+    refresh_token_length: int = 64  # 512 bit entropy (64 bytes)
     refresh_token_cookie_name: str = "rt"
     refresh_token_cookie_domain: str | None = None  # Set in production
     refresh_token_cookie_secure: bool = True  # HTTPS only

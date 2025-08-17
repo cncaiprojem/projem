@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, Response, status, Request, Depends
 import redis
 import boto3
 
 from ..config import settings
-from ..db import check_db
+from ..db import check_db, check_redis, get_redis
 from ..schemas import HealthStatus
 
 try:
@@ -20,16 +20,23 @@ router = APIRouter(prefix="/api/v1", tags=["Sağlık"])
 
 
 @router.get("/healthz", response_model=HealthStatus)
-def healthz(response: Response) -> HealthStatus:
+async def healthz(response: Response, request: Request) -> HealthStatus:
     deps: dict[str, str] = {}
 
     db_ok = check_db()
     deps["postgres"] = "ok" if db_ok else "hata"
 
+    # Check Redis using the application's Redis client if available
     try:
-        r = redis.from_url(settings.redis_url)
-        r.ping()
-        deps["redis"] = "ok"
+        redis_client = getattr(request.app.state, 'redis', None)
+        if redis_client:
+            redis_ok = await check_redis(redis_client)
+            deps["redis"] = "ok" if redis_ok else "hata"
+        else:
+            # Fallback to direct connection for health check
+            r = redis.from_url(settings.redis_url)
+            r.ping()
+            deps["redis"] = "ok"
     except Exception:
         deps["redis"] = "hata"
 
@@ -82,7 +89,7 @@ def healthz(response: Response) -> HealthStatus:
 
 
 @router.get("/readyz", response_model=HealthStatus)
-def readyz() -> HealthStatus:
-    return healthz()
+async def readyz(response: Response, request: Request) -> HealthStatus:
+    return await healthz(response, request)
 
 

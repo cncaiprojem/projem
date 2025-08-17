@@ -98,7 +98,7 @@ SESSION_SECRET="ULTRA-SECURE-SESSION-SECRET-FOR-HMAC"
    - Never commit to version control
 
 2. **Refresh Token Security**:
-   - 256-bit (64 bytes) cryptographically secure tokens
+   - 512-bit (64 bytes) cryptographically secure tokens
    - SHA512/HMAC for storage hashing
    - Automatic rotation on each use
    - Reuse detection with nuclear response (all sessions revoked)
@@ -177,7 +177,7 @@ async def write_endpoint(current_user: AuthenticatedUser = Depends(require_scope
 ### Token Security
 
 - **Access Tokens**: JWT with 30-minute expiration
-- **Refresh Tokens**: 256-bit opaque tokens with 7-day TTL
+- **Refresh Tokens**: 512-bit opaque tokens with 7-day TTL
 - **Session Correlation**: Every JWT contains session ID for validation
 - **Automatic Rotation**: New refresh token on each use
 - **Reuse Detection**: Immediate revocation of all user sessions on reuse

@@ -20,6 +20,7 @@ from fastapi import HTTPException, status
 
 from ..models.user import User
 from ..models.security_event import SecurityEvent
+from ..models.enums import UserRole
 from ..core.logging import get_logger
 from ..settings import app_settings as settings
 from .password_service import password_service
@@ -538,6 +539,124 @@ class AuthService:
             raise AuthenticationError(
                 'ERR-AUTH-RESET-FAILED',
                 'Şifre sıfırlama işlemi başarısız, lütfen tekrar deneyin'
+            )
+    
+    def create_oidc_user(
+        self,
+        db: Session,
+        email: str,
+        full_name: Optional[str] = None,
+        picture: Optional[str] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None
+    ) -> User:
+        """
+        Create a new user account for OIDC authentication.
+        
+        Args:
+            db: Database session
+            email: User email address (verified by OIDC provider)
+            full_name: User's full name from OIDC provider
+            picture: Profile picture URL from OIDC provider
+            ip_address: Client IP address
+            user_agent: Client user agent
+            
+        Returns:
+            User instance
+            
+        Raises:
+            AuthenticationError: If user creation fails
+        """
+        try:
+            # Check if user already exists
+            existing_user = db.query(User).filter(User.email == email.lower()).first()
+            if existing_user:
+                raise AuthenticationError(
+                    'ERR-OIDC-EMAIL-CONFLICT',
+                    'Email adresi başka bir hesapla ilişkili'
+                )
+            
+            # Create new user for OIDC authentication
+            user = User(
+                email=email.lower(),
+                full_name=full_name,
+                display_name=full_name,
+                # No password fields for OIDC-only users
+                password_hash=None,
+                password_salt=None,
+                password_algorithm='none',  # Indicates OIDC-only account
+                password_updated_at=None,
+                password_must_change=False,
+                # Account is active and email is verified (verified by OIDC provider)
+                account_status='active',
+                email_verified_at=datetime.now(timezone.utc),
+                is_email_verified=True,
+                is_verified=True,
+                is_active=True,
+                # Default role for new users
+                role=UserRole.ENGINEER,  # Default role for OIDC users
+                # KVKV compliance (implied consent through OIDC login)
+                data_processing_consent=True,
+                data_processing_consent_at=datetime.now(timezone.utc),
+                marketing_consent=False,  # Default to False, user can opt-in later
+                # Login metadata
+                last_login_ip=ip_address,
+                last_login_user_agent=user_agent,
+                last_successful_login_at=datetime.now(timezone.utc),
+                total_login_count=1,
+                # Initialize security fields
+                failed_login_attempts=0,
+                account_locked_until=None,
+                # Set auth metadata
+                auth_metadata={
+                    'auth_method': 'oidc',
+                    'oidc_provider': 'google',
+                    'picture_url': picture,
+                    'created_via_oidc': True,
+                    'created_at': datetime.now(timezone.utc).isoformat(),
+                    'ip_address': ip_address,
+                    'user_agent': user_agent
+                }
+            )
+            
+            db.add(user)
+            db.flush()  # Get user ID
+            
+            # Log user creation
+            self._log_security_event(
+                db, user.id, 'OIDC_USER_CREATED',
+                ip_address, user_agent, {
+                    'email': self._mask_email(email),
+                    'full_name': full_name,
+                    'auth_method': 'oidc',
+                    'provider': 'google'
+                }
+            )
+            
+            logger.info("OIDC user created successfully", extra={
+                'operation': 'create_oidc_user',
+                'user_id': user.id,
+                'email': self._mask_email(email),
+                'provider': 'google',
+                'has_full_name': bool(full_name),
+                'has_picture': bool(picture)
+            })
+            
+            return user
+            
+        except AuthenticationError:
+            db.rollback()
+            raise
+        except Exception as e:
+            db.rollback()
+            logger.error("OIDC user creation failed", exc_info=True, extra={
+                'operation': 'create_oidc_user',
+                'email': self._mask_email(email),
+                'error_type': type(e).__name__
+            })
+            raise AuthenticationError(
+                'ERR-OIDC-USER-CREATION-FAILED',
+                'OIDC kullanıcı hesabı oluşturulamadı'
             )
     
     def _log_security_event(

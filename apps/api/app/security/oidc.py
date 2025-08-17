@@ -1,3 +1,9 @@
+"""
+LEGACY OIDC JWT Token Verification - To Be Deprecated
+This file contains JWT token verification logic and will be deprecated
+in favor of the new OAuth2/OIDC authentication flow in Task 3.5.
+"""
+
 from __future__ import annotations
 
 import json

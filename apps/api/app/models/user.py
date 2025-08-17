@@ -276,6 +276,11 @@ class User(Base, TimestampMixin):
         back_populates="user",
         foreign_keys="SecurityEvent.user_id"
     )
+    oidc_accounts: Mapped[List["OIDCAccount"]] = relationship(
+        "OIDCAccount",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
     
     # Indexes and constraints
     __table_args__ = (
