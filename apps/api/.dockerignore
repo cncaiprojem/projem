@@ -11,8 +11,9 @@
 README*
 CHANGELOG*
 docs/
-*.txt
 *.rst
+# Exclude docs but keep requirements
+!requirements.txt
 
 # Development files
 .env*

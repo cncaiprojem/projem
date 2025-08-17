@@ -1,19 +1,16 @@
-from fastapi import APIRouter, Depends
+"""
+Main authentication router - redirects to enterprise authentication.
+This maintains compatibility while directing to the new ultra enterprise auth system.
+"""
 
-from ..auth import dev_login, get_current_user
-from ..schemas import TokenPair, UserOut
+from fastapi import APIRouter
+from .auth_enterprise import router as enterprise_router
+from .auth_legacy import router as legacy_router
 
+# Main auth router uses the enterprise authentication system
+router = enterprise_router
 
-router = APIRouter(prefix="/api/v1/auth", tags=["Kimlik Doğrulama"]) 
-
-
-@router.post("/dev-login", response_model=TokenPair)
-def dev_login_route(token_pair: TokenPair = Depends(dev_login)) -> TokenPair:
-    return token_pair
-
-
-@router.get("/me", response_model=UserOut)
-def me(user: UserOut = Depends(get_current_user)) -> UserOut:
-    return user
+# Legacy router is available for development/compatibility
+__all__ = ["router", "legacy_router"]
 
 

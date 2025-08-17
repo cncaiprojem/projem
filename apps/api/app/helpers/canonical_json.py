@@ -14,6 +14,8 @@ from decimal import Decimal
 from typing import Any, Dict, Optional, Union
 from uuid import UUID
 
+from ..models.validators import TurkishComplianceValidator
+
 
 class CanonicalJSONEncoder:
     """Ultra enterprise canonical JSON encoder for audit chains."""
@@ -308,7 +310,6 @@ class TurkishComplianceHelper:
         Returns:
             True if valid VKN format
         """
-        from ..models.validators import TurkishComplianceValidator
         try:
             return TurkishComplianceValidator.validate_vkn(vkn)
         except ValueError:
@@ -325,7 +326,6 @@ class TurkishComplianceHelper:
         Returns:
             True if valid TCKN format
         """
-        from ..models.validators import TurkishComplianceValidator
         try:
             return TurkishComplianceValidator.validate_tckn(tckn)
         except ValueError:

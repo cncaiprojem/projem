@@ -192,7 +192,7 @@
         "dependencies": [
           1
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -321,7 +321,7 @@
           1,
           2
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -329,7 +329,7 @@
             "description": "Implement email/password registration and login with Argon2 hashing, pepper, unique salts, and strong password policy enforcement.",
             "dependencies": [],
             "details": "Design:\n- Use argon2-cffi 23.x (argon2id) with per-user salts and a global pepper (ENV: AUTH_PASSWORD_PEPPER).\n- Enforce strong password policy: length >= 12, upper/lower/number/symbol, block top-10k and repeated patterns.\n- Optional account lockout counter (e.g., soft lock for 15m after 10 failed attempts) in addition to rate limiting.\nAPIs:\n- POST /auth/register {email, password, name?} → 201 {user_id}. 409 if email exists.\n- POST /auth/login {email, password, device_fingerprint?, mfa_code?} → 200 {access_token, expires_in, mfa_required?}. Sets refresh cookie if MFA satisfied.\n- POST /auth/password/strength {password} → 200 {score, ok, feedback}.\n- POST /auth/password/forgot {email} → 202 {}.\n- POST /auth/password/reset {token, new_password} → 200 {}.\nCookies: N/A (refresh set by Subtask 3).\nErrors:\n- 400 ERR-AUTH-INVALID-BODY, 401 ERR-AUTH-INVALID-CREDS, 423 ERR-AUTH-LOCKED, 409 ERR-AUTH-EMAIL-TAKEN.\nAcceptance:\n- Hash uses argon2id with configured parameters; pepper required; passwords failing policy rejected.\n- Login succeeds with correct creds; fails with incorrect; lockout triggers after threshold; does not leak timing/PII.\nLogging:\n- audit_logs: user_registered, login_succeeded, login_failed (mask email), password_reset_requested, password_reset_completed.\n- security_events: excessive_login_failures, account_locked.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -338,7 +338,7 @@
             "description": "Create sessions persistence for refresh rotation with hashed refresh_token, device metadata, and revocation fields.",
             "dependencies": [],
             "details": "Design (DB/model):\n- Table sessions: id (uuid), user_id (fk users), refresh_token_hash (unique, sha256/HMAC), device_fingerprint (string), ip, user_agent, created_at, last_used_at, expires_at (7d), revoked_at, rotated_from (fk sessions.id), reason.\n- Indexes: user_id, (user_id, revoked_at IS NULL), expires_at.\n- Store only hash of refresh token; never store plaintext.\nAPIs: N/A (internal usage by auth flows).\nCookies: N/A.\nErrors: N/A.\nAcceptance:\n- Unique constraint enforced on refresh_token_hash; revoked_at prevents reuse.\n- Rotation chain (rotated_from) preserved; device_fingerprint stored when provided.\nLogging:\n- audit_logs: session_created, session_rotated, session_revoked (with session_id, masked ua/ip).\n- security_events: refresh_reuse_detected, anomalous_device_detected.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T13:45:22.179Z",
+      "updated": "2025-08-17T16:36:23.352Z",
       "description": "Tasks for master context"
     }
   }

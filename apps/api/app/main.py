@@ -12,11 +12,11 @@ from .routers import health as health_router
 from .routers import freecad as freecad_router
 from .routers import assemblies as assemblies_router
 from .routers import cam as cam_router
-from .routers.cad import cam2 as cam2_router
+# from .routers.cad import cam2 as cam2_router  # Temporarily disabled
 from .routers import jobs as jobs_router
 from .routers import admin_dlq as admin_dlq_router
 from .routers import admin_unmask as admin_unmask_router
-from .routers import designs as designs_router
+# from .routers import designs as designs_router  # Temporarily disabled
 # Legacy routers disabled - not part of Task Master ERD
 # from .routers import projects as projects_router
 # from .routers import design as design_router
@@ -52,14 +52,14 @@ app.include_router(auth_router.router)
 app.include_router(freecad_router.router)
 app.include_router(assemblies_router.router)
 app.include_router(cam_router.router)
-app.include_router(cam2_router)
+# app.include_router(cam2_router)  # Temporarily disabled
 app.include_router(jobs_router.router)
 app.include_router(admin_dlq_router.router)
 app.include_router(admin_unmask_router.router)
 if _sim_available and sim_router is not None:
     app.include_router(sim_router.router)
 app.include_router(events_router)
-app.include_router(designs_router.router)
+# app.include_router(designs_router.router)  # Temporarily disabled
 # Legacy routers disabled - not part of Task Master ERD
 # app.include_router(projects_router.router)
 # app.include_router(design_router.router)
