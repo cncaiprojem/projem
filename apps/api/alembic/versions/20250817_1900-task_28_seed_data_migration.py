@@ -190,7 +190,8 @@ def upgrade():
         # Validate required string fields are not empty
         string_fields = ['name', 'manufacturer', 'model', 'controller', 'post_processor']
         for field in string_fields:
-            if not machine[field] or not isinstance(machine[field], str) or not machine[field].strip():
+            value = machine.get(field)
+            if not isinstance(value, str) or not value.strip():
                 error_msg = f"MIGRATION FAILED: Missing or invalid {field} for machine '{machine.get('name', 'UNKNOWN')}'"
                 print(f"   ❌ {error_msg}")
                 raise ValueError(error_msg)
@@ -399,7 +400,8 @@ def upgrade():
         # Validate required string fields are not empty
         string_fields = ['category', 'name', 'grade', 'supplier']
         for field in string_fields:
-            if not material[field] or not isinstance(material[field], str) or not material[field].strip():
+            value = material.get(field)
+            if not isinstance(value, str) or not value.strip():
                 error_msg = f"MIGRATION FAILED: Missing or invalid {field} for material '{material.get('name', 'UNKNOWN')}'"
                 print(f"   ❌ {error_msg}")
                 raise ValueError(error_msg)
@@ -557,20 +559,21 @@ def upgrade():
         # Validate required string fields are not empty
         string_fields = ['name', 'type', 'material', 'manufacturer', 'part_number', 'location']
         for field in string_fields:
-            if not tool[field] or not isinstance(tool[field], str) or not tool[field].strip():
+            value = tool.get(field)
+            if not isinstance(value, str) or not value.strip():
                 error_msg = f"MIGRATION FAILED: Missing or invalid {field} for tool '{tool.get('name', 'UNKNOWN')}'"
                 print(f"   ❌ {error_msg}")
                 raise ValueError(error_msg)
         
-        # Validate part_number uniqueness across manufacturers
-        part_number = tool['part_number']
-        manufacturer = tool['manufacturer']
-        duplicate_tools = [t for t in tools_data if t != tool and 
-                          t['part_number'] == part_number and t['manufacturer'] == manufacturer]
-        if duplicate_tools:
-            error_msg = f"MIGRATION FAILED: Duplicate part_number '{part_number}' for manufacturer '{manufacturer}' found in tools data"
+    # Validate part_number uniqueness across manufacturers with efficient set-based check
+    seen_tool_keys = set()
+    for tool in tools_data:
+        key = (tool.get('manufacturer'), tool.get('part_number'))
+        if key in seen_tool_keys:
+            error_msg = f"MIGRATION FAILED: Duplicate part_number '{key[1]}' for manufacturer '{key[0]}' found in tools data"
             print(f"   ❌ {error_msg}")
             raise ValueError(error_msg)
+        seen_tool_keys.add(key)
     
     print("   ✅ Tool data validation passed")
     
@@ -628,33 +631,44 @@ def upgrade():
     # PHASE 4: Verify Data Integrity and Minimum Counts
     print("\n🔍 PHASE 4: Verifying Data Integrity and Minimum Counts")
     
-    # Check machine count and validate minimum expected data
-    machine_count = connection.execute(sa.text("SELECT COUNT(*) FROM machines")).scalar()
-    print(f"   📊 Total machines in database: {machine_count}")
+    # Check machine count and validate specific seeded machines by natural keys
+    machine_names = [m['name'] for m in machines_data]
+    # Use a parameterized query to avoid SQL injection
+    count_query = sa.text("SELECT COUNT(*) FROM machines WHERE name IN :names")
+    actual_count = connection.execute(count_query, {'names': tuple(machine_names)}).scalar()
+    print(f"   📊 Total machines in database: {connection.execute(sa.text('SELECT COUNT(*) FROM machines')).scalar()}")
+    print(f"   📊 Seeded machines found: {actual_count}/{len(machines_data)}")
     
-    expected_min_machines = 3  # HAAS VF-2, DMG MORI NLX 2500, Prusa i3 MK3S+
-    if machine_count < expected_min_machines:
-        error_msg = f"MIGRATION FAILED: Expected at least {expected_min_machines} machines, but found only {machine_count}. Seed data insertion may have failed."
+    if actual_count < len(machines_data):
+        error_msg = f"MIGRATION FAILED: Expected {len(machines_data)} seeded machines, but found only {actual_count}. Seed data insertion may have failed."
         print(f"   ❌ {error_msg}")
         raise ValueError(error_msg)
     
-    # Check material count and validate minimum expected data
-    material_count = connection.execute(sa.text("SELECT COUNT(*) FROM materials")).scalar()
-    print(f"   📊 Total materials in database: {material_count}")
+    # Check material count and validate specific seeded materials by natural keys
+    material_keys = [(m['category'], m['name']) for m in materials_data]
+    # Use a parameterized query to validate specific seeded materials
+    material_count_query = sa.text("""SELECT COUNT(*) FROM materials 
+                                      WHERE (category, name) IN :keys""")
+    actual_material_count = connection.execute(material_count_query, {'keys': tuple(material_keys)}).scalar()
+    print(f"   📊 Total materials in database: {connection.execute(sa.text('SELECT COUNT(*) FROM materials')).scalar()}")
+    print(f"   📊 Seeded materials found: {actual_material_count}/{len(materials_data)}")
     
-    expected_min_materials = 5  # Al 6061-T6, Steel S235JR, SS 316L, POM, Brass CuZn37
-    if material_count < expected_min_materials:
-        error_msg = f"MIGRATION FAILED: Expected at least {expected_min_materials} materials, but found only {material_count}. Seed data insertion may have failed."
+    if actual_material_count < len(materials_data):
+        error_msg = f"MIGRATION FAILED: Expected {len(materials_data)} seeded materials, but found only {actual_material_count}. Seed data insertion may have failed."
         print(f"   ❌ {error_msg}")
         raise ValueError(error_msg)
     
-    # Check tool count and validate minimum expected data
-    tool_count = connection.execute(sa.text("SELECT COUNT(*) FROM tools")).scalar()
-    print(f"   📊 Total tools in database: {tool_count}")
+    # Check tool count and validate specific seeded tools by natural keys
+    tool_keys = [(t['manufacturer'], t['part_number']) for t in tools_data]
+    # Use a parameterized query to validate specific seeded tools
+    tool_count_query = sa.text("""SELECT COUNT(*) FROM tools 
+                                  WHERE (manufacturer, part_number) IN :keys""")
+    actual_tool_count = connection.execute(tool_count_query, {'keys': tuple(tool_keys)}).scalar()
+    print(f"   📊 Total tools in database: {connection.execute(sa.text('SELECT COUNT(*) FROM tools')).scalar()}")
+    print(f"   📊 Seeded tools found: {actual_tool_count}/{len(tools_data)}")
     
-    expected_min_tools = 2  # 6mm Carbide Endmill (4F), 10mm Drill HSS
-    if tool_count < expected_min_tools:
-        error_msg = f"MIGRATION FAILED: Expected at least {expected_min_tools} tools, but found only {tool_count}. Seed data insertion may have failed."
+    if actual_tool_count < len(tools_data):
+        error_msg = f"MIGRATION FAILED: Expected {len(tools_data)} seeded tools, but found only {actual_tool_count}. Seed data insertion may have failed."
         print(f"   ❌ {error_msg}")
         raise ValueError(error_msg)
     
@@ -710,9 +724,12 @@ def upgrade():
     print("🌱 Essential Manufacturing Seed Data Inserted")
     print("🔧 GEMINI CODE ASSIST FIXES APPLIED")
     print("\n📊 SEEDING SUMMARY:")
-    print(f"   🏭 Machines: {machine_count} total (HAAS VF-2, DMG MORI NLX 2500, Prusa i3 MK3S+)")
-    print(f"   🔩 Materials: {material_count} total (Al 6061-T6, Steel S235JR, SS 316L, POM, Brass CuZn37)")
-    print(f"   🔧 Tools: {tool_count} total (6mm Carbide Endmill 4F, 10mm HSS Drill)")
+    final_machine_count = connection.execute(sa.text('SELECT COUNT(*) FROM machines')).scalar()
+    final_material_count = connection.execute(sa.text('SELECT COUNT(*) FROM materials')).scalar()
+    final_tool_count = connection.execute(sa.text('SELECT COUNT(*) FROM tools')).scalar()
+    print(f"   🏭 Machines: {final_machine_count} total (HAAS VF-2, DMG MORI NLX 2500, Prusa i3 MK3S+)")
+    print(f"   🔩 Materials: {final_material_count} total (Al 6061-T6, Steel S235JR, SS 316L, POM, Brass CuZn37)")
+    print(f"   🔧 Tools: {final_tool_count} total (6mm Carbide Endmill 4F, 10mm HSS Drill)")
     print("\n🎯 KEY FEATURES & GEMINI IMPROVEMENTS:")
     print("   ✅ Idempotent Operations: Safe to run multiple times")
     print("   🔑 Fixed Natural Keys: Tools now use (manufacturer, part_number)")
