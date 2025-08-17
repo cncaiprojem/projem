@@ -10,7 +10,7 @@ from typing import Optional
 from uuid import uuid4
 
 from sqlalchemy import String, Boolean, ForeignKey, Index, DateTime
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -72,7 +72,7 @@ class OIDCAccount(Base, TimestampMixin):
     
     # Provider-specific metadata
     provider_data: Mapped[Optional[dict]] = mapped_column(
-        "provider_data",
+        JSONB,
         comment="Additional provider-specific data (JSON)"
     )
     

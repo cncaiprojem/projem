@@ -384,7 +384,7 @@
               "3.3"
             ],
             "details": "Design:\n- Sign tokens with itsdangerous (TimedJSONWebSignatureSerializer) or HMAC; payload: {email, nonce, iat}.\n- Persist single-use: magic_links(id, email, nonce, issued_at, consumed_at, ip, ua).\nAPIs:\n- POST /auth/magic-link/request {email} → 202 {}; send email with URL (/auth/magic-link/consume?token=...). Rate limit applied.\n- POST /auth/magic-link/consume {token, device_fingerprint?} → 200 {access_token, expires_in}; sets refresh cookie.\nCookies:\n- On consume, set refresh cookie (rt) with Secure, HttpOnly, SameSite=Strict, Max-Age=7d.\nErrors:\n- 400 ERR-ML-MALFORMED, 401 ERR-ML-INVALID, 401 ERR-ML-EXPIRED, 409 ERR-ML-ALREADY-USED.\nAcceptance:\n- Token expires at 15m; cannot be reused; consuming creates session and returns access token.\n- Email enumeration safe: request endpoint always 202.\nLogging:\n- audit_logs: magic_link_issued, magic_link_consumed.\n- security_events: magic_link_invalid, magic_link_reuse_attempt.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T17:46:43.172Z",
+      "updated": "2025-08-17T18:23:33.665Z",
       "description": "Tasks for master context"
     }
   }

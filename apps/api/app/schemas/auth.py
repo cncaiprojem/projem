@@ -341,4 +341,16 @@ AUTH_ERROR_CODES = {
     'ERR-SESSION-NOT-FOUND': 'Oturum bulunamadı',
     'ERR-INSUFFICIENT-SCOPES': 'Yetersiz yetki',
     'ERR-ADMIN-REQUIRED': 'Admin yetkisi gerekli',
+    
+    # Task 3.6: Magic Link error codes
+    'ERR-ML-MALFORMED': 'Magic link formatı geçersiz',
+    'ERR-ML-INVALID': 'Magic link geçersiz',
+    'ERR-ML-EXPIRED': 'Magic link süresi dolmuş',
+    'ERR-ML-ALREADY-USED': 'Magic link zaten kullanılmış',
+    'ERR-ML-USER-NOT-FOUND': 'Kullanıcı bulunamadı',
+    'ERR-ML-ACCOUNT-LOCKED': 'Hesap kilitli veya aktif değil',
+    'ERR-ML-RATE-LIMITED': 'Çok fazla magic link talebi',
+    'ERR-ML-CONSUMPTION-FAILED': 'Magic link kullanımı başarısız',
+    'ERR-ML-REQUEST-FAILED': 'Magic link talebi başarısız',
+    'ERR-ML-SYSTEM-ERROR': 'Magic link sistem hatası',
 }
