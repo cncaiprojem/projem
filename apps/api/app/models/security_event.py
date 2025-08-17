@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Optional
 from sqlalchemy import (
     BigInteger, DateTime, ForeignKey, Index, String, Text
 )
-from sqlalchemy.dialects.postgresql import INET
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base
@@ -36,9 +36,19 @@ class SecurityEvent(Base):
             "user_id", "type", "created_at"
         ),
         Index(
-            "idx_security_events_ip_created", 
-            "ip", "created_at",
-            postgresql_where="ip IS NOT NULL"
+            "idx_security_events_correlation_id", 
+            "correlation_id",
+            postgresql_where="correlation_id IS NOT NULL"
+        ),
+        Index(
+            "idx_security_events_session_id", 
+            "session_id",
+            postgresql_where="session_id IS NOT NULL"
+        ),
+        Index(
+            "idx_security_events_ip_masked_created", 
+            "ip_masked", "created_at",
+            postgresql_where="ip_masked IS NOT NULL"
         ),
     )
     
@@ -66,17 +76,39 @@ class SecurityEvent(Base):
         comment="Security event type (e.g., 'LOGIN_FAILED', 'ACCESS_DENIED')"
     )
     
-    # Request context
-    ip: Mapped[Optional[str]] = mapped_column(
-        INET,
+    # Request context with correlation tracking
+    session_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
         nullable=True,
         index=True,
-        comment="Source IP address of the security event"
+        comment="Session ID for user session tracking"
     )
-    ua: Mapped[Optional[str]] = mapped_column(
+    correlation_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        comment="Request correlation ID for tracing across services"
+    )
+    resource: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Resource being accessed or affected"
+    )
+    ip_masked: Mapped[Optional[str]] = mapped_column(
+        String(45),  # IPv6 compatible
+        nullable=True,
+        index=True,
+        comment="KVKV-compliant masked IP address (privacy-preserving)"
+    )
+    ua_masked: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
-        comment="User agent string from the request"
+        comment="KVKV-compliant masked user agent string"
+    )
+    metadata: Mapped[Optional[dict]] = mapped_column(
+        JSONB,
+        nullable=True,
+        comment="Additional security event metadata"
     )
     
     # Timestamp

@@ -55,6 +55,16 @@ class AuditLog(Base):
             "actor_user_id",
             postgresql_where="actor_user_id IS NOT NULL"
         ),
+        Index(
+            "idx_audit_logs_correlation_id", 
+            "correlation_id",
+            postgresql_where="correlation_id IS NOT NULL"
+        ),
+        Index(
+            "idx_audit_logs_session_id", 
+            "session_id",
+            postgresql_where="session_id IS NOT NULL"
+        ),
     )
     
     # Primary key
@@ -94,6 +104,36 @@ class AuditLog(Base):
         index=True,
         comment="Type of action performed (e.g., 'CREATE', 'UPDATE', 'DELETE')"
     )
+    
+    # Correlation tracking for request tracing
+    correlation_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        comment="Request correlation ID for tracing across services"
+    )
+    session_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        comment="Session ID for user session tracking"
+    )
+    resource: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Resource being audited"
+    )
+    ip_masked: Mapped[Optional[str]] = mapped_column(
+        String(45),  # IPv6 compatible
+        nullable=True,
+        comment="KVKV-compliant masked IP address"
+    )
+    ua_masked: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="KVKV-compliant masked user agent"
+    )
+    
     payload: Mapped[Optional[Dict[str, Any]]] = mapped_column(
         JSONB,
         nullable=True,
