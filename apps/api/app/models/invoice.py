@@ -1,196 +1,240 @@
-"""
-Invoice model for billing and accounting.
-"""
+"""Invoice model for billing and accounting - Task Master ERD compliant."""
 
-from datetime import datetime, date
-from decimal import Decimal
+from datetime import datetime, timezone
 from typing import Optional, List
 
 from sqlalchemy import (
-    String, ForeignKey, Index, DateTime, Date,
-    Numeric, CheckConstraint, Enum as SQLEnum
+    BigInteger, String, ForeignKey, Index, DateTime,
+    CheckConstraint, Enum as SQLEnum, text, func
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
-from .enums import InvoiceType, InvoiceStatus, Currency
+from .enums import InvoiceStatus, Currency
 
 
 class Invoice(Base, TimestampMixin):
-    """Customer invoices and billing records."""
+    """Customer invoices and billing records.
+    
+    ENTERPRISE DESIGN PRINCIPLES:
+    - Monetary precision using amount_cents (BigInteger) to avoid floating-point errors
+    - Multi-currency support with configurable constraints
+    - Comprehensive audit trail and metadata storage
+    - Optimal indexing for billing query patterns
+    - Security-first approach with proper constraints
+    """
     
     __tablename__ = "invoices"
     
     # Primary key
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     
-    # Foreign keys
+    # Foreign keys with enterprise security (RESTRICT to prevent data loss)
     user_id: Mapped[int] = mapped_column(
+        BigInteger,
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
         index=True
     )
     
-    # Invoice identification
-    invoice_number: Mapped[str] = mapped_column(
+    # Invoice identification (unique business identifier)
+    number: Mapped[str] = mapped_column(
         String(50),
         unique=True,
         nullable=False,
-        index=True
+        index=True,
+        comment="Unique invoice number for business identification"
     )
     
-    # Invoice type and status
-    type: Mapped[InvoiceType] = mapped_column(
-        SQLEnum(InvoiceType),
-        nullable=False
-    )
-    status: Mapped[InvoiceStatus] = mapped_column(
-        SQLEnum(InvoiceStatus),
+    # Financial details with cent precision for accuracy
+    amount_cents: Mapped[int] = mapped_column(
+        BigInteger,
         nullable=False,
-        index=True
+        comment="Invoice amount in smallest currency unit (cents)"
     )
     
-    # Financial details
+    # Currency with multi-currency constraint support
     currency: Mapped[Currency] = mapped_column(
-        SQLEnum(Currency),
+        SQLEnum(Currency, name="currency_enum"),
         nullable=False,
-        default=Currency.TRY
-    )
-    subtotal: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        nullable=False
-    )
-    tax_rate: Mapped[Decimal] = mapped_column(
-        Numeric(5, 2),
-        nullable=False,
-        default=Decimal("20.00")  # Turkish KDV
-    )
-    tax_amount: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        nullable=False
-    )
-    total: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2),
-        nullable=False
+        server_default=text("'TRY'"),
+        comment="Invoice currency code"
     )
     
-    # Line items
-    line_items: Mapped[dict] = mapped_column(
+    # Invoice lifecycle status
+    status: Mapped[InvoiceStatus] = mapped_column(
+        SQLEnum(InvoiceStatus, name="invoice_status_enum"),
+        nullable=False,
+        server_default=text("'DRAFT'"),
+        index=True,
+        comment="Current invoice status"
+    )
+    
+    # Timestamps for billing workflow
+    issued_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="When invoice was issued to customer"
+    )
+    
+    due_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+        comment="Payment due date"
+    )
+    
+    # Flexible metadata storage for invoice details
+    meta: Mapped[Optional[dict]] = mapped_column(
         JSONB,
-        nullable=False,
-        default=[]
+        nullable=True,
+        server_default=text("'{}'"),
+        comment="Invoice metadata: line items, tax details, etc."
     )
-    
-    # Billing period
-    billing_period_start: Mapped[Optional[date]] = mapped_column(Date)
-    billing_period_end: Mapped[Optional[date]] = mapped_column(Date)
-    
-    # Payment terms
-    due_date: Mapped[date] = mapped_column(
-        Date,
-        nullable=False,
-        index=True
-    )
-    paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
-    payment_method: Mapped[Optional[str]] = mapped_column(String(50))
-    
-    # Additional information
-    notes: Mapped[Optional[str]] = mapped_column(String(1000))
-    pdf_s3_key: Mapped[Optional[str]] = mapped_column(String(1024))
     
     # Relationships
-    user: Mapped["User"] = relationship("User", back_populates="invoices")
+    user: Mapped["User"] = relationship(
+        "User", 
+        back_populates="invoices",
+        lazy="select"
+    )
     payments: Mapped[List["Payment"]] = relationship(
         "Payment",
-        back_populates="invoice"
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+        lazy="select"
     )
     
-    # Constraints and indexes
+    # Enterprise constraints and indexes
     __table_args__ = (
-        CheckConstraint('currency IN (\'TRY\', \'USD\', \'EUR\')', 
-                       name='ck_invoices_currency'),
-        CheckConstraint('total >= 0', name='ck_invoices_total_positive'),
-        CheckConstraint('tax_rate >= 0 AND tax_rate <= 100', 
-                       name='ck_invoices_tax_rate_valid'),
-        Index('idx_invoices_status', 'status',
-              postgresql_where="status != 'paid'"),
-        Index('idx_invoices_due_date', 'due_date',
-              postgresql_where="status IN ('sent', 'overdue')"),
+        # Multi-currency constraint: allows all currencies if multi_currency setting is on,
+        # otherwise restricts to TRY only
+        CheckConstraint(
+            "("
+            "current_setting('app.multi_currency', true)::text = 'on' "
+            "OR currency = 'TRY'"
+            ")",
+            name="ck_invoices_currency_policy"
+        ),
+        
+        # Financial integrity constraints
+        CheckConstraint(
+            "amount_cents >= 0",
+            name="ck_invoices_amount_non_negative"
+        ),
+        
+        # Business logic constraints
+        CheckConstraint(
+            "(issued_at IS NULL OR due_at IS NULL OR issued_at <= due_at)",
+            name="ck_invoices_due_after_issued"
+        ),
+        
+        # Optimized indexes for billing queries
+        Index(
+            "idx_invoices_user_status",
+            "user_id", "status",
+            postgresql_where="status IN ('SENT', 'OVERDUE', 'PARTIAL')"
+        ),
+        Index(
+            "idx_invoices_issued_at",
+            "issued_at",
+            postgresql_where="issued_at IS NOT NULL"
+        ),
+        Index(
+            "idx_invoices_due_at",
+            "due_at",
+            postgresql_where="due_at IS NOT NULL AND status NOT IN ('PAID', 'CANCELLED')"
+        ),
     )
     
     def __repr__(self) -> str:
-        return f"<Invoice(id={self.id}, number={self.invoice_number}, total={self.total})>"
+        return f"<Invoice(id={self.id}, number='{self.number}', amount_cents={self.amount_cents})>"
+    
+    def __str__(self) -> str:
+        return f"Invoice {self.number}: {self.amount_cents/100:.2f} {self.currency.value}"
+    
+    @property
+    def amount_decimal(self) -> float:
+        """Convert cents to decimal amount for display."""
+        return self.amount_cents / 100.0
     
     @property
     def is_overdue(self) -> bool:
         """Check if invoice is overdue."""
         if self.status in [InvoiceStatus.PAID, InvoiceStatus.CANCELLED]:
             return False
-        return date.today() > self.due_date
+        if self.due_at is None:
+            return False
+        return datetime.now(timezone.utc) > self.due_at
     
     @property
-    def paid_amount(self) -> Decimal:
-        """Calculate total amount paid."""
+    def paid_amount_cents(self) -> int:
+        """Calculate total amount paid in cents."""
         return sum(
-            p.amount for p in self.payments 
-            if p.status == 'completed'
+            payment.amount_cents for payment in self.payments
+            if payment.status.value == 'completed'
         )
     
     @property
-    def balance_due(self) -> Decimal:
-        """Calculate remaining balance."""
-        return self.total - self.paid_amount
+    def balance_due_cents(self) -> int:
+        """Calculate remaining balance in cents."""
+        return self.amount_cents - self.paid_amount_cents
+    
+    @property
+    def is_fully_paid(self) -> bool:
+        """Check if invoice is fully paid."""
+        return self.balance_due_cents <= 0
+    
+    def mark_as_sent(self, issued_at: Optional[datetime] = None) -> None:
+        """Mark invoice as sent to customer."""
+        self.status = InvoiceStatus.SENT
+        self.issued_at = issued_at or datetime.now(timezone.utc)
+    
+    def mark_as_paid(self, paid_at: Optional[datetime] = None) -> None:
+        """Mark invoice as fully paid."""
+        if self.is_fully_paid:
+            self.status = InvoiceStatus.PAID
+            if self.meta is None:
+                self.meta = {}
+            self.meta['paid_at'] = (paid_at or datetime.now(timezone.utc)).isoformat()
     
     def add_line_item(
         self,
         description: str,
         quantity: int,
-        unit_price: Decimal,
-        tax_rate: Optional[Decimal] = None
-    ) -> dict:
-        """
-        Add a line item to the invoice.
-        
-        FINANCIAL PRECISION NOTE: All monetary values are stored as strings
-        in JSONB to preserve precision and prevent floating-point rounding errors.
-        This ensures accurate financial calculations for enterprise applications.
-        """
-        if tax_rate is None:
-            tax_rate = self.tax_rate
+        unit_price_cents: int,
+        tax_rate_percent: float = 20.0
+    ) -> None:
+        """Add a line item to invoice metadata."""
+        if self.meta is None:
+            self.meta = {'line_items': []}
+        if 'line_items' not in self.meta:
+            self.meta['line_items'] = []
             
-        subtotal = quantity * unit_price
-        tax = subtotal * (tax_rate / 100)
-        total = subtotal + tax
+        subtotal_cents = quantity * unit_price_cents
+        tax_cents = int(subtotal_cents * tax_rate_percent / 100)
+        total_cents = subtotal_cents + tax_cents
         
-        item = {
+        line_item = {
             'description': description,
             'quantity': quantity,
-            'unit_price': str(unit_price),  # Store as string to preserve precision
-            'tax_rate': str(tax_rate),      # Store as string to preserve precision
-            'subtotal': str(subtotal),      # Store as string to preserve precision
-            'tax': str(tax),               # Store as string to preserve precision
-            'total': str(total)            # Store as string to preserve precision
+            'unit_price_cents': unit_price_cents,
+            'tax_rate_percent': tax_rate_percent,
+            'subtotal_cents': subtotal_cents,
+            'tax_cents': tax_cents,
+            'total_cents': total_cents
         }
         
-        if not isinstance(self.line_items, list):
-            self.line_items = []
-        self.line_items.append(item)
-        
-        # Recalculate totals
-        self.recalculate_totals()
-        
-        return item
+        self.meta['line_items'].append(line_item)
+        self.recalculate_amount()
     
-    def recalculate_totals(self):
-        """Recalculate invoice totals from line items."""
-        if not self.line_items:
+    def recalculate_amount(self) -> None:
+        """Recalculate total amount from line items."""
+        if not self.meta or 'line_items' not in self.meta:
             return
             
-        self.subtotal = Decimal(
-            sum(Decimal(str(item['subtotal'])) for item in self.line_items)
+        self.amount_cents = sum(
+            item['total_cents'] for item in self.meta['line_items']
         )
-        self.tax_amount = Decimal(
-            sum(Decimal(str(item['tax'])) for item in self.line_items)
-        )
-        self.total = self.subtotal + self.tax_amount

@@ -169,14 +169,14 @@ class ErpMesSync(Base, TimestampMixin):
         self.set_payload('error_message', error_message)
         if error_details:
             self.set_payload('error_details', error_details)
-        self.set_payload('failed_at', datetime.utcnow().isoformat())
+        self.set_payload('failed_at', datetime.now(timezone.utc).isoformat())
     
     def mark_as_pending(self, sync_data: Optional[dict] = None) -> None:
         """Mark sync as pending."""
         self.status = 'pending'
         if sync_data:
             self.set_payload('pending_data', sync_data)
-        self.set_payload('pending_at', datetime.utcnow().isoformat())
+        self.set_payload('pending_at', datetime.now(timezone.utc).isoformat())
     
     def add_sync_attempt(
         self, 
@@ -193,7 +193,7 @@ class ErpMesSync(Base, TimestampMixin):
         
         attempt_data = {
             'attempt_number': attempt_number,
-            'attempted_at': datetime.utcnow().isoformat(),
+            'attempted_at': datetime.now(timezone.utc).isoformat(),
             'response_data': response_data,
             'error_message': error_message
         }

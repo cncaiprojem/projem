@@ -3,7 +3,7 @@
 Enterprise-grade CAM execution tracking with strict Task Master ERD compliance.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -54,14 +54,14 @@ class CamRun(Base, TimestampMixin):
     params: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
-        default=dict
+        default=lambda: {}
     )
     
     # Performance and execution metrics (Task Master ERD requirement) 
     metrics: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
-        default=dict
+        default=lambda: {}
     )
     
     # Status with enterprise indexing
@@ -160,4 +160,4 @@ class CamRun(Base, TimestampMixin):
         self.set_metric('execution_time_ms', execution_time_ms)
         self.set_metric('toolpath_length_mm', toolpath_length_mm)
         self.set_metric('material_removed_cm3', material_removed_cm3)
-        self.set_metric('updated_at', datetime.utcnow().isoformat())
+        self.set_metric('updated_at', datetime.now(timezone.utc).isoformat())

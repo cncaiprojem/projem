@@ -53,7 +53,7 @@ class Notification(Base, TimestampMixin):
     payload: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
-        default=dict
+        default=lambda: {}
     )
     
     # Read status tracking (Task Master ERD requirement)
@@ -166,7 +166,7 @@ class Notification(Base, TimestampMixin):
         self.set_payload('message', message)
         self.set_payload('job_id', job_id)
         self.set_payload('priority', priority)
-        self.set_payload('created_at', datetime.utcnow().isoformat())
+        self.set_payload('created_at', datetime.now(timezone.utc).isoformat())
     
     def create_system_notification(
         self,
@@ -180,4 +180,4 @@ class Notification(Base, TimestampMixin):
         self.set_payload('message', message)
         self.set_payload('category', category)
         self.set_payload('priority', priority)
-        self.set_payload('created_at', datetime.utcnow().isoformat())
+        self.set_payload('created_at', datetime.now(timezone.utc).isoformat())

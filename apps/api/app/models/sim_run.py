@@ -3,7 +3,7 @@
 Enterprise-grade simulation execution tracking with strict Task Master ERD compliance.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -47,14 +47,14 @@ class SimRun(Base, TimestampMixin):
     params: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
-        default=dict
+        default=lambda: {}
     )
     
     # Performance and execution metrics (Task Master ERD requirement) 
     metrics: Mapped[dict] = mapped_column(
         JSONB,
         nullable=False,
-        default=dict
+        default=lambda: {}
     )
     
     # Status with enterprise indexing
@@ -146,7 +146,7 @@ class SimRun(Base, TimestampMixin):
         self.set_metric('collision_count', collision_count)
         self.set_metric('collision_details', collision_details)
         self.set_metric('severity_level', severity_level)
-        self.set_metric('updated_at', datetime.utcnow().isoformat())
+        self.set_metric('updated_at', datetime.now(timezone.utc).isoformat())
     
     def add_performance_metrics(
         self, 
@@ -158,4 +158,4 @@ class SimRun(Base, TimestampMixin):
         self.set_metric('simulation_time_ms', simulation_time_ms)
         self.set_metric('accuracy_percentage', accuracy_percentage)
         self.set_metric('memory_usage_mb', memory_usage_mb)
-        self.set_metric('updated_at', datetime.utcnow().isoformat())
+        self.set_metric('updated_at', datetime.now(timezone.utc).isoformat())

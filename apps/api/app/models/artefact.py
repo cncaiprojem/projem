@@ -175,7 +175,7 @@ class Artefact(Base, TimestampMixin):
             self.set_meta('compression_ratio', compression_ratio)
         if quality_score is not None:
             self.set_meta('quality_score', quality_score)
-        self.set_meta('processed_at', datetime.utcnow().isoformat())
+        self.set_meta('processed_at', datetime.now(timezone.utc).isoformat())
     
     def verify_integrity(self, provided_hash: str) -> bool:
         """Verify file integrity using SHA-256 hash."""
