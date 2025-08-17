@@ -264,15 +264,49 @@ class Session(Base, TimestampMixin):
         self.is_suspicious = True
     
     def get_rotation_chain_length(self) -> int:
-        """Get length of session rotation chain (depth from root)."""
+        """
+        Get length of session rotation chain (depth from root).
+        
+        Uses iterative approach to prevent stack overflow with long rotation chains.
+        This is critical for enterprise environments where session rotation chains
+        could theoretically grow very long over time.
+        
+        Returns:
+            Chain depth (0 for root sessions, positive for rotated sessions)
+        """
         if not self.rotated_from:
             return 0
         
-        # Simple depth calculation - in production, consider iterative approach
-        # to avoid recursion limits with very long chains
-        if self.parent_session:
-            return 1 + self.parent_session.get_rotation_chain_length()
-        return 1
+        # Use iterative approach to avoid recursion limits with long chains
+        # Maximum theoretical chain length in production should be reasonable,
+        # but this prevents stack overflow in edge cases
+        depth = 0
+        current_session = self
+        visited_sessions = set()  # Prevent infinite loops from circular references
+        
+        while current_session.rotated_from is not None:
+            # Safety check: prevent infinite loops from circular rotation chains
+            if current_session.id in visited_sessions:
+                # Log security issue - circular rotation chain detected
+                # This should never happen with proper constraints, but defensive programming
+                break
+            
+            visited_sessions.add(current_session.id)
+            depth += 1
+            
+            # In a real implementation, we'd need to load the parent session from DB
+            # For now, we use the relationship if available
+            if hasattr(current_session, 'parent_session') and current_session.parent_session:
+                current_session = current_session.parent_session
+            else:
+                # Cannot traverse further without database query
+                break
+            
+            # Safety limit: prevent excessive iteration in malformed data
+            if depth > 1000:  # Reasonable upper bound for rotation chains
+                break
+        
+        return depth
     
     @classmethod
     def create_default_session(
