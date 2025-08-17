@@ -1,74 +1,92 @@
 """
-Security event model for incident tracking.
+Security event model for ultra enterprise security monitoring.
+Compliant with Task Master ERD requirements.
 """
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
-    String, Boolean, ForeignKey, Index,
-    DateTime, Enum as SQLEnum, Text
+    BigInteger, DateTime, ForeignKey, Index, String, Text
 )
-from sqlalchemy.dialects.postgresql import JSONB, INET
+from sqlalchemy.dialects.postgresql import INET
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from .base import Base, TimestampMixin
-from .enums import SecurityEventType, SecuritySeverity
+from .base import Base
+
+if TYPE_CHECKING:
+    from .user import User
 
 
-class SecurityEvent(Base, TimestampMixin):
-    """Security-related events and incidents."""
+class SecurityEvent(Base):
+    """Enterprise security event tracking for compliance and monitoring.
+    
+    Records security-related events with minimal overhead for high-frequency
+    logging while maintaining audit trail integrity.
+    """
     
     __tablename__ = "security_events"
+    __table_args__ = (
+        # Performance indexes
+        Index("idx_security_events_user_id", "user_id"),
+        Index("idx_security_events_type", "type"),
+        Index("idx_security_events_created_at", "created_at"),
+        Index(
+            "idx_security_events_user_type", 
+            "user_id", "type", "created_at"
+        ),
+        Index(
+            "idx_security_events_ip_created", 
+            "ip", "created_at",
+            postgresql_where="ip IS NOT NULL"
+        ),
+    )
     
     # Primary key
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    
-    # Event type and severity
-    event_type: Mapped[SecurityEventType] = mapped_column(
-        SQLEnum(SecurityEventType),
-        nullable=False,
-        index=True
-    )
-    severity: Mapped[SecuritySeverity] = mapped_column(
-        SQLEnum(SecuritySeverity),
-        nullable=False,
-        index=True
+    id: Mapped[int] = mapped_column(
+        BigInteger,
+        primary_key=True,
+        autoincrement=True,
+        comment="Unique security event identifier"
     )
     
-    # Foreign keys
+    # User association
     user_id: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL"),
-        index=True
-    )
-    resolved_by: Mapped[Optional[int]] = mapped_column(
-        ForeignKey("users.id", ondelete="SET NULL")
+        ForeignKey("users.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+        comment="Associated user (NULL for anonymous/system events)"
     )
     
-    # Source information
-    ip_address: Mapped[Optional[str]] = mapped_column(
+    # Event classification
+    type: Mapped[str] = mapped_column(
+        String(100),
+        nullable=False,
+        index=True,
+        comment="Security event type (e.g., 'LOGIN_FAILED', 'ACCESS_DENIED')"
+    )
+    
+    # Request context
+    ip: Mapped[Optional[str]] = mapped_column(
         INET,
-        index=True
+        nullable=True,
+        index=True,
+        comment="Source IP address of the security event"
+    )
+    ua: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        comment="User agent string from the request"
     )
     
-    # Event details
-    details: Mapped[dict] = mapped_column(
-        JSONB,
+    # Timestamp
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
         nullable=False,
-        default={}
+        server_default="NOW()",
+        index=True,
+        comment="When the security event occurred (UTC)"
     )
-    
-    # Resolution status
-    resolved: Mapped[bool] = mapped_column(
-        Boolean,
-        nullable=False,
-        default=False,
-        index=True
-    )
-    resolved_at: Mapped[Optional[datetime]] = mapped_column(
-        DateTime(timezone=True)
-    )
-    notes: Mapped[Optional[str]] = mapped_column(Text)
     
     # Relationships
     user: Mapped[Optional["User"]] = relationship(
@@ -76,81 +94,136 @@ class SecurityEvent(Base, TimestampMixin):
         back_populates="security_events",
         foreign_keys=[user_id]
     )
-    resolver: Mapped[Optional["User"]] = relationship(
-        "User",
-        foreign_keys=[resolved_by]
-    )
-    
-    # Indexes
-    __table_args__ = (
-        Index('idx_security_events_severity', 'severity',
-              postgresql_where='resolved = false'),
-        Index('idx_security_events_user_id', 'user_id',
-              postgresql_where='user_id IS NOT NULL'),
-        Index('idx_security_events_unresolved', 'created_at',
-              postgresql_where='resolved = false'),
-    )
     
     def __repr__(self) -> str:
         return (
-            f"<SecurityEvent(id={self.id}, type={self.event_type.value}, "
-            f"severity={self.severity.value})>"
+            f"<SecurityEvent(id={self.id}, type='{self.type}', "
+            f"user_id={self.user_id}, ip='{self.ip}')>"
         )
     
     @property
-    def is_critical(self) -> bool:
-        """Check if event is critical severity."""
-        return self.severity == SecuritySeverity.CRITICAL
+    def is_anonymous(self) -> bool:
+        """Check if event is from anonymous/unauthenticated source."""
+        return self.user_id is None
     
     @property
-    def is_high_severity(self) -> bool:
-        """Check if event is high or critical severity."""
-        return self.severity in [
-            SecuritySeverity.HIGH,
-            SecuritySeverity.CRITICAL
-        ]
+    def is_authenticated(self) -> bool:
+        """Check if event is from authenticated user."""
+        return self.user_id is not None
     
     @property
-    def requires_immediate_action(self) -> bool:
-        """Check if event requires immediate action."""
-        critical_events = [
-            SecurityEventType.DATA_BREACH,
-            SecurityEventType.PRIVILEGE_ESCALATION,
-            SecurityEventType.SQL_INJECTION,
-            SecurityEventType.DDOS_DETECTED
+    def has_ip(self) -> bool:
+        """Check if event has IP address information."""
+        return self.ip is not None
+    
+    @property
+    def has_user_agent(self) -> bool:
+        """Check if event has user agent information."""
+        return self.ua is not None and self.ua.strip() != ""
+    
+    @classmethod
+    def create_login_failed(
+        cls,
+        user_id: Optional[int] = None,
+        ip: Optional[str] = None,
+        ua: Optional[str] = None
+    ) -> "SecurityEvent":
+        """Create a login failed security event.
+        
+        Args:
+            user_id: User ID if known
+            ip: Source IP address
+            ua: User agent string
+            
+        Returns:
+            SecurityEvent instance
+        """
+        return cls(
+            user_id=user_id,
+            type="LOGIN_FAILED",
+            ip=ip,
+            ua=ua
+        )
+    
+    @classmethod
+    def create_access_denied(
+        cls,
+        user_id: int,
+        ip: Optional[str] = None,
+        ua: Optional[str] = None
+    ) -> "SecurityEvent":
+        """Create an access denied security event.
+        
+        Args:
+            user_id: User ID who was denied access
+            ip: Source IP address
+            ua: User agent string
+            
+        Returns:
+            SecurityEvent instance
+        """
+        return cls(
+            user_id=user_id,
+            type="ACCESS_DENIED",
+            ip=ip,
+            ua=ua
+        )
+    
+    @classmethod
+    def create_suspicious_activity(
+        cls,
+        user_id: Optional[int],
+        activity_type: str,
+        ip: Optional[str] = None,
+        ua: Optional[str] = None
+    ) -> "SecurityEvent":
+        """Create a suspicious activity security event.
+        
+        Args:
+            user_id: User ID if known
+            activity_type: Type of suspicious activity
+            ip: Source IP address
+            ua: User agent string
+            
+        Returns:
+            SecurityEvent instance
+        """
+        return cls(
+            user_id=user_id,
+            type=f"SUSPICIOUS_{activity_type.upper()}",
+            ip=ip,
+            ua=ua
+        )
+    
+    def is_login_related(self) -> bool:
+        """Check if event is related to authentication/login."""
+        login_types = [
+            "LOGIN_FAILED",
+            "LOGIN_SUCCESS", 
+            "LOGIN_BLOCKED",
+            "BRUTE_FORCE_DETECTED",
+            "ACCOUNT_LOCKED"
         ]
+        return self.type in login_types
+    
+    def is_access_related(self) -> bool:
+        """Check if event is related to authorization/access."""
+        access_types = [
+            "ACCESS_DENIED",
+            "PRIVILEGE_ESCALATION",
+            "UNAUTHORIZED_ACCESS",
+            "RESOURCE_ACCESS_DENIED"
+        ]
+        return self.type in access_types
+    
+    def is_suspicious(self) -> bool:
+        """Check if event indicates suspicious activity."""
         return (
-            self.event_type in critical_events or
-            self.is_critical
-        ) and not self.resolved
-    
-    def resolve(self, resolver_id: int, notes: str = None):
-        """Mark event as resolved."""
-        self.resolved = True
-        self.resolved_at = datetime.now(timezone.utc)
-        self.resolved_by = resolver_id
-        if notes:
-            self.notes = notes
-    
-    def reopen(self, notes: str = None):
-        """Reopen resolved event."""
-        self.resolved = False
-        self.resolved_at = None
-        self.resolved_by = None
-        if notes:
-            if self.notes:
-                self.notes += f"\n\nReopened: {notes}"
-            else:
-                self.notes = f"Reopened: {notes}"
-    
-    def add_detail(self, key: str, value):
-        """Add detail to event."""
-        if not self.details:
-            self.details = {}
-        self.details[key] = value
-    
-    def get_detail(self, key: str, default=None):
-        """Get specific detail value."""
-        if not self.details:
-            return default
-        return self.details.get(key, default)
+            self.type.startswith("SUSPICIOUS_") or
+            self.type in [
+                "BRUTE_FORCE_DETECTED",
+                "RATE_LIMIT_EXCEEDED",
+                "UNUSUAL_LOCATION",
+                "MULTIPLE_DEVICES"
+            ]
+        )
