@@ -302,6 +302,76 @@ docker exec fc_freecad_dev FreeCADCmd --version
 - Rate limiting on API endpoints
 - CORS configured for frontend origin only
 
+## Financial System Guidelines
+
+### Enterprise Financial Precision Standards
+
+Following Gemini Code Assist feedback, all financial operations must maintain the highest precision standards:
+
+**1. Decimal-Only Financial Calculations**
+```python
+# ✅ CORRECT: Use Decimal for all monetary calculations
+from decimal import Decimal, ROUND_HALF_UP
+
+amount_decimal = Decimal(amount_cents) / Decimal('100')
+tax_amount = (base_amount * tax_rate / Decimal('100')).quantize(
+    Decimal('1'), rounding=ROUND_HALF_UP
+)
+
+# ❌ WRONG: Never use float for financial calculations
+amount_float = amount_cents / 100.0  # Precision loss risk
+```
+
+**2. Enhanced Migration Safety**
+```python
+# ✅ CORRECT: Use enhanced enum creation
+from alembic.migration_helpers import create_enum_type_safe
+
+create_enum_type_safe('payment_status', ['pending', 'completed', 'failed'])
+
+# ❌ WRONG: Direct enum creation without safety checks
+op.execute("CREATE TYPE payment_status AS ENUM ('pending', 'completed', 'failed')")
+```
+
+**3. Import Organization Best Practices**
+```python
+# ✅ CORRECT: Organized imports with TYPE_CHECKING
+from __future__ import annotations
+
+from decimal import Decimal
+from typing import TYPE_CHECKING, List, Optional
+
+from sqlalchemy import BigInteger, CheckConstraint, DateTime
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from .payment import Payment
+
+# ❌ WRONG: Disorganized imports causing circular dependencies
+from .payment import Payment  # Can cause circular import
+```
+
+**4. Financial Schema Validation**
+```python
+# ✅ CORRECT: Pydantic schemas with Decimal validation
+class MonetaryAmount(BaseModel):
+    amount_cents: PositiveInt
+    
+    @property
+    def amount_decimal(self) -> Decimal:
+        return Decimal(self.amount_cents) / Decimal('100')
+
+# ❌ WRONG: Float-based financial schemas
+class MonetaryAmount(BaseModel):
+    amount_float: float  # Precision loss risk
+```
+
+**5. Turkish Financial Compliance**
+- All monetary calculations use Turkish KDV standards (20% default)
+- Currency constraints support TRY-first with multi-currency options
+- Financial precision maintained for regulatory compliance
+- Tax calculations use Decimal with ROUND_HALF_UP for consistency
+
 ## Task Management Integration
 
 This project uses Task Master for task tracking. Common commands:

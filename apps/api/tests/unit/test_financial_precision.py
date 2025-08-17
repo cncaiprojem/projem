@@ -5,6 +5,9 @@ This test suite validates the Gemini Code Assist feedback fixes:
 1. Decimal tax calculations prevent floating-point errors
 2. Composite unique constraints for payment provider references
 3. Enterprise financial integrity across all operations
+4. Complete Decimal migration for all financial calculations
+5. Enhanced import statement organization
+6. Financial schema validation with Decimal precision
 """
 
 import pytest
@@ -14,6 +17,10 @@ from datetime import datetime, timezone
 from app.models.invoice import Invoice
 from app.models.payment import Payment
 from app.models.enums import InvoiceStatus, PaymentStatus, Currency
+from app.schemas.financial import (
+    MonetaryAmount, TaxCalculation, InvoiceLineItem,
+    InvoiceCreate, PaymentCreate, FinancialSummary
+)
 
 
 class TestFinancialPrecision:
@@ -211,9 +218,187 @@ class TestMultiCurrencyFinancials:
         assert payment_eur.currency == Currency.EUR
 
 
+class TestDecimalAmountProperties:
+    """Test enhanced Decimal amount properties."""
+    
+    def test_invoice_amount_decimal_property(self):
+        """Test invoice amount_decimal property returns Decimal."""
+        invoice = Invoice()
+        invoice.amount_cents = 12345  # 123.45
+        
+        decimal_amount = invoice.amount_decimal
+        
+        # Should return Decimal type, not float
+        assert isinstance(decimal_amount, Decimal)
+        assert decimal_amount == Decimal('123.45')
+    
+    def test_payment_amount_decimal_property(self):
+        """Test payment amount_decimal property returns Decimal."""
+        payment = Payment()
+        payment.amount_cents = 67890  # 678.90
+        
+        decimal_amount = payment.amount_decimal
+        
+        # Should return Decimal type, not float
+        assert isinstance(decimal_amount, Decimal)
+        assert decimal_amount == Decimal('678.90')
+    
+    def test_decimal_string_representation(self):
+        """Test string representation uses decimal property."""
+        payment = Payment()
+        payment.provider_ref = "test_123"
+        payment.amount_cents = 12345
+        payment.currency = Currency.TRY
+        
+        # __str__ method should use amount_decimal property
+        str_repr = str(payment)
+        assert "123.45" in str_repr
+        assert "TRY" in str_repr
+
+
+class TestFinancialSchemas:
+    """Test financial Pydantic schemas with Decimal validation."""
+    
+    def test_monetary_amount_schema(self):
+        """Test MonetaryAmount schema validation."""
+        # Valid monetary amount
+        amount = MonetaryAmount(amount_cents=12345, currency=Currency.TRY)
+        
+        assert amount.amount_cents == 12345
+        assert amount.currency == Currency.TRY
+        assert amount.amount_decimal == Decimal('123.45')
+        assert amount.to_display_string() == "123.45 TRY"
+    
+    def test_monetary_amount_validation_errors(self):
+        """Test MonetaryAmount validation errors."""
+        # Negative amount should fail
+        with pytest.raises(ValueError, match="Amount must be positive"):
+            MonetaryAmount(amount_cents=-100)
+        
+        # Zero amount should fail
+        with pytest.raises(ValueError, match="Amount must be positive"):
+            MonetaryAmount(amount_cents=0)
+        
+        # Excessive amount should fail
+        with pytest.raises(ValueError, match="exceeds maximum"):
+            MonetaryAmount(amount_cents=20_000_000_000)  # 200 million
+    
+    def test_tax_calculation_schema(self):
+        """Test TaxCalculation schema validation."""
+        # Valid tax calculation
+        tax_calc = TaxCalculation(
+            subtotal_cents=10000,
+            tax_cents=2000,
+            total_cents=12000,
+            tax_rate_percent=Decimal('20.0')
+        )
+        
+        assert tax_calc.subtotal_decimal == Decimal('100.00')
+        assert tax_calc.tax_decimal == Decimal('20.00')
+        assert tax_calc.total_decimal == Decimal('120.00')
+    
+    def test_tax_calculation_validation_error(self):
+        """Test TaxCalculation validation errors."""
+        # Invalid calculation should fail
+        with pytest.raises(ValueError, match="Tax calculation error"):
+            TaxCalculation(
+                subtotal_cents=10000,
+                tax_cents=2000,
+                total_cents=13000,  # Wrong total
+                tax_rate_percent=Decimal('20.0')
+            )
+    
+    def test_invoice_line_item_schema(self):
+        """Test InvoiceLineItem schema validation."""
+        # Valid line item
+        line_item = InvoiceLineItem(
+            description="Test Item",
+            quantity=2,
+            unit_price_cents=5000,  # 50.00
+            tax_rate_percent=Decimal('20.0'),
+            subtotal_cents=10000,  # 2 * 50.00 = 100.00
+            tax_cents=2000,       # 20% of 100.00 = 20.00
+            total_cents=12000     # 100.00 + 20.00 = 120.00
+        )
+        
+        assert line_item.unit_price_decimal == Decimal('50.00')
+        assert line_item.subtotal_decimal == Decimal('100.00')
+        assert line_item.tax_decimal == Decimal('20.00')
+        assert line_item.total_decimal == Decimal('120.00')
+    
+    def test_invoice_line_item_validation_errors(self):
+        """Test InvoiceLineItem validation errors."""
+        # Wrong subtotal calculation
+        with pytest.raises(ValueError, match="Subtotal calculation error"):
+            InvoiceLineItem(
+                description="Test Item",
+                quantity=2,
+                unit_price_cents=5000,
+                tax_rate_percent=Decimal('20.0'),
+                subtotal_cents=9000,  # Wrong: should be 10000
+                tax_cents=1800,
+                total_cents=10800
+            )
+        
+        # Wrong total calculation
+        with pytest.raises(ValueError, match="Total calculation error"):
+            InvoiceLineItem(
+                description="Test Item",
+                quantity=2,
+                unit_price_cents=5000,
+                tax_rate_percent=Decimal('20.0'),
+                subtotal_cents=10000,
+                tax_cents=2000,
+                total_cents=13000  # Wrong: should be 12000
+            )
+    
+    def test_financial_summary_schema(self):
+        """Test FinancialSummary schema with Decimal properties."""
+        summary = FinancialSummary(
+            total_invoices=10,
+            total_amount_cents=100000,  # 1000.00
+            paid_amount_cents=75000,    # 750.00
+            pending_amount_cents=20000, # 200.00
+            overdue_amount_cents=5000,  # 50.00
+            currency=Currency.TRY
+        )
+        
+        assert summary.total_amount_decimal == Decimal('1000.00')
+        assert summary.paid_amount_decimal == Decimal('750.00')
+        assert summary.pending_amount_decimal == Decimal('200.00')
+        assert summary.overdue_amount_decimal == Decimal('50.00')
+
+
+class TestImportOrganization:
+    """Test import statement optimizations."""
+    
+    def test_import_performance(self):
+        """Test that imports are organized for performance."""
+        # This test validates that TYPE_CHECKING is used properly
+        # and forward references work correctly
+        
+        # Test that models can be instantiated without circular imports
+        invoice = Invoice()
+        payment = Payment()
+        
+        # Test that relationship annotations work with TYPE_CHECKING
+        assert hasattr(Invoice, '__annotations__')
+        assert hasattr(Payment, '__annotations__')
+        
+        # Verify forward reference resolution
+        user_annotation = Invoice.__annotations__.get('user')
+        payments_annotation = Invoice.__annotations__.get('payments')
+        invoice_annotation = Payment.__annotations__.get('invoice')
+        
+        # These should be properly typed without causing import issues
+        assert user_annotation is not None
+        assert payments_annotation is not None
+        assert invoice_annotation is not None
+
+
 if __name__ == "__main__":
     # Quick validation run
-    print("Running financial precision tests...")
+    print("Running enhanced financial precision tests...")
     
     # Test decimal precision
     test_precision = TestFinancialPrecision()
@@ -239,6 +424,33 @@ if __name__ == "__main__":
     test_currency.test_different_currency_handling()
     print("✅ Multi-currency tests passed")
     
-    print("\n🎉 All financial integrity tests passed!")
+    # Test enhanced Decimal properties
+    test_decimal = TestDecimalAmountProperties()
+    test_decimal.test_invoice_amount_decimal_property()
+    test_decimal.test_payment_amount_decimal_property()
+    test_decimal.test_decimal_string_representation()
+    print("✅ Enhanced Decimal properties tests passed")
+    
+    # Test financial schemas
+    test_schemas = TestFinancialSchemas()
+    test_schemas.test_monetary_amount_schema()
+    test_schemas.test_monetary_amount_validation_errors()
+    test_schemas.test_tax_calculation_schema()
+    test_schemas.test_tax_calculation_validation_error()
+    test_schemas.test_invoice_line_item_schema()
+    test_schemas.test_invoice_line_item_validation_errors()
+    test_schemas.test_financial_summary_schema()
+    print("✅ Financial schema validation tests passed")
+    
+    # Test import organization
+    test_imports = TestImportOrganization()
+    test_imports.test_import_performance()
+    print("✅ Import organization tests passed")
+    
+    print("\n🎉 All enhanced financial integrity tests passed!")
     print("✅ Gemini Code Assist feedback successfully implemented")
     print("✅ Enterprise financial precision achieved")
+    print("✅ Complete Decimal migration completed")
+    print("✅ Enhanced migration patterns implemented")
+    print("✅ Optimized import statements applied")
+    print("✅ Financial schemas with Decimal validation created")

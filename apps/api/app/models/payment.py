@@ -1,17 +1,23 @@
 """Payment model for transaction processing - Task Master ERD compliant."""
 
+from __future__ import annotations
+
 from datetime import datetime, timezone
-from typing import Optional
+from decimal import Decimal
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
-    BigInteger, String, ForeignKey, Index, DateTime,
-    CheckConstraint, Enum as SQLEnum, text, UniqueConstraint
+    BigInteger, CheckConstraint, DateTime, Enum as SQLEnum, 
+    ForeignKey, Index, String, UniqueConstraint, text
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
-from .enums import PaymentStatus, Currency
+from .enums import Currency, PaymentStatus
+
+if TYPE_CHECKING:
+    from .invoice import Invoice
 
 
 class Payment(Base, TimestampMixin):
@@ -93,7 +99,7 @@ class Payment(Base, TimestampMixin):
     )
     
     # Relationships
-    invoice: Mapped["Invoice"] = relationship(
+    invoice: Mapped[Invoice] = relationship(
         "Invoice",
         back_populates="payments",
         lazy="select"
@@ -153,12 +159,12 @@ class Payment(Base, TimestampMixin):
         return f"<Payment(id={self.id}, provider_ref='{self.provider_ref}', amount_cents={self.amount_cents})>"
     
     def __str__(self) -> str:
-        return f"Payment {self.provider_ref}: {self.amount_cents/100:.2f} {self.currency.value}"
+        return f"Payment {self.provider_ref}: {self.amount_decimal:.2f} {self.currency.value}"
     
     @property
-    def amount_decimal(self) -> float:
-        """Convert cents to decimal amount for display."""
-        return self.amount_cents / 100.0
+    def amount_decimal(self) -> Decimal:
+        """Convert cents to decimal amount for display with precision."""
+        return Decimal(self.amount_cents) / Decimal('100')
     
     @property
     def is_successful(self) -> bool:
