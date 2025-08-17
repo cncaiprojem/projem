@@ -1,5 +1,5 @@
 # RabbitMQ Development Plugins
-# Bu dosya development ortamı için aktif edilecek plugin'leri listeler
+# Active plugins for development environment
 
 [rabbitmq_management].
 [rabbitmq_prometheus].

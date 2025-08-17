@@ -119,28 +119,8 @@ def configure_postgresql_session(connection: Connection) -> None:
         major, minor = get_postgresql_version(connection)
         logging.info(f"Detected PostgreSQL version: {major}.{minor}")
         
-        # PostgreSQL 17.6 specific optimizations
-        if major >= 17:
-            # Use advanced parallel execution for large migrations
-            connection.execute(text("SET max_parallel_workers_per_gather = 4"))
-            connection.execute(text("SET parallel_setup_cost = 100"))
-            connection.execute(text("SET parallel_tuple_cost = 0.01"))
-            
-        # General performance optimizations for migrations
-        connection.execute(text("SET maintenance_work_mem = '256MB'"))
-        connection.execute(text("SET checkpoint_completion_target = 0.9"))
-        connection.execute(text("SET wal_compression = on"))
-        
-        # Ensure UTC timezone for all timestamp operations
-        connection.execute(text("SET timezone = 'UTC'"))
-        
-        # Lock timeout to prevent indefinite waits
-        connection.execute(text("SET lock_timeout = '300s'"))
-        
-        # Statement timeout for safety
-        connection.execute(text("SET statement_timeout = '1800s'"))
-        
-        logging.info("PostgreSQL session configured for enterprise migration performance")
+        # Basic session configuration for stability
+        logging.info("Basic PostgreSQL session configured for migration compatibility")
         
     except Exception as e:
         logging.warning(f"Could not configure PostgreSQL session optimizations: {e}")
@@ -234,7 +214,7 @@ def run_migrations_online() -> None:
             # Configure PostgreSQL session for optimal performance
             configure_postgresql_session(connection)
             
-            # Configure Alembic context with enterprise settings
+            # Configure Alembic context with simplified settings for debugging
             context.configure(
                 connection=connection,
                 target_metadata=target_metadata,
@@ -242,20 +222,36 @@ def run_migrations_online() -> None:
                 compare_server_default=True,
                 include_object=include_object,
                 render_item=render_item,
-                # PostgreSQL-specific configuration
-                transaction_per_migration=True,  # Safer for large migrations
-                transactional_ddl=True,         # PostgreSQL supports DDL in transactions
+                # Simplified PostgreSQL configuration for debugging
+                transaction_per_migration=False,  # Use single transaction
+                transactional_ddl=True,          # PostgreSQL supports DDL in transactions
                 # Version table configuration
-                version_table_schema=None,      # Use default schema
-                # Naming convention enforcement
-                user_module_prefix="cnc_",      # Prefix for user-defined objects
+                version_table_schema=None,       # Use default schema
             )
 
-            # Execute migrations within a transaction for atomicity
+            # Execute migrations with detailed debugging
+            logging.info("Starting online migration execution")
+            logging.info(f"Connection info: {connection.info}")
+            
+            # Test direct DDL execution before migration
+            try:
+                logging.info("Testing direct DDL execution...")
+                connection.execute(text("CREATE TABLE alembic_test (id SERIAL PRIMARY KEY)"))
+                connection.commit()
+                logging.info("Direct DDL test successful")
+                connection.execute(text("DROP TABLE alembic_test"))
+                connection.commit()
+                logging.info("Table cleanup successful")
+            except Exception as e:
+                logging.error(f"Direct DDL test failed: {e}")
+            
             with context.begin_transaction():
-                logging.info("Starting online migration execution")
+                logging.info("Inside transaction - starting migrations")
                 context.run_migrations()
-                logging.info("Migration execution completed successfully")
+                logging.info("Inside transaction - migration execution completed")
+                # Explicit commit to ensure changes persist
+                connection.commit()
+                logging.info("Transaction committed successfully")
                 
     except Exception as e:
         logging.error(f"Migration failed with error: {e}")
