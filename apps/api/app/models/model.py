@@ -73,7 +73,11 @@ class Model(Base, TimestampMixin):
         default=1
     )
     
-    # Model metadata
+    # Model generation and analysis parameters/metrics
+    params: Mapped[Optional[dict]] = mapped_column(JSONB, default={})
+    metrics: Mapped[Optional[dict]] = mapped_column(JSONB, default={})
+    
+    # Legacy metadata (kept for compatibility)
     model_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, name="metadata")
     
     # Thumbnail
@@ -98,11 +102,16 @@ class Model(Base, TimestampMixin):
         back_populates="model"
     )
     
-    # Constraints and indexes
+    # Constraints and indexes  
     __table_args__ = (
         CheckConstraint('file_size > 0', name='ck_models_file_size_positive'),
         CheckConstraint('version > 0', name='ck_models_version_positive'),
+        Index('idx_models_user_id', 'user_id'),
+        Index('idx_models_type', 'type'),
         Index('idx_models_created_at', 'created_at'),
+        Index('idx_models_params', 'params',
+              postgresql_using='gin',
+              postgresql_where='params IS NOT NULL'),
         Index('idx_models_metadata', 'metadata',
               postgresql_using='gin',
               postgresql_where='metadata IS NOT NULL'),

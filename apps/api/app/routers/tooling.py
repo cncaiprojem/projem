@@ -1,3 +1,7 @@
+# LEGACY ROUTER - DISABLED  
+# This router uses legacy Tool/ToolPreset models not in Task Master ERD
+# Use the new Tool model from Task Master ERD instead
+"""
 from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
@@ -10,8 +14,13 @@ from ..config import settings
 
 
 router = APIRouter(prefix="/api/v1", tags=["tooling"])
+"""
 
+from fastapi import APIRouter  
+router = APIRouter(prefix="/api/v1/legacy-disabled", tags=["Disabled"])
 
+# All legacy tooling endpoints disabled
+"""
 @router.get("/tools")
 def list_tools(type: Optional[str] = None, dia: Optional[float] = None):
     with db_session() as s:
@@ -31,5 +40,6 @@ def scan():
     root = settings.toolbits_root or "/data/toolbits"
     items = scan_toolbits(root)
     return {"count": len(items), "items": items}
+"""
 
 

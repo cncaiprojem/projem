@@ -24,21 +24,9 @@ from alembic import context
 # Import all model metadata for comprehensive schema detection
 from app.models import Base, metadata
 
-# Import additional model modules that may not be included in __init__.py
-# Note: These imports ensure all models are registered with metadata
-try:
-    # Import models that define additional tables not in main models package
-    from app.models_cutting import CuttingData
-    from app.models_project import (
-        Project, ProjectFile, AIQnA, Fixture, Setup, Op3D, Collision, PostRun
-    )
-    from app.models_tooling import (
-        ToolLegacy, Holder, ToolPreset, ShopPackage
-    )
-    logging.info("Successfully imported additional model modules")
-except ImportError as e:
-    logging.warning(f"Could not import some additional model modules: {e}")
-    # This is not critical - the main models are already imported
+# All models are now in the main models package - no additional imports needed
+# All Task Master ERD models are registered via app.models import above
+logging.info("All Task Master ERD models loaded from main models package")
 
 # Configure Alembic context
 config = context.config
