@@ -10,7 +10,7 @@ logger = get_logger(__name__)
 from .instrumentation import setup_metrics, setup_tracing, setup_celery_instrumentation
 from .sentry_setup import setup_sentry
 from .logging_setup import setup_logging
-from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict
+from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict, XSSDetectionMiddleware
 from .middleware.limiter import RateLimitMiddleware
 from .services.rate_limiting_service import rate_limiting_service
 from .routers import auth as auth_router
@@ -29,6 +29,7 @@ from .routers import admin_unmask as admin_unmask_router
 from .routers import designs as designs_router  # Re-enabled with RBAC protection
 from .routers import admin_users as admin_users_router  # New admin router
 from .routers import me as me_router  # New user profile router
+from .routers import security as security_router  # Security endpoints (Task 3.10)
 # Legacy routers disabled - not part of Task Master ERD
 # from .routers import projects as projects_router
 # from .routers import design as design_router
@@ -125,9 +126,11 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(CORSMiddlewareStrict)
-app.add_middleware(RateLimitMiddleware)
+# Ultra enterprise security middleware stack (Task 3.10)
+app.add_middleware(SecurityHeadersMiddleware)  # CSP and security headers
+app.add_middleware(XSSDetectionMiddleware)     # XSS detection and prevention
+app.add_middleware(CORSMiddlewareStrict)       # Strict CORS enforcement
+app.add_middleware(RateLimitMiddleware)        # Rate limiting (Task 3.9)
 
 setup_metrics(app)
 setup_celery_instrumentation()
@@ -148,6 +151,7 @@ app.include_router(admin_unmask_router.router)
 app.include_router(designs_router.router)  # Re-enabled with RBAC protection
 app.include_router(admin_users_router.router)  # New admin router with RBAC
 app.include_router(me_router.router)  # New user profile router with RBAC
+app.include_router(security_router.router)  # Security endpoints (Task 3.10)
 if _sim_available and sim_router is not None:
     app.include_router(sim_router.router)
 app.include_router(events_router)
