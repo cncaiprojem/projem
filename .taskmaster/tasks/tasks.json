@@ -496,7 +496,7 @@
               "3.14"
             ],
             "details": "Design:\n- Playwright: register→login (pwd), MFA challenge, OIDC login via mocked Google, magic link request→consume, refresh rotation, logout, license guard redirects, idle logout.\n- Security: OWASP ZAP active scan against staging; CSRF negative tests; XSS reflection tests; rate-limit assertions (429 with Retry-After).\nAPIs: Exercise all relevant endpoints from other subtasks.\nCookies: Validate rt cookie attributes and CSRF cookie behaviors.\nErrors:\n- Assert specific codes/messages for failure paths (ERR-* from backend).\nAcceptance:\n- All happy paths pass; all negative paths return correct status and codes; ZAP reports no high/medium issues.\nLogging:\n- Verify audit/security events emitted for key actions and correlate via test-specific correlation IDs.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-18T15:32:29.361Z",
+      "updated": "2025-08-18T16:22:02.314Z",
       "description": "Tasks for master context"
     }
   }
