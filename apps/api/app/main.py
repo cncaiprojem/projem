@@ -19,6 +19,7 @@ from .middleware.dev_mode_middleware import (
     ProductionHardeningMiddleware, 
     EnvironmentValidationMiddleware
 )
+from .middleware.license_middleware import LicenseGuardMiddleware
 from .services.rate_limiting_service import rate_limiting_service
 from .services.environment_service import environment_service
 from .core.environment import environment
@@ -154,11 +155,12 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
-# Ultra enterprise security middleware stack (Tasks 3.8, 3.9, 3.10, 3.12)
+# Ultra enterprise security middleware stack (Tasks 3.8, 3.9, 3.10, 3.12, 4.3)
 # Order is critical for security and proper functioning
 app.add_middleware(EnvironmentValidationMiddleware)    # Environment validation (Task 3.12)
 app.add_middleware(ProductionHardeningMiddleware)      # Production security hardening (Task 3.12)
 app.add_middleware(DevModeMiddleware)                  # Development mode features (Task 3.12)
+app.add_middleware(LicenseGuardMiddleware)             # License enforcement (Task 4.3)
 app.add_middleware(SecurityHeadersMiddleware)          # CSP and security headers (Task 3.10)
 app.add_middleware(XSSDetectionMiddleware)             # XSS detection and prevention (Task 3.10)
 app.add_middleware(CSRFProtectionMiddleware)           # CSRF double-submit protection (Task 3.8)
