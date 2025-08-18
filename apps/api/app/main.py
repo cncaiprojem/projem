@@ -10,7 +10,8 @@ logger = get_logger(__name__)
 from .instrumentation import setup_metrics, setup_tracing, setup_celery_instrumentation
 from .sentry_setup import setup_sentry
 from .logging_setup import setup_logging
-from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict, XSSDetectionMiddleware
+from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict
+from .middleware.headers import XSSDetectionMiddleware
 from .middleware.limiter import RateLimitMiddleware
 from .middleware.csrf_middleware import CSRFProtectionMiddleware
 from .middleware.dev_mode_middleware import (
