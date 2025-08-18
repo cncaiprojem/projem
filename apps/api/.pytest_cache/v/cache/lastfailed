@@ -1,0 +1,3 @@
+{
+  "tests/integration/test_migration_integrity.py": true
+}
