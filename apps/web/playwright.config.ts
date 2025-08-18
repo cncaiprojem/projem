@@ -1,4 +1,5 @@
 import { defineConfig, devices } from '@playwright/test'
+import path from 'path'
 
 /**
  * Ultra-Enterprise Security Testing Configuration for Task 3.15
@@ -113,19 +114,20 @@ export default defineConfig({
 
   // Global setup and teardown
   globalSetup: './e2e/setup/global-setup.ts',
-  globalTeardown: './e2e/setup/global-setup.ts',
+  globalTeardown: './e2e/setup/global-teardown.ts',
 
   // Web server configuration for testing
   webServer: [
     {
-      command: 'cd ../api && python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload',
+      command: 'python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload',
       url: 'http://localhost:8000/healthz',
+      cwd: path.resolve(__dirname, '../../api'),
       reuseExistingServer: !process.env.CI,
       timeout: 120 * 1000, // 2 minutes startup time
       env: {
         NODE_ENV: 'test',
-        DATABASE_URL: 'postgresql+psycopg2://freecad:password@localhost:5432/freecad_test',
-        REDIS_URL: 'redis://localhost:6379/1',
+        DATABASE_URL: process.env.TEST_DATABASE_URL || 'postgresql+psycopg2://freecad:password@localhost:5432/freecad_test',
+        REDIS_URL: process.env.TEST_REDIS_URL || 'redis://localhost:6379/1',
         DEV_AUTH_BYPASS: 'false', // Never bypass auth in tests
       },
     },

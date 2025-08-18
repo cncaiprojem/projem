@@ -32,7 +32,6 @@ test.describe('Audit Logging and Turkish Validation', () => {
 
   test.describe('Authentication Audit Events', () => {
     test('should log comprehensive audit events for user registration', async ({ page, request }) => {
-      console.log('📝 Testing registration audit logging...')
       
       const credentials = AuthTestUtils.generateTestCredentials()
       
@@ -56,7 +55,6 @@ test.describe('Audit Logging and Turkish Validation', () => {
       await expect(page.locator('[data-testid="registration-success"]')).toBeVisible()
       
       // Verify audit events were created
-      console.log('🔍 Verifying audit events...')
       
       const expectedEvents = [
         'USER_REGISTRATION_INITIATED',
@@ -66,15 +64,17 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(TEST_CORRELATION_ID, expectedEvents)
-      console.log('✅ Registration audit events verified')
       
       // Verify KVKV compliance in audit logs
       await auditUtils.verifyKvkvCompliance(TEST_CORRELATION_ID)
-      console.log('✅ KVKV compliance in audit logs verified')
+      
+      // Login as admin to access audit logs endpoint
+      const adminToken = await authUtils.loginAsAdmin()
       
       // Verify audit log structure and content
       const auditResponse = await request.get('/api/v1/admin/audit-logs', {
         headers: {
+          'Authorization': `Bearer ${adminToken}`,
           'X-Test-Correlation-ID': TEST_CORRELATION_ID
         },
         params: {
@@ -102,12 +102,10 @@ test.describe('Audit Logging and Turkish Validation', () => {
         expect(event.details).not.toContain('password')
         expect(event.details).not.toContain(credentials.password)
         
-        console.log(`✅ Audit event: ${event.event_type} - Structure verified`)
       }
     })
 
     test('should log audit events for login attempts', async ({ page, request }) => {
-      console.log('🔐 Testing login audit logging...')
       
       // Create test user first
       const credentials = await authUtils.registerUser(AuthTestUtils.generateTestCredentials())
@@ -134,7 +132,6 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(TEST_CORRELATION_ID, successEvents)
-      console.log('✅ Successful login audit events verified')
       
       // Test failed login
       await authUtils.logout()
@@ -158,11 +155,9 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(failedCorrelationId, failedEvents)
-      console.log('✅ Failed login audit events verified')
     })
 
     test('should log MFA audit events', async ({ page, request }) => {
-      console.log('🔒 Testing MFA audit logging...')
       
       // Create user and login
       const credentials = await authUtils.registerUser(AuthTestUtils.generateTestCredentials())
@@ -188,7 +183,6 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(TEST_CORRELATION_ID, mfaEvents)
-      console.log('✅ MFA setup audit events verified')
       
       // Test MFA challenge flow
       await authUtils.logout()
@@ -216,12 +210,10 @@ test.describe('Audit Logging and Turkish Validation', () => {
         ]
         
         await auditUtils.verifyAuditEvents(challengeCorrelationId, challengeEvents)
-        console.log('✅ MFA challenge audit events verified')
       }
     })
 
     test('should log OIDC authentication audit events', async ({ page }) => {
-      console.log('🌐 Testing OIDC audit logging...')
       
       await page.goto('/auth/oidc/google')
       
@@ -244,11 +236,9 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(TEST_CORRELATION_ID, oidcEvents)
-      console.log('✅ OIDC authentication audit events verified')
     })
 
     test('should log magic link audit events', async ({ page }) => {
-      console.log('🪄 Testing magic link audit logging...')
       
       const testEmail = 'magic.audit.test@freecad-test.local'
       
@@ -270,13 +260,11 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(TEST_CORRELATION_ID, magicLinkEvents)
-      console.log('✅ Magic link audit events verified')
     })
   })
 
   test.describe('Security Audit Events', () => {
     test('should log security violation attempts', async ({ page, request }) => {
-      console.log('🚨 Testing security violation audit logging...')
       
       // Test CSRF violation
       const csrfCorrelationId = `csrf-${TEST_CORRELATION_ID}`
@@ -301,7 +289,6 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(csrfCorrelationId, csrfEvents)
-      console.log('✅ CSRF violation audit events verified')
       
       // Test rate limiting violation
       const rateLimitCorrelationId = `rate-limit-${TEST_CORRELATION_ID}`
@@ -332,12 +319,10 @@ test.describe('Audit Logging and Turkish Validation', () => {
         ]
         
         await auditUtils.verifyAuditEvents(rateLimitCorrelationId, rateLimitEvents)
-        console.log('✅ Rate limit violation audit events verified')
       }
     })
 
     test('should log account lockout events', async ({ page }) => {
-      console.log('🔒 Testing account lockout audit logging...')
       
       // Create test user
       const credentials = await authUtils.registerUser(AuthTestUtils.generateTestCredentials())
@@ -355,7 +340,9 @@ test.describe('Audit Logging and Turkish Validation', () => {
         })
         
         await page.click('button[type="submit"]')
-        await page.waitForTimeout(1000)
+        
+        // Wait for login attempt to complete
+        await page.waitForLoadState('networkidle')
       }
       
       // Verify account lockout audit events
@@ -364,11 +351,9 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(lockoutCorrelationId, lockoutEvents)
-      console.log('✅ Account lockout audit events verified')
     })
 
     test('should log privilege escalation attempts', async ({ page, request }) => {
-      console.log('⚡ Testing privilege escalation audit logging...')
       
       // Create regular user
       const credentials = await authUtils.registerUser(AuthTestUtils.generateTestCredentials())
@@ -401,13 +386,11 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(escalationCorrelationId, escalationEvents)
-      console.log('✅ Privilege escalation audit events verified')
     })
   })
 
   test.describe('Data Protection Audit Events', () => {
     test('should log KVKV consent events', async ({ page }) => {
-      console.log('⚖️ Testing KVKV consent audit logging...')
       
       const credentials = AuthTestUtils.generateTestCredentials()
       
@@ -434,11 +417,9 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(TEST_CORRELATION_ID, kvkvEvents)
-      console.log('✅ KVKV consent audit events verified')
     })
 
     test('should log data access events', async ({ page, request }) => {
-      console.log('📊 Testing data access audit logging...')
       
       // Create user and login
       const credentials = await authUtils.registerUser(AuthTestUtils.generateTestCredentials())
@@ -471,11 +452,9 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(dataAccessCorrelationId, dataAccessEvents)
-      console.log('✅ Data access audit events verified')
     })
 
     test('should log data modification events', async ({ page, request }) => {
-      console.log('✏️ Testing data modification audit logging...')
       
       // Create user and login
       const credentials = await authUtils.registerUser(AuthTestUtils.generateTestCredentials())
@@ -514,11 +493,9 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(dataModifyCorrelationId, dataModifyEvents)
-      console.log('✅ Data modification audit events verified')
     })
 
     test('should log data deletion events', async ({ page, request }) => {
-      console.log('🗑️ Testing data deletion audit logging...')
       
       // Create user and login
       const credentials = await authUtils.registerUser(AuthTestUtils.generateTestCredentials())
@@ -552,13 +529,11 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       await auditUtils.verifyAuditEvents(dataDeletionCorrelationId, dataDeletionEvents)
-      console.log('✅ Data deletion audit events verified')
     })
   })
 
   test.describe('Turkish Error Message Validation', () => {
     test('should display Turkish error messages for authentication failures', async ({ page }) => {
-      console.log('🇹🇷 Testing Turkish authentication error messages...')
       
       const errorTestCases = [
         {
@@ -600,7 +575,6 @@ test.describe('Audit Logging and Turkish Validation', () => {
       ]
       
       for (const testCase of errorTestCases) {
-        console.log(`Testing: ${testCase.name}`)
         
         await page.goto(`/auth/${testCase.endpoint}`)
         
@@ -627,8 +601,8 @@ test.describe('Audit Logging and Turkish Validation', () => {
         
         await page.click('button[type="submit"]')
         
-        // Wait for error message
-        await page.waitForTimeout(1000)
+        // Wait for form validation/error message to appear
+        await expect(page.locator('.error-message, .alert-error, [data-testid="error-message"]')).toBeVisible()
         
         // Check for Turkish error message
         const errorElement = page.locator('.error-message, .alert-error, [data-testid="error-message"]')
@@ -649,12 +623,10 @@ test.describe('Audit Logging and Turkish Validation', () => {
         
         expect(hasTurkishContent).toBe(true)
         
-        console.log(`✅ ${testCase.name}: ${errorText}`)
       }
     })
 
     test('should display Turkish error messages for security violations', async ({ page, request }) => {
-      console.log('🚨 Testing Turkish security error messages...')
       
       // Test rate limiting error
       const rateLimitRequests = []
@@ -676,7 +648,6 @@ test.describe('Audit Logging and Turkish Validation', () => {
       if (rateLimitedResponse) {
         const errorData = await rateLimitedResponse.json()
         expect(errorData.message).toContain('çok fazla')
-        console.log(`✅ Rate limit error: ${errorData.message}`)
       }
       
       // Test CSRF error
@@ -691,7 +662,6 @@ test.describe('Audit Logging and Turkish Validation', () => {
       if (csrfResponse.status() === 403) {
         const errorData = await csrfResponse.json()
         expect(errorData.message).toBeTruthy()
-        console.log(`✅ CSRF error: ${errorData.message}`)
       }
       
       // Test access denied error
@@ -700,12 +670,10 @@ test.describe('Audit Logging and Turkish Validation', () => {
       // Should show access denied in Turkish
       const accessDeniedText = await page.locator('text=erişim, text=izin, text=yetki').textContent()
       if (accessDeniedText) {
-        console.log(`✅ Access denied error: ${accessDeniedText}`)
       }
     })
 
     test('should display Turkish validation messages for forms', async ({ page }) => {
-      console.log('📝 Testing Turkish form validation messages...')
       
       // Test profile update form validation
       const credentials = await authUtils.registerUser(AuthTestUtils.generateTestCredentials())
@@ -721,7 +689,6 @@ test.describe('Audit Logging and Turkish Validation', () => {
       const requiredError = page.locator('text=gerekli, text=zorunlu, text=boş olamaz')
       if (await requiredError.isVisible()) {
         const errorText = await requiredError.textContent()
-        console.log(`✅ Required field error: ${errorText}`)
       }
       
       // Test email format validation
@@ -731,12 +698,10 @@ test.describe('Audit Logging and Turkish Validation', () => {
       const emailError = page.locator('text=e-posta, text=format, text=geçersiz')
       if (await emailError.isVisible()) {
         const errorText = await emailError.textContent()
-        console.log(`✅ Email format error: ${errorText}`)
       }
     })
 
     test('should display Turkish success messages', async ({ page }) => {
-      console.log('✅ Testing Turkish success messages...')
       
       // Test registration success
       const credentials = AuthTestUtils.generateTestCredentials()
@@ -755,7 +720,6 @@ test.describe('Audit Logging and Turkish Validation', () => {
       const successMessage = page.locator('text=başarıyla, text=tamamlandı, text=oluşturuldu')
       if (await successMessage.isVisible()) {
         const messageText = await successMessage.textContent()
-        console.log(`✅ Registration success: ${messageText}`)
       }
       
       // Test login success (redirect to dashboard)
@@ -774,14 +738,12 @@ test.describe('Audit Logging and Turkish Validation', () => {
         /[çğıöşüÇĞIİÖŞÜ]/.test(dashboardTitle || '')
       
       if (hasTurkishDashboard) {
-        console.log(`✅ Dashboard in Turkish: ${dashboardTitle}`)
       }
     })
   })
 
   test.describe('Audit Log Integrity and Security', () => {
     test('should maintain audit log integrity', async ({ page, request }) => {
-      console.log('🔐 Testing audit log integrity...')
       
       // Create multiple audit events
       const credentials = await authUtils.registerUser(AuthTestUtils.generateTestCredentials())
@@ -796,9 +758,13 @@ test.describe('Audit Logging and Turkish Validation', () => {
       
       await authUtils.logout()
       
+      // Login as admin to access audit logs endpoint
+      const adminToken = await authUtils.loginAsAdmin()
+      
       // Get audit logs
       const auditResponse = await request.get('/api/v1/admin/audit-logs', {
         headers: {
+          'Authorization': `Bearer ${adminToken}`,
           'X-Test-Correlation-ID': TEST_CORRELATION_ID
         },
         params: {
@@ -825,15 +791,19 @@ test.describe('Audit Logging and Turkish Validation', () => {
         }
       }
       
-      console.log('✅ Audit log integrity verified')
     })
 
     test('should prevent audit log tampering', async ({ request }) => {
-      console.log('🛡️ Testing audit log tampering protection...')
+      
+      // Login as admin to test tampering protection
+      const adminToken = await authUtils.loginAsAdmin()
       
       // Try to modify audit logs (should be denied)
       const tamperResponse = await request.put('/api/v1/admin/audit-logs/123', {
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${adminToken}`
+        },
         data: {
           event_type: 'MODIFIED_EVENT',
           details: 'Tampered data'
@@ -841,22 +811,30 @@ test.describe('Audit Logging and Turkish Validation', () => {
       })
       
       // Should be forbidden or method not allowed
-      expect([403, 405]).toContain(tamperResponse.status())
+      expect(tamperResponse.status()).toBe(405)
       
       // Try to delete audit logs (should be denied)
-      const deleteResponse = await request.delete('/api/v1/admin/audit-logs/123')
+      const deleteResponse = await request.delete('/api/v1/admin/audit-logs/123', {
+        headers: {
+          'Authorization': `Bearer ${adminToken}`
+        }
+      })
       
       // Should be forbidden or method not allowed
-      expect([403, 405]).toContain(deleteResponse.status())
+      expect(deleteResponse.status()).toBe(405)
       
-      console.log('✅ Audit log tampering protection verified')
     })
 
     test('should handle audit log retention policies', async ({ request }) => {
-      console.log('📅 Testing audit log retention policies...')
+      
+      // Login as admin to query audit logs
+      const adminToken = await authUtils.loginAsAdmin()
       
       // Query old audit logs
       const oldLogsResponse = await request.get('/api/v1/admin/audit-logs', {
+        headers: {
+          'Authorization': `Bearer ${adminToken}`
+        },
         params: {
           start_date: '2020-01-01',
           end_date: '2020-12-31'
@@ -868,13 +846,10 @@ test.describe('Audit Logging and Turkish Validation', () => {
       const oldLogsData = await oldLogsResponse.json()
       
       // Old logs may be archived or removed based on retention policy
-      console.log(`Found ${oldLogsData.total || 0} old audit logs`)
       
       // Verify retention policy compliance
       if (oldLogsData.items && oldLogsData.items.length > 0) {
-        console.log('ℹ️  Old audit logs still available (within retention period)')
       } else {
-        console.log('✅ Old audit logs properly archived/removed per retention policy')
       }
     })
   })

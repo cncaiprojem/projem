@@ -10,6 +10,16 @@ import { createServer, IncomingMessage, ServerResponse } from 'http'
 import { parse as parseUrl } from 'url'
 import { randomBytes, createHash } from 'crypto'
 
+/**
+ * Convert Buffer to base64url encoding (URL-safe base64 without padding)
+ */
+function toBase64Url(buffer: Buffer): string {
+  return buffer.toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=/g, '')
+}
+
 interface MockOidcState {
   state: string
   codeVerifier: string
@@ -357,11 +367,11 @@ export class MockOidcServer {
 
   private generateMockIdToken(user: MockUser, clientId: string, nonce: string): string {
     // Mock JWT (not cryptographically signed for testing)
-    const header = Buffer.from(JSON.stringify({
+    const header = toBase64Url(Buffer.from(JSON.stringify({
       alg: 'RS256',
       typ: 'JWT',
       kid: 'mock-key-id'
-    })).toString('base64url')
+    })))
     
     const payload = Buffer.from(JSON.stringify({
       iss: `http://localhost:${this.port}`,
@@ -377,11 +387,12 @@ export class MockOidcServer {
       given_name: user.given_name,
       family_name: user.family_name,
       picture: user.picture
-    })).toString('base64url')
+    }))
     
-    const signature = Buffer.from('mock-signature').toString('base64url')
+    const payloadEncoded = toBase64Url(payload)
+    const signature = toBase64Url(Buffer.from('mock-signature'))
     
-    return `${header}.${payload}.${signature}`
+    return `${header}.${payloadEncoded}.${signature}`
   }
 }
 

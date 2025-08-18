@@ -398,8 +398,8 @@ test.describe('Security Vulnerability Testing', () => {
       
       const responses = await Promise.all(attempts)
       
-      // Early attempts should succeed or fail for other reasons
-      expect([200, 201, 400]).toContain(responses[0].status())
+      // Early attempts should be rejected for validation reasons
+      expect(responses[0].status()).toBe(400)
       
       // Later attempts should be rate limited
       const lastResponse = responses[responses.length - 1]
@@ -512,7 +512,7 @@ test.describe('Security Vulnerability Testing', () => {
         })
         
         // Should get input validation error, not SQL error
-        expect([400, 401, 422]).toContain(response.status())
+        expect(response.status()).toBe(422)
         
         const responseData = await response.json()
         
@@ -546,7 +546,7 @@ test.describe('Security Vulnerability Testing', () => {
         })
         
         // Should get validation error
-        expect([400, 422]).toContain(response.status())
+        expect(response.status()).toBe(422)
         
         console.log('✅ NoSQL injection payload properly rejected')
       }
@@ -691,7 +691,7 @@ test.describe('Security Vulnerability Testing', () => {
         maxRedirects: 0
       })
       
-      expect([301, 302]).toContain(httpResponse.status())
+      expect(httpResponse.status()).toBe(301)
       
       const location = httpResponse.headers()['location']
       expect(location).toMatch(/^https:\/\//)

@@ -208,6 +208,35 @@ export class AuthTestUtils {
     // Should redirect to login
     await expect(this.page).toHaveURL(/.*\/auth\/login/)
   }
+
+  /**
+   * Login as admin user for testing protected admin endpoints
+   */
+  async loginAsAdmin(): Promise<string> {
+    // Use pre-created admin user from global setup
+    const adminCredentials = {
+      email: 'admin.tester@freecad-test.local',
+      password: 'AdminTest123!'
+    }
+    
+    const response = await this.apiContext.post('/api/v1/auth/login', {
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Test-Correlation-ID': TEST_CORRELATION_ID
+      },
+      data: {
+        email: adminCredentials.email,
+        password: adminCredentials.password
+      }
+    })
+    
+    if (!response.ok()) {
+      throw new Error(`Admin login failed: ${response.status()}`)
+    }
+    
+    const loginData = await response.json()
+    return loginData.access_token
+  }
 }
 
 /**
@@ -261,8 +290,8 @@ export class SecurityTestUtils {
     
     await this.page.click('button[type="submit"]')
     
-    // Wait for response
-    await this.page.waitForTimeout(1000)
+    // Wait for form submission to complete
+    await this.page.waitForLoadState('networkidle')
     
     // Validate XSS was not executed
     const alertDialogs = this.page.locator('role=dialog')
@@ -498,12 +527,19 @@ export class AuditTestUtils {
   /**
    * Verify audit events were created
    */
-  async verifyAuditEvents(correlationId: string, expectedEvents: string[]) {
+  async verifyAuditEvents(correlationId: string, expectedEvents: string[], adminToken?: string) {
     // Give time for audit events to be processed
     await new Promise(resolve => setTimeout(resolve, 1000))
     
+    // Get admin token if not provided
+    if (!adminToken) {
+      const authUtils = new AuthTestUtils(undefined as any, this.apiContext)
+      adminToken = await authUtils.loginAsAdmin()
+    }
+    
     const response = await this.apiContext.get(`/api/v1/admin/audit-logs`, {
       headers: {
+        'Authorization': `Bearer ${adminToken}`,
         'X-Test-Correlation-ID': correlationId
       },
       params: {
@@ -531,9 +567,16 @@ export class AuditTestUtils {
   /**
    * Verify KVKV compliance in audit logs
    */
-  async verifyKvkvCompliance(correlationId: string) {
+  async verifyKvkvCompliance(correlationId: string, adminToken?: string) {
+    // Get admin token if not provided
+    if (!adminToken) {
+      const authUtils = new AuthTestUtils(undefined as any, this.apiContext)
+      adminToken = await authUtils.loginAsAdmin()
+    }
+    
     const response = await this.apiContext.get(`/api/v1/admin/audit-logs`, {
       headers: {
+        'Authorization': `Bearer ${adminToken}`,
         'X-Test-Correlation-ID': correlationId
       },
       params: {
