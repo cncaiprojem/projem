@@ -185,6 +185,7 @@ app.include_router(admin_users_router.router)  # New admin router with RBAC
 app.include_router(me_router.router)  # New user profile router with RBAC
 app.include_router(security_router.router)  # Security endpoints (Task 3.10)
 app.include_router(environment_router.router)  # Environment endpoints (Task 3.12)
+app.include_router(environment_router.health_router)  # Public health endpoint (Task 3.12)
 if _sim_available and sim_router is not None:
     app.include_router(sim_router.router)
 app.include_router(events_router)

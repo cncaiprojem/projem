@@ -20,6 +20,13 @@ from ..middleware.rbac_middleware import require_role, RoleRequirement
 
 logger = get_logger(__name__)
 
+# Public health router for monitoring systems (no authentication required)
+health_router = APIRouter(
+    prefix="/api/v1/environment",
+    tags=["environment-health"]
+)
+
+# Protected admin router for administrative operations
 router = APIRouter(
     prefix="/api/v1/environment",
     tags=["environment"],
@@ -325,20 +332,21 @@ async def validate_runtime_security(request: Request) -> Dict[str, Any]:
         )
 
 
-@router.get("/health")
+@health_router.get("/health")
 async def environment_health() -> Dict[str, Any]:
     """
     Get environment health status.
     
-    **Public Endpoint**: No authentication required
+    **Public Endpoint**: No authentication required (monitoring systems)
     **Security**: Only exposes basic health information
+    **Compliance**: Does not log PII, safe for unauthenticated access
     
     Returns:
-        Basic environment health status
+        Basic environment health status for monitoring systems
     """
     
     try:
-        # Basic health information
+        # Basic health information - safe for public monitoring
         health_info = {
             "status": "healthy",
             "environment": str(environment.ENV),
@@ -347,6 +355,16 @@ async def environment_health() -> Dict[str, Any]:
             "kvkv_compliant": environment.KVKV_AUDIT_LOG_ENABLED,
             "timestamp": environment_service.get_environment_status()["last_validation"]
         }
+        
+        # Log health check access (no PII)
+        logger.info(
+            "Public environment health check accessed",
+            extra={
+                'operation': 'environment_health_public_access',
+                'environment': environment.ENV,
+                'status': 'healthy'
+            }
+        )
         
         return {
             "status": "success",
