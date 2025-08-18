@@ -131,7 +131,7 @@ test.describe('CI/CD Integration and Performance Testing', () => {
     test('should validate Turkish localization completeness', async ({ page }) => {
       console.log('🇹🇷 Testing Turkish localization completeness...')
       
-      const pagestoCheck = [
+      const pagesToCheck = [
         '/',
         '/auth/login',
         '/auth/register',
@@ -141,7 +141,7 @@ test.describe('CI/CD Integration and Performance Testing', () => {
         '/profile'
       ]
       
-      for (const pagePath of pagestoCheck) {
+      for (const pagePath of pagesToCheck) {
         await page.goto(pagePath)
         
         // Check for Turkish content

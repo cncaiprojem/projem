@@ -212,8 +212,8 @@ test.describe('Ultra-Enterprise Authentication Flows', () => {
         await page.fill('input[name="password"]', 'wrong-password')
         await page.click('button[type="submit"]')
         
-        // Wait between attempts
-        await page.waitForTimeout(1000)
+        // Wait for login attempt to complete before next attempt
+        await page.waitForLoadState('networkidle')
       }
       
       // Should show account locked message
@@ -374,8 +374,8 @@ test.describe('Ultra-Enterprise Authentication Flows', () => {
       
       await page.click('[data-testid="google-login-button"]')
       
-      // Wait for redirect
-      await page.waitForTimeout(2000)
+      // Wait for OAuth redirect to complete
+      await page.waitForLoadState('networkidle')
       
       // Verify PKCE parameters are present
       const authRequest = requests[0]
@@ -529,8 +529,8 @@ test.describe('Ultra-Enterprise Authentication Flows', () => {
       // Make authenticated request to trigger token refresh
       await page.goto('/api/v1/me')
       
-      // Wait for potential token refresh
-      await page.waitForTimeout(1000)
+      // Wait for API call to complete and potential token refresh
+      await page.waitForLoadState('networkidle')
       
       // Get new cookies
       const newCookies = await page.context().cookies()
@@ -599,13 +599,43 @@ test.describe('Ultra-Enterprise Authentication Flows', () => {
     test('should allow licensed users to access features', async ({ page, request }) => {
       // Create user and assign license (would need API call)
       const licensedUser = await authUtils.registerUser(AuthTestUtils.generateTestCredentials())
-      await authUtils.loginWithPassword(licensedUser.email, licensedUser.password)
+      
+      // Login and get user data including user ID
+      const loginResponse = await request.post('/api/v1/auth/login', {
+        headers: { 'Content-Type': 'application/json' },
+        data: {
+          email: licensedUser.email,
+          password: licensedUser.password
+        }
+      })
+      
+      const loginData = await loginResponse.json()
+      const accessToken = loginData.access_token
+      
+      // Get user profile to extract user ID
+      const profileResponse = await request.get('/api/v1/me', {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`
+        }
+      })
+      
+      const userData = await profileResponse.json()
+      const actualUserId = userData.id
       
       // Mock license assignment (in real test, would call license API)
       await request.post('/api/v1/license/assign', {
-        headers: { 'Content-Type': 'application/json' },
-        data: { licenseType: '3m', userId: 'test-user-id' }
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${accessToken}`
+        },
+        data: { licenseType: '3m', userId: actualUserId }
       })
+      
+      // Set up page authentication
+      await page.goto('/auth/login')
+      await page.fill('input[name="email"]', licensedUser.email)
+      await page.fill('input[name="password"]', licensedUser.password)
+      await page.click('button[type="submit"]')
       
       // Should now access licensed feature
       await page.goto('/cad/new-project')
@@ -643,7 +673,6 @@ test.describe('Ultra-Enterprise Authentication Flows', () => {
       // Logout
       await authUtils.logout()
       
-      console.log(`Authentication flow verified on ${browserName}`)
     })
   })
 })
@@ -668,7 +697,6 @@ test.describe('Performance and Load Testing', () => {
     const failures = results.filter(r => r.status === 'rejected')
     
     expect(failures.length).toBe(0)
-    console.log(`Successfully handled ${concurrentUsers} concurrent authentications`)
   })
 
   test('should maintain performance under load', async ({ page }) => {

@@ -12,6 +12,7 @@ import { chromium, FullConfig } from '@playwright/test'
 import { MockOidcServer, MockEmailService, MockSmsService } from '../utils/mock-server'
 import { exec } from 'child_process'
 import { promisify } from 'util'
+import path from 'path'
 
 const execAsync = promisify(exec)
 
@@ -80,12 +81,14 @@ async function setupTestDatabase() {
   
   try {
     // Run database migrations for test environment
+    const apiPath = path.resolve(__dirname, '../../../../api')
     const { stdout: migrateOutput } = await execAsync(
-      'cd ../../api && python -m alembic upgrade head',
+      'python -m alembic upgrade head',
       { 
+        cwd: apiPath,
         env: { 
           ...process.env, 
-          DATABASE_URL: 'postgresql+psycopg2://freecad:password@localhost:5432/freecad_test',
+          DATABASE_URL: process.env.TEST_DATABASE_URL || 'postgresql+psycopg2://freecad:password@localhost:5432/freecad_test',
           NODE_ENV: 'test'
         }
       }
@@ -94,11 +97,12 @@ async function setupTestDatabase() {
     
     // Clear test data and seed basic data
     await execAsync(
-      'cd ../../api && python -m app.scripts.seed_test_data',
+      'python -m app.scripts.seed_test_data',
       { 
+        cwd: apiPath,
         env: { 
           ...process.env, 
-          DATABASE_URL: 'postgresql+psycopg2://freecad:password@localhost:5432/freecad_test'
+          DATABASE_URL: process.env.TEST_DATABASE_URL || 'postgresql+psycopg2://freecad:password@localhost:5432/freecad_test'
         }
       }
     )

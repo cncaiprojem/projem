@@ -271,14 +271,12 @@ test.describe('Ultra-Enterprise API Endpoint Testing', () => {
       
       // In real test, this would succeed with valid TOTP
       // For demo, we expect validation to fail with mock code
-      expect([200, 400]).toContain(response.status())
-      
       if (response.status() === 200) {
         const responseData = await response.json()
         expect(responseData.mfa_enabled).toBe(true)
-        console.log('✅ MFA setup verification successful')
       } else {
-        console.log('ℹ️  MFA verification failed as expected with mock TOTP code')
+        // Expected failure with mock TOTP code
+        expect(response.status()).toBe(400)
       }
     })
 
@@ -383,7 +381,7 @@ test.describe('Ultra-Enterprise API Endpoint Testing', () => {
       })
       
       // Should reject invalid callback
-      expect([400, 401]).toContain(response.status())
+      expect(response.status()).toBe(400)
       
       const errorData = await response.json()
       expect(errorData.error_code).toBeTruthy()
@@ -670,7 +668,7 @@ test.describe('Ultra-Enterprise API Endpoint Testing', () => {
       })
       
       // Should either work (if user has admin role) or be forbidden
-      expect([200, 403]).toContain(response.status())
+      expect(response.status()).toBe(403)
       
       if (response.status() === 200) {
         const responseData = await response.json()
@@ -696,7 +694,7 @@ test.describe('Ultra-Enterprise API Endpoint Testing', () => {
       })
       
       // Should either work or be forbidden/not found
-      expect([200, 403, 404]).toContain(response.status())
+      expect(response.status()).toBe(403)
       
       if (response.status() === 200) {
         console.log('✅ Role update endpoint working')
@@ -773,13 +771,12 @@ test.describe('Ultra-Enterprise API Endpoint Testing', () => {
       for (const req of malformedRequests) {
         console.log(`Testing: ${req.name}`)
         
-        const response = await fetch('http://localhost:8000/api/v1/auth/login', {
-          method: 'POST',
+        const response = await request.post('/api/v1/auth/login', {
           headers: req.headers,
-          body: req.body
+          data: req.body
         })
         
-        expect([400, 422]).toContain(response.status)
+        expect(response.status()).toBe(422)
         
         const responseText = await response.text()
         expect(responseText).toBeTruthy()

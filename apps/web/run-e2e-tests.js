@@ -132,7 +132,7 @@ async function runTestSuite(suiteName, config) {
   
   const args = [
     'test',
-    '--grep', config.pattern,
+    config.pattern, // Playwright accepts glob patterns directly 
     '--timeout', config.timeout.toString(),
     '--retries', TEST_CONFIG.retries.toString(),
     '--workers', TEST_CONFIG.workers.toString()

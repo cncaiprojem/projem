@@ -326,8 +326,8 @@ test.describe('OWASP ZAP Security Scanning', () => {
       ]
       
       for (const testType of expectedTests) {
-        const wasTestd = alertNames.some(name => name.includes(testType))
-        if (wasTestd) {
+        const wasTested = alertNames.some(name => name.includes(testType))
+        if (wasTested) {
           console.log(`✅ ${testType} attack vector tested`)
         } else {
           console.log(`ℹ️  ${testType} attack vector not detected in scan`)

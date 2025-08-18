@@ -83,6 +83,7 @@ export class ZapSecurityScanner {
     }
     
     this.zapBaseUrl = this.config.zapProxy.replace(':8080', ':8080')
+    // ZAP API key sourced from environment variable for security
     this.apiKey = this.config.zapApiKey || process.env.ZAP_API_KEY
   }
 

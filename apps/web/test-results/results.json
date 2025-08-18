@@ -1,0 +1,1892 @@
+{
+  "config": {
+    "configFile": "C:\\Users\\kafge\\projem\\apps\\web\\playwright.config.ts",
+    "rootDir": "C:/Users/kafge/projem/apps/web/e2e",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": "C:\\Users\\kafge\\projem\\apps\\web\\e2e\\setup\\global-setup.ts",
+    "globalTeardown": "C:\\Users\\kafge\\projem\\apps\\web\\e2e\\setup\\global-setup.ts",
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        {
+          "outputFolder": "playwright-report"
+        }
+      ],
+      [
+        "junit",
+        {
+          "outputFile": "test-results/junit.xml"
+        }
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 15000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "C:/Users/kafge/projem/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "chromium-security",
+        "name": "chromium-security",
+        "testDir": "C:/Users/kafge/projem/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*security.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "C:/Users/kafge/projem/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "firefox-auth",
+        "name": "firefox-auth",
+        "testDir": "C:/Users/kafge/projem/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*auth.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "C:/Users/kafge/projem/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "webkit-cross-browser",
+        "name": "webkit-cross-browser",
+        "testDir": "C:/Users/kafge/projem/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*cross-browser.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "C:/Users/kafge/projem/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "mobile-chrome",
+        "name": "mobile-chrome",
+        "testDir": "C:/Users/kafge/projem/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*mobile.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "C:/Users/kafge/projem/apps/web/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "api-security",
+        "name": "api-security",
+        "testDir": "C:/Users/kafge/projem/apps/web/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "/.*api.*\\.spec\\.ts/"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "version": "1.49.1",
+    "workers": 4,
+    "webServer": null
+  },
+  "suites": [
+    {
+      "title": "security\\security-vulnerabilities.spec.ts",
+      "file": "security/security-vulnerabilities.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Security Vulnerability Testing",
+          "file": "security/security-vulnerabilities.spec.ts",
+          "line": 12,
+          "column": 6,
+          "specs": [],
+          "suites": [
+            {
+              "title": "CSRF Protection Validation",
+              "file": "security/security-vulnerabilities.spec.ts",
+              "line": 26,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should enforce CSRF protection on state-changing requests",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-631b0e796e35f6514b27",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 27,
+                  "column": 9
+                },
+                {
+                  "title": "should validate CSRF token rotation and expiry",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-41e9d0d374be5042cb1a",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 97,
+                  "column": 9
+                },
+                {
+                  "title": "should protect against CSRF double-submit cookie attacks",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-a13237451fae8818dafd",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 135,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "XSS Protection Validation",
+              "file": "security/security-vulnerabilities.spec.ts",
+              "line": 182,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should prevent reflected XSS attacks",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-f889996c9777bfbfdb92",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 183,
+                  "column": 9
+                },
+                {
+                  "title": "should prevent stored XSS in user profiles",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-95e81275a14d28191c46",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 224,
+                  "column": 9
+                },
+                {
+                  "title": "should protect against DOM-based XSS",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-fd0f12be7df675e6de88",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 265,
+                  "column": 9
+                },
+                {
+                  "title": "should validate Content Security Policy headers",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-f82b8e746df94147e17a",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 292,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Rate Limiting Validation",
+              "file": "security/security-vulnerabilities.spec.ts",
+              "line": 329,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should enforce login rate limiting",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-5ce5a8c21e86baaebb91",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 330,
+                  "column": 9
+                },
+                {
+                  "title": "should enforce registration rate limiting",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-1ce0ecac764dee549c59",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 374,
+                  "column": 9
+                },
+                {
+                  "title": "should enforce API endpoint rate limiting",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-3075cc9ffa7427226984",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 415,
+                  "column": 9
+                },
+                {
+                  "title": "should implement progressive rate limiting penalties",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-9e2cff4c74ab314b33dd",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 451,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Input Validation and Injection Protection",
+              "file": "security/security-vulnerabilities.spec.ts",
+              "line": 490,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should prevent SQL injection attacks",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-a353fbe47987975a9f25",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 491,
+                  "column": 9
+                },
+                {
+                  "title": "should prevent NoSQL injection attacks",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-71d90d32f42ef7034819",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 530,
+                  "column": 9
+                },
+                {
+                  "title": "should validate and sanitize file upload inputs",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-fb83dbe800003f7f8fbb",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 555,
+                  "column": 9
+                },
+                {
+                  "title": "should prevent command injection attacks",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-2a21320c735e3741f468",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 598,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Security Headers Validation",
+              "file": "security/security-vulnerabilities.spec.ts",
+              "line": 640,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should enforce comprehensive security headers",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-b7247c4ce4d56911e7e6",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 641,
+                  "column": 9
+                },
+                {
+                  "title": "should enforce HTTPS in production mode",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-e2c174d624d7082ad79d",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 680,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Session Security Validation",
+              "file": "security/security-vulnerabilities.spec.ts",
+              "line": 703,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should enforce secure cookie attributes",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-cbb5fb9f5f1bd6cd1bd5",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 704,
+                  "column": 9
+                },
+                {
+                  "title": "should prevent session fixation attacks",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-532e24f70baac32cc4e9",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 729,
+                  "column": 9
+                },
+                {
+                  "title": "should handle concurrent session limits",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "chromium-security",
+                      "projectName": "chromium-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "9e4e851af5843024627f-a86f89539c6571375f20",
+                  "file": "security/security-vulnerabilities.spec.ts",
+                  "line": 753,
+                  "column": 9
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "security\\zap-integration.spec.ts",
+      "file": "security/zap-integration.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "OWASP ZAP Security Scanning",
+          "file": "security/zap-integration.spec.ts",
+          "line": 14,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should perform comprehensive security scan of authentication flows",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-security",
+                  "projectName": "chromium-security",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d321ed0ce76ae98dc8a9-f63e0d331a2fd7883ddd",
+              "file": "security/zap-integration.spec.ts",
+              "line": 47,
+              "column": 7
+            },
+            {
+              "title": "should validate specific OWASP Top 10 protections",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-security",
+                  "projectName": "chromium-security",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d321ed0ce76ae98dc8a9-68c47c2aaf4dacb80cfc",
+              "file": "security/zap-integration.spec.ts",
+              "line": 152,
+              "column": 7
+            },
+            {
+              "title": "should perform automated penetration testing",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-security",
+                  "projectName": "chromium-security",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d321ed0ce76ae98dc8a9-2faf3ef3c19182b8dbb6",
+              "file": "security/zap-integration.spec.ts",
+              "line": 286,
+              "column": 7
+            },
+            {
+              "title": "should validate Turkish KVKV data protection compliance",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium-security",
+                  "projectName": "chromium-security",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "d321ed0ce76ae98dc8a9-74c4a223046708c7fd4b",
+              "file": "security/zap-integration.spec.ts",
+              "line": 352,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "auth\\auth-flows.spec.ts",
+      "file": "auth/auth-flows.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Ultra-Enterprise Authentication Flows",
+          "file": "auth/auth-flows.spec.ts",
+          "line": 28,
+          "column": 6,
+          "specs": [],
+          "suites": [
+            {
+              "title": "User Registration Flow",
+              "file": "auth/auth-flows.spec.ts",
+              "line": 46,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should complete registration with KVKV compliance validation",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-c262642cb97fcbf32632",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 47,
+                  "column": 9
+                },
+                {
+                  "title": "should reject registration with weak password",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-065eb3cdec01d185208c",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 97,
+                  "column": 9
+                },
+                {
+                  "title": "should prevent registration without KVKV consent",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-19ca63407e28f323e7b0",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 122,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Password-Based Login Flow",
+              "file": "auth/auth-flows.spec.ts",
+              "line": 146,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should complete successful login flow",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-34d3ddbaf9ae82786e8d",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 154,
+                  "column": 9
+                },
+                {
+                  "title": "should handle login with invalid credentials",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-6b9625664295b6308c65",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 186,
+                  "column": 9
+                },
+                {
+                  "title": "should enforce account lockout after multiple failed attempts",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-50c786da30b2cd11a6cc",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 206,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "MFA TOTP Flow",
+              "file": "auth/auth-flows.spec.ts",
+              "line": 230,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should complete MFA setup flow",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-5e7c22d107088935d33e",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 239,
+                  "column": 9
+                },
+                {
+                  "title": "should require MFA during login for enabled users",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-5769dda094d853af23ba",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 265,
+                  "column": 9
+                },
+                {
+                  "title": "should handle MFA backup codes",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-9d0eb1a272c776b03017",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 294,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "OIDC/Google OAuth2 Flow",
+              "file": "auth/auth-flows.spec.ts",
+              "line": 319,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should complete OIDC authentication flow",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-9b2ba84785ab17730189",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 320,
+                  "column": 9
+                },
+                {
+                  "title": "should handle OIDC callback errors",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-fd4828738804fa1fa0a7",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 348,
+                  "column": 9
+                },
+                {
+                  "title": "should validate PKCE security in OIDC flow",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-5630de1ad7c0e09f7348",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 364,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Magic Link Authentication Flow",
+              "file": "auth/auth-flows.spec.ts",
+              "line": 389,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should request magic link successfully",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-4746fd6248185a933775",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 390,
+                  "column": 9
+                },
+                {
+                  "title": "should consume magic link and authenticate",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-caa1bbb1228b5b7661d0",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 414,
+                  "column": 9
+                },
+                {
+                  "title": "should reject invalid magic link tokens",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-440b1331fd61a1853d6e",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 442,
+                  "column": 9
+                },
+                {
+                  "title": "should prevent magic link reuse",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-3aaa1e2387e29162ac82",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 459,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Session Management and Logout",
+              "file": "auth/auth-flows.spec.ts",
+              "line": 489,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should complete logout flow with session cleanup",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-50141befcce54c12892f",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 497,
+                  "column": 9
+                },
+                {
+                  "title": "should handle refresh token rotation",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-df9ac2b740f316b39380",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 523,
+                  "column": 9
+                },
+                {
+                  "title": "should enforce idle timeout",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-645d0397cf52c96b6288",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 548,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "License Guard and Protection",
+              "file": "auth/auth-flows.spec.ts",
+              "line": 577,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should redirect unlicensed users to license page",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-7837311ef80d140d7947",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 578,
+                  "column": 9
+                },
+                {
+                  "title": "should allow licensed users to access features",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-8e1ab35dfe1f98eacc54",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 599,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Cross-Browser Compatibility",
+              "file": "auth/auth-flows.spec.ts",
+              "line": 626,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should work consistently across browsers",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "firefox-auth",
+                      "projectName": "firefox-auth",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "c1580de93bf5d29ae6e9-de99268abb0e892fa4f5",
+                  "file": "auth/auth-flows.spec.ts",
+                  "line": 627,
+                  "column": 9
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "title": "Performance and Load Testing",
+          "file": "auth/auth-flows.spec.ts",
+          "line": 651,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should handle concurrent authentication requests",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox-auth",
+                  "projectName": "firefox-auth",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "c1580de93bf5d29ae6e9-91c5dc0b2d584925c2f6",
+              "file": "auth/auth-flows.spec.ts",
+              "line": 652,
+              "column": 7
+            },
+            {
+              "title": "should maintain performance under load",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "firefox-auth",
+                  "projectName": "firefox-auth",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "c1580de93bf5d29ae6e9-edbc97c6dfbe1b54e969",
+              "file": "auth/auth-flows.spec.ts",
+              "line": 674,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "title": "api\\api-endpoints.spec.ts",
+      "file": "api/api-endpoints.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "Ultra-Enterprise API Endpoint Testing",
+          "file": "api/api-endpoints.spec.ts",
+          "line": 12,
+          "column": 6,
+          "specs": [],
+          "suites": [
+            {
+              "title": "Authentication Endpoints (Task 3.1)",
+              "file": "api/api-endpoints.spec.ts",
+              "line": 24,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "POST /api/v1/auth/register - should register user with KVKV compliance",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-a21fca82b362b58af41e",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 25,
+                  "column": 9
+                },
+                {
+                  "title": "POST /api/v1/auth/register - should reject registration without KVKV consent",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-385ce1b2efe9db01835a",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 67,
+                  "column": 9
+                },
+                {
+                  "title": "POST /api/v1/auth/login - should authenticate with valid credentials",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-e8f405693a9ede7a8dd6",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 96,
+                  "column": 9
+                },
+                {
+                  "title": "POST /api/v1/auth/login - should reject invalid credentials",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-d9f25c6b83d3bb277444",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 139,
+                  "column": 9
+                },
+                {
+                  "title": "POST /api/v1/auth/password/strength - should validate password strength",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-957664348a612c7ee388",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 162,
+                  "column": 9
+                },
+                {
+                  "title": "POST /api/v1/auth/refresh - should refresh access token",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-af826983c5c5e1e52cb3",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 188,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "MFA Endpoints (Task 3.7)",
+              "file": "api/api-endpoints.spec.ts",
+              "line": 215,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "POST /api/v1/auth/mfa/setup/start - should initiate MFA setup",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-e7c2daac353e455f418c",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 223,
+                  "column": 9
+                },
+                {
+                  "title": "POST /api/v1/auth/mfa/setup/verify - should verify and enable MFA",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-dca562e7490bc2c6ed8a",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 245,
+                  "column": 9
+                },
+                {
+                  "title": "GET /api/v1/auth/mfa/status - should return MFA status",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-98ce530fe1492302fc4a",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 285,
+                  "column": 9
+                },
+                {
+                  "title": "GET /api/v1/auth/mfa/backup-codes - should generate backup codes",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-e0ff3008c85d0d76b9af",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 304,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "OIDC Endpoints (Task 3.5)",
+              "file": "api/api-endpoints.spec.ts",
+              "line": 330,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "GET /api/v1/auth/oidc/google/start - should initiate OIDC flow",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-314db81aca95082a2293",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 331,
+                  "column": 9
+                },
+                {
+                  "title": "GET /api/v1/auth/oidc/status - should return OIDC configuration",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-0d6de015e6caa5f1cc7f",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 356,
+                  "column": 9
+                },
+                {
+                  "title": "GET /api/v1/auth/oidc/google/callback - should handle OIDC callback",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-2f150155671372fd4a12",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 371,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Magic Link Endpoints (Task 3.6)",
+              "file": "api/api-endpoints.spec.ts",
+              "line": 395,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "POST /api/v1/auth/magic-link/request - should request magic link",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-afbabdd6f8848d2bb85e",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 396,
+                  "column": 9
+                },
+                {
+                  "title": "POST /api/v1/auth/magic-link/consume - should consume magic link",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-5a56187a18770ad0fc53",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 418,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "User Profile Endpoints (Task 3.2)",
+              "file": "api/api-endpoints.spec.ts",
+              "line": 441,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "GET /api/v1/me - should return current user profile",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-fe37ee64240c0b2ecf7a",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 449,
+                  "column": 9
+                },
+                {
+                  "title": "PUT /api/v1/me - should update user profile",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-3026399551edfa64b9bd",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 475,
+                  "column": 9
+                },
+                {
+                  "title": "DELETE /api/v1/me - should delete user account with KVKV compliance",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-6f07ca0c3d555411192b",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 502,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Session Management Endpoints (Task 3.8)",
+              "file": "api/api-endpoints.spec.ts",
+              "line": 535,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "GET /api/v1/auth/sessions - should list active sessions",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-598306a20d8cf2050881",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 543,
+                  "column": 9
+                },
+                {
+                  "title": "DELETE /api/v1/auth/sessions/:id - should revoke specific session",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-2a06199dfc313d033b91",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 571,
+                  "column": 9
+                },
+                {
+                  "title": "POST /api/v1/auth/logout - should logout and revoke session",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-058b622d239aa7fe0b92",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 599,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "RBAC Endpoints (Task 3.3)",
+              "file": "api/api-endpoints.spec.ts",
+              "line": 633,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "GET /api/v1/admin/users - should require admin role",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-c55d16134ad682e8d99b",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 662,
+                  "column": 9
+                },
+                {
+                  "title": "POST /api/v1/admin/users/:id/role - should update user role",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-ee843df776ad72f0aff9",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 684,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Error Handling and Status Codes",
+              "file": "api/api-endpoints.spec.ts",
+              "line": 709,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should return proper Turkish error messages",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-f8a9d21ed545d0e16bb9",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 710,
+                  "column": 9
+                },
+                {
+                  "title": "should handle malformed requests gracefully",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-8f282d0e4acee95dc89e",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 752,
+                  "column": 9
+                }
+              ]
+            },
+            {
+              "title": "Performance and Load Testing",
+              "file": "api/api-endpoints.spec.ts",
+              "line": 792,
+              "column": 8,
+              "specs": [
+                {
+                  "title": "should handle concurrent API requests",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-6008491e767647613059",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 793,
+                  "column": 9
+                },
+                {
+                  "title": "should maintain response time SLA",
+                  "ok": true,
+                  "tags": [],
+                  "tests": [
+                    {
+                      "timeout": 30000,
+                      "annotations": [],
+                      "expectedStatus": "passed",
+                      "projectId": "api-security",
+                      "projectName": "api-security",
+                      "results": [],
+                      "status": "skipped"
+                    }
+                  ],
+                  "id": "2aa5c695beafbd0aba0c-99f7a4f5c8a793a6167b",
+                  "file": "api/api-endpoints.spec.ts",
+                  "line": 820,
+                  "column": 9
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2025-08-18T16:25:28.553Z",
+    "duration": 587.1859999999999,
+    "expected": 0,
+    "skipped": 75,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

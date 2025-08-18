@@ -1,0 +1,310 @@
+<testsuites id="" name="" tests="75" failures="0" skipped="75" errors="0" time="0.5871859999999999">
+<testsuite name="security\security-vulnerabilities.spec.ts" timestamp="2025-08-18T16:25:29.139Z" hostname="chromium-security" tests="20" failures="0" skipped="20" time="0" errors="0">
+<testcase name="Security Vulnerability Testing › CSRF Protection Validation › should enforce CSRF protection on state-changing requests" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › CSRF Protection Validation › should validate CSRF token rotation and expiry" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › CSRF Protection Validation › should protect against CSRF double-submit cookie attacks" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › XSS Protection Validation › should prevent reflected XSS attacks" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › XSS Protection Validation › should prevent stored XSS in user profiles" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › XSS Protection Validation › should protect against DOM-based XSS" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › XSS Protection Validation › should validate Content Security Policy headers" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Rate Limiting Validation › should enforce login rate limiting" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Rate Limiting Validation › should enforce registration rate limiting" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Rate Limiting Validation › should enforce API endpoint rate limiting" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Rate Limiting Validation › should implement progressive rate limiting penalties" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Input Validation and Injection Protection › should prevent SQL injection attacks" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Input Validation and Injection Protection › should prevent NoSQL injection attacks" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Input Validation and Injection Protection › should validate and sanitize file upload inputs" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Input Validation and Injection Protection › should prevent command injection attacks" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Security Headers Validation › should enforce comprehensive security headers" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Security Headers Validation › should enforce HTTPS in production mode" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Session Security Validation › should enforce secure cookie attributes" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Session Security Validation › should prevent session fixation attacks" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Security Vulnerability Testing › Session Security Validation › should handle concurrent session limits" classname="security\security-vulnerabilities.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="security\zap-integration.spec.ts" timestamp="2025-08-18T16:25:29.139Z" hostname="chromium-security" tests="4" failures="0" skipped="4" time="0" errors="0">
+<testcase name="OWASP ZAP Security Scanning › should perform comprehensive security scan of authentication flows" classname="security\zap-integration.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="OWASP ZAP Security Scanning › should validate specific OWASP Top 10 protections" classname="security\zap-integration.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="OWASP ZAP Security Scanning › should perform automated penetration testing" classname="security\zap-integration.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="OWASP ZAP Security Scanning › should validate Turkish KVKV data protection compliance" classname="security\zap-integration.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="auth\auth-flows.spec.ts" timestamp="2025-08-18T16:25:29.139Z" hostname="firefox-auth" tests="24" failures="0" skipped="24" time="0" errors="0">
+<testcase name="Ultra-Enterprise Authentication Flows › User Registration Flow › should complete registration with KVKV compliance validation" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › User Registration Flow › should reject registration with weak password" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › User Registration Flow › should prevent registration without KVKV consent" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Password-Based Login Flow › should complete successful login flow" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Password-Based Login Flow › should handle login with invalid credentials" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Password-Based Login Flow › should enforce account lockout after multiple failed attempts" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › MFA TOTP Flow › should complete MFA setup flow" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › MFA TOTP Flow › should require MFA during login for enabled users" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › MFA TOTP Flow › should handle MFA backup codes" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › OIDC/Google OAuth2 Flow › should complete OIDC authentication flow" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › OIDC/Google OAuth2 Flow › should handle OIDC callback errors" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › OIDC/Google OAuth2 Flow › should validate PKCE security in OIDC flow" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Magic Link Authentication Flow › should request magic link successfully" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Magic Link Authentication Flow › should consume magic link and authenticate" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Magic Link Authentication Flow › should reject invalid magic link tokens" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Magic Link Authentication Flow › should prevent magic link reuse" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Session Management and Logout › should complete logout flow with session cleanup" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Session Management and Logout › should handle refresh token rotation" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Session Management and Logout › should enforce idle timeout" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › License Guard and Protection › should redirect unlicensed users to license page" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › License Guard and Protection › should allow licensed users to access features" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise Authentication Flows › Cross-Browser Compatibility › should work consistently across browsers" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Performance and Load Testing › should handle concurrent authentication requests" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Performance and Load Testing › should maintain performance under load" classname="auth\auth-flows.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+<testsuite name="api\api-endpoints.spec.ts" timestamp="2025-08-18T16:25:29.139Z" hostname="api-security" tests="27" failures="0" skipped="27" time="0" errors="0">
+<testcase name="Ultra-Enterprise API Endpoint Testing › Authentication Endpoints (Task 3.1) › POST /api/v1/auth/register - should register user with KVKV compliance" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Authentication Endpoints (Task 3.1) › POST /api/v1/auth/register - should reject registration without KVKV consent" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Authentication Endpoints (Task 3.1) › POST /api/v1/auth/login - should authenticate with valid credentials" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Authentication Endpoints (Task 3.1) › POST /api/v1/auth/login - should reject invalid credentials" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Authentication Endpoints (Task 3.1) › POST /api/v1/auth/password/strength - should validate password strength" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Authentication Endpoints (Task 3.1) › POST /api/v1/auth/refresh - should refresh access token" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › MFA Endpoints (Task 3.7) › POST /api/v1/auth/mfa/setup/start - should initiate MFA setup" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › MFA Endpoints (Task 3.7) › POST /api/v1/auth/mfa/setup/verify - should verify and enable MFA" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › MFA Endpoints (Task 3.7) › GET /api/v1/auth/mfa/status - should return MFA status" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › MFA Endpoints (Task 3.7) › GET /api/v1/auth/mfa/backup-codes - should generate backup codes" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › OIDC Endpoints (Task 3.5) › GET /api/v1/auth/oidc/google/start - should initiate OIDC flow" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › OIDC Endpoints (Task 3.5) › GET /api/v1/auth/oidc/status - should return OIDC configuration" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › OIDC Endpoints (Task 3.5) › GET /api/v1/auth/oidc/google/callback - should handle OIDC callback" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Magic Link Endpoints (Task 3.6) › POST /api/v1/auth/magic-link/request - should request magic link" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Magic Link Endpoints (Task 3.6) › POST /api/v1/auth/magic-link/consume - should consume magic link" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › User Profile Endpoints (Task 3.2) › GET /api/v1/me - should return current user profile" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › User Profile Endpoints (Task 3.2) › PUT /api/v1/me - should update user profile" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › User Profile Endpoints (Task 3.2) › DELETE /api/v1/me - should delete user account with KVKV compliance" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Session Management Endpoints (Task 3.8) › GET /api/v1/auth/sessions - should list active sessions" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Session Management Endpoints (Task 3.8) › DELETE /api/v1/auth/sessions/:id - should revoke specific session" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Session Management Endpoints (Task 3.8) › POST /api/v1/auth/logout - should logout and revoke session" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › RBAC Endpoints (Task 3.3) › GET /api/v1/admin/users - should require admin role" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › RBAC Endpoints (Task 3.3) › POST /api/v1/admin/users/:id/role - should update user role" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Error Handling and Status Codes › should return proper Turkish error messages" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Error Handling and Status Codes › should handle malformed requests gracefully" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Performance and Load Testing › should handle concurrent API requests" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+<testcase name="Ultra-Enterprise API Endpoint Testing › Performance and Load Testing › should maintain response time SLA" classname="api\api-endpoints.spec.ts" time="0">
+<skipped>
+</skipped>
+</testcase>
+</testsuite>
+</testsuites>
