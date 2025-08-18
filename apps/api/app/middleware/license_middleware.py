@@ -10,10 +10,12 @@ This middleware implements:
 5. Banking-grade security standards
 """
 
+from __future__ import annotations
+
 import asyncio
 import uuid
 from datetime import datetime, timezone
-from typing import Dict, Set, Optional, Callable
+from typing import Dict, Set, Optional, Callable, Tuple, Any
 import threading
 from contextlib import asynccontextmanager
 
@@ -21,19 +23,21 @@ from fastapi import Request, Response, HTTPException, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.exc import SQLAlchemyError, IntegrityError, OperationalError
 
-from ..db import get_db
+from ..db import get_db, db_session
 from ..middleware.jwt_middleware import _authenticate_user, jwt_bearer_scheme
 from ..services.license_service import LicenseService
 from ..services.session_service import SessionService
 from ..services.audit_service import audit_service
+from ..services.pii_masking_service import pii_masking_service, MaskingLevel
 from ..core.logging import get_logger
 
 logger = get_logger(__name__)
 
-# Thread-safe tracking of users who have been processed for license expiry
-_license_expiry_processed: Set[int] = set()
+# Thread-safe tracking of (user_id, license_id) tuples who have been processed for license expiry
+# Using tuple key to handle multiple license expirations for same user correctly
+_license_expiry_processed: Set[Tuple[int, uuid.UUID]] = set()
 _license_expiry_lock = threading.Lock()
 
 # Session service instance for revocation
@@ -49,39 +53,156 @@ class LicenseExpiredError(Exception):
         super().__init__(f"License expired for user {user_id} at {expired_at}")
 
 
+@asynccontextmanager
+async def get_db_session_for_middleware():
+    """
+    Dedicated async context manager for database sessions in middleware.
+    Provides proper session management with guaranteed cleanup.
+    """
+    session = None
+    try:
+        # Use the db_session context manager from db.py
+        with db_session() as session:
+            yield session
+    except (SQLAlchemyError, OperationalError) as e:
+        logger.error(
+            "Database session error in middleware",
+            exc_info=True,
+            extra={
+                "operation": "get_db_session_for_middleware",
+                "error_type": type(e).__name__,
+                "error_message": str(e)
+            }
+        )
+        if session:
+            session.rollback()
+        raise
+    except Exception as e:
+        logger.error(
+            "Unexpected error in database session",
+            exc_info=True,
+            extra={
+                "operation": "get_db_session_for_middleware",
+                "error_type": type(e).__name__
+            }
+        )
+        if session:
+            session.rollback()
+        raise
+    finally:
+        if session:
+            try:
+                session.close()
+            except Exception as e:
+                logger.warning(
+                    "Error closing database session",
+                    extra={
+                        "operation": "get_db_session_for_middleware",
+                        "error_type": type(e).__name__
+                    }
+                )
+
+
 async def get_current_user_from_request(request: Request) -> Optional[int]:
     """
-    Extract authenticated user ID from request.
+    Extract authenticated user ID from request with proper error handling.
     Returns user ID if authenticated, None otherwise.
+    
+    Args:
+        request: FastAPI request object
+        
+    Returns:
+        User ID if authenticated, None otherwise
     """
+    correlation_id = getattr(request.state, "correlation_id", str(uuid.uuid4()))
+    
     try:
         # Extract authorization header
         auth_header = request.headers.get("authorization")
         if not auth_header or not auth_header.startswith("Bearer "):
+            logger.debug(
+                "No bearer token in authorization header",
+                extra={
+                    "operation": "get_current_user_from_request",
+                    "correlation_id": correlation_id,
+                    "has_auth_header": bool(auth_header)
+                }
+            )
             return None
         
         # Get token from header
         token = auth_header[7:]  # Remove "Bearer " prefix
         
-        # Get database session
-        db_gen = get_db()
-        db = next(db_gen)
+        # Validate token format
+        if not token or len(token) < 10:
+            logger.warning(
+                "Invalid token format",
+                extra={
+                    "operation": "get_current_user_from_request",
+                    "correlation_id": correlation_id,
+                    "token_length": len(token) if token else 0
+                }
+            )
+            return None
         
-        try:
-            # Authenticate user using JWT middleware logic
-            authenticated_user = _authenticate_user(token, db)
-            return authenticated_user.user_id
-        finally:
+        # Use dedicated context manager for database session
+        async with get_db_session_for_middleware() as db:
             try:
-                db.close()
-            except Exception:
-                pass
+                # Authenticate user using JWT middleware logic
+                authenticated_user = _authenticate_user(token, db)
                 
-    except Exception as e:
-        logger.debug(
-            "Failed to extract user from request",
+                if not authenticated_user:
+                    logger.debug(
+                        "Token authentication failed",
+                        extra={
+                            "operation": "get_current_user_from_request",
+                            "correlation_id": correlation_id
+                        }
+                    )
+                    return None
+                
+                logger.debug(
+                    "User authenticated successfully",
+                    extra={
+                        "operation": "get_current_user_from_request",
+                        "correlation_id": correlation_id,
+                        "user_id": authenticated_user.user_id
+                    }
+                )
+                
+                return authenticated_user.user_id
+                
+            except (ValueError, KeyError) as e:
+                logger.warning(
+                    "Token validation error",
+                    extra={
+                        "operation": "get_current_user_from_request",
+                        "correlation_id": correlation_id,
+                        "error_type": type(e).__name__,
+                        "error_message": str(e)
+                    }
+                )
+                return None
+                
+    except SQLAlchemyError as e:
+        logger.error(
+            "Database error during user authentication",
+            exc_info=True,
             extra={
                 "operation": "get_current_user_from_request",
+                "correlation_id": correlation_id,
+                "error_type": type(e).__name__
+            }
+        )
+        return None
+        
+    except Exception as e:
+        logger.error(
+            "Unexpected error extracting user from request",
+            exc_info=True,
+            extra={
+                "operation": "get_current_user_from_request",
+                "correlation_id": correlation_id,
                 "error_type": type(e).__name__
             }
         )
@@ -124,62 +245,96 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                 return True
         return False
     
-    def _anonymize_ip(self, ip_address: str) -> str:
-        """Anonymize IP address for KVKV compliance."""
-        if not ip_address or ip_address == "unknown":
-            return ip_address
+    def _get_client_info(self, request: Request) -> Tuple[str, str]:
+        """
+        Extract client IP and user agent for audit purposes.
+        Uses shared PII masking service for consistent anonymization.
         
-        # Check if it's IPv6
-        if ":" in ip_address:
-            # IPv6 address - keep first 3 parts and mask the rest
-            parts = ip_address.split(":")
-            if len(parts) >= 4:
-                # Keep first 3 parts, replace rest with xxxx
-                return ":".join(parts[:3]) + "::xxxx"
-            return ip_address
-        else:
-            # IPv4 address - keep first 3 octets
-            parts = ip_address.split(".")
-            if len(parts) == 4:
-                return f"{parts[0]}.{parts[1]}.{parts[2]}.xxx"
-            return ip_address
-    
-    def _get_client_info(self, request: Request) -> tuple[str, str]:
-        """Extract client IP and user agent for audit purposes."""
-        # Get raw IP and anonymize it for KVKV compliance
+        Args:
+            request: FastAPI request object
+            
+        Returns:
+            Tuple of (masked_ip, user_agent)
+        """
+        # Get raw IP address
         client_ip = request.client.host if request.client else "unknown"
-        client_ip = self._anonymize_ip(client_ip)
         
-        user_agent = request.headers.get("user-agent", "unknown")[:200]  # Truncate for storage
-        return client_ip, user_agent
+        # Use shared PII masking service for KVKK compliance
+        # Using MEDIUM level as per KVKK recommendations (masks last 2 octets)
+        if client_ip and client_ip != "unknown":
+            try:
+                masked_ip = pii_masking_service.mask_ip_address(
+                    client_ip, 
+                    MaskingLevel.MEDIUM
+                )
+            except Exception as e:
+                logger.warning(
+                    "Failed to mask IP address, using fallback",
+                    extra={
+                        "operation": "_get_client_info",
+                        "error_type": type(e).__name__,
+                        "original_ip_prefix": client_ip.split('.')[0] if '.' in client_ip else client_ip[:4]
+                    }
+                )
+                # Fallback to simple masking if service fails
+                masked_ip = "***.***.***.**"
+        else:
+            masked_ip = client_ip
+        
+        # Extract and sanitize user agent
+        user_agent = request.headers.get("user-agent", "unknown")
+        if user_agent:
+            # Truncate for storage and security
+            user_agent = user_agent[:200]
+            # Remove any potential injection attempts
+            user_agent = user_agent.replace('\n', ' ').replace('\r', ' ')
+        
+        return masked_ip, user_agent
     
     async def _revoke_user_sessions_on_expiry(
         self, 
         db: Session, 
         user_id: int,
+        license_id: uuid.UUID,
         client_ip: str,
         user_agent: str,
         request_id: str
     ) -> bool:
         """
         Revoke all user sessions when license expires.
-        Thread-safe implementation to ensure single revocation per user.
+        Thread-safe implementation to ensure single revocation per (user, license) pair.
+        
+        Args:
+            db: Database session
+            user_id: User whose sessions to revoke
+            license_id: License that expired
+            client_ip: Masked client IP for audit
+            user_agent: Client user agent
+            request_id: Request correlation ID
+            
+        Returns:
+            True if sessions were revoked or already processed
         """
-        # Check if this user has already been processed
+        # Create tracking key as (user_id, license_id) tuple
+        tracking_key = (user_id, license_id)
+        
+        # Check if this user+license has already been processed
         with _license_expiry_lock:
-            if user_id in _license_expiry_processed:
+            if tracking_key in _license_expiry_processed:
                 logger.info(
-                    "User sessions already revoked for expired license",
+                    "User sessions already revoked for this expired license",
                     extra={
                         "operation": "license_expiry_sessions_already_revoked",
                         "user_id": user_id,
-                        "request_id": request_id
+                        "license_id": str(license_id),
+                        "request_id": request_id,
+                        "tracking_key": f"{user_id}:{license_id}"
                     }
                 )
                 return True
             
-            # Mark user as processed
-            _license_expiry_processed.add(user_id)
+            # Mark user+license as processed
+            _license_expiry_processed.add(tracking_key)
         
         try:
             # Revoke all user sessions
@@ -198,14 +353,16 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                 details={
                     "revoked_sessions_count": revoked_count,
                     "reason": "license_expired",
+                    "license_id": str(license_id),
                     "ip_address": client_ip,
                     "user_agent": user_agent,
                     "request_id": request_id
                 },
                 metadata={
-                    "compliance": "kvkv_audit_trail",
+                    "compliance": "kvkk_audit_trail",
                     "security_action": "session_revocation",
-                    "automated_action": True
+                    "automated_action": True,
+                    "tracking_key": f"{user_id}:{license_id}"
                 }
             )
             
@@ -214,29 +371,51 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                 extra={
                     "operation": "license_expiry_sessions_revoked",
                     "user_id": user_id,
+                    "license_id": str(license_id),
                     "revoked_sessions_count": revoked_count,
-                    "request_id": request_id
+                    "request_id": request_id,
+                    "tracking_key": f"{user_id}:{license_id}"
                 }
             )
             
             db.commit()
             return True
             
+        except (IntegrityError, OperationalError) as e:
+            db.rollback()
+            logger.error(
+                "Database error while revoking sessions on license expiry",
+                exc_info=True,
+                extra={
+                    "operation": "license_expiry_session_revocation_db_error",
+                    "user_id": user_id,
+                    "license_id": str(license_id),
+                    "error_type": type(e).__name__,
+                    "error_message": str(e),
+                    "request_id": request_id
+                }
+            )
+            # Remove from processed set so it can be retried
+            with _license_expiry_lock:
+                _license_expiry_processed.discard(tracking_key)
+            return False
+            
         except Exception as e:
             db.rollback()
             logger.error(
-                "Failed to revoke user sessions on license expiry",
+                "Unexpected error revoking sessions on license expiry",
                 exc_info=True,
                 extra={
                     "operation": "license_expiry_session_revocation_failed",
                     "user_id": user_id,
+                    "license_id": str(license_id),
                     "error_type": type(e).__name__,
                     "request_id": request_id
                 }
             )
             # Remove from processed set so it can be retried
             with _license_expiry_lock:
-                _license_expiry_processed.discard(user_id)
+                _license_expiry_processed.discard(tracking_key)
             return False
     
     async def _check_license_and_enforce(
@@ -246,19 +425,25 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
         request_id: str
     ) -> Optional[JSONResponse]:
         """
-        Check user license and enforce restrictions.
+        Check user license and enforce restrictions with proper error handling.
         Returns error response if license is invalid, None if valid.
+        
+        Args:
+            request: FastAPI request object
+            user_id: User ID to check license for
+            request_id: Request correlation ID
+            
+        Returns:
+            JSONResponse with error if license invalid, None if valid
         """
         client_ip, user_agent = self._get_client_info(request)
         
         try:
-            # Get database session
-            db_gen = get_db()
-            db = next(db_gen)
-            
-            try:
-                # Get user's active license
-                license = LicenseService.get_active_license(db, user_id)
+            # Use dedicated context manager for database session
+            async with get_db_session_for_middleware() as db:
+                try:
+                    # Get user's active license with proper error handling
+                    license = LicenseService.get_active_license(db, user_id)
                 
                 if not license:
                     # No active license found
@@ -296,16 +481,16 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                         extra={
                             "operation": "license_guard_expired",
                             "user_id": user_id,
-                            "license_id": license.id,
+                            "license_id": str(license.id),
                             "expired_at": license.ends_at.isoformat(),
                             "request_id": request_id,
                             "path": str(request.url.path)
                         }
                     )
                     
-                    # Trigger session revocation
+                    # Trigger session revocation with license_id
                     await self._revoke_user_sessions_on_expiry(
-                        db, user_id, client_ip, user_agent, request_id
+                        db, user_id, license.id, client_ip, user_agent, request_id
                     )
                     
                     return JSONResponse(
@@ -330,7 +515,7 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     extra={
                         "operation": "license_guard_valid",
                         "user_id": user_id,
-                        "license_id": license.id,
+                        "license_id": str(license.id),
                         "expires_at": license.ends_at.isoformat(),
                         "request_id": request_id
                     }
@@ -338,14 +523,35 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                 
                 return None  # License is valid, allow request to proceed
                 
-            finally:
-                # Always close the database session
-                try:
-                    db.close()
-                except Exception:
-                    pass
+                except ValueError as e:
+                    # Handle specific license service errors
+                    logger.warning(
+                        "License validation error",
+                        extra={
+                            "operation": "license_guard_validation_error",
+                            "user_id": user_id,
+                            "error_type": type(e).__name__,
+                            "error_message": str(e),
+                            "request_id": request_id
+                        }
+                    )
+                    
+                    return JSONResponse(
+                        status_code=status.HTTP_403_FORBIDDEN,
+                        content={
+                            "error": "LIC_EXPIRED",
+                            "message": "License validation failed",
+                            "message_tr": "Lisans doğrulama başarısız",
+                            "detail": {
+                                "code": "LIC_EXPIRED",
+                                "reason": "validation_error",
+                                "user_id": user_id,
+                                "timestamp": datetime.now(timezone.utc).isoformat()
+                            }
+                        }
+                    )
                 
-        except SQLAlchemyError as e:
+        except (SQLAlchemyError, OperationalError) as e:
             # Database error - fail closed (deny access)
             logger.error(
                 "Database error during license check - failing closed",
@@ -475,15 +681,51 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
 
 
 # Utility function to clear processed users (for testing or admin purposes)
-def clear_license_expiry_cache():
-    """Clear the license expiry processed cache."""
+def clear_license_expiry_cache() -> None:
+    """
+    Clear the license expiry processed cache.
+    Used for testing or administrative purposes.
+    """
     with _license_expiry_lock:
+        count = len(_license_expiry_processed)
         _license_expiry_processed.clear()
-    logger.info("License expiry cache cleared")
+    logger.info(
+        "License expiry cache cleared",
+        extra={
+            "operation": "clear_license_expiry_cache",
+            "cleared_count": count
+        }
+    )
 
 
-# Utility function to check if user is in processed cache
-def is_user_license_expiry_processed(user_id: int) -> bool:
-    """Check if user's license expiry has been processed."""
+# Utility function to check if user+license is in processed cache
+def is_license_expiry_processed(user_id: int, license_id: uuid.UUID) -> bool:
+    """
+    Check if a specific user+license expiry has been processed.
+    
+    Args:
+        user_id: User ID to check
+        license_id: License ID to check
+        
+    Returns:
+        True if this user+license combination has been processed
+    """
+    tracking_key = (user_id, license_id)
     with _license_expiry_lock:
-        return user_id in _license_expiry_processed
+        return tracking_key in _license_expiry_processed
+
+
+# Backward compatibility wrapper
+def is_user_license_expiry_processed(user_id: int) -> bool:
+    """
+    Check if any license expiry for this user has been processed.
+    Provided for backward compatibility - prefer is_license_expiry_processed.
+    
+    Args:
+        user_id: User ID to check
+        
+    Returns:
+        True if any license for this user has been processed
+    """
+    with _license_expiry_lock:
+        return any(key[0] == user_id for key in _license_expiry_processed)

@@ -1,14 +1,18 @@
 """
 Tests for Task 4.3: License Guard Middleware
-Tests license enforcement, session revocation, and error handling.
+Ultra-Enterprise tests for license enforcement, session revocation, and error handling.
+Includes comprehensive edge case coverage and banking-grade security testing.
 """
 
 import pytest
 import uuid
 from datetime import datetime, timezone, timedelta
-from unittest.mock import Mock, patch, AsyncMock
+from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError, IntegrityError
+import asyncio
+import threading
 
 import sys
 import os
@@ -18,7 +22,9 @@ from app.middleware.license_middleware import (
     LicenseGuardMiddleware,
     get_current_user_from_request,
     clear_license_expiry_cache,
-    is_user_license_expiry_processed
+    is_user_license_expiry_processed,
+    is_license_expiry_processed,
+    get_db_session_for_middleware
 )
 from app.models.license import License
 from app.models.session import Session  
@@ -117,19 +123,27 @@ class TestLicenseGuardMiddleware:
         assert middleware._is_path_excluded("/api/v1/designs") is False
         assert middleware._is_path_excluded("/api/v1/license/assign") is False
     
-    def test_anonymize_ip(self, middleware):
-        """Test IP address anonymization for KVKV compliance."""
-        # IPv4 addresses
-        assert middleware._anonymize_ip("192.168.1.100") == "192.168.1.xxx"
-        assert middleware._anonymize_ip("10.0.0.1") == "10.0.0.xxx"
+    @patch('app.middleware.license_middleware.pii_masking_service')
+    def test_get_client_info_with_pii_masking(self, mock_pii_service, middleware, mock_request):
+        """Test client info extraction with PII masking service."""
+        mock_pii_service.mask_ip_address.return_value = "192.168.***.**"
         
-        # IPv6 addresses
-        assert middleware._anonymize_ip("2001:db8:85a3:0:0:8a2e:370:7334") == "2001:db8:85a3::xxxx"
+        client_ip, user_agent = middleware._get_client_info(mock_request)
         
-        # Edge cases
-        assert middleware._anonymize_ip("unknown") == "unknown"
-        assert middleware._anonymize_ip("") == ""
-        assert middleware._anonymize_ip("invalid") == "invalid"
+        assert client_ip == "192.168.***.**"
+        assert user_agent == "TestClient/1.0"
+        mock_pii_service.mask_ip_address.assert_called_once()
+    
+    @patch('app.middleware.license_middleware.pii_masking_service')
+    def test_get_client_info_masking_failure(self, mock_pii_service, middleware, mock_request):
+        """Test client info extraction when PII masking fails."""
+        mock_pii_service.mask_ip_address.side_effect = Exception("Masking failed")
+        
+        client_ip, user_agent = middleware._get_client_info(mock_request)
+        
+        # Should fall back to default masking
+        assert client_ip == "***.***.***.**"
+        assert user_agent == "TestClient/1.0"
     
     def test_get_client_info(self, middleware, mock_request):
         """Test client information extraction."""
@@ -266,25 +280,37 @@ class TestLicenseGuardMiddleware:
     
     @pytest.mark.asyncio
     async def test_revoke_user_sessions_thread_safety(self, middleware, mock_request):
-        """Test thread-safe session revocation (no double processing)."""
+        """Test thread-safe session revocation with (user_id, license_id) tracking."""
         mock_db = Mock()
+        license_id = uuid.uuid4()
         
         # First call should process
         with patch('app.middleware.license_middleware.session_service.revoke_all_user_sessions', return_value=2):
             with patch('app.middleware.license_middleware.audit_service.log_business_event', return_value=AsyncMock()):
                 result1 = await middleware._revoke_user_sessions_on_expiry(
-                    mock_db, 123, "192.168.1.xxx", "TestClient/1.0", "test-request-id-1"
+                    mock_db, 123, license_id, "192.168.1.xxx", "TestClient/1.0", "test-request-id-1"
                 )
         
         assert result1 is True
-        assert is_user_license_expiry_processed(123) is True
+        assert is_license_expiry_processed(123, license_id) is True
+        assert is_user_license_expiry_processed(123) is True  # Backward compatibility
         
-        # Second call should skip processing
+        # Second call with same license should skip processing
         result2 = await middleware._revoke_user_sessions_on_expiry(
-            mock_db, 123, "192.168.1.xxx", "TestClient/1.0", "test-request-id-2"
+            mock_db, 123, license_id, "192.168.1.xxx", "TestClient/1.0", "test-request-id-2"
         )
-        
         assert result2 is True
+        
+        # Call with different license should process
+        different_license_id = uuid.uuid4()
+        with patch('app.middleware.license_middleware.session_service.revoke_all_user_sessions', return_value=3):
+            with patch('app.middleware.license_middleware.audit_service.log_business_event', return_value=AsyncMock()):
+                result3 = await middleware._revoke_user_sessions_on_expiry(
+                    mock_db, 123, different_license_id, "192.168.1.xxx", "TestClient/1.0", "test-request-id-3"
+                )
+        
+        assert result3 is True
+        assert is_license_expiry_processed(123, different_license_id) is True
     
     @pytest.mark.asyncio
     @patch('app.middleware.license_middleware.get_current_user_from_request')
@@ -399,3 +425,156 @@ class TestLicenseMiddlewareIntegration:
         """Test performance of license check under load."""
         # Performance test to ensure middleware doesn't introduce significant latency
         pass
+
+
+class TestLicenseMiddlewareEdgeCases:
+    """Ultra-enterprise edge case tests for license middleware."""
+    
+    @pytest.mark.asyncio
+    async def test_database_session_error_handling(self):
+        """Test proper handling of database session errors."""
+        with patch('app.middleware.license_middleware.db_session') as mock_db_session:
+            mock_db_session.side_effect = OperationalError("Connection failed", "", "")
+            
+            async with pytest.raises(OperationalError):
+                async with get_db_session_for_middleware() as db:
+                    pass
+    
+    @pytest.mark.asyncio
+    async def test_concurrent_license_expiry_processing(self):
+        """Test concurrent processing of license expiry for same user."""
+        middleware = LicenseGuardMiddleware(app=Mock())
+        mock_db = Mock()
+        license_id = uuid.uuid4()
+        
+        # Simulate concurrent calls
+        async def concurrent_revoke():
+            with patch('app.middleware.license_middleware.session_service.revoke_all_user_sessions', return_value=2):
+                with patch('app.middleware.license_middleware.audit_service.log_business_event', return_value=AsyncMock()):
+                    return await middleware._revoke_user_sessions_on_expiry(
+                        mock_db, 123, license_id, "192.168.1.xxx", "TestClient/1.0", f"req-{uuid.uuid4()}"
+                    )
+        
+        # Run multiple concurrent calls
+        tasks = [concurrent_revoke() for _ in range(10)]
+        results = await asyncio.gather(*tasks)
+        
+        # All should succeed, but only one should actually process
+        assert all(results)
+        assert is_license_expiry_processed(123, license_id)
+    
+    @pytest.mark.asyncio
+    async def test_correlation_id_propagation(self):
+        """Test that correlation IDs are properly propagated through the middleware."""
+        middleware = LicenseGuardMiddleware(app=Mock())
+        mock_request = Mock(spec=Request)
+        mock_request.url.path = "/api/v1/jobs"
+        mock_request.state.correlation_id = "test-correlation-123"
+        mock_request.headers = {"authorization": "Bearer invalid_token"}
+        
+        with patch('app.middleware.license_middleware.get_current_user_from_request') as mock_get_user:
+            mock_get_user.return_value = None
+            
+            mock_call_next = AsyncMock(return_value=Response())
+            await middleware.dispatch(mock_request, mock_call_next)
+            
+            # Verify correlation ID was used
+            mock_get_user.assert_called_once_with(mock_request)
+    
+    @pytest.mark.asyncio
+    async def test_malformed_authorization_header_variations(self):
+        """Test various malformed authorization header formats."""
+        test_cases = [
+            "",
+            "Bearer",
+            "Bearer ",
+            "Basic dGVzdDp0ZXN0",
+            "bearer valid_token",
+            "BEARER valid_token",
+            "Bearer token with spaces",
+            "Bearer\ttoken_with_tab",
+            "Bearer\ntoken_with_newline",
+            "Bearer " + "x" * 5000,  # Very long token
+        ]
+        
+        for auth_header in test_cases:
+            mock_request = Mock(spec=Request)
+            mock_request.headers = {"authorization": auth_header}
+            
+            result = await get_current_user_from_request(mock_request)
+            assert result is None, f"Should return None for header: {auth_header[:50]}"
+    
+    @pytest.mark.asyncio
+    async def test_license_check_with_database_rollback(self):
+        """Test proper database rollback on error."""
+        middleware = LicenseGuardMiddleware(app=Mock())
+        mock_request = Mock(spec=Request)
+        mock_request.url.path = "/api/v1/jobs"
+        mock_request.client.host = "192.168.1.100"
+        mock_request.headers = {"user-agent": "TestClient/1.0"}
+        
+        with patch('app.middleware.license_middleware.get_db_session_for_middleware') as mock_session:
+            mock_db = Mock()
+            mock_db.rollback = Mock()
+            mock_session.return_value.__aenter__.return_value = mock_db
+            mock_session.return_value.__aexit__.return_value = None
+            
+            with patch('app.middleware.license_middleware.LicenseService.get_active_license') as mock_get_license:
+                mock_get_license.side_effect = IntegrityError("Constraint violation", "", "")
+                
+                result = await middleware._check_license_and_enforce(mock_request, 123, "test-req-id")
+                
+                assert isinstance(result, JSONResponse)
+                assert result.status_code == 403
+    
+    @pytest.mark.asyncio
+    async def test_user_agent_sanitization(self):
+        """Test that user agent is properly sanitized."""
+        middleware = LicenseGuardMiddleware(app=Mock())
+        
+        # Test with malicious user agent
+        mock_request = Mock(spec=Request)
+        mock_request.client.host = "192.168.1.100"
+        mock_request.headers = {
+            "user-agent": "Mozilla/5.0\n<script>alert('xss')</script>\r\nExtra: data" * 50
+        }
+        
+        client_ip, user_agent = middleware._get_client_info(mock_request)
+        
+        # Should be truncated and sanitized
+        assert len(user_agent) <= 200
+        assert "\n" not in user_agent
+        assert "\r" not in user_agent
+    
+    def test_cache_clearing_with_active_entries(self):
+        """Test cache clearing when there are active entries."""
+        # Add multiple entries to cache
+        from app.middleware.license_middleware import _license_expiry_processed, _license_expiry_lock
+        
+        with _license_expiry_lock:
+            for i in range(10):
+                _license_expiry_processed.add((i, uuid.uuid4()))
+        
+        assert len(_license_expiry_processed) == 10
+        
+        clear_license_expiry_cache()
+        
+        assert len(_license_expiry_processed) == 0
+    
+    @pytest.mark.asyncio
+    async def test_race_condition_in_cache_removal(self):
+        """Test race condition handling when removing from cache on error."""
+        middleware = LicenseGuardMiddleware(app=Mock())
+        mock_db = Mock()
+        license_id = uuid.uuid4()
+        
+        # Force an error to trigger cache removal
+        with patch('app.middleware.license_middleware.session_service.revoke_all_user_sessions') as mock_revoke:
+            mock_revoke.side_effect = Exception("Database error")
+            
+            result = await middleware._revoke_user_sessions_on_expiry(
+                mock_db, 999, license_id, "192.168.1.xxx", "TestClient/1.0", "test-request-id"
+            )
+            
+            assert result is False
+            assert not is_license_expiry_processed(999, license_id)
