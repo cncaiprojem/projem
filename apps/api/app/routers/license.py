@@ -20,6 +20,7 @@ from ..models.user import User
 from ..models.enums import UserRole
 from ..models.license import License
 from ..services.license_service import LicenseService, LicenseStateError
+from ..services.idempotency_service import IdempotencyService
 from ..schemas.license import (
     LicenseAssignRequest, LicenseAssignResponse,
     LicenseExtendRequest, LicenseExtendResponse,
@@ -43,30 +44,32 @@ def check_role(user: AuthenticatedUser, roles: list[str]) -> bool:
     return user.role.value in roles
 
 
-class IdempotencyService:
-    """Simple idempotency service placeholder."""
+def anonymize_ip(ip_address: str) -> str:
+    """Anonymize IP address for KVKV compliance."""
+    if not ip_address or ip_address == "unknown":
+        return ip_address
     
-    @staticmethod
-    async def get_response(db: Session, key: str, user_id: int):
-        """Get existing response for idempotency key."""
-        # TODO: Implement proper idempotency storage
-        return None
-    
-    @staticmethod 
-    async def store_response(db: Session, key: str, user_id: int, response: dict):
-        """Store response for idempotency key."""
-        # TODO: Implement proper idempotency storage
-        pass
+    # Check if it's IPv6
+    if ":" in ip_address:
+        # IPv6 address - keep first 3 parts and mask the rest
+        parts = ip_address.split(":")
+        if len(parts) >= 4:
+            # Keep first 3 parts, replace rest with xxxx
+            return ":".join(parts[:3]) + "::xxxx"
+        return ip_address
+    else:
+        # IPv4 address - keep first 3 octets
+        parts = ip_address.split(".")
+        if len(parts) == 4:
+            return f"{parts[0]}.{parts[1]}.{parts[2]}.xxx"
+        return ip_address
 
 
 def get_client_info(request: Request) -> tuple[str, str]:
     """Extract client IP and user agent for audit purposes."""
-    # Anonymize IP for KVKV compliance - keep only first 3 octets
+    # Get raw IP and anonymize it for KVKV compliance
     client_ip = request.client.host if request.client else "unknown"
-    if client_ip and client_ip != "unknown":
-        ip_parts = client_ip.split(".")
-        if len(ip_parts) == 4:
-            client_ip = f"{ip_parts[0]}.{ip_parts[1]}.{ip_parts[2]}.xxx"
+    client_ip = anonymize_ip(client_ip)
     
     user_agent = request.headers.get("user-agent", "unknown")[:200]  # Truncate for storage
     return client_ip, user_agent
@@ -150,7 +153,10 @@ async def assign_license(
         
         # Determine target user
         target_user_id = request_data.user_id or current_user.id
-        is_admin = check_role(current_user, ["admin", "super_admin"])
+        # Use rbac_business_service instead of custom role checking
+        is_admin = rbac_business_service.has_any_role(
+            current_user, ["admin", "super_admin"]
+        ) if hasattr(rbac_business_service, 'has_any_role') else check_role(current_user, ["admin", "super_admin"])
         
         # Authorization check
         if target_user_id != current_user.id and not is_admin:
@@ -171,10 +177,11 @@ async def assign_license(
         # Check idempotency if key provided
         if idempotency_key:
             existing_response = await IdempotencyService.get_response(
-                db, idempotency_key, current_user.id
+                db, idempotency_key, current_user.id, 
+                endpoint="/api/v1/license/assign"
             )
             if existing_response:
-                logger.info(f"Returning idempotent response for key {idempotency_key}")
+                logger.info(f"Returning idempotent response for key {idempotency_key[:20]}...")
                 return existing_response
         
         # Verify target user exists
@@ -221,7 +228,10 @@ async def assign_license(
         # Store idempotent response if key provided
         if idempotency_key:
             await IdempotencyService.store_response(
-                db, idempotency_key, current_user.id, response.dict()
+                db, idempotency_key, current_user.id, response.dict(),
+                endpoint="/api/v1/license/assign",
+                method="POST",
+                status_code=200
             )
         
         logger.info(
@@ -312,7 +322,10 @@ async def extend_license(
         
         # Determine target user
         target_user_id = request_data.user_id or current_user.id
-        is_admin = check_role(current_user, ["admin", "super_admin"])
+        # Use rbac_business_service instead of custom role checking
+        is_admin = rbac_business_service.has_any_role(
+            current_user, ["admin", "super_admin"]
+        ) if hasattr(rbac_business_service, 'has_any_role') else check_role(current_user, ["admin", "super_admin"])
         
         # Authorization check
         if target_user_id != current_user.id and not is_admin:
@@ -324,9 +337,11 @@ async def extend_license(
         # Check idempotency if key provided
         if idempotency_key:
             existing_response = await IdempotencyService.get_response(
-                db, idempotency_key, current_user.id
+                db, idempotency_key, current_user.id,
+                endpoint="/api/v1/license/extend"
             )
             if existing_response:
+                logger.info(f"Returning idempotent response for key {idempotency_key[:20]}...")
                 return existing_response
         
         # Find license to extend
@@ -377,7 +392,10 @@ async def extend_license(
         # Store idempotent response if key provided
         if idempotency_key:
             await IdempotencyService.store_response(
-                db, idempotency_key, current_user.id, response.dict()
+                db, idempotency_key, current_user.id, response.dict(),
+                endpoint="/api/v1/license/assign",
+                method="POST",
+                status_code=200
             )
         
         logger.info(
@@ -457,7 +475,10 @@ async def cancel_license(
     try:
         # Determine target user
         target_user_id = request_data.user_id or current_user.id
-        is_admin = check_role(current_user, ["admin", "super_admin"])
+        # Use rbac_business_service instead of custom role checking
+        is_admin = rbac_business_service.has_any_role(
+            current_user, ["admin", "super_admin"]
+        ) if hasattr(rbac_business_service, 'has_any_role') else check_role(current_user, ["admin", "super_admin"])
         
         # Authorization check
         if target_user_id != current_user.id and not is_admin:
@@ -469,9 +490,11 @@ async def cancel_license(
         # Check idempotency if key provided
         if idempotency_key:
             existing_response = await IdempotencyService.get_response(
-                db, idempotency_key, current_user.id
+                db, idempotency_key, current_user.id,
+                endpoint="/api/v1/license/cancel"
             )
             if existing_response:
+                logger.info(f"Returning idempotent response for key {idempotency_key[:20]}...")
                 return existing_response
         
         # Find license to cancel
@@ -515,7 +538,10 @@ async def cancel_license(
         # Store idempotent response if key provided
         if idempotency_key:
             await IdempotencyService.store_response(
-                db, idempotency_key, current_user.id, response.dict()
+                db, idempotency_key, current_user.id, response.dict(),
+                endpoint="/api/v1/license/assign",
+                method="POST",
+                status_code=200
             )
         
         logger.info(
