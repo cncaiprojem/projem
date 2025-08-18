@@ -33,6 +33,9 @@ from .oidc_account import OIDCAccount
 from .magic_link import MagicLink
 from .mfa_backup_code import MFABackupCode
 
+# Import enums for external use
+from .enums import *
+
 # All models are now in the models/ package - no additional modules needed
 _additional_models_loaded = False
 
