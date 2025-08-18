@@ -407,7 +407,7 @@
               "3.3"
             ],
             "details": "Design:\n- Issue CSRF cookie and require X-CSRF-Token header matching cookie value for state-changing browser requests.\n- Skip for non-browser clients (no cookies) and for idempotent GET/HEAD.\nAPIs:\n- GET /auth/csrf-token → 200 {} and sets csrf cookie; FE reads cookie and mirrors into header.\nCookies:\n- Name: csrf; HttpOnly=false; Secure=true; SameSite=Strict; Path=/; Max-Age=7200.\nErrors:\n- 403 ERR-CSRF-MISSING, 403 ERR-CSRF-MISMATCH.\nAcceptance:\n- Requests with valid X-CSRF-Token pass; mismatched or missing token returns 403.\n- Token rotates periodically or on login; works with refresh cookie and Authorization header.\nLogging:\n- security_events: csrf_missing, csrf_mismatch (method, path, ua masked).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-18T08:42:47.655Z",
+      "updated": "2025-08-18T10:09:10.339Z",
       "description": "Tasks for master context"
     }
   }

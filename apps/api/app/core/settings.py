@@ -182,6 +182,27 @@ class UltraEnterpriseSettings(BaseSettings):
         description="SameSite cookie attribute for CSRF protection"
     )
     
+    # CSRF Protection Configuration (Task 3.8)
+    CSRF_SECRET_KEY: str = Field(
+        default="dev-csrf-hmac-key-ultra-secure-banking-grade-change-in-production",
+        description="Secret key for CSRF token HMAC generation (MUST be changed in production)"
+    )
+    
+    CSRF_TOKEN_LIFETIME_SECONDS: int = Field(
+        default=7200,  # 2 hours
+        description="CSRF token lifetime in seconds"
+    )
+    
+    CSRF_RATE_LIMIT_PER_MINUTE: int = Field(
+        default=60,
+        description="Maximum CSRF tokens per minute per IP address"
+    )
+    
+    CSRF_REQUIRE_AUTH: bool = Field(
+        default=True,
+        description="Require authentication for CSRF protection"
+    )
+    
     @model_validator(mode='after')
     def validate_production_security_settings(self) -> 'UltraEnterpriseSettings':
         """
@@ -238,6 +259,19 @@ class UltraEnterpriseSettings(BaseSettings):
                 raise ValueError(
                     "SECURITY VIOLATION: SESSION_COOKIE_HTTPONLY must be True in production "
                     "to prevent XSS attacks on session cookies."
+                )
+            
+            # Validate CSRF protection configuration
+            if self.CSRF_SECRET_KEY == "dev-csrf-hmac-key-ultra-secure-banking-grade-change-in-production":
+                raise ValueError(
+                    "SECURITY VIOLATION: CSRF_SECRET_KEY must be changed from default value "
+                    "in production environment. Use a cryptographically secure random key."
+                )
+            
+            if len(self.CSRF_SECRET_KEY) < 32:
+                raise ValueError(
+                    "SECURITY VIOLATION: CSRF_SECRET_KEY must be at least 32 characters long "
+                    "for sufficient cryptographic strength in production."
                 )
         
         # Validate Turkish KVKV compliance settings

@@ -105,7 +105,7 @@ class SecurityEvent(Base):
         nullable=True,
         comment="KVKV-compliant masked user agent string"
     )
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    event_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
         comment="Additional security event metadata"

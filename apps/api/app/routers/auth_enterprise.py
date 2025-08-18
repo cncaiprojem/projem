@@ -34,7 +34,7 @@ from ..services.password_service import password_service
 from ..services.token_service import token_service
 from ..services.jwt_service import jwt_service
 from ..schemas import UserOut
-from ..middleware.jwt_middleware import get_current_user, AuthenticatedUser
+from ..middleware.jwt_middleware import get_current_user, get_current_user_optional, AuthenticatedUser
 from ..core.logging import get_logger
 from ..middleware.auth_limiter import limiter
 from ..middleware.enterprise_rate_limiter import (
@@ -43,6 +43,7 @@ from ..middleware.enterprise_rate_limiter import (
     password_reset_rate_limit
 )
 from ..settings import app_settings as settings
+from ..services.csrf_service import csrf_service
 
 logger = get_logger(__name__)
 
@@ -472,4 +473,103 @@ async def get_current_user_profile(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Profil bilgileri alınamadı"
+        )
+
+
+@router.get(
+    "/csrf-token",
+    summary="CSRF Token Alma",
+    description="Browser istekleri için CSRF double-submit cookie token'ı oluşturur.",
+    response_description="CSRF token'ı cookie olarak ayarlanır"
+)
+@limiter.limit("60/minute")  # Rate limit: 60 tokens per minute per IP
+async def get_csrf_token(
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Optional[AuthenticatedUser] = Depends(get_current_user_optional)
+) -> Dict[str, Any]:
+    """
+    CSRF double-submit cookie token'ı oluşturur ve döndürür.
+    
+    **Task 3.8 Specifications:**
+    - Cookie Name: `csrf`
+    - HttpOnly: `false` (frontend okuyabilir)
+    - Secure: `true` (HTTPS only)
+    - SameSite: `Strict`
+    - Path: `/`
+    - Max-Age: `7200` (2 saat)
+    
+    **Kullanım:**
+    1. Bu endpoint'i çağırın
+    2. Response cookie'den `csrf` değerini okuyun
+    3. State-changing isteklerde `X-CSRF-Token` header'ına koyun
+    
+    **Güvenlik Özellikleri:**
+    - Banking-level kriptografik token üretimi
+    - Rate limiting (dakikada 60 token)
+    - Comprehensive audit loglama
+    - Turkish KVKV uyumlu event logging
+    - Token rotation on session events
+    """
+    client_info = get_client_info(request)
+    
+    try:
+        # Extract user ID if authenticated
+        user_id = current_user.user.id if current_user else None
+        
+        # Generate cryptographically secure CSRF token
+        csrf_token = csrf_service.generate_csrf_token(
+            db=db,
+            user_id=user_id,
+            ip_address=client_info["ip_address"],
+            user_agent=client_info["user_agent"]
+        )
+        
+        # Set CSRF token in secure cookie
+        csrf_service.set_csrf_cookie(
+            response=response,
+            csrf_token=csrf_token,
+            secure=(settings.ENV == "production")
+        )
+        
+        logger.info("CSRF token generated and set", extra={
+            'operation': 'csrf_token_endpoint',
+            'user_id': user_id,
+            'token_prefix': csrf_token[:8],
+            'ip_address': client_info["ip_address"],
+            'authenticated': bool(current_user)
+        })
+        
+        return {
+            "message": "CSRF token başarıyla oluşturuldu",
+            "details": {
+                "tr": "CSRF token'ı cookie olarak ayarlandı. Frontend X-CSRF-Token header'ında kullanabilir.",
+                "en": "CSRF token set as cookie. Frontend can use in X-CSRF-Token header.",
+                "cookie_name": "csrf",
+                "header_name": "X-CSRF-Token",
+                "expires_in_seconds": 7200,
+                "usage": "State-changing isteklerde (POST, PUT, PATCH, DELETE) gerekli"
+            }
+        }
+        
+    except Exception as e:
+        logger.error("CSRF token generation failed", exc_info=True, extra={
+            'operation': 'csrf_token_endpoint_error',
+            'user_id': user_id,
+            'ip_address': client_info["ip_address"],
+            'error_type': type(e).__name__
+        })
+        
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error_code": "ERR-CSRF-TOKEN-FAILED",
+                "message": "CSRF token oluşturma başarısız",
+                "details": {
+                    "tr": "CSRF güvenlik token'ı oluşturulamadı. Lütfen tekrar deneyin.",
+                    "en": "Failed to generate CSRF security token. Please try again.",
+                    "action": "Birkaç saniye bekleyip tekrar deneyin"
+                }
+            }
         )

@@ -12,6 +12,7 @@ from .sentry_setup import setup_sentry
 from .logging_setup import setup_logging
 from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict, XSSDetectionMiddleware
 from .middleware.limiter import RateLimitMiddleware
+from .middleware.csrf_middleware import CSRFProtectionMiddleware
 from .services.rate_limiting_service import rate_limiting_service
 from .routers import auth as auth_router
 from .routers import auth_jwt as auth_jwt_router
@@ -127,11 +128,12 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
-# Ultra enterprise security middleware stack (Task 3.10)
-app.add_middleware(SecurityHeadersMiddleware)  # CSP and security headers
-app.add_middleware(XSSDetectionMiddleware)     # XSS detection and prevention
-app.add_middleware(CORSMiddlewareStrict)       # Strict CORS enforcement
-app.add_middleware(RateLimitMiddleware)        # Rate limiting (Task 3.9)
+# Ultra enterprise security middleware stack (Tasks 3.8, 3.9, 3.10)
+app.add_middleware(SecurityHeadersMiddleware)      # CSP and security headers (Task 3.10)
+app.add_middleware(XSSDetectionMiddleware)         # XSS detection and prevention (Task 3.10)
+app.add_middleware(CSRFProtectionMiddleware)       # CSRF double-submit protection (Task 3.8)
+app.add_middleware(CORSMiddlewareStrict)           # Strict CORS enforcement (Task 3.10)
+app.add_middleware(RateLimitMiddleware)            # Rate limiting (Task 3.9)
 
 setup_metrics(app)
 setup_celery_instrumentation()
