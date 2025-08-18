@@ -39,7 +39,26 @@ class LicenseAssignRequest(BaseModel):
         """Validate scope contains required fields."""
         if not isinstance(v, dict):
             raise ValueError("Scope must be a dictionary")
-        # Add scope validation logic here
+        
+        # Ensure scope has required structure
+        if 'features' not in v:
+            raise ValueError("Scope must contain 'features' key")
+        if 'limits' not in v:
+            raise ValueError("Scope must contain 'limits' key")
+        
+        # Validate features is a dict
+        if not isinstance(v['features'], dict):
+            raise ValueError("Scope 'features' must be a dictionary")
+        
+        # Validate limits is a dict
+        if not isinstance(v['limits'], dict):
+            raise ValueError("Scope 'limits' must be a dictionary")
+        
+        # Optional: validate specific feature/limit keys if needed
+        # Example structure validation:
+        # Expected features: {'cam_generation': bool, 'gcode_export': bool, etc.}
+        # Expected limits: {'max_jobs': int, 'storage_gb': int, etc.}
+        
         return v
 
 
