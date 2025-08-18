@@ -29,6 +29,7 @@ from ..db import get_db
 from ..services.csrf_service import csrf_service, CSRFValidationResult
 from ..core.logging import get_logger
 from ..core.settings import ultra_enterprise_settings
+from ..core.environment import environment
 
 logger = get_logger(__name__)
 
@@ -112,6 +113,22 @@ class CSRFProtectionMiddleware(BaseHTTPMiddleware):
                 'path': request.url.path,
                 'method': request.method,
                 'user_agent': user_agent[:50]
+            })
+            return await call_next(request)
+        
+        # Task 3.12: Dev-mode localhost bypass (DEVELOPMENT ONLY)
+        if (environment.is_development and 
+            environment.is_dev_mode and 
+            environment.CSRF_DEV_LOCALHOST_BYPASS and
+            hasattr(request.state, 'dev_csrf_localhost_bypass') and
+            request.state.dev_csrf_localhost_bypass):
+            
+            logger.debug("CSRF protection bypassed for localhost in dev mode", extra={
+                'operation': 'csrf_dev_localhost_bypass',
+                'path': request.url.path,
+                'method': request.method,
+                'environment': str(environment.ENV),
+                'warning': 'CSRF bypass active for localhost in development mode only'
             })
             return await call_next(request)
         

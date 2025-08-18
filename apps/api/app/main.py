@@ -13,7 +13,14 @@ from .logging_setup import setup_logging
 from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict, XSSDetectionMiddleware
 from .middleware.limiter import RateLimitMiddleware
 from .middleware.csrf_middleware import CSRFProtectionMiddleware
+from .middleware.dev_mode_middleware import (
+    DevModeMiddleware, 
+    ProductionHardeningMiddleware, 
+    EnvironmentValidationMiddleware
+)
 from .services.rate_limiting_service import rate_limiting_service
+from .services.environment_service import environment_service
+from .core.environment import environment
 from .routers import auth as auth_router
 from .routers import auth_jwt as auth_jwt_router
 from .routers import auth_enterprise as auth_enterprise_router
@@ -32,6 +39,7 @@ from .routers import designs as designs_router  # Re-enabled with RBAC protectio
 from .routers import admin_users as admin_users_router  # New admin router
 from .routers import me as me_router  # New user profile router
 from .routers import security as security_router  # Security endpoints (Task 3.10)
+from .routers import environment as environment_router  # Environment endpoints (Task 3.12)
 # Legacy routers disabled - not part of Task Master ERD
 # from .routers import projects as projects_router
 # from .routers import design as design_router
@@ -77,6 +85,22 @@ async def lifespan(app: FastAPI):
         })
         # Continue without Redis - some features may be unavailable
         app.state.redis = None
+    
+    try:
+        # Initialize environment service (Task 3.12)
+        await environment_service.initialize()
+        logger.info("Ultra-Enterprise environment service initialized successfully", extra={
+            'operation': 'environment_service_startup',
+            'environment': environment.ENV,
+            'dev_mode': environment.is_dev_mode
+        })
+    except Exception as e:
+        logger.error("Failed to initialize environment service", exc_info=True, extra={
+            'operation': 'environment_service_startup_failed',
+            'error_type': type(e).__name__
+        })
+        # This is critical - cannot continue without proper environment setup
+        raise
     
     try:
         # Initialize enterprise rate limiting
@@ -128,12 +152,16 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan
 )
-# Ultra enterprise security middleware stack (Tasks 3.8, 3.9, 3.10)
-app.add_middleware(SecurityHeadersMiddleware)      # CSP and security headers (Task 3.10)
-app.add_middleware(XSSDetectionMiddleware)         # XSS detection and prevention (Task 3.10)
-app.add_middleware(CSRFProtectionMiddleware)       # CSRF double-submit protection (Task 3.8)
-app.add_middleware(CORSMiddlewareStrict)           # Strict CORS enforcement (Task 3.10)
-app.add_middleware(RateLimitMiddleware)            # Rate limiting (Task 3.9)
+# Ultra enterprise security middleware stack (Tasks 3.8, 3.9, 3.10, 3.12)
+# Order is critical for security and proper functioning
+app.add_middleware(EnvironmentValidationMiddleware)    # Environment validation (Task 3.12)
+app.add_middleware(ProductionHardeningMiddleware)      # Production security hardening (Task 3.12)
+app.add_middleware(DevModeMiddleware)                  # Development mode features (Task 3.12)
+app.add_middleware(SecurityHeadersMiddleware)          # CSP and security headers (Task 3.10)
+app.add_middleware(XSSDetectionMiddleware)             # XSS detection and prevention (Task 3.10)
+app.add_middleware(CSRFProtectionMiddleware)           # CSRF double-submit protection (Task 3.8)
+app.add_middleware(CORSMiddlewareStrict)               # Strict CORS enforcement (Task 3.10)
+app.add_middleware(RateLimitMiddleware)                # Rate limiting (Task 3.9)
 
 setup_metrics(app)
 setup_celery_instrumentation()
@@ -156,6 +184,7 @@ app.include_router(designs_router.router)  # Re-enabled with RBAC protection
 app.include_router(admin_users_router.router)  # New admin router with RBAC
 app.include_router(me_router.router)  # New user profile router with RBAC
 app.include_router(security_router.router)  # Security endpoints (Task 3.10)
+app.include_router(environment_router.router)  # Environment endpoints (Task 3.12)
 if _sim_available and sim_router is not None:
     app.include_router(sim_router.router)
 app.include_router(events_router)
@@ -171,7 +200,26 @@ app.include_router(events_router)
 
 @app.get("/", include_in_schema=False)
 def root():
-    return {"mesaj": "FreeCAD API çalışıyor", "env": settings.env}
+    response_data = {
+        "mesaj": "FreeCAD Ultra-Enterprise API çalışıyor", 
+        "env": settings.env,
+        "environment": str(environment.ENV),
+        "security_level": environment.security_level_display_tr
+    }
+    
+    # Add development information if in dev mode (Task 3.12)
+    if environment.is_dev_mode:
+        response_data["_dev"] = {
+            "mode": "development",
+            "features_active": {
+                "auth_bypass": environment.DEV_AUTH_BYPASS,
+                "detailed_errors": environment.DEV_DETAILED_ERRORS,
+                "csrf_localhost_bypass": environment.CSRF_DEV_LOCALHOST_BYPASS
+            },
+            "warning": "Development mode aktif - Production için uygun değil"
+        }
+    
+    return response_data
 
 from fastapi.responses import JSONResponse
 from starlette.requests import Request

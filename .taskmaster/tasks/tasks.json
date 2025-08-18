@@ -445,7 +445,7 @@
               "3.3"
             ],
             "details": "Design:\n- ENV DEV_MODE=true enables relaxed guards for local development (e.g., skip CSRF for localhost), annotate responses dev_mode=true; never enabled in prod.\n- Enforce Secure cookies in prod; reject HTTP (redirect to HTTPS); disable detailed error traces in prod.\n- Feature flags for test OIDC provider.\nAPIs: N/A.\nCookies:\n- Validate cookie attributes vary by environment (Secure, SameSite strict in prod).\nErrors: N/A.\nAcceptance:\n- In dev: convenience features active and flagged; in prod: strict headers and cookies enforced; misconfiguration logs warnings and refuses to start if critical secrets missing.\nLogging:\n- audit_logs: config_loaded (env summary sans secrets).\n- security_events: insecure_config_detected (prod with insecure flags).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-18T10:09:10.339Z",
+      "updated": "2025-08-18T11:57:25.167Z",
       "description": "Tasks for master context"
     }
   }
