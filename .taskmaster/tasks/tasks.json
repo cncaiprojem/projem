@@ -460,7 +460,7 @@
               "3.8"
             ],
             "details": "Design:\n- Pages: /login, /register, /auth/oidc/callback, /auth/magic-link.\n- React Hook Form with dynamic validation mirroring backend policy; i18next with TR default and EN fallback; localized error handling.\n- Fetch flow: obtain CSRF token on app load; submit forms with X-CSRF-Token; store access token in memory (e.g., React state) and refresh via cookie.\nAPIs:\n- Calls backend: /auth/register, /auth/login, /auth/oidc/google/start, /auth/magic-link/request, /auth/magic-link/consume, /auth/csrf-token.\nCookies:\n- Reads CSRF cookie; backend manages refresh cookie; FE never stores refresh token.\nErrors:\n- Display localized messages for 401/403/429; map backend error codes to strings.\nAcceptance:\n- Turkish UI strings shown by default; validation errors inline; OIDC redirects correctly; magic link flow confirms email sent and consumes link successfully.\nLogging:\n- Client console/info logs minimized; no PII; send client telemetry (optional) with correlation ID if enabled.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-18T11:57:25.167Z",
+      "updated": "2025-08-18T13:02:29.053Z",
       "description": "Tasks for master context"
     }
   }

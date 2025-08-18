@@ -202,5 +202,111 @@
     "cancel": "İptal etmek istediğinizden emin misiniz?",
     "save": "Değişiklikleri kaydetmek istiyor musunuz?",
     "discard": "Değişiklikleri atmak istediğinizden emin misiniz?"
+  },
+  "auth": {
+    "login": {
+      "title": "Giriş Yap",
+      "subtitle": "FreeCAD CNC/CAM platformuna giriş yapın",
+      "email": "E-posta",
+      "emailPlaceholder": "ornek@email.com",
+      "password": "Şifre",
+      "passwordPlaceholder": "Şifrenizi girin",
+      "submit": "Giriş Yap",
+      "forgotPassword": "Şifremi Unuttum",
+      "noAccount": "Hesabınız yok mu?",
+      "createAccount": "Hesap Oluştur",
+      "orContinueWith": "Veya şununla devam edin",
+      "googleLogin": "Google ile Giriş",
+      "magicLinkLogin": "Sihirli Link ile Giriş",
+      "magicLinkDescription": "Size özel güvenli giriş linki gönderelim",
+      "sendMagicLink": "Sihirli Link Gönder",
+      "checkEmail": "E-postanızı kontrol edin",
+      "magicLinkSent": "Giriş linkinizi {{email}} adresine gönderdik",
+      "loginInProgress": "Giriş yapılıyor...",
+      "loginSuccess": "Başarıyla giriş yapıldı!"
+    },
+    "register": {
+      "title": "Hesap Oluştur",
+      "subtitle": "FreeCAD CNC/CAM platformuna katılın",
+      "firstName": "Ad",
+      "firstNamePlaceholder": "Adınız",
+      "lastName": "Soyad", 
+      "lastNamePlaceholder": "Soyadınız",
+      "email": "E-posta",
+      "emailPlaceholder": "ornek@email.com",
+      "password": "Şifre",
+      "passwordPlaceholder": "Güçlü bir şifre oluşturun",
+      "confirmPassword": "Şifre Tekrarı",
+      "confirmPasswordPlaceholder": "Şifrenizi tekrar girin",
+      "company": "Şirket",
+      "companyPlaceholder": "Şirket adınız (isteğe bağlı)",
+      "acceptTerms": "Kullanım koşullarını ve gizlilik politikasını kabul ediyorum",
+      "acceptKvkk": "KVKV kapsamında kişisel verilerimin işlenmesini kabul ediyorum",
+      "submit": "Hesap Oluştur",
+      "hasAccount": "Zaten hesabınız var mı?",
+      "signIn": "Giriş Yap",
+      "registrationSuccess": "Hesabınız başarıyla oluşturuldu!",
+      "registrationInProgress": "Hesap oluşturuluyor..."
+    },
+    "validation": {
+      "required": "Bu alan zorunludur",
+      "email": "Geçerli bir e-posta adresi girin",
+      "minLength": "En az {{count}} karakter olmalıdır",
+      "maxLength": "En fazla {{count}} karakter olmalıdır",
+      "passwordTooWeak": "Şifre çok zayıf. En az 8 karakter, büyük/küçük harf, sayı ve özel karakter içermelidir",
+      "passwordsNotMatch": "Şifreler eşleşmiyor",
+      "invalidCredentials": "E-posta veya şifre hatalı",
+      "emailAlreadyExists": "Bu e-posta adresi zaten kullanılıyor",
+      "accountNotFound": "Bu e-posta adresine kayıtlı hesap bulunamadı",
+      "accountLocked": "Hesabınız güvenlik nedeniyle kilitlenmiştir. Destek ekibiyle iletişime geçin",
+      "tooManyAttempts": "Çok fazla başarısız deneme. Lütfen {{minutes}} dakika sonra tekrar deneyin"
+    },
+    "oauth": {
+      "googleLogin": "Google ile devam et",
+      "processing": "Google ile giriş yapılıyor...",
+      "failed": "Google ile giriş başarısız oldu",
+      "cancelled": "Google ile giriş iptal edildi",
+      "success": "Google ile başarıyla giriş yapıldı"
+    },
+    "magicLink": {
+      "title": "Sihirli Link Girişi",
+      "description": "E-posta adresinizi girin, size güvenli bir giriş linki gönderelim",
+      "emailSent": "E-posta gönderildi!",
+      "checkInbox": "{{email}} adresine gönderilen linke tıklayarak giriş yapabilirsiniz",
+      "linkExpired": "Bu link süresi dolmuş. Yeni bir link talep edin",
+      "linkInvalid": "Geçersiz veya kullanılmış link",
+      "processing": "Sihirli link işleniyor...",
+      "success": "Sihirli link ile başarıyla giriş yapıldı!",
+      "resend": "Yeniden Gönder",
+      "backToLogin": "Giriş sayfasına dön"
+    },
+    "errors": {
+      "networkError": "Ağ hatası. İnternet bağlantınızı kontrol edin",
+      "serverError": "Sunucu hatası. Lütfen daha sonra tekrar deneyin",
+      "unauthorized": "Oturum süreniz dolmuş. Lütfen tekrar giriş yapın",
+      "forbidden": "Bu işlemi gerçekleştirme yetkiniz bulunmuyor",
+      "rateLimited": "Çok fazla istek gönderdiniz. Lütfen bekleyin ve tekrar deneyin",
+      "csrfError": "Güvenlik hatası. Sayfayı yenileyip tekrar deneyin",
+      "sessionExpired": "Oturumunuzun süresi dolmuş",
+      "invalidToken": "Geçersiz güvenlik anahtarı",
+      "generic": "Bir hata oluştu. Lütfen daha sonra tekrar deneyin"
+    },
+    "security": {
+      "kvkkNotice": "Kişisel Verilerin Korunması Hakkında Bilgilendirme",
+      "kvkkText": "Kişisel verileriniz 6698 sayılı Kişisel Verilerin Korunması Kanunu kapsamında işlenmektedir. Detaylı bilgi için gizlilik politikamızı inceleyebilirsiniz.",
+      "termsOfService": "Kullanım Koşulları",
+      "privacyPolicy": "Gizlilik Politikası",
+      "cookieNotice": "Bu site güvenli oturum yönetimi için çerezler kullanır",
+      "secureConnection": "Güvenli bağlantı",
+      "dataEncryption": "Verileriniz şifrelenerek korunur"
+    },
+    "session": {
+      "expired": "Oturumunuzun süresi doldu",
+      "expiringSoon": "Oturumunuz {{minutes}} dakika içinde sona erecek",
+      "extend": "Oturumu Uzat",
+      "logout": "Çıkış Yap",
+      "logoutSuccess": "Başarıyla çıkış yapıldı",
+      "logoutConfirm": "Çıkış yapmak istediğinizden emin misiniz?"
+    }
   }
 }
