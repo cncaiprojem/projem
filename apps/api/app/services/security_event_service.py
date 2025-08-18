@@ -662,15 +662,17 @@ class SecurityEventService:
         # Look for login failures in last 15 minutes
         recent_time = datetime.now(timezone.utc) - timedelta(minutes=15)
         
-        # Count failed login attempts (check in metadata or deduce from IP masking)
-        # This is a simplified check - in production, you'd need more sophisticated logic
+        # Use proper PII masking service to mask the IP address for accurate comparison
+        # This ensures IPv4/IPv6 compatibility and prevents false positives
+        masked_ip_to_check = pii_masking_service.mask_ip_address(ip_address)
+        
         recent_failures = (
             db.query(SecurityEvent)
             .filter(
                 and_(
                     SecurityEvent.type == SecurityEventType.LOGIN_FAILED.value,
                     SecurityEvent.created_at >= recent_time,
-                    SecurityEvent.ip_masked.like(f"{ip_address[:7]}%")  # Partial IP match
+                    SecurityEvent.ip_masked == masked_ip_to_check  # Exact masked IP match
                 )
             )
             .count()
@@ -680,9 +682,10 @@ class SecurityEventService:
             await self._trigger_security_alert(
                 "BRUTE_FORCE_DETECTED",
                 {
-                    "ip_address": ip_address,
+                    "ip_masked": masked_ip_to_check,  # Use masked IP for KVKV compliance
                     "failed_attempts": recent_failures,
-                    "time_window_minutes": 15
+                    "time_window_minutes": 15,
+                    "threat_level": "HIGH"  # Enhanced threat classification
                 }
             )
     
