@@ -14,6 +14,7 @@ from ..services.audit_service import audit_service
 from ..services.security_event_service import security_event_service
 from ..services.pii_masking_service import pii_masking_service
 from ..core.logging import get_logger, configure_structlog
+from ..core.settings import get_settings
 
 
 logger = get_logger(__name__)
@@ -40,14 +41,17 @@ def setup_audit_system(app: FastAPI) -> None:
         mask_sensitive_headers=True
     )
     
-    # Add CORS middleware with audit-friendly configuration
+    # Add CORS middleware with ultra-enterprise settings-based configuration
+    settings = get_settings()
+    
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],  # Frontend URL
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-        expose_headers=["X-Correlation-ID", "X-Session-ID", "X-KVKV-Compliant"]
+        allow_origins=settings.cors_origins_list,  # Environment-configurable origins
+        allow_credentials=settings.CORS_ALLOW_CREDENTIALS,
+        allow_methods=settings.cors_methods_list,
+        allow_headers=settings.cors_headers_list,
+        expose_headers=settings.cors_expose_headers_list,  # Enhanced audit headers
+        max_age=settings.CORS_MAX_AGE  # Preflight cache optimization
     )
     
     logger.info(
@@ -58,10 +62,19 @@ def setup_audit_system(app: FastAPI) -> None:
             "security_event_service": True,
             "pii_masking_service": True,
             "kvkv_compliance": True,
-            "hash_chain_integrity": True
+            "hash_chain_integrity": True,
+            "enhanced_cors_config": True  # New enhanced CORS configuration
         },
         compliance_frameworks=["KVKV", "GDPR", "Turkish_Banking_Law"],
-        security_level="ULTRA_ENTERPRISE"
+        security_level="ULTRA_ENTERPRISE",
+        cors_config={
+            "origins_count": len(settings.cors_origins_list),
+            "environment": settings.ENV,
+            "credentials_allowed": settings.CORS_ALLOW_CREDENTIALS,
+            "production_mode": settings.is_production,
+            "max_age": settings.CORS_MAX_AGE,
+            "headers_exposed": len(settings.cors_expose_headers_list)
+        }
     )
 
 
