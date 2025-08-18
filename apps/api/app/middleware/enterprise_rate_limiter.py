@@ -105,6 +105,7 @@ token_refresh_rate_limit = RateLimitDependency(RateLimitType.TOKEN_REFRESH)
 ai_prompt_rate_limit = RateLimitDependency(RateLimitType.AI_PROMPT)
 registration_rate_limit = RateLimitDependency(RateLimitType.REGISTRATION)
 password_reset_rate_limit = RateLimitDependency(RateLimitType.PASSWORD_RESET)
+mfa_rate_limit = RateLimitDependency(RateLimitType.MFA_OPERATIONS)  # Task 3.7: MFA rate limiting
 general_rate_limit = RateLimitDependency(RateLimitType.GENERAL)
 
 

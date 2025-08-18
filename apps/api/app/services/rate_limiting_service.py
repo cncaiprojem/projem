@@ -45,6 +45,7 @@ class RateLimitType(Enum):
     AI_PROMPT = "ai_prompt"
     REGISTRATION = "registration"
     PASSWORD_RESET = "password_reset"
+    MFA_OPERATIONS = "mfa_operations"  # Task 3.7: MFA operations
     GENERAL = "general"
 
 
@@ -117,6 +118,13 @@ class EnterpriseRateLimitingService:
             key_type="ip_user",
             burst_threshold=6,
             description="Şifre sıfırlama"
+        ),
+        RateLimitType.MFA_OPERATIONS: RateLimitPolicy(
+            requests=5, 
+            window_seconds=300,  # 5 minute window for MFA operations
+            key_type="ip_user",
+            burst_threshold=10,
+            description="MFA işlemleri"
         ),
         RateLimitType.GENERAL: RateLimitPolicy(
             requests=100, 

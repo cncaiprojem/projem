@@ -1,0 +1,4 @@
+{
+  "tests/integration/test_migration_integrity.py": true,
+  "tests/contract/test_openapi.py": true
+}
