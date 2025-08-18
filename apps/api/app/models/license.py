@@ -245,6 +245,9 @@ class License(Base, TimestampMixin):
     
     def update_scope(self, key: str, value: any) -> None:
         """Update license scope with new feature/limit."""
+        from sqlalchemy.orm.attributes import flag_modified
         if self.scope is None:
             self.scope = {}
         self.scope[key] = value
+        # Mark JSONB field as modified for SQLAlchemy tracking
+        flag_modified(self, "scope")

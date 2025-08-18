@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
+import hashlib
+import json
 
 from sqlalchemy import (
     BigInteger, DateTime, ForeignKey, Index, String, Text, text
@@ -210,9 +212,6 @@ class LicenseAudit(Base):
     @staticmethod
     def compute_hash(data: dict) -> str:
         """Compute SHA-256 hash of audit data for integrity."""
-        import hashlib
-        import json
-        
         # Create stable JSON representation
         json_str = json.dumps(data, sort_keys=True, default=str)
         return hashlib.sha256(json_str.encode()).hexdigest()

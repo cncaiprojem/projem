@@ -5,6 +5,7 @@ Ultra-enterprise implementation with audit trail and validation.
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
+from dateutil.relativedelta import relativedelta
 import hashlib
 import json
 
@@ -53,9 +54,9 @@ class LicenseService:
         """Create an audit log entry with hash-chain integrity."""
         
         # Get the previous audit record for hash chaining
-        previous_audit = db.query(LicenseAudit).order_by(
-            LicenseAudit.id.desc()
-        ).first()
+        previous_audit = db.query(LicenseAudit).filter(
+            LicenseAudit.license_id == license.id
+        ).order_by(LicenseAudit.id.desc()).first()
         
         # Create audit record
         audit = LicenseAudit(
@@ -149,8 +150,8 @@ class LicenseService:
         
         # Create new license
         now = datetime.now(timezone.utc)
-        # Calculate end date (approximate month calculation)
-        ends_at = now + timedelta(days=30 * months)
+        # Calculate end date using relativedelta for accurate month calculation
+        ends_at = now + relativedelta(months=months)
         
         license = License(
             user_id=user_id,
@@ -266,7 +267,7 @@ class LicenseService:
         
         # Extend the license (append to current end date)
         old_ends_at = license.ends_at
-        license.ends_at = license.ends_at + timedelta(days=30 * months)
+        license.ends_at = license.ends_at + relativedelta(months=months)
         
         # Create audit log
         audit = LicenseService._create_audit_log(
