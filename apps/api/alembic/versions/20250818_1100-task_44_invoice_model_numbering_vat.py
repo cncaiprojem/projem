@@ -31,6 +31,7 @@ def upgrade() -> None:
     """
     
     # Create PaidStatus enum with safe creation
+    # FIXED: Use specific exception handling per Gemini Code Assist feedback
     try:
         paid_status_enum = postgresql.ENUM(
             'unpaid', 'pending', 'paid', 'failed', 'refunded',
@@ -38,9 +39,15 @@ def upgrade() -> None:
             create_type=False
         )
         paid_status_enum.create(op.get_bind(), checkfirst=True)
-    except Exception:
-        # Enum might already exist from a previous run
-        pass
+    except sa.exc.ProgrammingError as e:
+        # Enum already exists - this is expected in idempotent migrations
+        # Log this for debugging but don't fail
+        if "already exists" not in str(e):
+            # Re-raise if it's a different programming error
+            raise
+    except sa.exc.OperationalError as e:
+        # Database operational issues should be re-raised
+        raise
     
     # Create invoices table
     op.create_table('invoices',
@@ -118,38 +125,39 @@ def downgrade() -> None:
     """Remove invoice table and related constraints."""
     
     # Drop indexes with safe handling
-    try:
-        op.drop_index('idx_invoices_unpaid', table_name='invoices')
-    except Exception:
-        pass
+    # FIXED: Use specific exception handling per Gemini Code Assist feedback
+    index_names = [
+        'idx_invoices_unpaid',
+        'idx_invoices_number_unique', 
+        'idx_invoices_issued_at_desc',
+        'idx_invoices_license_paid_status',
+        'idx_invoices_user_paid_status'
+    ]
     
-    try:
-        op.drop_index('idx_invoices_number_unique', table_name='invoices')
-    except Exception:
-        pass
-    
-    try:
-        op.drop_index('idx_invoices_issued_at_desc', table_name='invoices')
-    except Exception:
-        pass
-    
-    try:
-        op.drop_index('idx_invoices_license_paid_status', table_name='invoices')
-    except Exception:
-        pass
-    
-    try:
-        op.drop_index('idx_invoices_user_paid_status', table_name='invoices')
-    except Exception:
-        pass
+    for index_name in index_names:
+        try:
+            op.drop_index(index_name, table_name='invoices')
+        except sa.exc.ProgrammingError as e:
+            # Index doesn't exist - expected in idempotent migrations
+            if "does not exist" not in str(e):
+                # Re-raise if it's a different programming error
+                raise
+        except sa.exc.OperationalError as e:
+            # Database operational issues should be re-raised
+            raise
     
     # Drop table
     op.drop_table('invoices')
     
     # Drop enum with safe handling
+    # FIXED: Use specific exception handling
     try:
         paid_status_enum = postgresql.ENUM(name='paid_status_enum')
         paid_status_enum.drop(op.get_bind(), checkfirst=True)
-    except Exception:
-        # Enum might not exist or be in use
-        pass
+    except sa.exc.ProgrammingError as e:
+        # Enum doesn't exist or is in use - expected
+        if "does not exist" not in str(e) and "cannot be dropped" not in str(e):
+            raise
+    except sa.exc.OperationalError as e:
+        # Database operational issues should be re-raised
+        raise

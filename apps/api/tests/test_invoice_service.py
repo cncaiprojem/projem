@@ -40,9 +40,13 @@ class TestInvoiceNumberGeneration:
         # Should be: YYYYMM-NNNNNN-CNCAI
         assert invoice_number == "202501-000001-CNCAI"
         
-        # Verify SQL was executed with FOR UPDATE for locking
-        executed_query = mock_db.execute.call_args[0][0]
-        assert "FOR UPDATE" in str(executed_query)
+        # UPDATED: Verify advisory lock is used instead of SELECT FOR UPDATE
+        # This is the optimization per GitHub Copilot feedback
+        calls = mock_db.execute.call_args_list
+        assert any("pg_advisory_lock" in str(call[0][0]) for call in calls), \
+            "Should use advisory lock for better performance"
+        assert any("pg_advisory_unlock" in str(call[0][0]) for call in calls), \
+            "Should release advisory lock"
     
     def test_invoice_number_sequential(self):
         """Test that invoice numbers are sequential within a month."""
@@ -104,11 +108,18 @@ class TestInvoiceNumberGeneration:
         # Simulate sequential numbering even under concurrent access
         sequence_counter = {"value": 0}
         
-        def get_next_sequence():
-            sequence_counter["value"] += 1
-            mock_result = Mock()
-            mock_result.next_seq = sequence_counter["value"]
-            return mock_result
+        def get_next_sequence(*args, **kwargs):
+            # Check if this is the advisory lock/unlock call or the sequence query
+            query_str = str(args[0]) if args else ""
+            if "pg_advisory" in query_str:
+                # Mock advisory lock operations - just return success
+                return Mock()
+            else:
+                # This is the sequence query
+                sequence_counter["value"] += 1
+                mock_result = Mock()
+                mock_result.next_seq = sequence_counter["value"]
+                return mock_result
         
         mock_db.execute.return_value.fetchone.side_effect = get_next_sequence
         
@@ -129,6 +140,15 @@ class TestInvoiceNumberGeneration:
         for number in invoice_numbers:
             assert number.startswith("202504-")
             assert number.endswith("-CNCAI")
+            
+        # Verify advisory locks were used (OPTIMIZATION)
+        calls = [str(call[0][0]) for call in mock_db.execute.call_args_list]
+        lock_calls = [c for c in calls if "pg_advisory_lock" in c]
+        unlock_calls = [c for c in calls if "pg_advisory_unlock" in c]
+        
+        # Should have equal number of lock and unlock calls
+        assert len(lock_calls) == 20, "Should acquire advisory lock for each generation"
+        assert len(unlock_calls) == 20, "Should release advisory lock for each generation"
 
 
 class TestVATCalculation:

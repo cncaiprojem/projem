@@ -608,3 +608,45 @@ class TestLicenseMiddlewareEdgeCases:
             
             assert result is False
             assert not is_license_expiry_processed(999, license_id)
+    
+    @pytest.mark.asyncio
+    async def test_invalid_parameters_handling(self):
+        """Test handling of invalid parameters in session revocation."""
+        middleware = LicenseGuardMiddleware(app=Mock())
+        mock_db = Mock()
+        
+        # Test with None user_id
+        result = await middleware._revoke_user_sessions_on_expiry(
+            mock_db, None, uuid.uuid4(), "192.168.1.xxx", "TestClient/1.0", "test-request-id"
+        )
+        assert result is False
+        
+        # Test with None license_id
+        result = await middleware._revoke_user_sessions_on_expiry(
+            mock_db, 123, None, "192.168.1.xxx", "TestClient/1.0", "test-request-id"
+        )
+        assert result is False
+        
+        # Test with zero user_id (invalid)
+        result = await middleware._revoke_user_sessions_on_expiry(
+            mock_db, 0, uuid.uuid4(), "192.168.1.xxx", "TestClient/1.0", "test-request-id"
+        )
+        assert result is False
+    
+    @pytest.mark.asyncio
+    async def test_session_cleanup_logging(self):
+        """Test that session lifecycle is properly logged for monitoring."""
+        with patch('app.middleware.license_middleware.logger') as mock_logger:
+            with patch('app.middleware.license_middleware.db_session') as mock_db_session:
+                mock_session = Mock()
+                mock_db_session.return_value.__enter__.return_value = mock_session
+                mock_db_session.return_value.__exit__.return_value = None
+                
+                with get_db_session_for_middleware() as db:
+                    pass
+                
+                # Verify lifecycle logging
+                debug_calls = [call[0][0] for call in mock_logger.debug.call_args_list]
+                assert any("Creating database session" in call for call in debug_calls)
+                assert any("Database session created successfully" in call for call in debug_calls)
+                assert any("Database session context completed" in call for call in debug_calls)
