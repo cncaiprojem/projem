@@ -17,6 +17,7 @@ Security Level: Ultra-Enterprise Banking Grade
 
 from __future__ import annotations
 
+import base64
 import secrets
 import hashlib
 import hmac
@@ -145,7 +146,7 @@ class CSRFService:
             full_token = token_payload + signature
             
             # Base64 encode for safe transmission
-            token = secrets.token_urlsafe(len(full_token))[:64]  # Limit to 64 chars
+            token = base64.urlsafe_b64encode(full_token).decode()
             
             # Log token generation event
             self._log_csrf_event(
@@ -501,20 +502,52 @@ class CSRFService:
     
     def _is_token_expired(self, token: str) -> bool:
         """
-        Check if CSRF token is expired (simplified version).
-        
-        In a full implementation, we would decode the timestamp from the token.
-        For now, we rely on cookie max-age for expiration.
+        Check if CSRF token is expired by validating embedded timestamp and HMAC.
         
         Args:
-            token: CSRF token to check
+            token: Base64-encoded CSRF token to check
             
         Returns:
-            True if token is expired
+            True if token is expired or invalid
         """
-        # For this implementation, we rely on cookie expiration
-        # In a more sophisticated version, we would decode the embedded timestamp
-        return False
+        try:
+            # Decode the base64 token
+            token_data = base64.urlsafe_b64decode(token.encode())
+            
+            # Token structure: random_bytes(32) + timestamp(8) + hmac_signature(32)
+            if len(token_data) < (32 + 8 + 32):
+                return True  # Invalid token format
+            
+            # Extract components
+            token_payload = token_data[:-32]  # Everything except HMAC signature
+            hmac_signature = token_data[-32:]  # Last 32 bytes are HMAC
+            
+            # Verify HMAC signature
+            expected_signature = hmac.new(
+                self.hmac_key.encode(),
+                token_payload,
+                hashlib.sha256
+            ).digest()
+            
+            if not secrets.compare_digest(hmac_signature, expected_signature):
+                return True  # Invalid HMAC - token tampered or corrupted
+            
+            # Extract timestamp from payload
+            timestamp_bytes = token_payload[-8:]  # Last 8 bytes of payload
+            timestamp = int.from_bytes(timestamp_bytes, 'big')
+            
+            # Check expiration
+            current_time = int(time.time())
+            token_age = current_time - timestamp
+            
+            if token_age > self.token_lifetime_seconds:
+                return True  # Token expired
+            
+            return False  # Token is valid and not expired
+            
+        except Exception:
+            # Any decoding error means invalid token
+            return True
     
     def _check_token_generation_rate_limit(self, ip_address: str) -> None:
         """
