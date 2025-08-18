@@ -45,12 +45,13 @@ def upgrade() -> None:
         comment='Idempotency tracking for API operations with Turkish KVKV compliance'
     )
     
-    # Create index for efficient expiry cleanup
+    # Create standard index for efficient expiry cleanup
+    # Note: Using standard index instead of partial index for better query performance
+    # The cleanup query uses expires_at < NOW() which wouldn't use a partial index with expires_at > NOW()
     op.create_index(
         'ix_idempotency_expires',
         'idempotency_records',
-        ['expires_at'],
-        postgresql_where=sa.text('expires_at > NOW()')
+        ['expires_at']
     )
     
     # Add comment to the table

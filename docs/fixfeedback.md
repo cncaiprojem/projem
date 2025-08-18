@@ -76,11 +76,12 @@ def validate_scope(cls, v):
 
 ## Database Migration Required
 
-To support the new IdempotencyRecord model, run:
+To apply the idempotency_records table migration, run:
 ```bash
-alembic revision --autogenerate -m "Add idempotency_records table"
 alembic upgrade head
 ```
+
+Note: The migration file already exists at `apps/api/alembic/versions/20250818_add_idempotency_records_table.py`
 
 ## Testing Recommendations
 

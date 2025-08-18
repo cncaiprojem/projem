@@ -393,7 +393,7 @@ async def extend_license(
         if idempotency_key:
             await IdempotencyService.store_response(
                 db, idempotency_key, current_user.id, response.dict(),
-                endpoint="/api/v1/license/assign",
+                endpoint="/api/v1/license/extend",
                 method="POST",
                 status_code=200
             )
@@ -539,7 +539,7 @@ async def cancel_license(
         if idempotency_key:
             await IdempotencyService.store_response(
                 db, idempotency_key, current_user.id, response.dict(),
-                endpoint="/api/v1/license/assign",
+                endpoint="/api/v1/license/cancel",
                 method="POST",
                 status_code=200
             )

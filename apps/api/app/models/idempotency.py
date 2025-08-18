@@ -5,7 +5,7 @@ Ultra-enterprise banking grade idempotency tracking for API operations.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Optional, Dict, Any
 from uuid import UUID
 
@@ -99,8 +99,8 @@ class IdempotencyRecord(Base):
         ),
         Index(
             'ix_idempotency_expires',
-            'expires_at',
-            postgresql_where='expires_at > NOW()'
+            'expires_at'
+            # Note: Using standard index for better query performance with cleanup queries
         ),
         {'comment': 'Idempotency tracking for API operations with Turkish KVKV compliance'}
     )
@@ -122,5 +122,4 @@ class IdempotencyRecord(Base):
     @classmethod
     def create_expiry_time(cls, hours: int = 24) -> datetime:
         """Create an expiry time for idempotency records."""
-        from datetime import timedelta
         return datetime.now(timezone.utc) + timedelta(hours=hours)
