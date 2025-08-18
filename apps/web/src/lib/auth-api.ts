@@ -46,6 +46,31 @@ export interface AuthResponse {
   requiresVerification?: boolean
 }
 
+export interface LicenseStatusResponse {
+  status: 'active' | 'expired' | 'suspended' | 'trial' | 'none'
+  days_remaining: number
+  expires_at: string
+  plan_type: string
+  seats_total: number
+  seats_used: number
+  features: Record<string, any>
+  auto_renew: boolean
+  status_tr: string
+  warning_message_tr?: string
+  renewal_url?: string
+}
+
+export interface LicenseFeatureCheckRequest {
+  feature: string
+}
+
+export interface LicenseFeatureCheckResponse {
+  feature: string
+  available: boolean
+  limit?: number
+  current_usage?: number
+}
+
 export interface CSRFTokenResponse {
   csrf_token: string
 }
@@ -281,6 +306,22 @@ class AuthAPI {
     return this.makeAuthenticatedRequest('/api/v1/auth/session')
   }
 
+  // License management endpoints (Task 3.14)
+  async getLicenseStatus(): Promise<LicenseStatusResponse> {
+    return this.makeAuthenticatedRequest<LicenseStatusResponse>('/api/v1/license/me')
+  }
+
+  async checkFeatureAvailability(request: LicenseFeatureCheckRequest): Promise<LicenseFeatureCheckResponse> {
+    return this.makeAuthenticatedRequest<LicenseFeatureCheckResponse>('/api/v1/license/check-feature', {
+      method: 'POST',
+      body: JSON.stringify(request),
+    })
+  }
+
+  async getAdminLicenseList(): Promise<any[]> {
+    return this.makeAuthenticatedRequest<any[]>('/api/v1/license/admin/all')
+  }
+
   // Dev mode endpoints (only available in development)
   async devLogin(userEmail: string = 'dev@local'): Promise<AuthResponse> {
     if (process.env.NODE_ENV !== 'development') {
@@ -358,6 +399,19 @@ export class AuthAPIError extends Error {
       'MAGIC_LINK_INVALID': 'Geçersiz veya kullanılmış link',
       'OAUTH_ERROR': 'Google ile giriş başarısız oldu',
       'SERVER_ERROR': 'Sunucu hatası. Lütfen daha sonra tekrar deneyin',
+      
+      // Task 3.14: License-related error messages in Turkish
+      'LICENSE_NOT_FOUND': 'Aktif lisans bulunamadı',
+      'LICENSE_EXPIRED': 'Lisansınızın süresi dolmuş',
+      'LICENSE_SUSPENDED': 'Lisansınız askıya alınmış',
+      'LICENSE_CHECK_FAILED': 'Lisans durumu kontrol edilemedi',
+      'FEATURE_CHECK_FAILED': 'Özellik durumu kontrol edilemedi',
+      'ADMIN_LICENSE_LIST_FAILED': 'Lisans listesi alınamadı',
+      'INSUFFICIENT_LICENSE': 'Bu özellik için yüksek seviye lisans gerekiyor',
+      'LICENSE_LIMIT_EXCEEDED': 'Lisans kullanım sınırı aşıldı',
+      'FEATURE_NOT_AVAILABLE': 'Bu özellik lisansınızda bulunmuyor',
+      'TRIAL_EXPIRED': 'Deneme süreniz dolmuş',
+      'SEAT_LIMIT_EXCEEDED': 'Kullanıcı kotası aşıldı',
     }
 
     return errorMessages[this.code] || this.message

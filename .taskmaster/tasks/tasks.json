@@ -472,7 +472,7 @@
               "3.13"
             ],
             "details": "Design:\n- middleware.ts: check for access token presence/validity (e.g., via lightweight endpoint or JWT decode) and redirect to /login; call /license/me to detect expiry → redirect to /license with banner of remaining days.\n- Idle timer: logout after configurable inactivity (e.g., 15–30m); warn before logout; clear memory tokens and call /auth/logout.\nAPIs:\n- GET /license/me → {status: active|expired, days_remaining}.\n- POST /auth/logout.\nCookies:\n- None handled directly; access token held in memory; refresh cookie managed by backend.\nErrors:\n- Redirect on 401; display localized toast on ERR-RBAC-FORBIDDEN when navigating to admin routes.\nAcceptance:\n- Unauthenticated user is redirected; expired license redirects with banner; idle logout triggers and clears session.\nLogging:\n- Client-side event logs (non-PII) for guard redirects and idle logout (optional analytics).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-18T13:02:29.053Z",
+      "updated": "2025-08-18T15:32:29.361Z",
       "description": "Tasks for master context"
     }
   }

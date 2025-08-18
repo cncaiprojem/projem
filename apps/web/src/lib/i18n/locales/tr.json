@@ -307,6 +307,118 @@
       "logout": "Çıkış Yap",
       "logoutSuccess": "Başarıyla çıkış yapıldı",
       "logoutConfirm": "Çıkış yapmak istediğinizden emin misiniz?"
+    },
+    "idle": {
+      "warning": "Uzun süre hareketsizlik tespit edildi",
+      "warningMessage": "{{minutes}} dakika içinde otomatik olarak çıkış yapılacak",
+      "stayLoggedIn": "Oturumda Kal",
+      "logoutNow": "Şimdi Çıkış Yap",
+      "timeRemaining": "Kalan süre: {{time}}",
+      "autoLogout": "Hareketsizlik nedeniyle otomatik çıkış yapıldı",
+      "activityDetected": "Aktivite tespit edildi, oturum uzatıldı"
     }
+  },
+  "license": {
+    "status": {
+      "active": "Aktif",
+      "expired": "Süresi Dolmuş",
+      "suspended": "Askıya Alınmış",
+      "trial": "Deneme",
+      "none": "Lisans Yok"
+    },
+    "plans": {
+      "trial": "Deneme",
+      "basic": "Temel",
+      "professional": "Profesyonel",
+      "enterprise": "Kurumsal"
+    },
+    "banner": {
+      "expired": {
+        "title": "Lisans Süresi Dolmuş",
+        "message": "Lisansınızın süresi dolmuş. Hizmetlere erişim kısıtlanabilir.",
+        "action": "Hemen Yenile"
+      },
+      "suspended": {
+        "title": "Lisans Askıya Alınmış",
+        "message": "Lisansınız askıya alınmış. Lütfen yönetici ile iletişime geçin.",
+        "action": "Destek Al"
+      },
+      "expiring": {
+        "title": "Lisans Yenilenmesi",
+        "message": "Lisansınızın süresi {{days}} gün içinde dolacak.",
+        "action": "Şimdi Yenile",
+        "urgent": "Acil: {{days}} gün kaldı!"
+      },
+      "trial": {
+        "title": "Deneme Süresi",
+        "message": "Deneme süreniz {{days}} gün içinde dolacak.",
+        "action": "Plan Satın Al",
+        "ending": "Deneme süreniz bitiyor!"
+      },
+      "none": {
+        "title": "Lisans Gerekiyor",
+        "message": "Hizmetleri kullanabilmek için bir lisans planı seçmelisiniz.",
+        "action": "Plan Seç"
+      }
+    },
+    "features": {
+      "cadBasic": "Temel CAD",
+      "cadAdvanced": "Gelişmiş CAD",
+      "camBasic": "Temel CAM",
+      "camAdvanced": "Gelişmiş CAM",
+      "simulationBasic": "Temel Simülasyon",
+      "simulationAdvanced": "Gelişmiş Simülasyon",
+      "apiAccess": "API Erişimi",
+      "erpIntegration": "ERP Entegrasyonu",
+      "maxJobs": "Maksimum İş Sayısı",
+      "maxModels": "Maksimum Model Sayısı"
+    },
+    "errors": {
+      "notFound": "Aktif lisans bulunamadı",
+      "expired": "Lisansınızın süresi dolmuş",
+      "suspended": "Lisansınız askıya alınmış",
+      "checkFailed": "Lisans durumu kontrol edilemedi",
+      "featureCheckFailed": "Özellik durumu kontrol edilemedi",
+      "insufficient": "Bu özellik için yüksek seviye lisans gerekiyor",
+      "limitExceeded": "Lisans kullanım sınırı aşıldı",
+      "featureNotAvailable": "Bu özellik lisansınızda bulunmuyor",
+      "trialExpired": "Deneme süreniz dolmuş",
+      "seatLimitExceeded": "Kullanıcı kotası aşıldı"
+    },
+    "info": {
+      "plan": "Plan",
+      "status": "Durum", 
+      "expiresAt": "Bitiş Tarihi",
+      "daysRemaining": "Kalan Gün",
+      "seatsTotal": "Toplam Koltuk",
+      "seatsUsed": "Kullanılan Koltuk",
+      "autoRenew": "Otomatik Yenileme",
+      "features": "Özellikler",
+      "timeRemaining": "Kalan Süre",
+      "unlimited": "Sınırsız"
+    },
+    "actions": {
+      "renew": "Yenile",
+      "upgrade": "Yükselt",
+      "manage": "Yönet",
+      "buyNow": "Şimdi Satın Al",
+      "learnMore": "Detaylı Bilgi",
+      "contactSupport": "Destek İletişim",
+      "viewPlans": "Planları Görüntüle"
+    },
+    "countdown": {
+      "days": "{{count}} gün",
+      "hours": "{{count}} saat",
+      "minutes": "{{count}} dakika",
+      "expired": "Süresi dolmuş"
+    }
+  },
+  "routeGuard": {
+    "authRequired": "Bu sayfaya erişmek için oturum açmalısınız",
+    "insufficientRole": "Bu sayfaya erişim yetkiniz yok",
+    "licenseRequired": "Bu özellik için geçerli bir lisans gerekiyor",
+    "licenseExpired": "Lisansınızın süresi dolmuş",
+    "upgradeRequired": "Bu özellik için lisans yükseltmesi gerekiyor",
+    "redirecting": "Yönlendiriliyorsunuz..."
   }
 }
