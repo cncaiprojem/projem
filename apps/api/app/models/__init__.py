@@ -14,6 +14,7 @@ from .base import Base, TimestampMixin, metadata
 from .user import User
 from .session import Session
 from .license import License
+from .license_audit import LicenseAudit
 from .invoice import Invoice
 from .payment import Payment
 from .model import Model
@@ -30,6 +31,7 @@ from .security_event import SecurityEvent
 from .tool import Tool
 from .oidc_account import OIDCAccount
 from .magic_link import MagicLink
+from .mfa_backup_code import MFABackupCode
 
 # All models are now in the models/ package - no additional modules needed
 _additional_models_loaded = False
@@ -44,8 +46,10 @@ __all__ = [
     "User",
     "Session",
     "License",
+    "LicenseAudit",
     "OIDCAccount",
     "MagicLink",
+    "MFABackupCode",
     
     # Billing
     "Invoice",
