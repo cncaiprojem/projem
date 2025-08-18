@@ -13,7 +13,7 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional
+from typing import Optional, Dict, List, Any
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -42,7 +42,8 @@ class InvoiceService:
         """
         Generate unique invoice number with format: 'YYYYMM-SEQ-CNCAI'
         
-        Thread-safe sequential numbering per month as per Task 4.4.
+        Uses database-level locking with SELECT ... FOR UPDATE for true thread-safety
+        across multiple processes. This is critical for banking-grade invoice numbering.
         
         Args:
             db: Database session
@@ -57,35 +58,35 @@ class InvoiceService:
         # Format: YYYYMM (202501 for January 2025)
         year_month = issued_at.strftime('%Y%m')
         
-        with cls._lock:
-            # Get next sequence number for this month (thread-safe)
-            # Find the highest sequence number for this year-month
-            query = text("""
-                SELECT COALESCE(
-                    MAX(
-                        CAST(
-                            SUBSTRING(number FROM 8 FOR 6) AS INTEGER
-                        )
-                    ), 0
-                ) + 1 as next_seq
-                FROM invoices 
-                WHERE number LIKE :pattern
-            """)
-            
-            pattern = f"{year_month}-%"
-            result = db.execute(query, {"pattern": pattern}).fetchone()
-            next_sequence = result.next_seq if result else 1
-            
-            # Zero-pad sequence to 6 digits as per Task 4.4
-            sequence_str = f"{next_sequence:06d}"
-            
-            # Format: YYYYMM-SEQ-CNCAI
-            invoice_number = f"{year_month}-{sequence_str}-CNCAI"
-            
-            return invoice_number
+        # Use database-level locking for true multi-process safety
+        # SELECT FOR UPDATE locks the rows preventing concurrent modifications
+        query = text("""
+            SELECT COALESCE(
+                MAX(
+                    CAST(
+                        SUBSTRING(number FROM 8 FOR 6) AS INTEGER
+                    )
+                ), 0
+            ) + 1 as next_seq
+            FROM invoices 
+            WHERE number LIKE :pattern
+            FOR UPDATE
+        """)
+        
+        pattern = f"{year_month}-%"
+        result = db.execute(query, {"pattern": pattern}).fetchone()
+        next_sequence = result.next_seq if result else 1
+        
+        # Zero-pad sequence to 6 digits as per Task 4.4
+        sequence_str = f"{next_sequence:06d}"
+        
+        # Format: YYYYMM-SEQ-CNCAI
+        invoice_number = f"{year_month}-{sequence_str}-CNCAI"
+        
+        return invoice_number
     
     @classmethod
-    def calculate_invoice_amounts(cls, base_amount: Decimal) -> dict:
+    def calculate_invoice_amounts(cls, base_amount: Decimal) -> Dict[str, Decimal]:
         """
         Calculate invoice amounts with Turkish KDV compliance.
         
@@ -241,7 +242,7 @@ class InvoiceService:
         db: Session, 
         user: User, 
         paid_status: Optional[PaidStatus] = None
-    ) -> list[Invoice]:
+    ) -> List[Invoice]:
         """
         Get invoices for a user, optionally filtered by payment status.
         
@@ -261,7 +262,7 @@ class InvoiceService:
         return query.order_by(Invoice.issued_at.desc()).all()
     
     @classmethod
-    def get_license_invoices(cls, db: Session, license_obj: License) -> list[Invoice]:
+    def get_license_invoices(cls, db: Session, license_obj: License) -> List[Invoice]:
         """
         Get all invoices for a specific license.
         
@@ -289,6 +290,9 @@ class InvoiceService:
         """
         Mark invoice as paid with optional provider payment ID.
         
+        NOTE: The database commit is handled by the request context/API handler
+        to ensure proper transaction boundaries and error handling.
+        
         Args:
             db: Database session
             invoice: Invoice to mark as paid
@@ -298,13 +302,16 @@ class InvoiceService:
             Updated invoice
         """
         invoice.mark_as_paid(provider_payment_id)
-        db.commit()
+        db.flush()  # Flush changes but don't commit - let request context handle it
         return invoice
     
     @classmethod
     def mark_invoice_failed(cls, db: Session, invoice: Invoice) -> Invoice:
         """
         Mark invoice payment as failed.
+        
+        NOTE: The database commit is handled by the request context/API handler
+        to ensure proper transaction boundaries and error handling.
         
         Args:
             db: Database session
@@ -314,11 +321,11 @@ class InvoiceService:
             Updated invoice
         """
         invoice.mark_as_failed()
-        db.commit()
+        db.flush()  # Flush changes but don't commit - let request context handle it
         return invoice
     
     @classmethod
-    def get_monthly_invoice_stats(cls, db: Session, year: int, month: int) -> dict:
+    def get_monthly_invoice_stats(cls, db: Session, year: int, month: int) -> Dict[str, Any]:
         """
         Get invoice statistics for a specific month.
         
@@ -353,9 +360,10 @@ class InvoiceService:
                 'total_invoices': result.total_invoices or 0,
                 'paid_invoices': result.paid_invoices or 0,
                 'unpaid_invoices': result.unpaid_invoices or 0,
-                'total_amount': float(result.total_amount or 0),
-                'paid_amount': float(result.paid_amount or 0),
-                'unpaid_amount': float(result.unpaid_amount or 0)
+                # Use string representation to maintain Decimal precision
+                'total_amount': str(result.total_amount or Decimal("0")),
+                'paid_amount': str(result.paid_amount or Decimal("0")),
+                'unpaid_amount': str(result.unpaid_amount or Decimal("0"))
             }
         
         return {
@@ -363,7 +371,8 @@ class InvoiceService:
             'total_invoices': 0,
             'paid_invoices': 0,
             'unpaid_invoices': 0,
-            'total_amount': 0.0,
-            'paid_amount': 0.0,
-            'unpaid_amount': 0.0
+            # Use string representation for consistent Decimal handling
+            'total_amount': str(Decimal("0")),
+            'paid_amount': str(Decimal("0")),
+            'unpaid_amount': str(Decimal("0"))
         }

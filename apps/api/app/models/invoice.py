@@ -4,9 +4,9 @@ Invoice model for Task 4.4: Ultra-enterprise invoice numbering, VAT calculation,
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Optional, List
 
 from sqlalchemy import (
     BigInteger, CheckConstraint, DateTime, Enum as SQLEnum, 
@@ -20,6 +20,7 @@ from .enums import Currency, PaidStatus
 if TYPE_CHECKING:
     from .user import User
     from .license import License
+    from .payment import Payment
 
 
 class Invoice(Base, TimestampMixin):
@@ -144,6 +145,13 @@ class Invoice(Base, TimestampMixin):
         lazy="select"
     )
     
+    # Payment relationship
+    payments: Mapped[list["Payment"]] = relationship(
+        "Payment",
+        back_populates="invoice",
+        lazy="select"
+    )
+    
     # Ultra-enterprise constraints and indexes - Task 4.4
     __table_args__ = (
         # Currency constraint - Task 4.4: Fixed to TRY only
@@ -217,9 +225,25 @@ class Invoice(Base, TimestampMixin):
         return self.paid_status == PaidStatus.PAID
     
     @property 
-    def is_overdue(self) -> bool:
-        """Task 4.4: Simple overdue check for unpaid invoices."""
+    def is_unpaid(self) -> bool:
+        """Check if invoice is unpaid."""
         return self.paid_status == PaidStatus.UNPAID
+    
+    @property
+    def is_overdue(self) -> bool:
+        """
+        Check if invoice is overdue based on due date.
+        For now, invoices are due 30 days after issuance.
+        This can be customized based on business requirements.
+        """
+        if self.paid_status == PaidStatus.PAID:
+            return False
+        
+        # Calculate due date (30 days after issuance)
+        due_date = self.issued_at + timedelta(days=30)
+        now = datetime.now(timezone.utc)
+        
+        return now > due_date and self.paid_status == PaidStatus.UNPAID
     
     @classmethod
     def calculate_vat(cls, amount: Decimal) -> Decimal:

@@ -321,7 +321,7 @@
           1,
           2
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -567,8 +567,8 @@
               "4.1",
               "4.2"
             ],
-            "details": "Behavior:\n- Implement licenseGuard(request): fetch get_active_license(user). If none or ends_at<now() then raise HTTP 403 with code 'LIC_EXPIRED'.\n- Apply to all protected routes; exclude auth/health/webhook endpoints as needed.\n- On first detection of expiry per user, revoke sessions: update sessions set revoked_at=now() where user_id=? and revoked_at is null; emit audit 'sessions_revoked_license_expired'.\n- Provide helper GET /license/me for UI gating; include remaining_days calculation.\n- Ensure thread-safe single revocation per user via DB condition.\nFailure modes:\n- Clock skew; missing user; DB unavailable (fail closed with 403 unless route is excluded?).\nAcceptance criteria:\n- Expired users receive 403 LIC_EXPIRED across protected endpoints; sessions.revoked_at set; subsequent requests remain blocked; non-expired users unaffected; logs include request_id and user_id.",
-            "status": "pending",
+            "details": "Behavior:\n- Implement licenseGuard(request): fetch get_active_license(user). If none or ends_at<now() then raise HTTP 403 with code 'LIC_EXPIRED'.\n- Apply to all protected routes; exclude auth/health/webhook endpoints as needed.\n- On first detection of expiry per user, revoke sessions: update sessions set revoked_at=now() where user_id=? and revoked_at is null; emit audit 'sessions_revoked_license_expired'.\n- Provide helper GET /license/me for UI gating; include remaining_days calculation.\n- Ensure thread-safe single revocation per user via DB condition.\nFailure modes:\n- Clock skew; missing user; DB unavailable (fail closed with 403 unless route is excluded?).\nAcceptance criteria:\n- Expired users receive 403 LIC_EXPIRED across protected endpoints; sessions.revoked_at set; subsequent requests remain blocked; non-expired users unaffected; logs include request_id and user_id.\n<info added on 2025-08-18T19:17:01.129Z>\n- Implemented global license middleware with path exclusions (/auth, /health, /webhook) that invokes LicenseService.get_active_license(user_id); if missing or ends_at < now, responds 403 with code LIC_EXPIRED and localized TR message; fail-closed on DB errors\n- Integrated middleware into main stack after environment middleware and before other security middleware; continues to rely on JWT auth for user extraction\n- On first expiry detection per user, revoke sessions via SessionService.revoke_all_user_sessions(user_id) which updates sessions.revoked_at=now() where revoked_at IS NULL; guarded by an in-process processed set with lock plus DB condition to ensure single revocation\n- Emit audit event sessions_revoked_license_expired with user_id, license_id, request_id, and anonymized client IP; logs include request_id and user_id on all relevant code paths\n- Compliance enhancements: IP addresses in audit metadata are anonymized; LIC_EXPIRED responses are localized to Turkish\n- Helper GET /license/me remains available for UI gating and includes remaining_days\n- Test coverage added: middleware initialization and ordering; path exclusion behavior; expired vs active license responses; fail-closed behavior on DB errors; single revocation under concurrency; audit event emission with IP anonymization; integration with session and audit services\n- Verified acceptance criteria: expired users receive 403 LIC_EXPIRED across protected endpoints; sessions are marked revoked once and subsequent requests remain blocked; non-expired users unaffected; logs contain request_id and user_id\n</info added on 2025-08-18T19:17:01.129Z>",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -579,7 +579,7 @@
               "4.1"
             ],
             "details": "Data model:\n- invoices fields: id, user_id (FK), license_id (FK), number UNIQUE, amount NUMERIC(12,2), currency CHAR(3) DEFAULT 'TRY', vat NUMERIC(12,2), total NUMERIC(12,2), paid_status ENUM('unpaid','pending','paid','failed','refunded') DEFAULT 'unpaid', issued_at TIMESTAMPTZ DEFAULT now(), pdf_url TEXT NULL, provider_payment_id TEXT NULL, created_at, updated_at.\nNumbering:\n- Format: 'YYYYMM-SEQ-CNCAI' where YYYYMM = issued_at in UTC; SEQ is per-month incremental integer zero-padded (e.g., 000123). CNCAI is static suffix.\nCalculations:\n- vat = round(amount * 0.20, 2); total = amount + vat. Rounding mode: half up.\nLinkage:\n- One invoice per assign/extend event; store pointers to license and user.\nAcceptance criteria:\n- Invoices created with correct number format and amounts; currency fixed to TRY unless feature flag enables multi-currency; paid_status defaults to 'unpaid'.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-18T18:27:20.738Z",
+      "updated": "2025-08-18T20:05:53.083Z",
       "description": "Tasks for master context"
     }
   }
