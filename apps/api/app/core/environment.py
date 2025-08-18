@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Dict, List, Optional, Any, Union
 from decimal import Decimal
 
-from pydantic import Field, model_validator, ConfigDict
+from pydantic import Field, model_validator, ConfigDict, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .logging import get_logger
@@ -60,6 +60,9 @@ class UltraEnterpriseEnvironment(BaseSettings):
         extra="ignore",
         protected_namespaces=(),
         env_prefix="",
+        env_parse_none_str="",
+        # Disable JSON parsing for list fields to use validators instead
+        env_ignore_empty=True,
     )
     
     # ===================================================================
@@ -175,23 +178,28 @@ class UltraEnterpriseEnvironment(BaseSettings):
     # CORS CONFIGURATION
     # ===================================================================
     
-    CORS_ALLOWED_ORIGINS: List[str] = Field(
+    CORS_ALLOWED_ORIGINS: Union[str, List[str]] = Field(
         default=["http://localhost:3000"],
         description="Allowed CORS origins"
     )
     
-    CORS_ALLOWED_METHODS: List[str] = Field(
+    CORS_ALLOWED_METHODS: Union[str, List[str]] = Field(
         default=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         description="Allowed CORS methods"
     )
     
-    CORS_ALLOWED_HEADERS: List[str] = Field(
+    CORS_ALLOWED_HEADERS: Union[str, List[str]] = Field(
         default=[
             "Accept", "Accept-Language", "Content-Language", 
             "Content-Type", "Authorization", "X-Requested-With", 
             "X-CSRF-Token", "X-Request-ID"
         ],
         description="Allowed CORS headers"
+    )
+    
+    CORS_EXPOSE_HEADERS: Union[str, List[str]] = Field(
+        default=["X-Total-Count", "X-Page-Count", "X-Request-ID"],
+        description="Headers exposed to the browser in CORS responses"
     )
     
     CORS_ALLOW_CREDENTIALS: bool = Field(default=True, description="Allow CORS credentials")
@@ -380,6 +388,25 @@ class UltraEnterpriseEnvironment(BaseSettings):
     )
     
     SENTRY_DSN: Optional[str] = Field(default=None, description="Sentry DSN")
+    
+    # ===================================================================
+    # FIELD VALIDATORS (DATA PARSING)
+    # ===================================================================
+    
+    @field_validator('CORS_ALLOWED_ORIGINS', 'CORS_ALLOWED_METHODS', 'CORS_ALLOWED_HEADERS', 'CORS_EXPOSE_HEADERS', mode='after')
+    @classmethod
+    def normalize_cors_lists(cls, v):
+        """Normalize CORS fields to always return lists."""
+        if isinstance(v, str):
+            # Handle single values and comma-separated values
+            if ',' in v:
+                return [item.strip() for item in v.split(',') if item.strip()]
+            else:
+                # Single value
+                return [v.strip()] if v.strip() else []
+        elif isinstance(v, list):
+            return v
+        return v if v is not None else []
     
     # ===================================================================
     # MODEL VALIDATORS (CRITICAL SECURITY)
@@ -631,6 +658,12 @@ class UltraEnterpriseEnvironment(BaseSettings):
         else:
             return "KVKV Uyumluluğu: Eksik Yapılandırma ⚠"
     
+    # Additional Turkish compatibility properties from legacy settings.py
+    @property
+    def cors_origins_display_tr(self) -> str:
+        """Turkish display for CORS origins configuration"""
+        return f"İzin verilen kaynaklar: {len(self.CORS_ALLOWED_ORIGINS)} kaynak"
+    
     def get_environment_summary(self) -> Dict[str, Any]:
         """Get a summary of current environment configuration (sanitized)."""
         return {
@@ -656,7 +689,7 @@ class UltraEnterpriseEnvironment(BaseSettings):
         }
 
 
-# Global environment configuration instance
+# Global environment configuration instance  
 environment = UltraEnterpriseEnvironment()
 
 
