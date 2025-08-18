@@ -22,6 +22,17 @@ from ..models.user import User
 from ..models.security_event import SecurityEvent
 from ..models.enums import UserRole
 from ..core.logging import get_logger
+from ..middleware.correlation_middleware import get_correlation_id, get_session_id
+from ..services.audit_service import audit_service
+from ..services.security_event_service import (
+    SecurityEventType, 
+    SecuritySeverity, 
+    security_event_service
+)
+from ..services.pii_masking_service import (
+    DataClassification,
+    pii_masking_service
+)
 from ..settings import app_settings as settings
 from .password_service import password_service
 
@@ -47,7 +58,7 @@ class AuthService:
         self.password_reset_token_lifetime_hours = 1
         self.email_verification_token_lifetime_hours = 24
     
-    def register_user(
+    async def register_user(
         self, 
         db: Session, 
         email: str, 
@@ -83,7 +94,7 @@ class AuthService:
             # Validate email uniqueness
             existing_user = db.query(User).filter(User.email == email.lower()).first()
             if existing_user:
-                self._log_security_event(
+                await self._log_security_event(
                     db, None, 'REGISTRATION_DUPLICATE_EMAIL', 
                     ip_address, user_agent, {'email': self._mask_email(email)}
                 )
@@ -99,7 +110,7 @@ class AuthService:
             )
             
             if not strength_result.ok:
-                self._log_security_event(
+                await self._log_security_event(
                     db, None, 'REGISTRATION_WEAK_PASSWORD',
                     ip_address, user_agent, {
                         'email': self._mask_email(email),
@@ -144,7 +155,7 @@ class AuthService:
             db.flush()  # Get user ID
             
             # Log successful registration
-            self._log_security_event(
+            await self._log_security_event(
                 db, user.id, 'USER_REGISTERED', 
                 ip_address, user_agent, {
                     'email': self._mask_email(email),
@@ -182,7 +193,7 @@ class AuthService:
                 'Kayıt işlemi başarısız oldu, lütfen tekrar deneyin'
             )
     
-    def authenticate_user(
+    async def authenticate_user(
         self,
         db: Session,
         email: str,
@@ -218,7 +229,7 @@ class AuthService:
                 # Perform timing-safe dummy operation
                 password_service.verify_password("dummy", "dummy", "dummy")
                 
-                self._log_security_event(
+                await self._log_security_event(
                     db, None, 'LOGIN_USER_NOT_FOUND',
                     ip_address, user_agent, {'email': self._mask_email(email)}
                 )
@@ -231,7 +242,7 @@ class AuthService:
             # Check if account can attempt login
             if not user.can_attempt_login():
                 if user.is_account_locked():
-                    self._log_security_event(
+                    await self._log_security_event(
                         db, user.id, 'LOGIN_ACCOUNT_LOCKED',
                         ip_address, user_agent, {
                             'email': self._mask_email(email),
@@ -245,7 +256,7 @@ class AuthService:
                         f'Hesap geçici olarak kilitlendi. Lütfen {self.lockout_duration_minutes} dakika sonra tekrar deneyin.'
                     )
                 else:
-                    self._log_security_event(
+                    await self._log_security_event(
                         db, user.id, 'LOGIN_ACCOUNT_INACTIVE',
                         ip_address, user_agent, {
                             'email': self._mask_email(email),
@@ -271,7 +282,7 @@ class AuthService:
                 # Increment failed attempts
                 user.increment_failed_login_attempts()
                 
-                self._log_security_event(
+                await self._log_security_event(
                     db, user.id, 'LOGIN_INVALID_PASSWORD',
                     ip_address, user_agent, {
                         'email': self._mask_email(email),
@@ -296,7 +307,7 @@ class AuthService:
             
             # Check if password must be changed
             if user.password_must_change or user.is_password_expired():
-                self._log_security_event(
+                await self._log_security_event(
                     db, user.id, 'LOGIN_PASSWORD_EXPIRED',
                     ip_address, user_agent, {
                         'email': self._mask_email(email),
@@ -323,7 +334,7 @@ class AuthService:
                 'auth_method': 'password',
             }
             
-            self._log_security_event(
+            await self._log_security_event(
                 db, user.id, 'LOGIN_SUCCESS',
                 ip_address, user_agent, {
                     'email': self._mask_email(email),
@@ -357,7 +368,7 @@ class AuthService:
                 'Sistem hatası, lütfen tekrar deneyin'
             )
     
-    def initiate_password_reset(
+    async def initiate_password_reset(
         self,
         db: Session,
         email: str,
@@ -390,7 +401,7 @@ class AuthService:
                 )
                 user.password_reset_attempts += 1
                 
-                self._log_security_event(
+                await self._log_security_event(
                     db, user.id, 'PASSWORD_RESET_INITIATED',
                     ip_address, user_agent, {
                         'email': self._mask_email(email),
@@ -410,7 +421,7 @@ class AuthService:
                 })
             else:
                 # Log attempt even if user doesn't exist (for security monitoring)
-                self._log_security_event(
+                await self._log_security_event(
                     db, None, 'PASSWORD_RESET_UNKNOWN_EMAIL',
                     ip_address, user_agent, {'email': self._mask_email(email)}
                 )
@@ -426,7 +437,7 @@ class AuthService:
             })
             return True  # Still return True for security
     
-    def reset_password(
+    async def reset_password(
         self,
         db: Session,
         token: str,
@@ -458,7 +469,7 @@ class AuthService:
             ).first()
             
             if not user:
-                self._log_security_event(
+                await self._log_security_event(
                     db, None, 'PASSWORD_RESET_INVALID_TOKEN',
                     ip_address, user_agent, {'token_prefix': token[:8] if token else None}
                 )
@@ -479,7 +490,7 @@ class AuthService:
             )
             
             if not strength_result.ok:
-                self._log_security_event(
+                await self._log_security_event(
                     db, user.id, 'PASSWORD_RESET_WEAK_PASSWORD',
                     ip_address, user_agent, {
                         'email': self._mask_email(user.email),
@@ -511,7 +522,7 @@ class AuthService:
             user.failed_login_attempts = 0
             user.account_locked_until = None
             
-            self._log_security_event(
+            await self._log_security_event(
                 db, user.id, 'PASSWORD_RESET_COMPLETED',
                 ip_address, user_agent, {
                     'email': self._mask_email(user.email),
@@ -541,7 +552,7 @@ class AuthService:
                 'Şifre sıfırlama işlemi başarısız, lütfen tekrar deneyin'
             )
     
-    def create_oidc_user(
+    async def create_oidc_user(
         self,
         db: Session,
         email: str,
@@ -623,7 +634,7 @@ class AuthService:
             db.flush()  # Get user ID
             
             # Log user creation
-            self._log_security_event(
+            await self._log_security_event(
                 db, user.id, 'OIDC_USER_CREATED',
                 ip_address, user_agent, {
                     'email': self._mask_email(email),
@@ -659,7 +670,7 @@ class AuthService:
                 'OIDC kullanıcı hesabı oluşturulamadı'
             )
     
-    def _log_security_event(
+    async def _log_security_event(
         self,
         db: Session,
         user_id: Optional[int],
@@ -668,66 +679,90 @@ class AuthService:
         user_agent: Optional[str],
         details: Optional[Dict] = None
     ) -> None:
-        """Log security event for audit purposes."""
+        """Log security event using ultra-enterprise security service."""
         try:
-            event = SecurityEvent(
-                user_id=user_id,
-                type=event_type,
-                ip=self._mask_ip_if_needed(ip_address),
-                ua=user_agent,
-                created_at=datetime.now(timezone.utc)
-            )
-            db.add(event)
-            db.flush()
+            # Map legacy event types to new SecurityEventType enum
+            event_type_mapping = {
+                'USER_REGISTERED': SecurityEventType.LOGIN_SUCCESS,
+                'LOGIN_SUCCESS': SecurityEventType.LOGIN_SUCCESS,
+                'LOGIN_FAILED': SecurityEventType.LOGIN_FAILED,
+                'ACCOUNT_LOCKED': SecurityEventType.LOGIN_BLOCKED,
+                'PASSWORD_RESET_REQUESTED': SecurityEventType.ACCESS_GRANTED,
+                'PASSWORD_RESET_COMPLETED': SecurityEventType.ACCESS_GRANTED,
+                'EMAIL_VERIFICATION_SENT': SecurityEventType.ACCESS_GRANTED,
+                'EMAIL_VERIFIED': SecurityEventType.ACCESS_GRANTED,
+                'REGISTRATION_DUPLICATE_EMAIL': SecurityEventType.ACCESS_DENIED,
+                'REGISTRATION_WEAK_PASSWORD': SecurityEventType.ACCESS_DENIED,
+                'INVALID_RESET_TOKEN': SecurityEventType.ACCESS_DENIED,
+                'PASSWORD_VALIDATION_FAILED': SecurityEventType.ACCESS_DENIED,
+                'SUSPICIOUS_LOGIN': SecurityEventType.SUSPICIOUS_LOGIN
+            }
             
-            # Log details separately for audit trail (with PII masking)
-            if details:
-                logger.info("Security event details", extra={
-                    'event_id': event.id,
-                    'event_type': event_type,
-                    'user_id': user_id,
-                    'details': details,
-                })
+            # Determine severity based on event type
+            severity_mapping = {
+                SecurityEventType.LOGIN_SUCCESS: SecuritySeverity.INFO,
+                SecurityEventType.LOGIN_FAILED: SecuritySeverity.MEDIUM,
+                SecurityEventType.LOGIN_BLOCKED: SecuritySeverity.HIGH,
+                SecurityEventType.ACCESS_DENIED: SecuritySeverity.MEDIUM,
+                SecurityEventType.SUSPICIOUS_LOGIN: SecuritySeverity.HIGH
+            }
+            
+            mapped_event_type = event_type_mapping.get(event_type, SecurityEventType.ACCESS_DENIED)
+            severity = severity_mapping.get(mapped_event_type, SecuritySeverity.MEDIUM)
+            
+            # Create comprehensive security event
+            await security_event_service.create_security_event(
+                db=db,
+                event_type=mapped_event_type,
+                severity=severity,
+                user_id=user_id,
+                resource="authentication_system",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                metadata={
+                    "legacy_event_type": event_type,
+                    "event_details": details or {},
+                    "service": "auth_service",
+                    "compliance": "KVKV_GDPR"
+                }
+            )
+            
+            # Also create audit entry for authentication events
+            await audit_service.create_audit_entry(
+                db=db,
+                event_type=f"auth_{event_type.lower()}",
+                user_id=user_id,
+                scope_type="authentication",
+                scope_id=user_id,
+                resource="auth_system",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                payload={
+                    "event_type": event_type,
+                    "event_details": details or {},
+                    "security_level": severity.value,
+                    "compliance_framework": "KVKV_GDPR"
+                },
+                classification=DataClassification.PERSONAL
+            )
+            
         except Exception as e:
             logger.error("Failed to log security event", exc_info=True, extra={
                 'event_type': event_type,
                 'user_id': user_id,
                 'error_type': type(e).__name__,
+                'correlation_id': get_correlation_id()
             })
     
     def _mask_email(self, email: str) -> str:
-        """Mask email for logging (KVKV compliance)."""
-        if not email or '@' not in email:
-            return 'invalid_email'
-        
-        local, domain = email.split('@', 1)
-        if len(local) <= 2:
-            masked_local = '*' * len(local)
-        else:
-            masked_local = local[0] + '*' * (len(local) - 2) + local[-1]
-        
-        return f"{masked_local}@{domain}"
+        """Mask email for logging using ultra-enterprise PII masking service."""
+        return pii_masking_service.mask_email(email)
     
     def _mask_ip_if_needed(self, ip_address: Optional[str]) -> Optional[str]:
-        """Mask IP address for privacy compliance if needed."""
+        """Mask IP address using ultra-enterprise PII masking service."""
         if not ip_address:
             return None
-        
-        try:
-            ip = ipaddress.ip_address(ip_address)
-            if ip.is_private:
-                return ip_address  # Private IPs are not PII
-            
-            # Mask public IP addresses for privacy
-            if isinstance(ip, ipaddress.IPv4Address):
-                # Mask last octet: 192.168.1.xxx
-                parts = ip_address.split('.')
-                return f"{'.'.join(parts[:3])}.xxx"
-            else:
-                # Mask IPv6 suffix
-                return f"{ip_address[:19]}::xxxx"
-        except ValueError:
-            return 'invalid_ip'
+        return pii_masking_service.mask_ip_address(ip_address)
 
 
 # Global instance
