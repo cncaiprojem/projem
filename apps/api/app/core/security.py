@@ -21,7 +21,6 @@ class SecurityManager:
             Base64-encoded 128-bit random nonce for CSP directives
         """
         # Generate 16 bytes (128 bits) of cryptographically secure random data
-        random_bytes = secrets.token_bytes(16)
         # Convert to base64 for CSP usage
         return secrets.token_urlsafe(16)
     
@@ -41,7 +40,7 @@ class SecurityManager:
             f"frame-ancestors 'none'; "
             f"object-src 'none'; "
             f"script-src 'self' 'nonce-{nonce}'; "
-            f"style-src 'self' 'nonce-{nonce}' 'unsafe-inline'; "
+            f"style-src 'self' 'nonce-{nonce}'; "
             f"img-src 'self' data: https:; "
             f"connect-src 'self'; "
             f"font-src 'self'; "

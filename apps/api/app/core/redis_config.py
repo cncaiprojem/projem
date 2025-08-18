@@ -5,7 +5,7 @@ This module provides Redis connection management and configuration for
 fastapi-limiter integration with existing Celery Redis infrastructure.
 
 Features:
-- Reuses existing Redis connection from Celery configuration
+- Dual sync/async Redis clients for compatibility
 - Enterprise connection pooling and health checks
 - Secure configuration management
 - KVKV compliance for connection logging
@@ -13,6 +13,7 @@ Features:
 
 import os
 import redis
+import aioredis
 from typing import Optional
 from redis.connection import ConnectionPool
 from structlog import get_logger
@@ -28,6 +29,8 @@ class RedisConnectionManager:
     def __init__(self):
         self._pool: Optional[ConnectionPool] = None
         self._client: Optional[redis.Redis] = None
+        self._async_pool: Optional[aioredis.ConnectionPool] = None
+        self._async_client: Optional[aioredis.Redis] = None
         self._redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
         
     def get_redis_pool(self) -> ConnectionPool:
@@ -53,7 +56,7 @@ class RedisConnectionManager:
         return self._pool
     
     def get_redis_client(self) -> redis.Redis:
-        """Get Redis client for rate limiting operations."""
+        """Get synchronous Redis client for Celery compatibility."""
         if not self._client:
             self._client = redis.Redis(
                 connection_pool=self.get_redis_pool(),
@@ -65,13 +68,13 @@ class RedisConnectionManager:
             # Health check
             try:
                 self._client.ping()
-                logger.info("Redis client initialized successfully", extra={
-                    'operation': 'redis_client_init',
+                logger.info("Sync Redis client initialized successfully", extra={
+                    'operation': 'sync_redis_client_init',
                     'status': 'healthy'
                 })
             except Exception as e:
-                logger.error("Redis health check failed", extra={
-                    'operation': 'redis_client_init',
+                logger.error("Sync Redis health check failed", extra={
+                    'operation': 'sync_redis_client_init',
                     'status': 'failed',
                     'error': str(e)
                 })
@@ -79,13 +82,61 @@ class RedisConnectionManager:
                 
         return self._client
     
+    async def get_async_redis_pool(self) -> aioredis.ConnectionPool:
+        """Get or create async Redis connection pool."""
+        if not self._async_pool:
+            self._async_pool = aioredis.ConnectionPool.from_url(
+                self._redis_url,
+                max_connections=20,
+                retry_on_timeout=True,
+                socket_keepalive=True,
+                encoding='utf-8',
+                decode_responses=True
+            )
+            
+            logger.info("Async Redis connection pool created for rate limiting", extra={
+                'operation': 'async_redis_pool_init',
+                'redis_url_host': self._redis_url.split('@')[-1].split('/')[0] if '@' in self._redis_url else self._redis_url.split('//')[1].split('/')[0],
+                'max_connections': 20
+            })
+            
+        return self._async_pool
+    
+    async def get_async_redis_client(self) -> aioredis.Redis:
+        """Get async Redis client for rate limiting operations."""
+        if not self._async_client:
+            pool = await self.get_async_redis_pool()
+            self._async_client = aioredis.Redis(
+                connection_pool=pool,
+                socket_connect_timeout=5,
+                socket_timeout=5,
+                retry_on_timeout=True
+            )
+            
+            # Health check
+            try:
+                await self._async_client.ping()
+                logger.info("Async Redis client initialized successfully", extra={
+                    'operation': 'async_redis_client_init',
+                    'status': 'healthy'
+                })
+            except Exception as e:
+                logger.error("Async Redis health check failed", extra={
+                    'operation': 'async_redis_client_init',
+                    'status': 'failed',
+                    'error': str(e)
+                })
+                raise
+                
+        return self._async_client
+    
     def health_check(self) -> bool:
-        """Perform Redis health check."""
+        """Perform synchronous Redis health check."""
         try:
             client = self.get_redis_client()
             result = client.ping()
             
-            logger.debug("Redis health check completed", extra={
+            logger.debug("Sync Redis health check completed", extra={
                 'operation': 'redis_health_check',
                 'status': 'healthy' if result else 'failed',
                 'result': result
@@ -94,15 +145,37 @@ class RedisConnectionManager:
             return bool(result)
             
         except Exception as e:
-            logger.error("Redis health check failed", extra={
+            logger.error("Sync Redis health check failed", extra={
                 'operation': 'redis_health_check',
                 'status': 'failed',
                 'error': str(e)
             })
             return False
     
+    async def async_health_check(self) -> bool:
+        """Perform async Redis health check."""
+        try:
+            client = await self.get_async_redis_client()
+            result = await client.ping()
+            
+            logger.debug("Async Redis health check completed", extra={
+                'operation': 'async_redis_health_check',
+                'status': 'healthy' if result else 'failed',
+                'result': result
+            })
+            
+            return bool(result)
+            
+        except Exception as e:
+            logger.error("Async Redis health check failed", extra={
+                'operation': 'async_redis_health_check',
+                'status': 'failed',
+                'error': str(e)
+            })
+            return False
+    
     def close(self):
-        """Close Redis connections."""
+        """Close synchronous Redis connections."""
         if self._client:
             self._client.close()
             self._client = None
@@ -111,8 +184,22 @@ class RedisConnectionManager:
             self._pool.disconnect()
             self._pool = None
             
-        logger.info("Redis connections closed", extra={
+        logger.info("Sync Redis connections closed", extra={
             'operation': 'redis_close'
+        })
+    
+    async def async_close(self):
+        """Close async Redis connections."""
+        if self._async_client:
+            await self._async_client.close()
+            self._async_client = None
+            
+        if self._async_pool:
+            await self._async_pool.disconnect()
+            self._async_pool = None
+            
+        logger.info("Async Redis connections closed", extra={
+            'operation': 'async_redis_close'
         })
 
 
@@ -121,8 +208,13 @@ redis_manager = RedisConnectionManager()
 
 
 def get_redis_client() -> redis.Redis:
-    """Get Redis client for rate limiting."""
+    """Get synchronous Redis client for Celery compatibility."""
     return redis_manager.get_redis_client()
+
+
+async def get_async_redis_client() -> aioredis.Redis:
+    """Get async Redis client for rate limiting."""
+    return await redis_manager.get_async_redis_client()
 
 
 def get_redis_url() -> str:
@@ -131,13 +223,13 @@ def get_redis_url() -> str:
 
 
 async def init_redis_for_limiter():
-    """Initialize Redis connection for fastapi-limiter."""
+    """Initialize async Redis connection for fastapi-limiter."""
     try:
-        # Test connection
-        client = get_redis_client()
+        # Get async client for rate limiting
+        client = await get_async_redis_client()
         await client.ping()
         
-        logger.info("Redis initialized for rate limiting", extra={
+        logger.info("Async Redis initialized for rate limiting", extra={
             'operation': 'init_redis_for_limiter',
             'status': 'success'
         })
@@ -145,7 +237,7 @@ async def init_redis_for_limiter():
         return client
         
     except Exception as e:
-        logger.error("Failed to initialize Redis for rate limiting", extra={
+        logger.error("Failed to initialize async Redis for rate limiting", extra={
             'operation': 'init_redis_for_limiter',
             'status': 'failed',
             'error': str(e)
@@ -154,17 +246,17 @@ async def init_redis_for_limiter():
 
 
 async def close_redis_for_limiter():
-    """Close Redis connections for rate limiting."""
+    """Close async Redis connections for rate limiting."""
     try:
-        redis_manager.close()
+        await redis_manager.async_close()
         
-        logger.info("Redis closed for rate limiting", extra={
+        logger.info("Async Redis closed for rate limiting", extra={
             'operation': 'close_redis_for_limiter',
             'status': 'success'
         })
         
     except Exception as e:
-        logger.error("Failed to close Redis for rate limiting", extra={
+        logger.error("Failed to close async Redis for rate limiting", extra={
             'operation': 'close_redis_for_limiter',
             'status': 'failed',
             'error': str(e)

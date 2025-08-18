@@ -134,13 +134,57 @@ class XSSDetectionMiddleware(BaseHTTPMiddleware):
                 if header in request.headers:
                     data[f"header_{header}"] = request.headers[header]
             
-            # For POST requests, try to read body (if JSON)
+            # For POST requests, read body safely without consuming it
             if request.method in ["POST", "PUT", "PATCH"]:
                 content_type = request.headers.get("content-type", "")
                 if "application/json" in content_type:
-                    # We need to be careful here to not consume the body
-                    # Store original receive for later use
-                    pass  # Skip body analysis for now to avoid consuming request body
+                    try:
+                        # Read body safely
+                        body = await request.body()
+                        if body:
+                            # Decode and parse JSON for XSS analysis
+                            body_text = body.decode('utf-8')
+                            
+                            # Parse JSON to extract field values for analysis
+                            try:
+                                body_json = json.loads(body_text)
+                                if isinstance(body_json, dict):
+                                    for key, value in body_json.items():
+                                        data[f"body_{key}"] = str(value)[:1000]  # Limit to prevent DOS
+                                else:
+                                    data["body_content"] = str(body_json)[:1000]
+                            except json.JSONDecodeError:
+                                # Not valid JSON, analyze as plain text
+                                data["body_content"] = body_text[:1000]
+                            
+                            # Important: Recreate request with body for downstream handlers
+                            async def receive():
+                                return {"type": "http.request", "body": body}
+                            
+                            # Replace request's receive method
+                            request._receive = receive
+                            
+                    except Exception as e:
+                        logger.warning(f"Error reading request body for XSS analysis: {e}")
+                elif "application/x-www-form-urlencoded" in content_type:
+                    try:
+                        # Handle form data
+                        body = await request.body()
+                        if body:
+                            from urllib.parse import parse_qs
+                            body_text = body.decode('utf-8')
+                            form_data = parse_qs(body_text)
+                            for key, values in form_data.items():
+                                if values:
+                                    data[f"form_{key}"] = str(values[0])[:1000]
+                            
+                            # Recreate request with body
+                            async def receive():
+                                return {"type": "http.request", "body": body}
+                            request._receive = receive
+                            
+                    except Exception as e:
+                        logger.warning(f"Error reading form data for XSS analysis: {e}")
         
         except Exception as e:
             logger.warning(f"Error extracting request data for XSS analysis: {e}")
