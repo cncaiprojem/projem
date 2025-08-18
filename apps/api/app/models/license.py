@@ -21,6 +21,7 @@ from .base import Base, TimestampMixin
 if TYPE_CHECKING:
     from .user import User
     from .license_audit import LicenseAudit
+    from .invoice import Invoice
 
 
 class License(Base, TimestampMixin):
@@ -119,6 +120,14 @@ class License(Base, TimestampMixin):
         cascade="all, delete-orphan",
         lazy="select",
         order_by="desc(LicenseAudit.created_at)"
+    )
+    
+    # Invoice relationship - Task 4.4
+    invoices: Mapped[list["Invoice"]] = relationship(
+        "Invoice",
+        back_populates="license",
+        lazy="select",
+        order_by="desc(Invoice.issued_at)"
     )
     
     # Ultra-enterprise constraints and indexes

@@ -304,6 +304,15 @@ class PaymentStatus(str, enum.Enum):
     DISPUTED = "disputed"
 
 
+class PaidStatus(str, enum.Enum):
+    """Invoice payment status - Task 4.4 specification."""
+    UNPAID = "unpaid"
+    PENDING = "pending"
+    PAID = "paid"
+    FAILED = "failed"
+    REFUNDED = "refunded"
+
+
 class Currency(str, enum.Enum):
     """Supported currencies."""
     TRY = "TRY"
