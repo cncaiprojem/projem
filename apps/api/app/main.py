@@ -18,6 +18,7 @@ from .routers import auth_jwt as auth_jwt_router
 from .routers import auth_enterprise as auth_enterprise_router
 from .routers import oidc_auth as oidc_auth_router
 from .routers import magic_link_auth as magic_link_auth_router
+from .routers import mfa as mfa_router  # Task 3.7: MFA TOTP router
 from .routers import health as health_router
 from .routers import freecad as freecad_router
 from .routers import assemblies as assemblies_router
@@ -141,6 +142,7 @@ app.include_router(auth_jwt_router.router)
 app.include_router(auth_enterprise_router.router)
 app.include_router(oidc_auth_router.router)
 app.include_router(magic_link_auth_router.router)
+app.include_router(mfa_router.router)  # Task 3.7: MFA TOTP endpoints
 app.include_router(freecad_router.router)
 app.include_router(assemblies_router.router)
 app.include_router(cam_router.router)

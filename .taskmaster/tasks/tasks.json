@@ -396,7 +396,7 @@
               "3.3"
             ],
             "details": "Design:\n- pyotp TOTP (period=30, digits=6); store mfa_secret encrypted at rest; enforce for admin role and step-up on sensitive endpoints.\n- Backup codes: 10 single-use codes (sha256 hashed) in mfa_backup_codes table.\nAPIs:\n- POST /auth/mfa/setup/start → 200 {secret_masked, otpauth_url, qr_png_base64}.\n- POST /auth/mfa/setup/verify {code} → 200 {} enables MFA.\n- POST /auth/mfa/disable {code} → 200 {}.\n- POST /auth/mfa/challenge {code or backup_code} → 200 {access_token} when login required step-up.\n- GET /auth/mfa/backup-codes → 200 {codes_plaintext_once} (generate/regenerate).\nCookies:\n- Uses refresh cookie issuance from Subtask 3 when MFA satisfied.\nErrors:\n- 401 ERR-MFA-REQUIRED, 401 ERR-MFA-INVALID, 409 ERR-MFA-ALREADY-ENABLED, 400 ERR-MFA-NOT-ENABLED.\nAcceptance:\n- Admin login without MFA triggers mfa_required; providing valid TOTP returns tokens.\n- Backup codes consume once; disabling MFA requires valid TOTP.\nLogging:\n- audit_logs: mfa_enabled, mfa_challenge_succeeded, mfa_disabled.\n- security_events: mfa_challenge_failed, backup_code_used.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T20:02:04.948Z",
+      "updated": "2025-08-18T08:42:47.655Z",
       "description": "Tasks for master context"
     }
   }

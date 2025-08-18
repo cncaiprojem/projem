@@ -199,6 +199,21 @@ async def login_user(
             user_agent=client_info["user_agent"]
         )
         
+        # Check if MFA is required (Task 3.7)
+        if auth_metadata.get('mfa_required', False):
+            # MFA challenge required - don't create session yet
+            return UserLoginResponse(
+                access_token="mfa_challenge_required",  # Placeholder token
+                token_type="mfa_challenge",
+                expires_in=300,  # 5 minutes for MFA challenge
+                user_id=user.id,
+                email=user.email,
+                full_name=user.full_name,
+                role=user.role.value,
+                mfa_required=True,
+                password_must_change=user.password_must_change
+            )
+        
         # Create refresh session with JWT access token (Task 3.3)
         token_result = token_service.create_refresh_session(
             db=db,
@@ -219,7 +234,7 @@ async def login_user(
             email=user.email,
             full_name=user.full_name,
             role=user.role.value,
-            mfa_required=False,  # TODO: Implement MFA
+            mfa_required=False,
             password_must_change=user.password_must_change
         )
         
