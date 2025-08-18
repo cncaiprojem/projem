@@ -105,8 +105,9 @@ class SecurityEvent(Base):
         nullable=True,
         comment="KVKV-compliant masked user agent string"
     )
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    event_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
+        name="metadata",  # Maps to existing database column
         nullable=True,
         comment="Additional security event metadata"
     )
@@ -130,7 +131,7 @@ class SecurityEvent(Base):
     def __repr__(self) -> str:
         return (
             f"<SecurityEvent(id={self.id}, type='{self.type}', "
-            f"user_id={self.user_id}, ip='{self.ip}')>"
+            f"user_id={self.user_id}, ip_masked='{self.ip_masked}')>"
         )
     
     @property
@@ -146,26 +147,26 @@ class SecurityEvent(Base):
     @property
     def has_ip(self) -> bool:
         """Check if event has IP address information."""
-        return self.ip is not None
+        return self.ip_masked is not None
     
     @property
     def has_user_agent(self) -> bool:
         """Check if event has user agent information."""
-        return self.ua is not None and self.ua.strip() != ""
+        return self.ua_masked is not None and self.ua_masked.strip() != ""
     
     @classmethod
     def create_login_failed(
         cls,
         user_id: Optional[int] = None,
-        ip: Optional[str] = None,
-        ua: Optional[str] = None
+        ip_masked: Optional[str] = None,
+        ua_masked: Optional[str] = None
     ) -> "SecurityEvent":
         """Create a login failed security event.
         
         Args:
             user_id: User ID if known
-            ip: Source IP address
-            ua: User agent string
+            ip_masked: KVKV-compliant masked IP address
+            ua_masked: KVKV-compliant masked user agent string
             
         Returns:
             SecurityEvent instance
@@ -173,23 +174,23 @@ class SecurityEvent(Base):
         return cls(
             user_id=user_id,
             type="LOGIN_FAILED",
-            ip=ip,
-            ua=ua
+            ip_masked=ip_masked,
+            ua_masked=ua_masked
         )
     
     @classmethod
     def create_access_denied(
         cls,
         user_id: int,
-        ip: Optional[str] = None,
-        ua: Optional[str] = None
+        ip_masked: Optional[str] = None,
+        ua_masked: Optional[str] = None
     ) -> "SecurityEvent":
         """Create an access denied security event.
         
         Args:
             user_id: User ID who was denied access
-            ip: Source IP address
-            ua: User agent string
+            ip_masked: KVKV-compliant masked IP address
+            ua_masked: KVKV-compliant masked user agent string
             
         Returns:
             SecurityEvent instance
@@ -197,8 +198,8 @@ class SecurityEvent(Base):
         return cls(
             user_id=user_id,
             type="ACCESS_DENIED",
-            ip=ip,
-            ua=ua
+            ip_masked=ip_masked,
+            ua_masked=ua_masked
         )
     
     @classmethod
@@ -206,16 +207,16 @@ class SecurityEvent(Base):
         cls,
         user_id: Optional[int],
         activity_type: str,
-        ip: Optional[str] = None,
-        ua: Optional[str] = None
+        ip_masked: Optional[str] = None,
+        ua_masked: Optional[str] = None
     ) -> "SecurityEvent":
         """Create a suspicious activity security event.
         
         Args:
             user_id: User ID if known
             activity_type: Type of suspicious activity
-            ip: Source IP address
-            ua: User agent string
+            ip_masked: KVKV-compliant masked IP address
+            ua_masked: KVKV-compliant masked user agent string
             
         Returns:
             SecurityEvent instance
@@ -223,8 +224,8 @@ class SecurityEvent(Base):
         return cls(
             user_id=user_id,
             type=f"SUSPICIOUS_{activity_type.upper()}",
-            ip=ip,
-            ua=ua
+            ip_masked=ip_masked,
+            ua_masked=ua_masked
         )
     
     def is_login_related(self) -> bool:

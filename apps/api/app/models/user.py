@@ -179,6 +179,27 @@ class User(Base, TimestampMixin):
         comment='Marketing consent timestamp'
     )
     
+    # Multi-Factor Authentication (MFA) fields for Task 3.7
+    mfa_enabled: Mapped[bool] = mapped_column(
+        Boolean, 
+        nullable=False, 
+        default=False,
+        comment='MFA activation status'
+    )
+    mfa_secret_encrypted: Mapped[Optional[str]] = mapped_column(
+        String(512),
+        comment='Encrypted MFA TOTP secret (AES-256-GCM)'
+    )
+    mfa_enabled_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime(timezone=True),
+        comment='MFA activation timestamp'
+    )
+    mfa_backup_codes_count: Mapped[int] = mapped_column(
+        nullable=False, 
+        default=0,
+        comment='Number of unused backup codes remaining'
+    )
+    
     # Security preferences and metadata
     security_preferences: Mapped[Optional[dict]] = mapped_column(
         JSONB,
@@ -281,6 +302,11 @@ class User(Base, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan"
     )
+    mfa_backup_codes: Mapped[List["MFABackupCode"]] = relationship(
+        "MFABackupCode",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
     
     # Indexes and constraints
     __table_args__ = (
@@ -304,6 +330,9 @@ class User(Base, TimestampMixin):
         Index('idx_users_full_name', 'full_name', 
               postgresql_where='full_name IS NOT NULL'),
         Index('idx_users_data_processing_consent', 'data_processing_consent'),
+        Index('idx_users_mfa_enabled', 'mfa_enabled'),
+        Index('idx_users_mfa_enabled_at', 'mfa_enabled_at', 
+              postgresql_where='mfa_enabled_at IS NOT NULL'),
         CheckConstraint('failed_login_attempts >= 0', name='ck_users_failed_login_attempts_non_negative'),
         CheckConstraint('total_login_count >= 0', name='ck_users_total_login_count_non_negative'),
         CheckConstraint('password_reset_attempts >= 0', name='ck_users_password_reset_attempts_non_negative'),
@@ -421,3 +450,14 @@ class User(Base, TimestampMixin):
             return self.full_name
         else:
             return self.email.split('@')[0]
+    
+    def requires_mfa(self) -> bool:
+        """Check if user requires MFA based on role and activation status."""
+        # Admin role always requires MFA if enabled
+        # All users require MFA if they have it enabled
+        return self.mfa_enabled or self.role == UserRole.ADMIN
+    
+    def can_disable_mfa(self) -> bool:
+        """Check if user can disable MFA (not admin with enforced MFA)."""
+        # Admin users cannot disable MFA for security
+        return self.role != UserRole.ADMIN

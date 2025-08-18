@@ -321,7 +321,35 @@ class AuthService:
                     'Şifre süresi dolmuş, lütfen yeni şifre belirleyin'
                 )
             
-            # Successful authentication
+            # Check MFA requirements (Task 3.7)
+            if user.requires_mfa() and user.mfa_enabled:
+                # MFA is required and enabled - authentication is incomplete
+                auth_metadata = {
+                    'login_timestamp': datetime.now(timezone.utc).isoformat(),
+                    'device_fingerprint': device_fingerprint,
+                    'ip_address': ip_address,
+                    'user_agent': user_agent,
+                    'auth_method': 'password',
+                    'mfa_required': True,
+                    'auth_complete': False,
+                }
+                
+                # Don't reset failed attempts or update login metadata yet
+                # This will be done after MFA challenge succeeds
+                
+                await self._log_security_event(
+                    db, user.id, 'LOGIN_PASSWORD_SUCCESS_MFA_PENDING',
+                    ip_address, user_agent, {
+                        'email': self._mask_email(email),
+                        'device_fingerprint': device_fingerprint,
+                        'mfa_enabled': user.mfa_enabled,
+                    }
+                )
+                
+                # Return user with MFA requirement flag
+                return user, auth_metadata
+            
+            # Successful authentication (no MFA required or MFA not enabled)
             user.reset_failed_login_attempts()
             user.update_login_metadata(ip_address or '', user_agent or '')
             
@@ -332,6 +360,8 @@ class AuthService:
                 'ip_address': ip_address,
                 'user_agent': user_agent,
                 'auth_method': 'password',
+                'mfa_required': False,
+                'auth_complete': True,
             }
             
             await self._log_security_event(

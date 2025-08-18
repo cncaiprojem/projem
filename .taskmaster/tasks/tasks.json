@@ -396,7 +396,7 @@
               "3.3"
             ],
             "details": "Design:\n- pyotp TOTP (period=30, digits=6); store mfa_secret encrypted at rest; enforce for admin role and step-up on sensitive endpoints.\n- Backup codes: 10 single-use codes (sha256 hashed) in mfa_backup_codes table.\nAPIs:\n- POST /auth/mfa/setup/start → 200 {secret_masked, otpauth_url, qr_png_base64}.\n- POST /auth/mfa/setup/verify {code} → 200 {} enables MFA.\n- POST /auth/mfa/disable {code} → 200 {}.\n- POST /auth/mfa/challenge {code or backup_code} → 200 {access_token} when login required step-up.\n- GET /auth/mfa/backup-codes → 200 {codes_plaintext_once} (generate/regenerate).\nCookies:\n- Uses refresh cookie issuance from Subtask 3 when MFA satisfied.\nErrors:\n- 401 ERR-MFA-REQUIRED, 401 ERR-MFA-INVALID, 409 ERR-MFA-ALREADY-ENABLED, 400 ERR-MFA-NOT-ENABLED.\nAcceptance:\n- Admin login without MFA triggers mfa_required; providing valid TOTP returns tokens.\n- Backup codes consume once; disabling MFA requires valid TOTP.\nLogging:\n- audit_logs: mfa_enabled, mfa_challenge_succeeded, mfa_disabled.\n- security_events: mfa_challenge_failed, backup_code_used.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -407,7 +407,7 @@
               "3.3"
             ],
             "details": "Design:\n- Issue CSRF cookie and require X-CSRF-Token header matching cookie value for state-changing browser requests.\n- Skip for non-browser clients (no cookies) and for idempotent GET/HEAD.\nAPIs:\n- GET /auth/csrf-token → 200 {} and sets csrf cookie; FE reads cookie and mirrors into header.\nCookies:\n- Name: csrf; HttpOnly=false; Secure=true; SameSite=Strict; Path=/; Max-Age=7200.\nErrors:\n- 403 ERR-CSRF-MISSING, 403 ERR-CSRF-MISMATCH.\nAcceptance:\n- Requests with valid X-CSRF-Token pass; mismatched or missing token returns 403.\n- Token rotates periodically or on login; works with refresh cookie and Authorization header.\nLogging:\n- security_events: csrf_missing, csrf_mismatch (method, path, ua masked).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -445,7 +445,7 @@
               "3.3"
             ],
             "details": "Design:\n- ENV DEV_MODE=true enables relaxed guards for local development (e.g., skip CSRF for localhost), annotate responses dev_mode=true; never enabled in prod.\n- Enforce Secure cookies in prod; reject HTTP (redirect to HTTPS); disable detailed error traces in prod.\n- Feature flags for test OIDC provider.\nAPIs: N/A.\nCookies:\n- Validate cookie attributes vary by environment (Secure, SameSite strict in prod).\nErrors: N/A.\nAcceptance:\n- In dev: convenience features active and flagged; in prod: strict headers and cookies enforced; misconfiguration logs warnings and refuses to start if critical secrets missing.\nLogging:\n- audit_logs: config_loaded (env summary sans secrets).\n- security_events: insecure_config_detected (prod with insecure flags).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -460,7 +460,7 @@
               "3.8"
             ],
             "details": "Design:\n- Pages: /login, /register, /auth/oidc/callback, /auth/magic-link.\n- React Hook Form with dynamic validation mirroring backend policy; i18next with TR default and EN fallback; localized error handling.\n- Fetch flow: obtain CSRF token on app load; submit forms with X-CSRF-Token; store access token in memory (e.g., React state) and refresh via cookie.\nAPIs:\n- Calls backend: /auth/register, /auth/login, /auth/oidc/google/start, /auth/magic-link/request, /auth/magic-link/consume, /auth/csrf-token.\nCookies:\n- Reads CSRF cookie; backend manages refresh cookie; FE never stores refresh token.\nErrors:\n- Display localized messages for 401/403/429; map backend error codes to strings.\nAcceptance:\n- Turkish UI strings shown by default; validation errors inline; OIDC redirects correctly; magic link flow confirms email sent and consumes link successfully.\nLogging:\n- Client console/info logs minimized; no PII; send client telemetry (optional) with correlation ID if enabled.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -472,7 +472,7 @@
               "3.13"
             ],
             "details": "Design:\n- middleware.ts: check for access token presence/validity (e.g., via lightweight endpoint or JWT decode) and redirect to /login; call /license/me to detect expiry → redirect to /license with banner of remaining days.\n- Idle timer: logout after configurable inactivity (e.g., 15–30m); warn before logout; clear memory tokens and call /auth/logout.\nAPIs:\n- GET /license/me → {status: active|expired, days_remaining}.\n- POST /auth/logout.\nCookies:\n- None handled directly; access token held in memory; refresh cookie managed by backend.\nErrors:\n- Redirect on 401; display localized toast on ERR-RBAC-FORBIDDEN when navigating to admin routes.\nAcceptance:\n- Unauthenticated user is redirected; expired license redirects with banner; idle logout triggers and clears session.\nLogging:\n- Client-side event logs (non-PII) for guard redirects and idle logout (optional analytics).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -496,7 +496,7 @@
               "3.14"
             ],
             "details": "Design:\n- Playwright: register→login (pwd), MFA challenge, OIDC login via mocked Google, magic link request→consume, refresh rotation, logout, license guard redirects, idle logout.\n- Security: OWASP ZAP active scan against staging; CSRF negative tests; XSS reflection tests; rate-limit assertions (429 with Retry-After).\nAPIs: Exercise all relevant endpoints from other subtasks.\nCookies: Validate rt cookie attributes and CSRF cookie behaviors.\nErrors:\n- Assert specific codes/messages for failure paths (ERR-* from backend).\nAcceptance:\n- All happy paths pass; all negative paths return correct status and codes; ZAP reports no high/medium issues.\nLogging:\n- Verify audit/security events emitted for key actions and correlate via test-specific correlation IDs.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -521,7 +521,7 @@
               "3.15"
             ],
             "details": "Design:\n- API reference with schemas, error codes, and cookie attributes; sequence diagrams for login, refresh rotation, OIDC, magic link, MFA.\n- Security guide: CSRF model, XSS defenses, header policies, RBAC model, rate-limits.\n- Playbooks: JWT signing key rotation (kid, JWKS), refresh token compromise response (revoke chains), password pepper rotation strategy, OIDC client secret rotation, incident response steps, audit log review, backup/restore for auth tables.\nAPIs: N/A (documentation deliverables).\nCookies: Document rt and csrf attributes and lifetimes.\nErrors: Document canonical ERR-* codes.\nAcceptance:\n- Docs reviewed and approved; includes examples and cURL snippets; on-call runbooks actionable with checklists.\nLogging:\n- Include logging taxonomy and examples; mapping of events to alerting.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           }
         ]
@@ -537,7 +537,7 @@
           2,
           3
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -545,7 +545,7 @@
             "description": "Design license schema, enums, constraints, and lifecycle for assign/extend/cancel/expire with auditability.",
             "dependencies": [],
             "details": "Scope:\n- Define DB tables: licenses, license_audit.\n- licenses fields: id, user_id (FK), type ENUM('3m','6m','12m'), scope JSONB, status ENUM('active','expired','canceled'), reason TEXT NULL, starts_at TIMESTAMPTZ DEFAULT now(), ends_at TIMESTAMPTZ NOT NULL, canceled_at TIMESTAMPTZ NULL, created_at, updated_at.\n- Constraints: one active license per user (partial unique index on (user_id) WHERE status='active' AND ends_at>now()); indexes on (status, ends_at).\n- State transitions:\n  - assign: create active license with ends_at = starts_at + duration (3/6/12 months). Audit event 'license_assigned'.\n  - extend: only if status='active' and ends_at>=now(). On extend, ends_at += duration months (append, not reset). Audit 'license_extended' with delta.\n  - cancel: set status='canceled', reason, canceled_at=now(). Audit 'license_canceled'.\n  - expire: when now()>ends_at treat as expired (status may be updated lazily by middleware or via scheduled task). Audit 'license_expired'.\n- Invariants: cannot have overlapping active licenses per user; canceled/expired licenses are immutable except audit.\nFailure modes:\n- Invalid type, scope not JSON, attempt to assign when active exists, extend non-active, cancel already canceled.\nAcceptance criteria:\n- Data model migrates successfully; constraints enforce single active license; date math verified for 3/6/12 months; audit rows exist for each transition.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T20:02:04.948Z",
+      "updated": "2025-08-18T17:32:20.434Z",
       "description": "Tasks for master context"
     }
   }
