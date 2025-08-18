@@ -14,6 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm.attributes import flag_modified
 
 from .base import Base, TimestampMixin
 
@@ -245,7 +246,6 @@ class License(Base, TimestampMixin):
     
     def update_scope(self, key: str, value: any) -> None:
         """Update license scope with new feature/limit."""
-        from sqlalchemy.orm.attributes import flag_modified
         if self.scope is None:
             self.scope = {}
         self.scope[key] = value
