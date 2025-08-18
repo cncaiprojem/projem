@@ -17,7 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Dict, Set, Optional, Callable, Tuple, Any
 import threading
-from contextlib import asynccontextmanager
+from contextlib import contextmanager
 
 from fastapi import Request, Response, HTTPException, status
 from fastapi.responses import JSONResponse
@@ -53,11 +53,14 @@ class LicenseExpiredError(Exception):
         super().__init__(f"License expired for user {user_id} at {expired_at}")
 
 
-@asynccontextmanager
-async def get_db_session_for_middleware():
+@contextmanager
+def get_db_session_for_middleware():
     """
-    Dedicated async context manager for database sessions in middleware.
-    Provides proper session management with guaranteed cleanup.
+    Dedicated synchronous context manager for database sessions in middleware.
+    Provides proper session management with guaranteed cleanup and rollback.
+    
+    This is a synchronous function because SQLAlchemy sessions are synchronous.
+    Using async context manager with sync session was causing runtime errors.
     """
     session = None
     try:
@@ -146,7 +149,7 @@ async def get_current_user_from_request(request: Request) -> Optional[int]:
             return None
         
         # Use dedicated context manager for database session
-        async with get_db_session_for_middleware() as db:
+        with get_db_session_for_middleware() as db:
             try:
                 # Authenticate user using JWT middleware logic
                 authenticated_user = _authenticate_user(token, db)
@@ -440,10 +443,23 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
         
         try:
             # Use dedicated context manager for database session
-            async with get_db_session_for_middleware() as db:
+            with get_db_session_for_middleware() as db:
                 try:
                     # Get user's active license with proper error handling
                     license = LicenseService.get_active_license(db, user_id)
+                except Exception as e:
+                    # Handle license service errors
+                    logger.error(
+                        "Error retrieving license",
+                        exc_info=True,
+                        extra={
+                            "operation": "license_guard_get_license_error",
+                            "user_id": user_id,
+                            "error_type": type(e).__name__,
+                            "request_id": request_id
+                        }
+                    )
+                    raise
                 
                 if not license:
                     # No active license found
@@ -522,34 +538,6 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                 )
                 
                 return None  # License is valid, allow request to proceed
-                
-                except ValueError as e:
-                    # Handle specific license service errors
-                    logger.warning(
-                        "License validation error",
-                        extra={
-                            "operation": "license_guard_validation_error",
-                            "user_id": user_id,
-                            "error_type": type(e).__name__,
-                            "error_message": str(e),
-                            "request_id": request_id
-                        }
-                    )
-                    
-                    return JSONResponse(
-                        status_code=status.HTTP_403_FORBIDDEN,
-                        content={
-                            "error": "LIC_EXPIRED",
-                            "message": "License validation failed",
-                            "message_tr": "Lisans doğrulama başarısız",
-                            "detail": {
-                                "code": "LIC_EXPIRED",
-                                "reason": "validation_error",
-                                "user_id": user_id,
-                                "timestamp": datetime.now(timezone.utc).isoformat()
-                            }
-                        }
-                    )
                 
         except (SQLAlchemyError, OperationalError) as e:
             # Database error - fail closed (deny access)

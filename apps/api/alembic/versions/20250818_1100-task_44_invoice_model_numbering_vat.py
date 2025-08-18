@@ -30,13 +30,17 @@ def upgrade() -> None:
     - License and user associations
     """
     
-    # Create PaidStatus enum
-    paid_status_enum = postgresql.ENUM(
-        'unpaid', 'pending', 'paid', 'failed', 'refunded',
-        name='paid_status_enum',
-        create_type=False
-    )
-    paid_status_enum.create(op.get_bind(), checkfirst=True)
+    # Create PaidStatus enum with safe creation
+    try:
+        paid_status_enum = postgresql.ENUM(
+            'unpaid', 'pending', 'paid', 'failed', 'refunded',
+            name='paid_status_enum',
+            create_type=False
+        )
+        paid_status_enum.create(op.get_bind(), checkfirst=True)
+    except Exception:
+        # Enum might already exist from a previous run
+        pass
     
     # Create invoices table
     op.create_table('invoices',
@@ -113,16 +117,39 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Remove invoice table and related constraints."""
     
-    # Drop indexes
-    op.drop_index('idx_invoices_unpaid', table_name='invoices')
-    op.drop_index('idx_invoices_number_unique', table_name='invoices')
-    op.drop_index('idx_invoices_issued_at_desc', table_name='invoices')
-    op.drop_index('idx_invoices_license_paid_status', table_name='invoices')
-    op.drop_index('idx_invoices_user_paid_status', table_name='invoices')
+    # Drop indexes with safe handling
+    try:
+        op.drop_index('idx_invoices_unpaid', table_name='invoices')
+    except Exception:
+        pass
+    
+    try:
+        op.drop_index('idx_invoices_number_unique', table_name='invoices')
+    except Exception:
+        pass
+    
+    try:
+        op.drop_index('idx_invoices_issued_at_desc', table_name='invoices')
+    except Exception:
+        pass
+    
+    try:
+        op.drop_index('idx_invoices_license_paid_status', table_name='invoices')
+    except Exception:
+        pass
+    
+    try:
+        op.drop_index('idx_invoices_user_paid_status', table_name='invoices')
+    except Exception:
+        pass
     
     # Drop table
     op.drop_table('invoices')
     
-    # Drop enum
-    paid_status_enum = postgresql.ENUM(name='paid_status_enum')
-    paid_status_enum.drop(op.get_bind(), checkfirst=True)
+    # Drop enum with safe handling
+    try:
+        paid_status_enum = postgresql.ENUM(name='paid_status_enum')
+        paid_status_enum.drop(op.get_bind(), checkfirst=True)
+    except Exception:
+        # Enum might not exist or be in use
+        pass

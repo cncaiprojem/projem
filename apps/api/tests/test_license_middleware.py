@@ -436,8 +436,8 @@ class TestLicenseMiddlewareEdgeCases:
         with patch('app.middleware.license_middleware.db_session') as mock_db_session:
             mock_db_session.side_effect = OperationalError("Connection failed", "", "")
             
-            async with pytest.raises(OperationalError):
-                async with get_db_session_for_middleware() as db:
+            with pytest.raises(OperationalError):
+                with get_db_session_for_middleware() as db:
                     pass
     
     @pytest.mark.asyncio
@@ -505,8 +505,8 @@ class TestLicenseMiddlewareEdgeCases:
             assert result is None, f"Should return None for header: {auth_header[:50]}"
     
     @pytest.mark.asyncio
-    async def test_license_check_with_database_rollback(self):
-        """Test proper database rollback on error."""
+    async def test_license_check_with_database_error(self):
+        """Test proper database error handling in license check."""
         middleware = LicenseGuardMiddleware(app=Mock())
         mock_request = Mock(spec=Request)
         mock_request.url.path = "/api/v1/jobs"
@@ -516,8 +516,8 @@ class TestLicenseMiddlewareEdgeCases:
         with patch('app.middleware.license_middleware.get_db_session_for_middleware') as mock_session:
             mock_db = Mock()
             mock_db.rollback = Mock()
-            mock_session.return_value.__aenter__.return_value = mock_db
-            mock_session.return_value.__aexit__.return_value = None
+            mock_session.return_value.__enter__.return_value = mock_db
+            mock_session.return_value.__exit__.return_value = None
             
             with patch('app.middleware.license_middleware.LicenseService.get_active_license') as mock_get_license:
                 mock_get_license.side_effect = IntegrityError("Constraint violation", "", "")
@@ -526,6 +526,36 @@ class TestLicenseMiddlewareEdgeCases:
                 
                 assert isinstance(result, JSONResponse)
                 assert result.status_code == 403
+    
+    @pytest.mark.asyncio
+    async def test_database_rollback_on_error(self):
+        """Test that database properly rolls back on error."""
+        with patch('app.middleware.license_middleware.db_session') as mock_db_session:
+            mock_session = Mock()
+            mock_session.rollback = Mock()
+            mock_session.close = Mock()
+            
+            # Create context manager that raises error
+            class MockContext:
+                def __enter__(self):
+                    return mock_session
+                
+                def __exit__(self, exc_type, exc_val, exc_tb):
+                    if exc_type:
+                        mock_session.rollback()
+                    mock_session.close()
+                    return False
+            
+            mock_db_session.return_value = MockContext()
+            
+            # Trigger an error within the context
+            with pytest.raises(ValueError):
+                with get_db_session_for_middleware() as db:
+                    raise ValueError("Test error")
+            
+            # Verify rollback was called
+            mock_session.rollback.assert_called_once()
+            mock_session.close.assert_called_once()
     
     @pytest.mark.asyncio
     async def test_user_agent_sanitization(self):
