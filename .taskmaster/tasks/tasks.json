@@ -521,7 +521,7 @@
               "3.15"
             ],
             "details": "Design:\n- API reference with schemas, error codes, and cookie attributes; sequence diagrams for login, refresh rotation, OIDC, magic link, MFA.\n- Security guide: CSRF model, XSS defenses, header policies, RBAC model, rate-limits.\n- Playbooks: JWT signing key rotation (kid, JWKS), refresh token compromise response (revoke chains), password pepper rotation strategy, OIDC client secret rotation, incident response steps, audit log review, backup/restore for auth tables.\nAPIs: N/A (documentation deliverables).\nCookies: Document rt and csrf attributes and lifetimes.\nErrors: Document canonical ERR-* codes.\nAcceptance:\n- Docs reviewed and approved; includes examples and cURL snippets; on-call runbooks actionable with checklists.\nLogging:\n- Include logging taxonomy and examples; mapping of events to alerting.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           }
         ]
@@ -537,7 +537,7 @@
           2,
           3
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -545,7 +545,7 @@
             "description": "Design license schema, enums, constraints, and lifecycle for assign/extend/cancel/expire with auditability.",
             "dependencies": [],
             "details": "Scope:\n- Define DB tables: licenses, license_audit.\n- licenses fields: id, user_id (FK), type ENUM('3m','6m','12m'), scope JSONB, status ENUM('active','expired','canceled'), reason TEXT NULL, starts_at TIMESTAMPTZ DEFAULT now(), ends_at TIMESTAMPTZ NOT NULL, canceled_at TIMESTAMPTZ NULL, created_at, updated_at.\n- Constraints: one active license per user (partial unique index on (user_id) WHERE status='active' AND ends_at>now()); indexes on (status, ends_at).\n- State transitions:\n  - assign: create active license with ends_at = starts_at + duration (3/6/12 months). Audit event 'license_assigned'.\n  - extend: only if status='active' and ends_at>=now(). On extend, ends_at += duration months (append, not reset). Audit 'license_extended' with delta.\n  - cancel: set status='canceled', reason, canceled_at=now(). Audit 'license_canceled'.\n  - expire: when now()>ends_at treat as expired (status may be updated lazily by middleware or via scheduled task). Audit 'license_expired'.\n- Invariants: cannot have overlapping active licenses per user; canceled/expired licenses are immutable except audit.\nFailure modes:\n- Invalid type, scope not JSON, attempt to assign when active exists, extend non-active, cancel already canceled.\nAcceptance criteria:\n- Data model migrates successfully; constraints enforce single active license; date math verified for 3/6/12 months; audit rows exist for each transition.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-18T16:22:02.314Z",
+      "updated": "2025-08-18T17:32:20.434Z",
       "description": "Tasks for master context"
     }
   }

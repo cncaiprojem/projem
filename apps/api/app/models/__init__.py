@@ -14,6 +14,7 @@ from .base import Base, TimestampMixin, metadata
 from .user import User
 from .session import Session
 from .license import License
+from .license_audit import LicenseAudit
 from .invoice import Invoice
 from .payment import Payment
 from .model import Model
@@ -45,6 +46,7 @@ __all__ = [
     "User",
     "Session",
     "License",
+    "LicenseAudit",
     "OIDCAccount",
     "MagicLink",
     "MFABackupCode",
