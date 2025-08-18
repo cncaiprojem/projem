@@ -434,7 +434,7 @@
             "description": "Implement structured audit and security logs with masking and correlation IDs; persist to audit_logs and security_events.",
             "dependencies": [],
             "details": "Design:\n- Log schema: {event_type, user_id?, session_id?, resource?, ip_masked, ua_masked, metadata, created_at, chain_hash} with optional hash-chaining.\n- PII masking: emails partially masked (a***@d***), IP truncated.\n- Correlation-ID per request; include in all logs and responses.\nAPIs:\n- GET /admin/logs (admin) with filters and pagination.\nCookies: N/A.\nErrors: 403 ERR-RBAC-FORBIDDEN for non-admin access.\nAcceptance:\n- All auth events generate audited entries; sensitive fields masked; chain hash verifies integrity.\n- Logs queryable by correlation ID.\nLogging:\n- Applies across all other subtasks; provides emitters/utilities for consistent logging.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T19:22:27.286Z",
+      "updated": "2025-08-17T20:02:04.948Z",
       "description": "Tasks for master context"
     }
   }
