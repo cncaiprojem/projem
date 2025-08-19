@@ -11,7 +11,7 @@ from decimal import Decimal
 from typing import Dict, List
 
 from celery import current_task
-from sqlalchemy import and_, text
+from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -146,34 +146,36 @@ def _get_licenses_expiring_in_days(db: Session, days_out: int) -> List[License]:
     """
     Query active licenses that expire in exactly N days.
     
-    Uses DATE() function for day-level precision matching Task 4.8 requirements.
+    Uses DATE_TRUNC for index-optimized queries and eager loading to prevent N+1.
     
     Args:
         db: Database session
         days_out: Number of days (7, 3, or 1)
         
     Returns:
-        List of License objects
+        List of License objects with user relationships loaded
     """
-    query = text("""
-        SELECT l.*
-        FROM licenses l
-        INNER JOIN users u ON l.user_id = u.id
-        WHERE l.status = 'active'
-        AND (DATE(l.ends_at) - DATE(CURRENT_TIMESTAMP)) = :days_out
-        ORDER BY l.ends_at ASC
-    """)
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy.orm import joinedload
     
-    result = db.execute(query, {'days_out': days_out})
-    license_rows = result.fetchall()
+    # Calculate the date range for licenses expiring in exactly N days
+    today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+    target_date = today + timedelta(days=days_out)
+    next_date = target_date + timedelta(days=1)
     
-    # Convert to License objects
-    licenses = []
-    for row in license_rows:
-        license_obj = db.get(License, row.id)
-        if license_obj:
-            licenses.append(license_obj)
-            
+    # Use ORM query with eager loading to prevent N+1 queries
+    licenses = db.query(License).options(
+        joinedload(License.user)  # Eager load user relationship
+    ).join(
+        User
+    ).filter(
+        License.status == 'active',
+        License.ends_at >= target_date,
+        License.ends_at < next_date
+    ).order_by(
+        License.ends_at.asc()
+    ).all()
+    
     return licenses
 
 
@@ -213,15 +215,28 @@ def _enqueue_license_notification(
         return False
     
     # Get notification template
-    template_code = f"license_reminder_d{days_out}_{channel.value}"
+    # Map days_out to template type
+    from ..models.enums import NotificationTemplateType
+    
+    if days_out == 7:
+        template_type = NotificationTemplateType.LICENSE_REMINDER_D7
+    elif days_out == 3:
+        template_type = NotificationTemplateType.LICENSE_REMINDER_D3
+    elif days_out == 1:
+        template_type = NotificationTemplateType.LICENSE_REMINDER_D1
+    else:
+        logger.error(f"[TASK-4.8] Invalid days_out value: {days_out}")
+        return False
+    
     template = db.query(NotificationTemplate).filter(
-        NotificationTemplate.code == template_code,
+        NotificationTemplate.type == template_type,
+        NotificationTemplate.channel == channel,
         NotificationTemplate.is_active == True
     ).first()
     
     if not template:
         logger.error(
-            f"[TASK-4.8] No template found for {template_code}"
+            f"[TASK-4.8] No template found for type={template_type}, channel={channel}"
         )
         return False
     
@@ -242,7 +257,7 @@ def _enqueue_license_notification(
     try:
         template_service = TemplateService(db)
         rendered_content = template_service.render_template(
-            template_id=template.id,
+            template=template,
             variables=variables
         )
     except Exception as e:
@@ -271,7 +286,7 @@ def _enqueue_license_notification(
                 :subject, :body, :variables, :status, :priority, :primary_provider,
                 CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
             )
-            ON CONFLICT (license_id, days_out, channel, date(created_at)) 
+            ON CONFLICT (license_id, days_out, channel) 
             DO NOTHING
             RETURNING id
         """)

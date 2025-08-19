@@ -22,7 +22,7 @@ from app.models.user import User
 from app.models.license import License
 from app.models.notification_delivery import NotificationDelivery
 from app.models.notification_template import NotificationTemplate
-from app.models.enums import NotificationChannel, NotificationProvider, NotificationStatus
+from app.models.enums import NotificationChannel, NotificationProvider, NotificationStatus, NotificationTemplateType
 from app.tasks.license_notifications import scan_licenses, _get_licenses_expiring_in_days
 
 
@@ -78,7 +78,7 @@ def create_test_data(session):
     # Create notification templates
     for channel in ["email", "sms"]:
         for days_out in [7, 3, 1]:
-            template_code = f"license_reminder_d{days_out}_{channel}"
+            # Template setup for each days_out and channel
             
             if channel == "email":
                 subject = f"Lisansınız {days_out} Gün Sonra Sona Eriyor"
@@ -96,14 +96,22 @@ Saygılarımızla,
                 subject = None
                 body = f"Merhaba {{{{user_name}}}}, {{{{license_type}}}} lisansınız {{{{days_remaining}}}} gün sonra sona eriyor. Yenileme: {{{{renewal_link}}}}"
             
+            # Map days_out to template type
+            if days_out == 7:
+                template_type = NotificationTemplateType.LICENSE_REMINDER_D7
+            elif days_out == 3:
+                template_type = NotificationTemplateType.LICENSE_REMINDER_D3
+            elif days_out == 1:
+                template_type = NotificationTemplateType.LICENSE_REMINDER_D1
+            
             template = NotificationTemplate(
-                code=template_code,
+                type=template_type,
                 name=f"License Reminder D-{days_out} ({channel.upper()})",
                 description=f"License expiry reminder {days_out} days before (Turkish)",
                 channel=NotificationChannel.EMAIL if channel == "email" else NotificationChannel.SMS,
                 subject_template=subject,
                 body_template=body,
-                variables_schema={
+                variables={
                     "user_name": "string",
                     "license_type": "string", 
                     "days_remaining": "integer",
@@ -257,7 +265,11 @@ def main():
         )).delete(synchronize_session=False)
         session.query(User).filter(User.email.like("test_user_%@example.com")).delete()
         session.query(NotificationTemplate).filter(
-            NotificationTemplate.code.like("license_reminder_%")
+            NotificationTemplate.type.in_([
+                NotificationTemplateType.LICENSE_REMINDER_D7,
+                NotificationTemplateType.LICENSE_REMINDER_D3,
+                NotificationTemplateType.LICENSE_REMINDER_D1
+            ])
         ).delete()
         session.commit()
         

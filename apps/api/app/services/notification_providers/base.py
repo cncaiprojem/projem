@@ -146,34 +146,56 @@ class NotificationProvider(ABC):
         # Default implementation - override in providers that support status checking
         return None
     
+    # Country code configuration for phone number formatting
+    COUNTRY_CODE_MAP = {
+        "TR": {"prefix": "90", "national_length": 10, "trunk_prefix": "0"},
+        "US": {"prefix": "1", "national_length": 10, "trunk_prefix": "1"},
+        "UK": {"prefix": "44", "national_length": 10, "trunk_prefix": "0"},
+        "DE": {"prefix": "49", "national_length": 11, "trunk_prefix": "0"},
+        "FR": {"prefix": "33", "national_length": 9, "trunk_prefix": "0"},
+        "IT": {"prefix": "39", "national_length": 10, "trunk_prefix": "0"},
+        "ES": {"prefix": "34", "national_length": 9, "trunk_prefix": "0"},
+        "NL": {"prefix": "31", "national_length": 9, "trunk_prefix": "0"},
+    }
+    
     def format_phone_number(self, phone: str, default_country: str = "TR") -> str:
         """Format phone number to E.164 format.
         
         Args:
             phone: Phone number in various formats
-            default_country: Default country code
+            default_country: Default country code (ISO 3166-1 alpha-2)
             
         Returns:
-            Phone number in E.164 format (+90XXXXXXXXX)
+            Phone number in E.164 format (+XXXXXXXXXXX)
         """
         # Remove all non-digit characters
         cleaned = ''.join(filter(str.isdigit, phone))
         
-        # Handle Turkish numbers
-        if default_country == "TR":
-            if cleaned.startswith('90'):
-                return f"+{cleaned}"
-            elif cleaned.startswith('0'):
-                return f"+90{cleaned[1:]}"
-            elif len(cleaned) == 10:
-                return f"+90{cleaned}"
+        # Get country info from mapping, fallback to Turkey
+        country_info = self.COUNTRY_CODE_MAP.get(default_country, self.COUNTRY_CODE_MAP["TR"])
+        country_prefix = country_info["prefix"]
+        national_length = country_info["national_length"]
+        trunk_prefix = country_info["trunk_prefix"]
         
-        # If already has country code
-        if cleaned.startswith('1') or cleaned.startswith('44') or cleaned.startswith('49'):
+        # If number starts with country code, return as E.164
+        if cleaned.startswith(country_prefix):
             return f"+{cleaned}"
         
-        # Default to Turkey if no country code
-        return f"+90{cleaned}"
+        # If number starts with trunk prefix, strip and add country code
+        if trunk_prefix and cleaned.startswith(trunk_prefix):
+            return f"+{country_prefix}{cleaned[len(trunk_prefix):]}"
+        
+        # If number is national length, add country code
+        if len(cleaned) == national_length:
+            return f"+{country_prefix}{cleaned}"
+        
+        # Check if number starts with another known country code
+        for code_info in self.COUNTRY_CODE_MAP.values():
+            if cleaned.startswith(code_info["prefix"]):
+                return f"+{cleaned}"
+        
+        # Fallback: add default country code
+        return f"+{country_prefix}{cleaned}"
     
     def sanitize_email(self, email: str) -> str:
         """Sanitize and validate email address.

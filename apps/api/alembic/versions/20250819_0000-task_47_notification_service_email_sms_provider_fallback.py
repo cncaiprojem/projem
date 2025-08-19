@@ -19,7 +19,7 @@ from sqlalchemy.dialects.postgresql import ENUM, JSONB
 
 # revision identifiers, used by Alembic.
 revision = 'task_47_notification_service'
-down_revision = '20250818_add_idempotency_records_table'
+down_revision = 'add_idempotency_records'
 branch_labels = None
 depends_on = None
 
