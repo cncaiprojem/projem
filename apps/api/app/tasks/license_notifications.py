@@ -33,6 +33,14 @@ from .worker import celery_app
 # Configure logging
 logger = logging.getLogger(__name__)
 
+# Template type mapping - defined at module level for efficiency
+# As per Gemini Code Assist feedback: avoid recreating in hot loop
+TEMPLATE_TYPE_MAP = {
+    7: NotificationTemplateType.LICENSE_REMINDER_D7,
+    3: NotificationTemplateType.LICENSE_REMINDER_D3,
+    1: NotificationTemplateType.LICENSE_REMINDER_D1,
+}
+
 
 @celery_app.task(
     bind=True,
@@ -210,13 +218,8 @@ def _enqueue_license_notification(
         return False
 
     # Get notification template
-    # Map days_out to template type using dictionary for DRY principle
-    template_type_map = {
-        7: NotificationTemplateType.LICENSE_REMINDER_D7,
-        3: NotificationTemplateType.LICENSE_REMINDER_D3,
-        1: NotificationTemplateType.LICENSE_REMINDER_D1,
-    }
-    template_type = template_type_map.get(days_out)
+    # Use module-level constant to avoid recreation (Gemini feedback)
+    template_type = TEMPLATE_TYPE_MAP.get(days_out)
     if not template_type:
         logger.error(f"[TASK-4.8] Invalid days_out value: {days_out}")
         return False
