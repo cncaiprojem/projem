@@ -94,14 +94,16 @@ def upgrade() -> None:
         # Constraints
         sa.CheckConstraint("(channel = 'sms' AND subject_template IS NULL) OR channel = 'email'", 
                            name='ck_notification_templates_sms_no_subject'),
-        sa.CheckConstraint("(channel = 'sms' AND max_length <= 160) OR (channel = 'email' AND max_length IS NULL)", 
+        sa.CheckConstraint("(channel = 'sms' AND max_length = 160) OR (channel = 'email' AND max_length IS NULL)", 
                            name='ck_notification_templates_sms_max_length'),
         sa.CheckConstraint("length(name) >= 3", name='ck_notification_templates_name_length'),
         sa.CheckConstraint("version >= 1", name='ck_notification_templates_version_positive'),
         
-        # Unique constraint: one active template per type+channel+language
-        sa.UniqueConstraint('type', 'channel', 'language', 'is_active', 
-                            name='uq_notification_templates_active'),
+        # Partial unique index: one active template per type+channel+language (when is_active=true)
+        sa.Index('uq_notification_templates_active', 
+                 'type', 'channel', 'language',
+                 unique=True,
+                 postgresql_where=sa.text("is_active = true")),
         
         # Performance indexes
         sa.Index('idx_notification_templates_type_channel', 'type', 'channel'),
@@ -393,17 +395,20 @@ FreeCAD Ekibi''',
         },
     ]
     
-    # Insert templates
+    # Insert templates using parameterized queries to prevent SQL injection
     connection = op.get_bind()
     for template in templates:
-        insert_stmt = text(f"""
+        # Use fully parameterized query - NO f-string interpolation for security
+        insert_stmt = text("""
             INSERT INTO notification_templates 
             (type, channel, name, subject_template, body_template, plain_text_template, variables, max_length)
             VALUES 
-            ('{template['type']}', '{template['channel']}', :name, :subject, :body, :plain, :variables::jsonb, :max_length)
+            (:type, :channel, :name, :subject, :body, :plain, :variables::jsonb, :max_length)
         """)
         
         connection.execute(insert_stmt, {
+            'type': template['type'],
+            'channel': template['channel'],
             'name': template['name'],
             'subject': template.get('subject_template'),
             'body': template['body_template'],

@@ -15,7 +15,6 @@ from ..models.enums import Currency, PaidStatus, PaymentStatus
 from ..models.invoice import Invoice
 from ..models.payment import Payment, PaymentAuditLog, PaymentWebhookEvent
 from .payment_providers import PaymentProviderFactory
-from .security_event_service import SecurityEventService
 
 # Ultra-enterprise banking-grade logger for payment transactions
 logger = logging.getLogger("payment_service.ultra_enterprise")
@@ -440,15 +439,9 @@ class PaymentService:
                 invoice_id=None  # Payment might not be found yet
             )
             
-            # Additional security event logging
-            try:
-                security_service = SecurityEventService()
-                security_service.log_integrity_violation(
-                    event_type="webhook_integrity_error",
-                    details=audit_context
-                )
-            except Exception:
-                pass  # Don't fail webhook processing due to logging issues
+            # Security event logging handled via audit log
+            # SecurityEventService removed per Gemini Code Assist feedback
+            # All security events are now logged through _log_critical_audit_event
             
             # Likely a duplicate event_id - return idempotent response
             return {
@@ -474,15 +467,9 @@ class PaymentService:
                 invoice_id=None
             )
             
-            # Additional security event logging
-            try:
-                security_service = SecurityEventService()
-                security_service.log_critical_error(
-                    event_type="webhook_runtime_error",
-                    details=audit_context
-                )
-            except Exception:
-                pass  # Don't fail webhook processing due to logging issues
+            # Security event logging handled via audit log
+            # SecurityEventService removed per Gemini Code Assist feedback
+            # All security events are now logged through _log_critical_audit_event
                 
             return {
                 "status": "error",
@@ -507,15 +494,9 @@ class PaymentService:
                 invoice_id=None
             )
             
-            # Additional security event logging
-            try:
-                security_service = SecurityEventService()
-                security_service.log_unexpected_error(
-                    event_type="webhook_unexpected_error",
-                    details=audit_context
-                )
-            except Exception:
-                pass  # Don't fail webhook processing due to logging issues
+            # Security event logging handled via audit log
+            # SecurityEventService removed per Gemini Code Assist feedback
+            # All security events are now logged through _log_critical_audit_event
                 
             return {
                 "status": "error",

@@ -140,7 +140,7 @@ class NotificationTemplate(Base, TimestampMixin):
             name='ck_notification_templates_sms_no_subject'
         ),
         
-        # SMS templates must have 160 char limit
+        # SMS templates must have exactly 160 char limit
         CheckConstraint(
             "(channel = 'sms' AND max_length = 160) OR (channel = 'email' AND max_length IS NULL)",
             name='ck_notification_templates_sms_max_length'
@@ -309,6 +309,7 @@ class NotificationTemplate(Base, TimestampMixin):
     @classmethod
     def get_active_template(
         cls,
+        db: Session,
         template_type: NotificationTemplateType,
         channel: NotificationChannel,
         language: str = "tr-TR"
@@ -316,6 +317,7 @@ class NotificationTemplate(Base, TimestampMixin):
         """Get active template for type, channel, and language.
         
         Args:
+            db: Database session (passed as parameter for proper session management)
             template_type: Template type to find
             channel: Delivery channel
             language: Language code (defaults to Turkish)
@@ -324,15 +326,13 @@ class NotificationTemplate(Base, TimestampMixin):
             Active template or None if not found
         """
         from sqlalchemy.orm import Session
-        from ..core.database import SessionLocal
         
-        with SessionLocal() as db:
-            return db.query(cls).filter(
-                cls.type == template_type,
-                cls.channel == channel,
-                cls.language == language,
-                cls.is_active == True
-            ).first()
+        return db.query(cls).filter(
+            cls.type == template_type,
+            cls.channel == channel,
+            cls.language == language,
+            cls.is_active == True
+        ).first()
     
     @classmethod
     def create_license_reminder_templates(cls, db_session) -> list["NotificationTemplate"]:
