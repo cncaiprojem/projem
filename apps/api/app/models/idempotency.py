@@ -78,9 +78,9 @@ class IdempotencyKey(Base, TimestampMixin):
     )
 
     # Cached response
-    response_status: Mapped[int] = mapped_column(
+    response_status: Mapped[int | None] = mapped_column(
         Integer,
-        nullable=False,
+        nullable=True,
         comment="HTTP response status code"
     )
 

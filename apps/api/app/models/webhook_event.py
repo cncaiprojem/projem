@@ -8,6 +8,9 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
+# Constants
+MAX_RETRY_DELAY_MINUTES = 60  # Maximum delay between retries
+
 from sqlalchemy import (
     BigInteger,
     DateTime,
@@ -237,7 +240,7 @@ class WebhookEvent(Base, TimestampMixin):
     def calculate_next_retry(self) -> datetime:
         """Calculate next retry time with exponential backoff."""
         # Exponential backoff: 1, 2, 4, 8, 16 minutes
-        delay_minutes = min(2 ** self.retry_count, 60)
+        delay_minutes = min(2 ** self.retry_count, MAX_RETRY_DELAY_MINUTES)
         return datetime.now(UTC) + timedelta(minutes=delay_minutes)
 
     def mark_delivered(self, response_status: int, response_body: str = None) -> None:
@@ -264,20 +267,39 @@ class WebhookEvent(Base, TimestampMixin):
         self.locked_at = None
         self.locked_by = None
 
-    def acquire_lock(self, worker_id: str, lock_timeout_seconds: int = 300) -> bool:
-        """Try to acquire processing lock."""
+    def acquire_lock(self, session, worker_id: str, lock_timeout_seconds: int = 300) -> bool:
+        """
+        Try to acquire processing lock atomically.
+        This method uses a conditional update to ensure atomicity and prevent race conditions.
+        """
         now = datetime.now(UTC)
-
-        # Check if already locked by another worker
-        if self.locked_at and self.locked_by != worker_id:
-            lock_age = (now - self.locked_at).total_seconds()
-            if lock_age < lock_timeout_seconds:
-                return False  # Still locked by another worker
-
-        # Acquire lock
-        self.locked_at = now
-        self.locked_by = worker_id
-        return True
+        # Only acquire the lock if:
+        # - Not locked (locked_at is None)
+        # - Locked by this worker
+        # - Locked by another worker, but lock is expired
+        updated = session.query(type(self)).filter(
+            type(self).id == self.id,
+            (
+                (type(self).locked_at == None) |
+                (type(self).locked_by == worker_id) |
+                (
+                    (type(self).locked_at != None) &
+                    (type(self).locked_by != worker_id) &
+                    ((now - type(self).locked_at) > timedelta(seconds=lock_timeout_seconds))
+                )
+            )
+        ).update(
+            {
+                "locked_at": now,
+                "locked_by": worker_id
+            },
+            synchronize_session=False
+        )
+        if updated:
+            session.refresh(self)
+            return True
+        else:
+            return False
 
     def release_lock(self) -> None:
         """Release processing lock."""

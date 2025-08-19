@@ -364,7 +364,7 @@ def require_idempotency(
                     if hasattr(response, "body"):
                         try:
                             response_body = json.loads(response.body)
-                        except:
+                        except (json.JSONDecodeError, TypeError):
                             response_body = {"data": str(response.body)}
                     elif isinstance(response, dict):
                         response_body = response

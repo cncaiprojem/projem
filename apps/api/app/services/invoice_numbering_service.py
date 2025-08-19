@@ -114,11 +114,11 @@ class InvoiceNumberingService:
                     db.rollback()  # Clear any failed transaction
                 else:
                     raise RuntimeError(
-                        f"Fatura numarası oluşturulamadı: {str(e)}"
+                        f"Invoice number could not be generated: {str(e)}"
                     )
 
         raise RuntimeError(
-            f"Fatura numarası oluşturulamadı: Maksimum deneme sayısına ulaşıldı ({self.MAX_RETRIES})"
+            f"Invoice number could not be generated: Maximum retry count reached ({self.MAX_RETRIES})"
         )
 
     def _get_next_sequence_number(self, db: Session, year_month: str) -> int:
