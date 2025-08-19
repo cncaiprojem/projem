@@ -6,22 +6,19 @@ in favor of the new OAuth2/OIDC authentication flow in Task 3.5.
 
 from __future__ import annotations
 
-import json
-import time
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import jwt
 import requests
-from fastapi import Depends, HTTPException, status, Header
+from fastapi import Depends, Header, HTTPException, status
 
 from ..settings import app_settings as appset
-from ..auth import dev_login
 
 
 @lru_cache(maxsize=1)
-def _jwks_cached() -> Dict[str, Any]:
+def _jwks_cached() -> dict[str, Any]:
     if not appset.oidc_jwks_url:
         raise RuntimeError("OIDC JWKS URL tanımlı değil")
     res = requests.get(appset.oidc_jwks_url, timeout=10)
@@ -29,7 +26,7 @@ def _jwks_cached() -> Dict[str, Any]:
     return res.json()
 
 
-def _get_key_for_kid(kid: str) -> Optional[Dict[str, Any]]:
+def _get_key_for_kid(kid: str) -> dict[str, Any] | None:
     jwks = _jwks_cached()
     for k in jwks.get("keys", []):
         if k.get("kid") == kid:
@@ -40,11 +37,11 @@ def _get_key_for_kid(kid: str) -> Optional[Dict[str, Any]]:
 @dataclass
 class Principal:
     sub: str
-    email: Optional[str]
-    roles: List[str]
+    email: str | None
+    roles: list[str]
 
 
-def _extract_roles(claims: Dict[str, Any]) -> List[str]:
+def _extract_roles(claims: dict[str, Any]) -> list[str]:
     path = appset.roles_claim.split(".") if appset.roles_claim else []
     cur: Any = claims
     for p in path:
@@ -57,7 +54,7 @@ def _extract_roles(claims: Dict[str, Any]) -> List[str]:
     return []
 
 
-def _verify_and_decode(token: str) -> Dict[str, Any]:
+def _verify_and_decode(token: str) -> dict[str, Any]:
     try:
         unverified = jwt.get_unverified_header(token)
     except jwt.PyJWTError as e:
@@ -79,7 +76,7 @@ def _verify_and_decode(token: str) -> Dict[str, Any]:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token doğrulama başarısız") from e
 
 
-def get_principal(authorization: Optional[str] = Header(default=None, alias="Authorization")) -> Principal:
+def get_principal(authorization: str | None = Header(default=None, alias="Authorization")) -> Principal:
     # Dev-bypass: viewer rolü ver, admin değil
     if not appset.oidc_enabled:
         # dev_login endpoint ile token dağıtılıyor; burada minimal principal

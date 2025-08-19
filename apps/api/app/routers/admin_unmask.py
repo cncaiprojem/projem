@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Body, Depends, HTTPException, status
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from ..audit import audit
-from ..security.oidc import require_role, Principal
+from ..security.oidc import Principal, require_role
 
-
-router = APIRouter(prefix="/api/v1/admin", tags=["PII Yönetimi"]) 
+router = APIRouter(prefix="/api/v1/admin", tags=["PII Yönetimi"])
 
 
 @router.post("/unmask-preview", dependencies=[Depends(require_role("admin"))])

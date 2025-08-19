@@ -3,27 +3,24 @@ Tool model for cutting tool inventory.
 """
 
 from decimal import Decimal
-from typing import Optional
 
-from sqlalchemy import (
-    String, Integer, Boolean, Index,
-    Numeric, CheckConstraint, Enum as SQLEnum
-)
+from sqlalchemy import Boolean, CheckConstraint, Index, Integer, Numeric, String
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin
-from .enums import ToolType, ToolMaterial
+from .enums import ToolMaterial, ToolType
 
 
 class Tool(Base, TimestampMixin):
     """Cutting tool inventory."""
-    
+
     __tablename__ = "tools"
-    
+
     # Primary key
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    
+
     # Tool identification
     name: Mapped[str] = mapped_column(
         String(200),
@@ -34,55 +31,55 @@ class Tool(Base, TimestampMixin):
         nullable=False,
         index=True
     )
-    material: Mapped[Optional[ToolMaterial]] = mapped_column(
+    material: Mapped[ToolMaterial | None] = mapped_column(
         SQLEnum(ToolMaterial),
         index=True
     )
-    coating: Mapped[Optional[str]] = mapped_column(String(100))
-    
+    coating: Mapped[str | None] = mapped_column(String(100))
+
     # Manufacturer information
-    manufacturer: Mapped[Optional[str]] = mapped_column(String(100))
-    part_number: Mapped[Optional[str]] = mapped_column(
+    manufacturer: Mapped[str | None] = mapped_column(String(100))
+    part_number: Mapped[str | None] = mapped_column(
         String(100),
         index=True
     )
-    
+
     # Tool geometry
-    diameter_mm: Mapped[Optional[Decimal]] = mapped_column(
+    diameter_mm: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 3),
         index=True
     )
-    flute_count: Mapped[Optional[int]] = mapped_column(Integer)
-    flute_length_mm: Mapped[Optional[Decimal]] = mapped_column(
+    flute_count: Mapped[int | None] = mapped_column(Integer)
+    flute_length_mm: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2)
     )
-    overall_length_mm: Mapped[Optional[Decimal]] = mapped_column(
+    overall_length_mm: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2)
     )
-    shank_diameter_mm: Mapped[Optional[Decimal]] = mapped_column(
+    shank_diameter_mm: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2)
     )
-    corner_radius_mm: Mapped[Optional[Decimal]] = mapped_column(
+    corner_radius_mm: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 3)
     )
-    helix_angle_deg: Mapped[Optional[Decimal]] = mapped_column(
+    helix_angle_deg: Mapped[Decimal | None] = mapped_column(
         Numeric(5, 2)
     )
-    
+
     # Cutting parameters
-    max_depth_of_cut_mm: Mapped[Optional[Decimal]] = mapped_column(
+    max_depth_of_cut_mm: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2)
     )
-    
+
     # Additional specifications
-    specifications: Mapped[Optional[dict]] = mapped_column(JSONB)
-    
+    specifications: Mapped[dict | None] = mapped_column(JSONB)
+
     # Tool life and cost
-    tool_life_minutes: Mapped[Optional[int]] = mapped_column(Integer)
-    cost: Mapped[Optional[Decimal]] = mapped_column(
+    tool_life_minutes: Mapped[int | None] = mapped_column(Integer)
+    cost: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2)
     )
-    
+
     # Inventory management
     quantity_available: Mapped[int] = mapped_column(
         Integer,
@@ -94,15 +91,15 @@ class Tool(Base, TimestampMixin):
         nullable=False,
         default=0
     )
-    location: Mapped[Optional[str]] = mapped_column(String(100))
-    
+    location: Mapped[str | None] = mapped_column(String(100))
+
     # Status
     is_active: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=True
     )
-    
+
     # Constraints and indexes
     __table_args__ = (
         CheckConstraint('diameter_mm > 0',
@@ -138,10 +135,10 @@ class Tool(Base, TimestampMixin):
         Index('idx_tools_inventory', 'quantity_available',
               postgresql_where='quantity_available < minimum_stock'),
     )
-    
+
     def __repr__(self) -> str:
         return f"<Tool(id={self.id}, name={self.name}, type={self.type.value})>"
-    
+
     @property
     def is_endmill(self) -> bool:
         """Check if tool is an endmill."""
@@ -153,7 +150,7 @@ class Tool(Base, TimestampMixin):
             ToolType.ENDMILL_TAPER
         ]
         return self.type in endmill_types
-    
+
     @property
     def is_drill(self) -> bool:
         """Check if tool is a drill."""
@@ -165,41 +162,41 @@ class Tool(Base, TimestampMixin):
             ToolType.DRILL_GUN
         ]
         return self.type in drill_types
-    
+
     @property
     def needs_reorder(self) -> bool:
         """Check if tool needs reordering."""
         return self.quantity_available < self.minimum_stock
-    
+
     @property
     def in_stock(self) -> bool:
         """Check if tool is in stock."""
         return self.quantity_available > 0
-    
+
     @property
-    def tool_radius(self) -> Optional[float]:
+    def tool_radius(self) -> float | None:
         """Get tool radius in mm."""
         if not self.diameter_mm:
             return None
         return float(self.diameter_mm) / 2
-    
+
     def consume(self, quantity: int = 1) -> bool:
         """Consume tool from inventory."""
         if self.quantity_available < quantity:
             return False
         self.quantity_available -= quantity
         return True
-    
+
     def restock(self, quantity: int):
         """Add tools to inventory."""
         self.quantity_available += quantity
-    
+
     def get_spec(self, key: str, default=None):
         """Get specific specification value."""
         if not self.specifications:
             return default
         return self.specifications.get(key, default)
-    
+
     def set_spec(self, key: str, value):
         """Set specific specification value."""
         if not self.specifications:

@@ -3,8 +3,9 @@ from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExport
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
-from opentelemetry.sdk.trace.sampling import TraceIdRatioBased, ALWAYS_ON
+from opentelemetry.sdk.trace.sampling import ALWAYS_ON, TraceIdRatioBased
 from prometheus_fastapi_instrumentator import Instrumentator
+
 try:
     from opentelemetry.instrumentation.celery import CeleryInstrumentor
 except Exception:  # pragma: no cover

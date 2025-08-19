@@ -21,6 +21,7 @@ router = APIRouter(prefix="/api/v1/setups", tags=["m18-setups"])
 """
 
 from fastapi import APIRouter
+
 router = APIRouter(prefix="/api/v1/legacy-disabled", tags=["Disabled"])
 
 # All legacy setup functionality disabled - not part of Task Master ERD

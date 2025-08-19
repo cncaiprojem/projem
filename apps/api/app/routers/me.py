@@ -9,23 +9,21 @@ User profile management endpoints with mixed RBAC permissions:
 - Banking-level security with audit logging
 """
 
-from typing import Optional, Dict, Any
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request
-from sqlalchemy.orm import Session as DBSession
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, Field
+from sqlalchemy.orm import Session as DBSession
 
-from ..models.user import User
+from ..core.logging import get_logger
+from ..db import get_db
+from ..dependencies.auth_dependencies import require_auth, require_scopes
+from ..middleware.jwt_middleware import AuthenticatedUser
 from ..models.audit_log import AuditLog
 from ..models.enums import AuditAction
 from ..schemas.auth import UserOut
 from ..schemas.rbac_schemas import UserPermissionSummary
-from ..dependencies.auth_dependencies import require_auth, require_scopes
-from ..middleware.jwt_middleware import AuthenticatedUser
 from ..services.rbac_service import rbac_business_service
-from ..core.logging import get_logger
-from ..db import get_db
 
 logger = get_logger(__name__)
 
@@ -43,12 +41,12 @@ router = APIRouter(
 
 class UserProfileUpdate(BaseModel):
     """Schema for user profile updates."""
-    
-    full_name: Optional[str] = Field(None, min_length=2, max_length=255)
-    display_name: Optional[str] = Field(None, min_length=2, max_length=100)
-    company_name: Optional[str] = Field(None, max_length=255)
-    address: Optional[str] = Field(None, max_length=1000)
-    
+
+    full_name: str | None = Field(None, min_length=2, max_length=255)
+    display_name: str | None = Field(None, min_length=2, max_length=100)
+    company_name: str | None = Field(None, max_length=255)
+    address: str | None = Field(None, max_length=1000)
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -62,10 +60,10 @@ class UserProfileUpdate(BaseModel):
 
 class AccountDeactivationRequest(BaseModel):
     """Schema for account deactivation request."""
-    
+
     reason: str = Field(..., min_length=10, max_length=500)
     confirm_deactivation: bool = Field(..., description="Must be true to confirm")
-    
+
     class Config:
         json_schema_extra = {
             "example": {
@@ -93,7 +91,7 @@ def get_current_user_profile(
         'role': current_user.role.value,
         'client_ip': request.client.host if request.client else None
     })
-    
+
     # Return current user information
     return current_user.user
 
@@ -111,34 +109,34 @@ def update_current_user_profile(
     Requires: profile:write scope
     """
     user = current_user.user
-    
+
     # Track changes for audit log
     changes = {}
-    
+
     # Update fields that were provided
     if profile_update.full_name is not None:
         old_value = user.full_name
         user.full_name = profile_update.full_name
         changes['full_name'] = {'old': old_value, 'new': profile_update.full_name}
-    
+
     if profile_update.display_name is not None:
         old_value = user.display_name
         user.display_name = profile_update.display_name
         changes['display_name'] = {'old': old_value, 'new': profile_update.display_name}
-    
+
     if profile_update.company_name is not None:
         old_value = user.company_name
         user.company_name = profile_update.company_name
         changes['company_name'] = {'old': old_value, 'new': profile_update.company_name}
-    
+
     if profile_update.address is not None:
         old_value = user.address
         user.address = profile_update.address
         changes['address'] = {'old': old_value, 'new': profile_update.address}
-    
+
     # Update timestamp
-    user.updated_at = datetime.now(timezone.utc)
-    
+    user.updated_at = datetime.now(UTC)
+
     # Create audit log entry
     if changes:
         audit_log = AuditLog(
@@ -148,14 +146,14 @@ def update_current_user_profile(
             actor_user_id=current_user.user_id,
             changes=changes,
             reason="Profile update by user",
-            created_at=datetime.now(timezone.utc)
+            created_at=datetime.now(UTC)
         )
         db.add(audit_log)
-    
+
     # Save changes
     db.commit()
     db.refresh(user)
-    
+
     # Log profile update
     logger.info("User updated own profile", extra={
         'operation': 'update_user_profile',
@@ -163,7 +161,7 @@ def update_current_user_profile(
         'changes': list(changes.keys()),
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return user
 
 
@@ -180,7 +178,7 @@ def get_current_user_permissions(
     """
     # Get permissions from RBAC service
     permissions = rbac_business_service.get_user_permissions(db, current_user.user_id)
-    
+
     # Log permission access
     logger.info("User accessed own permissions", extra={
         'operation': 'get_user_permissions',
@@ -189,7 +187,7 @@ def get_current_user_permissions(
         'scope_count': len(permissions.scopes) if permissions else 0,
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return permissions
 
 
@@ -205,20 +203,20 @@ def get_current_user_sessions(
     Requires: Basic authentication (any authenticated user)
     """
     from ..models.session import Session
-    
+
     # Get user's active sessions
     sessions = (
         db.query(Session)
         .filter(Session.user_id == current_user.user_id)
-        .filter(Session.expires_at > datetime.now(timezone.utc))
+        .filter(Session.expires_at > datetime.now(UTC))
         .order_by(Session.last_activity_at.desc())
         .all()
     )
-    
+
     session_list = []
     for session in sessions:
         is_current = session.id == current_user.session_id
-        
+
         session_list.append({
             'session_id': str(session.id),
             'is_current': is_current,
@@ -229,7 +227,7 @@ def get_current_user_sessions(
             'ip_address': session.ip_address,
             'user_agent': session.user_agent[:100] + '...' if session.user_agent and len(session.user_agent) > 100 else session.user_agent
         })
-    
+
     # Log session access
     logger.info("User accessed own sessions", extra={
         'operation': 'get_user_sessions',
@@ -237,7 +235,7 @@ def get_current_user_sessions(
         'active_sessions': len(session_list),
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return {
         'user_id': current_user.user_id,
         'active_sessions': session_list,
@@ -258,7 +256,7 @@ def revoke_user_session(
     Requires: Basic authentication (users can only revoke their own sessions)
     """
     from ..models.session import Session
-    
+
     # Get the session
     session = (
         db.query(Session)
@@ -266,27 +264,27 @@ def revoke_user_session(
         .filter(Session.user_id == current_user.user_id)  # Users can only revoke their own sessions
         .first()
     )
-    
+
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Oturum bulunamadı veya size ait değil"
         )
-    
+
     # Prevent user from revoking their current session
     if session.id == current_user.session_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Mevcut oturumunuzu sonlandıramazsınız"
         )
-    
+
     # Revoke session by setting expiry to past
-    session.expires_at = datetime.now(timezone.utc)
-    session.revoked_at = datetime.now(timezone.utc)
+    session.expires_at = datetime.now(UTC)
+    session.revoked_at = datetime.now(UTC)
     session.revocation_reason = "User requested session termination"
-    
+
     db.commit()
-    
+
     # Log session revocation
     logger.warning("User revoked own session", extra={
         'operation': 'revoke_user_session',
@@ -294,7 +292,7 @@ def revoke_user_session(
         'revoked_session_id': session_id,
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return {
         'message': 'Oturum başarıyla sonlandırıldı',
         'session_id': session_id
@@ -319,23 +317,23 @@ def deactivate_account(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Hesap deaktivasyonu onaylanmalıdır"
         )
-    
+
     user = current_user.user
-    
+
     # Prevent admin users from self-deactivating (safety measure)
     if user.role == UserRole.ADMIN:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Admin kullanıcılar kendi hesaplarını deaktive edemez"
         )
-    
+
     # Deactivate account
     user.is_active = False
     user.account_status = 'deactivated'
-    user.deactivated_at = datetime.now(timezone.utc)
+    user.deactivated_at = datetime.now(UTC)
     user.deactivation_reason = deactivation.reason
-    user.updated_at = datetime.now(timezone.utc)
-    
+    user.updated_at = datetime.now(UTC)
+
     # Create audit log entry
     audit_log = AuditLog(
         action=AuditAction.USER_DELETE,  # Closest to deactivation
@@ -347,26 +345,26 @@ def deactivate_account(
             'is_active': {'old': True, 'new': False}
         },
         reason=f"Self-deactivation: {deactivation.reason}",
-        created_at=datetime.now(timezone.utc)
+        created_at=datetime.now(UTC)
     )
     db.add(audit_log)
-    
+
     # Revoke all user sessions
     from ..models.session import Session
     user_sessions = (
         db.query(Session)
         .filter(Session.user_id == user.id)
-        .filter(Session.expires_at > datetime.now(timezone.utc))
+        .filter(Session.expires_at > datetime.now(UTC))
         .all()
     )
-    
+
     for session in user_sessions:
-        session.expires_at = datetime.now(timezone.utc)
-        session.revoked_at = datetime.now(timezone.utc)
+        session.expires_at = datetime.now(UTC)
+        session.revoked_at = datetime.now(UTC)
         session.revocation_reason = "Account deactivated by user"
-    
+
     db.commit()
-    
+
     # Log account deactivation
     logger.warning("User deactivated own account", extra={
         'operation': 'deactivate_account',
@@ -375,7 +373,7 @@ def deactivate_account(
         'revoked_sessions': len(user_sessions),
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return {
         'message': 'Hesabınız başarıyla deaktive edildi',
         'deactivated_at': user.deactivated_at.isoformat(),

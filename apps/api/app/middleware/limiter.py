@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 import time
 from collections import defaultdict, deque
-from typing import Deque, Dict, Tuple
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -11,12 +10,11 @@ from starlette.responses import Response
 
 from ..settings import app_settings as appset
 
+_WINDOWS: dict[str, tuple[int, int]] = {}
+_buckets: dict[str, deque[float]] = defaultdict(deque)
 
-_WINDOWS: Dict[str, Tuple[int, int]] = {}
-_buckets: Dict[str, Deque[float]] = defaultdict(deque)
 
-
-def _parse_rule(rule: str) -> Tuple[int, float]:
+def _parse_rule(rule: str) -> tuple[int, float]:
     # "60/m" -> (60, 60.0)
     m = re.match(r"^(\d+)\/(s|m|h)$", rule)
     if not m:

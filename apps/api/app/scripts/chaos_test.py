@@ -4,7 +4,6 @@ import argparse
 import json
 import random
 import time
-from typing import Dict, List
 
 import requests
 
@@ -19,7 +18,7 @@ def main():
     random.seed(args.seed)
 
     base = args.base_url
-    created: List[int] = []
+    created: list[int] = []
     dlq_before = requests.get(f"{base}/api/v1/admin/dlq").json().get("items", [])
 
     # 1) N adet assembly → cam → sim zinciri başlat

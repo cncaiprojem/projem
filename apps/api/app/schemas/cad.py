@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from typing import List, Optional
-
 from pydantic import BaseModel, Field, field_validator
 
 
 class GearStage(BaseModel):
     ratio: float = Field(..., gt=0, description="Kademe dişli oranı (örn. 3.2)")
     helix: bool = Field(default=False, description="Helisel diş mi?")
-    module: Optional[float] = Field(default=None, gt=0, description="Dişli modul değeri (opsiyonel)")
+    module: float | None = Field(default=None, gt=0, description="Dişli modul değeri (opsiyonel)")
 
 
 class MaterialsSpec(BaseModel):
@@ -23,7 +21,7 @@ class OutputsSpec(BaseModel):
 
 
 class PlanetarySpec(BaseModel):
-    stages: List[GearStage] = Field(..., min_length=1, description="Kademe listesi")
+    stages: list[GearStage] = Field(..., min_length=1, description="Kademe listesi")
     overall_ratio: float = Field(..., gt=0, description="Toplam oran (örn. 100.0)")
     power_kW: float = Field(..., gt=0, description="Güç (kW)")
     materials: MaterialsSpec

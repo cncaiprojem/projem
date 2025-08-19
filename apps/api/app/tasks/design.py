@@ -8,9 +8,14 @@ from pathlib import Path
 from celery import shared_task
 
 from ..db import db_session
-from ..models import Job
+from ..freecad.generate import (
+  build_freecad_python,
+  build_freecad_validation,
+  run_freecad_cmd,
+  validate_script_security,
+)
 from ..llm_router import generate_structured
-from ..freecad.generate import validate_script_security, build_freecad_python, run_freecad_cmd, build_freecad_validation
+from ..models import Job
 from ..storage import upload_and_sign
 
 

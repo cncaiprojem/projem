@@ -7,10 +7,8 @@ from fastapi import APIRouter, Depends
 
 from ..auth import dev_login, get_current_user
 from ..schemas import TokenPair, UserOut
-from ..settings import app_settings as settings
 
-
-router = APIRouter(prefix="/api/v1/auth-dev", tags=["Kimlik Doğrulama (Legacy/Dev)"]) 
+router = APIRouter(prefix="/api/v1/auth-dev", tags=["Kimlik Doğrulama (Legacy/Dev)"])
 
 
 @router.post("/dev-login", response_model=TokenPair)

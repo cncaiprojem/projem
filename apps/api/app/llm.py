@@ -1,18 +1,16 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
+from typing import Any
 
 from openai import OpenAI
-
-from .config import settings
 
 
 def get_openai_client() -> OpenAI:
     return OpenAI()
 
 
-FREECAD_SCRIPT_SCHEMA: Dict[str, Any] = {
+FREECAD_SCRIPT_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
         "script": {"type": "string", "description": "FreeCADCmd ortamında çalışacak Python scripti"},
@@ -32,7 +30,7 @@ def build_planetary_prompt(spec_json: str) -> str:
     )
 
 
-def generate_freecad_script_for_planetary(spec: Dict[str, Any]) -> Dict[str, str]:
+def generate_freecad_script_for_planetary(spec: dict[str, Any]) -> dict[str, str]:
     client = get_openai_client()
     prompt = build_planetary_prompt(json.dumps(spec, ensure_ascii=False))
     resp = client.responses.create(

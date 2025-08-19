@@ -1,35 +1,37 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+
 from .config import settings
-from .db import create_redis_client, close_redis_client
 from .core.logging import get_logger
+from .db import close_redis_client, create_redis_client
 
 logger = get_logger(__name__)
-from .instrumentation import setup_metrics, setup_tracing, setup_celery_instrumentation
-from .sentry_setup import setup_sentry
+from .instrumentation import setup_celery_instrumentation, setup_metrics, setup_tracing
 from .logging_setup import setup_logging
-from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict, XSSDetectionMiddleware
+from .middleware import CORSMiddlewareStrict, SecurityHeadersMiddleware, XSSDetectionMiddleware
 from .middleware.limiter import RateLimitMiddleware
-from .services.rate_limiting_service import rate_limiting_service
-from .routers import auth as auth_router
-from .routers import auth_jwt as auth_jwt_router
-from .routers import auth_enterprise as auth_enterprise_router
-from .routers import oidc_auth as oidc_auth_router
-from .routers import magic_link_auth as magic_link_auth_router
-from .routers import health as health_router
-from .routers import freecad as freecad_router
-from .routers import assemblies as assemblies_router
-from .routers import cam as cam_router
-# from .routers.cad import cam2 as cam2_router  # Temporarily disabled
-from .routers import jobs as jobs_router
 from .routers import admin_dlq as admin_dlq_router
 from .routers import admin_unmask as admin_unmask_router
-from .routers import designs as designs_router  # Re-enabled with RBAC protection
 from .routers import admin_users as admin_users_router  # New admin router
+from .routers import assemblies as assemblies_router
+from .routers import auth as auth_router
+from .routers import auth_enterprise as auth_enterprise_router
+from .routers import auth_jwt as auth_jwt_router
+from .routers import cam as cam_router
+from .routers import designs as designs_router  # Re-enabled with RBAC protection
+from .routers import freecad as freecad_router
+from .routers import health as health_router
+
+# from .routers.cad import cam2 as cam2_router  # Temporarily disabled
+from .routers import jobs as jobs_router
+from .routers import magic_link_auth as magic_link_auth_router
 from .routers import me as me_router  # New user profile router
+from .routers import oidc_auth as oidc_auth_router
 from .routers import security as security_router  # Security endpoints (Task 3.10)
+from .sentry_setup import setup_sentry
+from .services.rate_limiting_service import rate_limiting_service
+
 # Legacy routers disabled - not part of Task Master ERD
 # from .routers import projects as projects_router
 # from .routers import design as design_router
@@ -47,7 +49,6 @@ except Exception:
 from .events import router as events_router
 from .settings import app_settings as appset
 
-
 setup_logging()
 setup_tracing()
 setup_sentry()
@@ -61,7 +62,7 @@ async def lifespan(app: FastAPI):
         'operation': 'application_startup',
         'version': '0.1.0'
     })
-    
+
     try:
         # Initialize Redis client
         app.state.redis = await create_redis_client()
@@ -75,7 +76,7 @@ async def lifespan(app: FastAPI):
         })
         # Continue without Redis - some features may be unavailable
         app.state.redis = None
-    
+
     try:
         # Initialize enterprise rate limiting
         await rate_limiting_service.initialize()
@@ -88,22 +89,22 @@ async def lifespan(app: FastAPI):
             'error_type': type(e).__name__
         })
         # Continue without rate limiting - service will fail-open
-    
+
     logger.info("Application startup completed", extra={
         'operation': 'application_startup_complete'
     })
-    
+
     yield
-    
+
     # Shutdown
     logger.info("Shutting down FreeCAD API application", extra={
         'operation': 'application_shutdown'
     })
-    
+
     # Close Redis connection
     if hasattr(app.state, 'redis'):
         await close_redis_client(app.state.redis)
-    
+
     # Close rate limiting service
     try:
         await rate_limiting_service.close()
@@ -115,7 +116,7 @@ async def lifespan(app: FastAPI):
             'operation': 'rate_limiting_shutdown_failed',
             'error_type': type(e).__name__
         })
-    
+
     logger.info("Application shutdown completed", extra={
         'operation': 'application_shutdown_complete'
     })
@@ -152,6 +153,11 @@ app.include_router(designs_router.router)  # Re-enabled with RBAC protection
 app.include_router(admin_users_router.router)  # New admin router with RBAC
 app.include_router(me_router.router)  # New user profile router with RBAC
 app.include_router(security_router.router)  # Security endpoints (Task 3.10)
+from .routers import license_impacted_jobs as license_impacted_jobs_router
+from .routers import licenses as licenses_router
+
+app.include_router(licenses_router.router)  # License management with idempotency (Task 4.11)
+app.include_router(license_impacted_jobs_router.router)  # License impact tracking (Task 4.9)
 if _sim_available and sim_router is not None:
     app.include_router(sim_router.router)
 app.include_router(events_router)
@@ -175,7 +181,7 @@ from starlette.requests import Request
 
 @app.exception_handler(Exception)
 async def unhandled_exc(request: Request, exc: Exception):
-    import logging, traceback
+    import logging
     logging.exception("Unhandled exception")
     origin = request.headers.get("origin")
     allowed = (not appset.cors_allowed_origins) or (origin in appset.cors_allowed_origins)

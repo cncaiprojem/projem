@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import os
 import hashlib
-import tempfile
+import os
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple
+from typing import Any
 
 
 @dataclass
@@ -12,13 +11,13 @@ class BuildParams:
     width: float
     height: float
     thickness: float
-    holes: Tuple[Tuple[float, float, float], ...] = ()
+    holes: tuple[tuple[float, float, float], ...] = ()
     chamfer_mm: float | None = None
     fillet_mm: float | None = None
     material: str | None = None
 
 
-def parse_plan_to_params(plan: Dict[str, Any]) -> BuildParams:
+def parse_plan_to_params(plan: dict[str, Any]) -> BuildParams:
     cad = plan.get("cad", {})
     size = cad.get("size", {"x": 90, "y": 60, "z": 8})
     width = float(size.get("x", 90))
@@ -41,10 +40,9 @@ def _sha256(path: str) -> str:
     return h.hexdigest()
 
 
-def build_fcstd(params: BuildParams, out_dir: str) -> Dict[str, str]:
+def build_fcstd(params: BuildParams, out_dir: str) -> dict[str, str]:
     # FreeCAD importları fonksiyon içine alındı (ortam yoksa import hatası almamak için)
     import FreeCAD as App  # type: ignore
-    import Part  # type: ignore
 
     doc = App.newDocument("Model")
     try:
@@ -107,7 +105,7 @@ def build_fcstd(params: BuildParams, out_dir: str) -> Dict[str, str]:
         App.closeDocument(doc.Name)  # type: ignore
 
 
-def validate_fcstd(fcstd_path: str) -> Dict[str, Any]:
+def validate_fcstd(fcstd_path: str) -> dict[str, Any]:
     import FreeCAD as App  # type: ignore
 
     doc = App.openDocument(fcstd_path)
@@ -127,7 +125,7 @@ def validate_fcstd(fcstd_path: str) -> Dict[str, Any]:
         App.closeDocument(doc.Name)  # type: ignore
 
 
-def build_from_plan(plan: Dict[str, Any], out_dir: str) -> Tuple[Dict[str, str], Dict[str, Any]]:
+def build_from_plan(plan: dict[str, Any], out_dir: str) -> tuple[dict[str, str], dict[str, Any]]:
     params = parse_plan_to_params(plan)
     paths = build_fcstd(params, out_dir)
     stats = validate_fcstd(paths["fcstd"])

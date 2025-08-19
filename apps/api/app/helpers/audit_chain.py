@@ -9,10 +9,9 @@ This module provides helper functions for:
 - Enterprise-grade security controls
 """
 
-import hashlib
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy.orm import Session
 
@@ -22,19 +21,19 @@ from ..models.validators import AuditChainValidator
 
 class AuditChainHelper:
     """Ultra enterprise audit chain management helper."""
-    
+
     @staticmethod
     def create_audit_entry(
         db: Session,
         action: str,
-        user_id: Optional[int] = None,
-        resource_type: Optional[str] = None,
-        resource_id: Optional[str] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        scope_type: Optional[str] = None,
-        scope_id: Optional[str] = None
+        user_id: int | None = None,
+        resource_type: str | None = None,
+        resource_id: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        scope_type: str | None = None,
+        scope_id: str | None = None
     ) -> AuditLog:
         """
         Create a new audit log entry with proper hash chain integrity.
@@ -60,13 +59,13 @@ class AuditChainHelper:
         # Get previous hash for chain integrity
         prev_entry = db.query(AuditLog).order_by(AuditLog.id.desc()).first()
         prev_hash = prev_entry.chain_hash if prev_entry else None
-        
+
         # Build canonical payload
         payload = {
             "action": action,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         }
-        
+
         # Add optional fields in canonical order
         if user_id is not None:
             payload["user_id"] = user_id
@@ -80,34 +79,34 @@ class AuditChainHelper:
             payload["resource_id"] = resource_id
         if metadata:
             payload["metadata"] = metadata
-        
+
         # Generate cryptographic hash for chain
         chain_hash = AuditChainValidator.generate_chain_hash(payload, prev_hash)
-        
+
         # Create audit log entry
         audit_log = AuditLog(
             event_type=action,
             scope_type=scope_type or "system",
-            scope_id=scope_id or "global", 
+            scope_id=scope_id or "global",
             actor_user_id=user_id,
             payload=payload,
             chain_hash=chain_hash,
             prev_chain_hash=prev_hash,
-            created_at=datetime.now(timezone.utc)
+            created_at=datetime.now(UTC)
         )
-        
+
         # Add to session (validation will happen automatically)
         db.add(audit_log)
-        
+
         return audit_log
-    
+
     @staticmethod
     def verify_chain_integrity(
-        db: Session, 
-        start_id: Optional[int] = None,
-        end_id: Optional[int] = None,
+        db: Session,
+        start_id: int | None = None,
+        end_id: int | None = None,
         limit: int = 1000
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Verify audit chain integrity for a range of entries.
         
@@ -121,14 +120,14 @@ class AuditChainHelper:
             Verification report with integrity status and details
         """
         query = db.query(AuditLog).order_by(AuditLog.id)
-        
+
         if start_id:
             query = query.filter(AuditLog.id >= start_id)
         if end_id:
             query = query.filter(AuditLog.id <= end_id)
-        
+
         entries = query.limit(limit).all()
-        
+
         if not entries:
             return {
                 "status": "no_entries",
@@ -136,15 +135,15 @@ class AuditChainHelper:
                 "integrity_violations": [],
                 "chain_breaks": []
             }
-        
+
         integrity_violations = []
         chain_breaks = []
         verified_count = 0
-        
+
         for i, entry in enumerate(entries):
             # Get expected previous hash
             expected_prev_hash = entries[i-1].chain_hash if i > 0 else None
-            
+
             # Check chain linkage
             if entry.prev_chain_hash != expected_prev_hash:
                 chain_breaks.append({
@@ -153,13 +152,13 @@ class AuditChainHelper:
                     "actual_prev_hash": entry.prev_chain_hash,
                     "position": i
                 })
-            
+
             # Verify hash integrity
             expected_hash = AuditChainValidator.generate_chain_hash(
-                entry.payload, 
+                entry.payload,
                 entry.prev_chain_hash
             )
-            
+
             if entry.chain_hash != expected_hash:
                 integrity_violations.append({
                     "entry_id": entry.id,
@@ -169,13 +168,13 @@ class AuditChainHelper:
                 })
             else:
                 verified_count += 1
-        
+
         # Determine overall status
         if integrity_violations or chain_breaks:
             status = "violations_detected"
         else:
             status = "integrity_verified"
-        
+
         return {
             "status": status,
             "verified_count": verified_count,
@@ -185,14 +184,14 @@ class AuditChainHelper:
             "start_id": entries[0].id if entries else None,
             "end_id": entries[-1].id if entries else None
         }
-    
+
     @staticmethod
     def audit_user_action(
         db: Session,
         action: str,
         user_id: int,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
         **kwargs
     ) -> AuditLog:
         """
@@ -219,7 +218,7 @@ class AuditChainHelper:
             scope_type="user",
             scope_id=str(user_id)
         )
-    
+
     @staticmethod
     def audit_financial_action(
         db: Session,
@@ -227,8 +226,8 @@ class AuditChainHelper:
         user_id: int,
         amount_cents: int,
         currency: str,
-        invoice_id: Optional[int] = None,
-        payment_id: Optional[int] = None,
+        invoice_id: int | None = None,
+        payment_id: int | None = None,
         **kwargs
     ) -> AuditLog:
         """
@@ -248,7 +247,7 @@ class AuditChainHelper:
             Created audit log entry
         """
         from decimal import Decimal
-        
+
         # Prepare financial metadata with Turkish compliance
         financial_metadata = {
             "amount_cents": amount_cents,
@@ -256,16 +255,16 @@ class AuditChainHelper:
             "currency": currency,
             **kwargs
         }
-        
+
         if invoice_id:
             financial_metadata["invoice_id"] = invoice_id
         if payment_id:
             financial_metadata["payment_id"] = payment_id
-        
+
         # Add Turkish tax information if applicable
         if currency == "TRY" and "kdv_rate" not in financial_metadata:
             financial_metadata["kdv_rate"] = 20  # Default Turkish VAT rate
-        
+
         return AuditChainHelper.create_audit_entry(
             db=db,
             action=action,
@@ -275,14 +274,14 @@ class AuditChainHelper:
             scope_type="financial",
             scope_id=f"user_{user_id}"
         )
-    
+
     @staticmethod
     def audit_job_action(
         db: Session,
         action: str,
         job_id: int,
-        user_id: Optional[int] = None,
-        job_type: Optional[str] = None,
+        user_id: int | None = None,
+        job_type: str | None = None,
         **kwargs
     ) -> AuditLog:
         """
@@ -303,10 +302,10 @@ class AuditChainHelper:
             "job_id": job_id,
             **kwargs
         }
-        
+
         if job_type:
             job_metadata["job_type"] = job_type
-        
+
         return AuditChainHelper.create_audit_entry(
             db=db,
             action=action,
@@ -317,15 +316,15 @@ class AuditChainHelper:
             scope_type="job",
             scope_id=str(job_id)
         )
-    
+
     @staticmethod
     def audit_security_event(
         db: Session,
         event_type: str,
         severity: str,
-        user_id: Optional[int] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
+        user_id: int | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
         **kwargs
     ) -> AuditLog:
         """
@@ -348,7 +347,7 @@ class AuditChainHelper:
             "severity": severity,
             **kwargs
         }
-        
+
         return AuditChainHelper.create_audit_entry(
             db=db,
             action=f"security_{event_type}",
@@ -364,7 +363,7 @@ class AuditChainHelper:
 
 class AuditChainJSONHelper:
     """Helper for canonical JSON operations in audit chain context ensuring hash consistency."""
-    
+
     @staticmethod
     def to_canonical_json(data: Any) -> str:
         """
@@ -377,12 +376,12 @@ class AuditChainJSONHelper:
             Canonical JSON string
         """
         return json.dumps(
-            data, 
-            sort_keys=True, 
-            separators=(',', ':'), 
+            data,
+            sort_keys=True,
+            separators=(',', ':'),
             ensure_ascii=False
         )
-    
+
     @staticmethod
     def validate_canonical_json(json_str: str) -> bool:
         """
@@ -400,9 +399,9 @@ class AuditChainJSONHelper:
             return json_str == canonical
         except (json.JSONDecodeError, TypeError):
             return False
-    
+
     @staticmethod
-    def normalize_audit_payload(payload: Dict[str, Any]) -> Dict[str, Any]:
+    def normalize_audit_payload(payload: dict[str, Any]) -> dict[str, Any]:
         """
         Normalize audit payload to canonical format.
         
@@ -416,7 +415,7 @@ class AuditChainJSONHelper:
         if 'timestamp' in payload:
             if isinstance(payload['timestamp'], datetime):
                 payload['timestamp'] = payload['timestamp'].isoformat()
-        
+
         # Sort nested objects
         normalized = {}
         for key in sorted(payload.keys()):
@@ -427,21 +426,21 @@ class AuditChainJSONHelper:
                 # Sort list items if they're dictionaries
                 if value and isinstance(value[0], dict):
                     normalized[key] = [
-                        AuditChainJSONHelper.normalize_audit_payload(item) 
-                        if isinstance(item, dict) else item 
+                        AuditChainJSONHelper.normalize_audit_payload(item)
+                        if isinstance(item, dict) else item
                         for item in value
                     ]
                 else:
                     normalized[key] = value
             else:
                 normalized[key] = value
-        
+
         return normalized
 
 
 class TurkishComplianceAuditHelper:
     """Helper for Turkish regulatory compliance in audit context (KVKV/GDPR/KDV)."""
-    
+
     @staticmethod
     def audit_gdpr_action(
         db: Session,
@@ -449,7 +448,7 @@ class TurkishComplianceAuditHelper:
         user_id: int,
         data_type: str,
         legal_basis: str,
-        ip_address: Optional[str] = None,
+        ip_address: str | None = None,
         **kwargs
     ) -> AuditLog:
         """
@@ -474,7 +473,7 @@ class TurkishComplianceAuditHelper:
             "processing_purpose": kwargs.get("purpose", "service_provision"),
             **kwargs
         }
-        
+
         return AuditChainHelper.create_audit_entry(
             db=db,
             action=f"gdpr_{action}",
@@ -485,7 +484,7 @@ class TurkishComplianceAuditHelper:
             scope_type="compliance",
             scope_id=f"kvkv_user_{user_id}"
         )
-    
+
     @staticmethod
     def audit_tax_calculation(
         db: Session,
@@ -493,7 +492,7 @@ class TurkishComplianceAuditHelper:
         amount_cents: int,
         kdv_rate: int,
         kdv_amount_cents: int,
-        invoice_id: Optional[int] = None,
+        invoice_id: int | None = None,
         **kwargs
     ) -> AuditLog:
         """
@@ -512,7 +511,7 @@ class TurkishComplianceAuditHelper:
             Created audit log entry
         """
         from decimal import Decimal
-        
+
         tax_metadata = {
             "tax_type": "KDV",
             "base_amount_cents": amount_cents,
@@ -524,10 +523,10 @@ class TurkishComplianceAuditHelper:
             "currency": "TRY",
             **kwargs
         }
-        
+
         if invoice_id:
             tax_metadata["invoice_id"] = invoice_id
-        
+
         return AuditChainHelper.create_audit_entry(
             db=db,
             action="tax_calculation",
@@ -542,6 +541,6 @@ class TurkishComplianceAuditHelper:
 # Export main helper classes
 __all__ = [
     "AuditChainHelper",
-    "AuditChainJSONHelper", 
+    "AuditChainJSONHelper",
     "TurkishComplianceAuditHelper"
 ]

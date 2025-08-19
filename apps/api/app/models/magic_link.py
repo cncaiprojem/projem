@@ -8,24 +8,22 @@ This model implements banking-level security for magic link token tracking:
 - Complete audit trail for security monitoring
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Optional, Dict, Any
 import uuid
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from sqlalchemy import (
-    String, DateTime, Boolean, Index, CheckConstraint, Text
-)
-from sqlalchemy.dialects.postgresql import UUID, INET, JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import CheckConstraint, DateTime, Index, String, Text
+from sqlalchemy.dialects.postgresql import INET, JSONB, UUID
+from sqlalchemy.orm import Mapped, mapped_column
 
 from .base import Base, TimestampMixin
 
 
 class MagicLink(Base, TimestampMixin):
     """Magic link token model with ultra enterprise security."""
-    
+
     __tablename__ = "magic_links"
-    
+
     # Primary key
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
@@ -33,7 +31,7 @@ class MagicLink(Base, TimestampMixin):
         default=uuid.uuid4,
         comment="Unique magic link ID"
     )
-    
+
     # Target email (may or may not correspond to existing user)
     email: Mapped[str] = mapped_column(
         String(255),
@@ -41,7 +39,7 @@ class MagicLink(Base, TimestampMixin):
         index=True,
         comment="Target email address for magic link"
     )
-    
+
     # Security nonce for single-use enforcement
     nonce: Mapped[str] = mapped_column(
         String(64),
@@ -50,90 +48,90 @@ class MagicLink(Base, TimestampMixin):
         index=True,
         comment="Cryptographically secure nonce for single-use enforcement"
     )
-    
+
     # Token issuance tracking
     issued_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
         index=True,
         comment="Token issuance timestamp"
     )
-    
+
     # Token consumption tracking
-    consumed_at: Mapped[Optional[datetime]] = mapped_column(
+    consumed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         index=True,
         comment="Token consumption timestamp"
     )
-    
+
     # Security audit fields
-    ip_address: Mapped[Optional[str]] = mapped_column(
+    ip_address: Mapped[str | None] = mapped_column(
         INET,
         nullable=True,
         comment="IP address of token request"
     )
-    
-    user_agent: Mapped[Optional[str]] = mapped_column(
+
+    user_agent: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="User agent of token request"
     )
-    
+
     # Device fingerprint for security correlation
-    device_fingerprint: Mapped[Optional[str]] = mapped_column(
+    device_fingerprint: Mapped[str | None] = mapped_column(
         String(512),
         nullable=True,
         comment="Device fingerprint for consumption verification"
     )
-    
+
     # Consumption audit fields
-    consumed_ip_address: Mapped[Optional[str]] = mapped_column(
+    consumed_ip_address: Mapped[str | None] = mapped_column(
         INET,
         nullable=True,
         comment="IP address of token consumption"
     )
-    
-    consumed_user_agent: Mapped[Optional[str]] = mapped_column(
+
+    consumed_user_agent: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="User agent of token consumption"
     )
-    
-    consumed_device_fingerprint: Mapped[Optional[str]] = mapped_column(
+
+    consumed_device_fingerprint: Mapped[str | None] = mapped_column(
         String(512),
         nullable=True,
         comment="Device fingerprint of token consumption"
     )
-    
+
     # Invalidation tracking
-    invalidated_at: Mapped[Optional[datetime]] = mapped_column(
+    invalidated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
         comment="Token invalidation timestamp"
     )
-    
-    invalidation_reason: Mapped[Optional[str]] = mapped_column(
+
+    invalidation_reason: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True,
         comment="Reason for token invalidation"
     )
-    
+
     # Attempt tracking for security monitoring
     consumption_attempts: Mapped[int] = mapped_column(
         nullable=False,
         default=0,
         comment="Number of consumption attempts"
     )
-    
+
     # Security metadata
-    security_metadata: Mapped[Optional[Dict[str, Any]]] = mapped_column(
+    security_metadata: Mapped[dict[str, Any] | None] = mapped_column(
         JSONB,
         nullable=True,
         comment="Additional security metadata as JSON"
     )
-    
+
     # Indexes and constraints
     __table_args__ = (
         # Security indexes
@@ -146,11 +144,11 @@ class MagicLink(Base, TimestampMixin):
               postgresql_where='ip_address IS NOT NULL'),
         Index('idx_magic_links_active', 'email', 'issued_at',
               postgresql_where='consumed_at IS NULL AND invalidated_at IS NULL'),
-        
+
         # Performance indexes for cleanup operations
         Index('idx_magic_links_expired', 'issued_at',
               postgresql_where='consumed_at IS NULL AND invalidated_at IS NULL'),
-        
+
         # Security constraints
         CheckConstraint(
             'consumption_attempts >= 0',
@@ -169,48 +167,48 @@ class MagicLink(Base, TimestampMixin):
             name='ck_magic_links_invalidation_reason_valid'
         ),
     )
-    
+
     def __repr__(self) -> str:
         return f"<MagicLink(id={self.id}, email={self.email}, issued_at={self.issued_at})>"
-    
+
     @property
     def is_expired(self) -> bool:
         """Check if magic link has expired (15 minutes from issuance)."""
         if self.invalidated_at:
             return True
-        
+
         expiry_time = self.issued_at + timedelta(minutes=15)
-        return datetime.now(timezone.utc) > expiry_time
-    
+        return datetime.now(UTC) > expiry_time
+
     @property
     def is_consumed(self) -> bool:
         """Check if magic link has been consumed."""
         return self.consumed_at is not None
-    
+
     @property
     def is_valid(self) -> bool:
         """Check if magic link is valid for consumption."""
         return not self.is_expired and not self.is_consumed and not self.invalidated_at
-    
+
     @property
     def expires_at(self) -> datetime:
         """Get expiration timestamp."""
         return self.issued_at + timedelta(minutes=15)
-    
+
     @property
     def remaining_seconds(self) -> int:
         """Get remaining seconds before expiration."""
         if self.is_expired:
             return 0
-        
-        remaining = self.expires_at - datetime.now(timezone.utc)
+
+        remaining = self.expires_at - datetime.now(UTC)
         return max(0, int(remaining.total_seconds()))
-    
+
     def consume(
         self,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
-        device_fingerprint: Optional[str] = None
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        device_fingerprint: str | None = None
     ) -> None:
         """
         Mark magic link as consumed with audit information.
@@ -222,12 +220,12 @@ class MagicLink(Base, TimestampMixin):
         """
         if not self.is_valid:
             raise ValueError("Cannot consume invalid magic link")
-        
-        self.consumed_at = datetime.now(timezone.utc)
+
+        self.consumed_at = datetime.now(UTC)
         self.consumed_ip_address = ip_address
         self.consumed_user_agent = user_agent
         self.consumed_device_fingerprint = device_fingerprint
-    
+
     def invalidate(self, reason: str) -> None:
         """
         Invalidate magic link with reason.
@@ -238,15 +236,15 @@ class MagicLink(Base, TimestampMixin):
         valid_reasons = ['expired', 'consumed', 'security_revoked', 'admin_revoked']
         if reason not in valid_reasons:
             raise ValueError(f"Invalid reason. Must be one of: {valid_reasons}")
-        
-        self.invalidated_at = datetime.now(timezone.utc)
+
+        self.invalidated_at = datetime.now(UTC)
         self.invalidation_reason = reason
-    
+
     def increment_attempt(self) -> None:
         """Increment consumption attempt counter for security monitoring."""
         self.consumption_attempts += 1
-    
-    def get_security_summary(self) -> Dict[str, Any]:
+
+    def get_security_summary(self) -> dict[str, Any]:
         """Get security summary for audit logging."""
         return {
             'id': str(self.id),

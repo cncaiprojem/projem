@@ -1,34 +1,30 @@
 from __future__ import annotations
 
 import io
-import json
-import math
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Tuple
 
 import numpy as np
+from billiard.exceptions import SoftTimeLimitExceeded
+from opentelemetry import trace
+from pygltflib import GLTF2, Accessor, Buffer, BufferView, Mesh, Node, Scene
 
-from .worker import celery_app
-from ..settings import app_settings as appset
+from ..audit import audit
 from ..config import settings
 from ..db import db_session
 from ..logging_setup import get_logger
+from ..metrics import failures_total, job_latency_seconds, queue_wait_seconds, retried_total
 from ..models import Job
-from ..storage import get_s3_client, upload_and_sign
-from pygltflib import GLTF2, Scene, Node, Mesh, Buffer, BufferView, Accessor
 from ..services.dlq import push_dead
-from ..audit import audit
-from billiard.exceptions import SoftTimeLimitExceeded
-from ..metrics import job_latency_seconds, failures_total, queue_wait_seconds, retried_total
-from opentelemetry import trace
-
+from ..settings import app_settings as appset
+from ..storage import get_s3_client, upload_and_sign
+from .worker import celery_app
 
 logger = get_logger(__name__)
 
 
-def load_inputs(assembly_job_id: int, gcode_job_id: int | None) -> Tuple[Path, str]:
+def load_inputs(assembly_job_id: int, gcode_job_id: int | None) -> tuple[Path, str]:
     with db_session() as s:
         asm = s.get(Job, assembly_job_id)
         if not asm or not asm.artefacts:
@@ -77,7 +73,7 @@ def parse_gcode_basic(text: str):
     return moves, units
 
 
-def carve_voxels(moves, bounds: Dict[str, Tuple[float, float]], res_mm: float, tool_diam_mm: float):
+def carve_voxels(moves, bounds: dict[str, tuple[float, float]], res_mm: float, tool_diam_mm: float):
     nx = int((bounds['x'][1] - bounds['x'][0]) / res_mm) + 1
     ny = int((bounds['y'][1] - bounds['y'][0]) / res_mm) + 1
     nz = int((bounds['z'][1] - bounds['z'][0]) / res_mm) + 1
@@ -160,7 +156,7 @@ def sim_generate(self, job_id: int) -> dict:
         job.status = "running"
         job.started_at = datetime.utcnow()
         job.task_id = self.request.id
-        params: Dict = job.metrics.get("params", {}) if job.metrics else {}
+        params: dict = job.metrics.get("params", {}) if job.metrics else {}
         s.commit()
 
     asm_id = params.get('assembly_job_id')
@@ -206,7 +202,7 @@ def sim_generate(self, job_id: int) -> dict:
                 ...
         audit("task.success", job_id=job_id, task="sim.generate")
         return {"ok": True}
-    except SoftTimeLimitExceeded as e:
+    except SoftTimeLimitExceeded:
         with db_session() as s:
             job = s.get(Job, job_id)
             job.status = 'failed'

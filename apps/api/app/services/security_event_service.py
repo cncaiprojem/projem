@@ -14,9 +14,9 @@ Features:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from sqlalchemy import and_, desc, func, or_
 from sqlalchemy.exc import SQLAlchemyError
@@ -25,49 +25,43 @@ from sqlalchemy.orm import Session
 from ..core.logging import get_logger
 from ..middleware.correlation_middleware import get_correlation_id, get_session_id
 from ..models.security_event import SecurityEvent
-from ..models.user import User
-from ..services.pii_masking_service import (
-    DataClassification, 
-    MaskingLevel, 
-    pii_masking_service
-)
-
+from ..services.pii_masking_service import DataClassification, MaskingLevel, pii_masking_service
 
 logger = get_logger(__name__)
 
 
 class SecurityEventType(str, Enum):
     """Security event types for classification."""
-    
+
     # Authentication Events
     LOGIN_SUCCESS = "LOGIN_SUCCESS"
     LOGIN_FAILED = "LOGIN_FAILED"
     LOGIN_BLOCKED = "LOGIN_BLOCKED"
     LOGOUT = "LOGOUT"
     SESSION_EXPIRED = "SESSION_EXPIRED"
-    
+
     # Authorization Events
     ACCESS_GRANTED = "ACCESS_GRANTED"
     ACCESS_DENIED = "ACCESS_DENIED"
     PRIVILEGE_ESCALATION = "PRIVILEGE_ESCALATION"
     UNAUTHORIZED_ACCESS = "UNAUTHORIZED_ACCESS"
-    
+
     # Security Threats
     BRUTE_FORCE_DETECTED = "BRUTE_FORCE_DETECTED"
     SUSPICIOUS_LOGIN = "SUSPICIOUS_LOGIN"
     MALICIOUS_PAYLOAD = "MALICIOUS_PAYLOAD"
     SQL_INJECTION_ATTEMPT = "SQL_INJECTION_ATTEMPT"
     XSS_ATTEMPT = "XSS_ATTEMPT"
-    
+
     # Rate Limiting
     RATE_LIMIT_EXCEEDED = "RATE_LIMIT_EXCEEDED"
     API_ABUSE_DETECTED = "API_ABUSE_DETECTED"
-    
+
     # Data Protection
     DATA_ACCESS_ANOMALY = "DATA_ACCESS_ANOMALY"
     SENSITIVE_DATA_ACCESS = "SENSITIVE_DATA_ACCESS"
     GDPR_VIOLATION_DETECTED = "GDPR_VIOLATION_DETECTED"
-    
+
     # System Security
     SECURITY_CONFIG_CHANGED = "SECURITY_CONFIG_CHANGED"
     CERTIFICATE_EXPIRED = "CERTIFICATE_EXPIRED"
@@ -76,18 +70,18 @@ class SecurityEventType(str, Enum):
 
 class SecuritySeverity(str, Enum):
     """Security severity levels for incident classification."""
-    
+
     INFO = "info"           # Bilgi
     LOW = "low"             # Düşük
     MEDIUM = "medium"       # Orta
-    HIGH = "high"           # Yüksek  
+    HIGH = "high"           # Yüksek
     CRITICAL = "critical"   # Kritik
     EMERGENCY = "emergency" # Acil
 
 
 class SecurityEventService:
     """Ultra-enterprise security event service with real-time monitoring."""
-    
+
     def __init__(self):
         """Initialize security event service."""
         self.enable_real_time_alerts = True
@@ -97,19 +91,19 @@ class SecurityEventService:
             SecuritySeverity.MEDIUM: 10,     # Alert after 10 events
             SecuritySeverity.LOW: 50         # Alert after 50 events
         }
-        
+
     async def create_security_event(
         self,
         db: Session,
         event_type: SecurityEventType,
         severity: SecuritySeverity,
-        user_id: Optional[int] = None,
-        resource: Optional[str] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
-        metadata: Optional[Dict[str, Any]] = None,
-        correlation_id: Optional[str] = None,
-        session_id: Optional[str] = None
+        user_id: int | None = None,
+        resource: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        correlation_id: str | None = None,
+        session_id: str | None = None
     ) -> SecurityEvent:
         """Create comprehensive security event with KVKV compliance.
         
@@ -136,24 +130,24 @@ class SecurityEventService:
             # Use correlation context if not provided
             correlation_id = correlation_id or get_correlation_id()
             session_id = session_id or get_session_id()
-            
+
             # Apply KVKV-compliant masking
             masked_ip = None
             masked_ua = None
             masked_metadata = metadata
-            
+
             if ip_address:
                 masked_ip = pii_masking_service.mask_ip_address(
                     ip_address,
                     MaskingLevel.MEDIUM  # KVKV compliance level
                 )
-            
+
             if user_agent:
                 masked_ua = pii_masking_service.mask_user_agent(
                     user_agent,
                     MaskingLevel.LIGHT  # Preserve security-relevant info
                 )
-            
+
             if metadata:
                 # Apply classification-based masking
                 classification = self._determine_data_classification(event_type, severity)
@@ -162,7 +156,7 @@ class SecurityEventService:
                     classification,
                     preserve_keys=["timestamp", "event_id", "severity", "threat_score"]
                 )
-            
+
             # Create security event
             security_event = SecurityEvent(
                 user_id=user_id,
@@ -173,13 +167,13 @@ class SecurityEventService:
                 ip_masked=masked_ip,
                 ua_masked=masked_ua,
                 metadata=masked_metadata,
-                created_at=datetime.now(timezone.utc)
+                created_at=datetime.now(UTC)
             )
-            
+
             # Add to database
             db.add(security_event)
             db.flush()  # Get ID without committing
-            
+
             # Log security event creation
             self._log_security_event_creation(
                 security_event.id,
@@ -187,7 +181,7 @@ class SecurityEventService:
                 severity,
                 correlation_id
             )
-            
+
             # Check for real-time alerting
             if self.enable_real_time_alerts:
                 await self._check_alert_conditions(
@@ -197,9 +191,9 @@ class SecurityEventService:
                     user_id,
                     ip_address
                 )
-            
+
             return security_event
-            
+
         except SQLAlchemyError as e:
             logger.error(
                 "security_event_creation_failed",
@@ -219,19 +213,19 @@ class SecurityEventService:
                 correlation_id=correlation_id
             )
             raise ValueError(f"Failed to create security event: {str(e)}")
-    
+
     async def get_security_events(
         self,
         db: Session,
-        correlation_id: Optional[str] = None,
-        user_id: Optional[int] = None,
-        event_type: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
-        severity_filter: Optional[List[str]] = None,
+        correlation_id: str | None = None,
+        user_id: int | None = None,
+        event_type: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
+        severity_filter: list[str] | None = None,
         limit: int = 100,
         offset: int = 0
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Retrieve security events with filtering and pagination.
         
         Args:
@@ -251,23 +245,23 @@ class SecurityEventService:
         try:
             # Build query
             query = db.query(SecurityEvent)
-            
+
             # Apply filters
             if correlation_id:
                 query = query.filter(SecurityEvent.correlation_id == correlation_id)
-            
+
             if user_id:
                 query = query.filter(SecurityEvent.user_id == user_id)
-            
+
             if event_type:
                 query = query.filter(SecurityEvent.type.ilike(f"%{event_type}%"))
-            
+
             if start_date:
                 query = query.filter(SecurityEvent.created_at >= start_date)
-            
+
             if end_date:
                 query = query.filter(SecurityEvent.created_at <= end_date)
-            
+
             if severity_filter:
                 # Filter by severity in metadata (if stored there)
                 severity_conditions = []
@@ -277,10 +271,10 @@ class SecurityEventService:
                     )
                 if severity_conditions:
                     query = query.filter(or_(*severity_conditions))
-            
+
             # Get total count for pagination
             total_count = query.count()
-            
+
             # Apply ordering and pagination
             security_events = (
                 query.order_by(desc(SecurityEvent.created_at))
@@ -288,7 +282,7 @@ class SecurityEventService:
                 .offset(offset)
                 .all()
             )
-            
+
             # Format results
             formatted_events = []
             for event in security_events:
@@ -310,7 +304,7 @@ class SecurityEventService:
                     "is_suspicious": event.is_suspicious()
                 }
                 formatted_events.append(formatted_event)
-            
+
             return {
                 "events": formatted_events,
                 "pagination": {
@@ -330,7 +324,7 @@ class SecurityEventService:
                     "severity_filter": severity_filter
                 }
             }
-            
+
         except SQLAlchemyError as e:
             logger.error(
                 "security_events_retrieval_failed",
@@ -338,13 +332,13 @@ class SecurityEventService:
                 correlation_id=correlation_id
             )
             raise
-    
+
     async def analyze_security_trends(
         self,
         db: Session,
         time_window_hours: int = 24,
-        user_id: Optional[int] = None
-    ) -> Dict[str, Any]:
+        user_id: int | None = None
+    ) -> dict[str, Any]:
         """Analyze security trends and patterns.
         
         Args:
@@ -357,19 +351,19 @@ class SecurityEventService:
         """
         try:
             from datetime import timedelta
-            
+
             # Calculate time window
-            end_time = datetime.now(timezone.utc)
+            end_time = datetime.now(UTC)
             start_time = end_time - timedelta(hours=time_window_hours)
-            
+
             # Base query for time window
             base_query = db.query(SecurityEvent).filter(
                 SecurityEvent.created_at >= start_time
             )
-            
+
             if user_id:
                 base_query = base_query.filter(SecurityEvent.user_id == user_id)
-            
+
             # Event type distribution
             event_type_stats = (
                 base_query.with_entities(
@@ -380,7 +374,7 @@ class SecurityEventService:
                 .order_by(desc('count'))
                 .all()
             )
-            
+
             # Hourly event distribution
             hourly_stats = (
                 base_query.with_entities(
@@ -391,7 +385,7 @@ class SecurityEventService:
                 .order_by('hour')
                 .all()
             )
-            
+
             # Top affected users (if not filtering by user)
             top_users = []
             if not user_id:
@@ -406,7 +400,7 @@ class SecurityEventService:
                     .limit(10)
                     .all()
                 )
-            
+
             # Suspicious activity detection
             suspicious_events = (
                 base_query.filter(
@@ -417,7 +411,7 @@ class SecurityEventService:
                     )
                 ).count()
             )
-            
+
             return {
                 "analysis_period": {
                     "start": start_time.isoformat(),
@@ -444,7 +438,7 @@ class SecurityEventService:
                     time_window_hours
                 )
             }
-            
+
         except Exception as e:
             logger.error(
                 "security_trend_analysis_failed",
@@ -452,16 +446,16 @@ class SecurityEventService:
                 time_window_hours=time_window_hours
             )
             raise
-    
+
     async def record_authentication_event(
         self,
         db: Session,
         event_type: SecurityEventType,
-        user_id: Optional[int],
+        user_id: int | None,
         success: bool,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
-        additional_data: Optional[Dict[str, Any]] = None
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        additional_data: dict[str, Any] | None = None
     ) -> SecurityEvent:
         """Record authentication-related security event.
         
@@ -478,13 +472,13 @@ class SecurityEventService:
             Created security event
         """
         severity = SecuritySeverity.INFO if success else SecuritySeverity.MEDIUM
-        
+
         auth_metadata = {
             "authentication_success": success,
             "event_category": "authentication",
             **(additional_data or {})
         }
-        
+
         return await self.create_security_event(
             db=db,
             event_type=event_type,
@@ -495,7 +489,7 @@ class SecurityEventService:
             user_agent=user_agent,
             metadata=auth_metadata
         )
-    
+
     async def record_access_control_event(
         self,
         db: Session,
@@ -503,8 +497,8 @@ class SecurityEventService:
         action: str,
         user_id: int,
         granted: bool,
-        ip_address: Optional[str] = None,
-        additional_data: Optional[Dict[str, Any]] = None
+        ip_address: str | None = None,
+        additional_data: dict[str, Any] | None = None
     ) -> SecurityEvent:
         """Record access control security event.
         
@@ -522,14 +516,14 @@ class SecurityEventService:
         """
         event_type = SecurityEventType.ACCESS_GRANTED if granted else SecurityEventType.ACCESS_DENIED
         severity = SecuritySeverity.INFO if granted else SecuritySeverity.HIGH
-        
+
         access_metadata = {
             "access_granted": granted,
             "action": action,
             "event_category": "access_control",
             **(additional_data or {})
         }
-        
+
         return await self.create_security_event(
             db=db,
             event_type=event_type,
@@ -539,7 +533,7 @@ class SecurityEventService:
             ip_address=ip_address,
             metadata=access_metadata
         )
-    
+
     def _determine_data_classification(
         self,
         event_type: SecurityEventType,
@@ -557,7 +551,7 @@ class SecurityEventService:
         # High-sensitivity events
         if severity in [SecuritySeverity.CRITICAL, SecuritySeverity.EMERGENCY]:
             return DataClassification.SENSITIVE
-        
+
         # Authentication and authorization events
         if event_type in [
             SecurityEventType.LOGIN_FAILED,
@@ -565,24 +559,24 @@ class SecurityEventService:
             SecurityEventType.PRIVILEGE_ESCALATION
         ]:
             return DataClassification.RESTRICTED
-        
+
         # Data protection events
         if event_type in [
             SecurityEventType.SENSITIVE_DATA_ACCESS,
             SecurityEventType.GDPR_VIOLATION_DETECTED
         ]:
             return DataClassification.SENSITIVE
-        
+
         # Default to personal data classification
         return DataClassification.PERSONAL
-    
+
     async def _check_alert_conditions(
         self,
         db: Session,
         event_type: SecurityEventType,
         severity: SecuritySeverity,
-        user_id: Optional[int],
-        ip_address: Optional[str]
+        user_id: int | None,
+        ip_address: str | None
     ) -> None:
         """Check if alert conditions are met for real-time monitoring.
         
@@ -603,32 +597,32 @@ class SecurityEventService:
                         "severity": severity.value,
                         "user_id": user_id,
                         "ip_address": ip_address,
-                        "timestamp": datetime.now(timezone.utc).isoformat()
+                        "timestamp": datetime.now(UTC).isoformat()
                     }
                 )
-            
+
             # Check for brute force patterns
             if event_type == SecurityEventType.LOGIN_FAILED and ip_address:
                 await self._check_brute_force_pattern(db, ip_address)
-            
+
             # Check for suspicious user activity
             if user_id and event_type in [
                 SecurityEventType.UNAUTHORIZED_ACCESS,
                 SecurityEventType.PRIVILEGE_ESCALATION
             ]:
                 await self._check_user_anomaly_pattern(db, user_id)
-                
+
         except Exception as e:
             logger.error(
                 "alert_condition_check_failed",
                 event_type=event_type.value,
                 error=str(e)
             )
-    
+
     async def _trigger_security_alert(
         self,
         alert_type: str,
-        alert_data: Dict[str, Any]
+        alert_data: dict[str, Any]
     ) -> None:
         """Trigger security alert for immediate response.
         
@@ -642,10 +636,10 @@ class SecurityEventService:
             alert_data=alert_data,
             requires_immediate_attention=True
         )
-        
+
         # Here you would integrate with external alerting systems
         # such as SIEM, email alerts, SMS, etc.
-    
+
     async def _check_brute_force_pattern(
         self,
         db: Session,
@@ -658,10 +652,10 @@ class SecurityEventService:
             ip_address: IP address to analyze
         """
         from datetime import timedelta
-        
+
         # Look for login failures in last 15 minutes
-        recent_time = datetime.now(timezone.utc) - timedelta(minutes=15)
-        
+        recent_time = datetime.now(UTC) - timedelta(minutes=15)
+
         # Count failed login attempts (check in metadata or deduce from IP masking)
         # This is a simplified check - in production, you'd need more sophisticated logic
         recent_failures = (
@@ -675,7 +669,7 @@ class SecurityEventService:
             )
             .count()
         )
-        
+
         if recent_failures >= 5:  # Threshold for brute force
             await self._trigger_security_alert(
                 "BRUTE_FORCE_DETECTED",
@@ -685,7 +679,7 @@ class SecurityEventService:
                     "time_window_minutes": 15
                 }
             )
-    
+
     async def _check_user_anomaly_pattern(
         self,
         db: Session,
@@ -698,10 +692,10 @@ class SecurityEventService:
             user_id: User ID to analyze
         """
         from datetime import timedelta
-        
+
         # Look for suspicious events in last hour
-        recent_time = datetime.now(timezone.utc) - timedelta(hours=1)
-        
+        recent_time = datetime.now(UTC) - timedelta(hours=1)
+
         suspicious_events = (
             db.query(SecurityEvent)
             .filter(
@@ -717,7 +711,7 @@ class SecurityEventService:
             )
             .count()
         )
-        
+
         if suspicious_events >= 3:  # Threshold for user anomaly
             await self._trigger_security_alert(
                 "USER_ANOMALY_DETECTED",
@@ -727,13 +721,13 @@ class SecurityEventService:
                     "time_window_hours": 1
                 }
             )
-    
+
     def _calculate_security_score(
         self,
         total_events: int,
         suspicious_events: int,
         time_window_hours: int
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Calculate security score based on event patterns.
         
         Args:
@@ -750,24 +744,24 @@ class SecurityEventService:
                 "level": "EXCELLENT",
                 "description": "No security events detected"
             }
-        
+
         # Calculate suspicious event ratio
         suspicious_ratio = suspicious_events / total_events
-        
+
         # Calculate event frequency (events per hour)
         event_frequency = total_events / time_window_hours
-        
+
         # Base score calculation (100 is perfect)
         base_score = 100
-        
+
         # Deduct points for suspicious events
         suspicious_penalty = min(suspicious_ratio * 50, 40)
-        
+
         # Deduct points for high event frequency (potential issues)
         frequency_penalty = min(event_frequency / 10, 20) if event_frequency > 50 else 0
-        
+
         final_score = max(base_score - suspicious_penalty - frequency_penalty, 0)
-        
+
         # Determine security level
         if final_score >= 90:
             level = "EXCELLENT"
@@ -779,7 +773,7 @@ class SecurityEventService:
             level = "POOR"
         else:
             level = "CRITICAL"
-        
+
         return {
             "score": round(final_score, 1),
             "level": level,
@@ -787,13 +781,13 @@ class SecurityEventService:
             "event_frequency": round(event_frequency, 1),
             "description": f"Security level: {level} ({final_score:.1f}/100)"
         }
-    
+
     def _log_security_event_creation(
         self,
         event_id: int,
         event_type: SecurityEventType,
         severity: SecuritySeverity,
-        correlation_id: Optional[str]
+        correlation_id: str | None
     ) -> None:
         """Log security event creation for monitoring.
         
@@ -822,6 +816,6 @@ security_event_service = SecurityEventService()
 __all__ = [
     "SecurityEventService",
     "SecurityEventType",
-    "SecuritySeverity", 
+    "SecuritySeverity",
     "security_event_service"
 ]

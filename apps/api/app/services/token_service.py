@@ -10,33 +10,30 @@ This service implements banking-level refresh token management with:
 - Complete audit trail for forensic analysis
 """
 
-import secrets
 import hashlib
 import hmac
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional, Tuple
-import uuid
+import secrets
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from fastapi import Response, Request, HTTPException, status
-from fastapi.responses import JSONResponse
+from fastapi import Request, Response
 from sqlalchemy.orm import Session as DBSession
-from sqlalchemy import and_, or_
 
-from ..models.user import User
-from ..models.session import Session
+from ..config import settings
+from ..core.logging import get_logger
 from ..models.audit_log import AuditLog
 from ..models.security_event import SecurityEvent
-from ..core.logging import get_logger
-from ..config import settings
-from .session_service import SessionService, SessionSecurityError
+from ..models.session import Session
+from ..models.user import User
+from .session_service import SessionSecurityError, SessionService
 
 logger = get_logger(__name__)
 
 
 class TokenServiceError(Exception):
     """Base token service error with Turkish localization."""
-    
-    def __init__(self, code: str, message: str, details: Optional[Dict] = None):
+
+    def __init__(self, code: str, message: str, details: dict | None = None):
         self.code = code
         self.message = message
         self.details = details or {}
@@ -45,7 +42,7 @@ class TokenServiceError(Exception):
 
 class RefreshTokenResult:
     """Result of refresh token operation."""
-    
+
     def __init__(
         self,
         session: Session,
@@ -61,28 +58,28 @@ class RefreshTokenResult:
 
 class TokenService:
     """Ultra enterprise refresh token management with banking-level security."""
-    
+
     def __init__(self):
         self.session_service = SessionService()
-        
+
         # Refresh token configuration
         self.refresh_token_length = settings.refresh_token_length  # 64 bytes = 512 bits
         self.refresh_token_expire_days = settings.jwt_refresh_token_expire_days
-        
+
         # Cookie configuration
         self.cookie_name = settings.refresh_token_cookie_name
         self.cookie_domain = settings.refresh_token_cookie_domain
         self.cookie_secure = settings.refresh_token_cookie_secure and settings.env != "development"
         self.cookie_samesite = settings.refresh_token_cookie_samesite
         self.cookie_max_age = self.refresh_token_expire_days * 24 * 60 * 60  # Convert to seconds
-        
+
         # Security configuration
         self.max_rotation_chain = 50  # Prevent infinite chains
         self.reuse_detection_window_hours = 24  # Window for detecting reuse attacks
-        
+
         # Token secret for HMAC (separate from JWT secret for additional security)
         self.token_secret = getattr(settings, 'REFRESH_TOKEN_SECRET', settings.secret_key)
-    
+
     def generate_refresh_token(self) -> str:
         """
         Generate cryptographically secure 256-bit refresh token.
@@ -92,18 +89,18 @@ class TokenService:
         """
         # Generate 64 bytes (512 bits) of cryptographically secure random data
         token_bytes = secrets.token_bytes(self.refresh_token_length)
-        
+
         # Encode as base64url for URL-safe transport
         token = secrets.token_urlsafe(self.refresh_token_length)
-        
+
         logger.debug("Refresh token generated", extra={
             'operation': 'generate_refresh_token',
             'token_length': len(token),
             'entropy_bits': self.refresh_token_length * 8
         })
-        
+
         return token
-    
+
     def hash_refresh_token(self, token: str) -> str:
         """
         Hash refresh token using SHA512/HMAC for secure storage.
@@ -120,16 +117,16 @@ class TokenService:
             token.encode('utf-8'),
             hashlib.sha512
         )
-        
+
         return hmac_obj.hexdigest()
-    
+
     def create_refresh_session(
         self,
         db: DBSession,
         user: User,
-        device_fingerprint: Optional[str] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        device_fingerprint: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ) -> RefreshTokenResult:
         """
         Create new session with refresh token.
@@ -147,8 +144,8 @@ class TokenService:
         Raises:
             TokenServiceError: If creation fails
         """
-        start_time = datetime.now(timezone.utc)
-        
+        start_time = datetime.now(UTC)
+
         try:
             # Create session using existing session service
             session, refresh_token = self.session_service.create_session(
@@ -159,14 +156,14 @@ class TokenService:
                 user_agent=user_agent,
                 expires_in_hours=self.refresh_token_expire_days * 24
             )
-            
+
             # Import here to avoid circular imports
             from .jwt_service import jwt_service
-            
+
             # Create access token
             access_token = jwt_service.create_access_token(user, session)
             expires_in = settings.jwt_access_token_expire_minutes * 60
-            
+
             # Log token creation
             self._log_audit_event(
                 db, user.id, 'refresh_token_created',
@@ -177,9 +174,9 @@ class TokenService:
                     'expires_in_days': self.refresh_token_expire_days
                 }
             )
-            
-            elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-            
+
+            elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
             logger.info("Refresh token session created", extra={
                 'operation': 'create_refresh_session',
                 'user_id': user.id,
@@ -187,14 +184,14 @@ class TokenService:
                 'expires_in_days': self.refresh_token_expire_days,
                 'elapsed_ms': elapsed_ms
             })
-            
+
             return RefreshTokenResult(
                 session=session,
                 refresh_token=refresh_token,
                 access_token=access_token,
                 expires_in=expires_in
             )
-            
+
         except SessionSecurityError as e:
             raise TokenServiceError(e.code, e.message, e.details)
         except Exception as e:
@@ -207,14 +204,14 @@ class TokenService:
                 'ERR-REFRESH-CREATION-FAILED',
                 'Refresh token oluşturma başarısız'
             )
-    
+
     def rotate_refresh_token(
         self,
         db: DBSession,
         current_refresh_token: str,
-        device_fingerprint: Optional[str] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        device_fingerprint: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ) -> RefreshTokenResult:
         """
         Rotate refresh token with reuse detection and security analysis.
@@ -232,44 +229,44 @@ class TokenService:
         Raises:
             TokenServiceError: If rotation fails or reuse detected
         """
-        start_time = datetime.now(timezone.utc)
-        
+        start_time = datetime.now(UTC)
+
         try:
             # Hash the current token for lookup
             token_hash = self.hash_refresh_token(current_refresh_token)
-            
+
             # Find current session
             current_session = db.query(Session).filter(
                 Session.refresh_token_hash == token_hash,
                 Session.revoked_at.is_(None)
             ).first()
-            
+
             if not current_session:
                 # Check if token was recently revoked (reuse detection)
                 revoked_session = db.query(Session).filter(
                     Session.refresh_token_hash == token_hash,
                     Session.revoked_at.isnot(None),
-                    Session.revoked_at > datetime.now(timezone.utc) - timedelta(hours=self.reuse_detection_window_hours)
+                    Session.revoked_at > datetime.now(UTC) - timedelta(hours=self.reuse_detection_window_hours)
                 ).first()
-                
+
                 if revoked_session:
                     # SECURITY ALERT: Refresh token reuse detected
                     self._handle_refresh_token_reuse(
                         db, revoked_session, ip_address, user_agent
                     )
-                    
+
                 raise TokenServiceError(
                     'ERR-REFRESH-REUSE',
                     'Refresh token yeniden kullanım girişimi tespit edildi. Güvenlik nedeniyle tüm oturumlar sonlandırıldı.'
                 )
-            
+
             # Verify session is still valid
             if not current_session.is_active:
                 raise TokenServiceError(
                     'ERR-REFRESH-INVALID',
                     'Refresh token geçersiz veya süresi dolmuş'
                 )
-            
+
             # Check rotation chain length for security
             chain_length = current_session.get_rotation_chain_length()
             if chain_length >= self.max_rotation_chain:
@@ -278,14 +275,14 @@ class TokenService:
                     'session_id': str(current_session.id),
                     'chain_length': chain_length
                 })
-                
+
                 # Force new session instead of rotation
                 current_session.revoke('excessive_rotation_chain')
                 user = current_session.user
                 return self.create_refresh_session(
                     db, user, device_fingerprint, ip_address, user_agent
                 )
-            
+
             # Analyze device fingerprint for anomalies
             if device_fingerprint and current_session.device_fingerprint:
                 if device_fingerprint != current_session.device_fingerprint:
@@ -297,7 +294,7 @@ class TokenService:
                             'new_fingerprint': device_fingerprint[:50] + '...'
                         }
                     )
-            
+
             # Use session service for secure rotation
             new_session, new_refresh_token = self.session_service.rotate_session(
                 db=db,
@@ -306,14 +303,14 @@ class TokenService:
                 ip_address=ip_address,
                 user_agent=user_agent
             )
-            
+
             # Import here to avoid circular imports
             from .jwt_service import jwt_service
-            
+
             # Create new access token
             access_token = jwt_service.create_access_token(new_session.user, new_session)
             expires_in = settings.jwt_access_token_expire_minutes * 60
-            
+
             # Log successful rotation
             self._log_audit_event(
                 db, new_session.user_id, 'refresh_token_rotated',
@@ -324,9 +321,9 @@ class TokenService:
                     'chain_length': chain_length + 1
                 }
             )
-            
-            elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-            
+
+            elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
             logger.info("Refresh token rotated successfully", extra={
                 'operation': 'rotate_refresh_token',
                 'user_id': new_session.user_id,
@@ -335,14 +332,14 @@ class TokenService:
                 'chain_length': chain_length + 1,
                 'elapsed_ms': elapsed_ms
             })
-            
+
             return RefreshTokenResult(
                 session=new_session,
                 refresh_token=new_refresh_token,
                 access_token=access_token,
                 expires_in=expires_in
             )
-            
+
         except TokenServiceError:
             raise  # Re-raise our custom errors
         except Exception as e:
@@ -354,7 +351,7 @@ class TokenService:
                 'ERR-REFRESH-ROTATION-FAILED',
                 'Refresh token rotasyonu başarısız'
             )
-    
+
     def revoke_refresh_token(
         self,
         db: DBSession,
@@ -376,7 +373,7 @@ class TokenService:
             session_id = self.session_service.revoke_session_by_token(
                 db, refresh_token, reason
             )
-            
+
             if session_id:
                 logger.info("Refresh token revoked", extra={
                     'operation': 'revoke_refresh_token',
@@ -384,9 +381,9 @@ class TokenService:
                     'reason': reason
                 })
                 return True
-            
+
             return False
-            
+
         except Exception as e:
             logger.error("Refresh token revocation failed", exc_info=True, extra={
                 'operation': 'revoke_refresh_token',
@@ -397,7 +394,7 @@ class TokenService:
                 'ERR-REFRESH-REVOCATION-FAILED',
                 'Refresh token iptali başarısız'
             )
-    
+
     def revoke_all_refresh_tokens(
         self,
         db: DBSession,
@@ -419,22 +416,22 @@ class TokenService:
             revoked_count = self.session_service.revoke_all_user_sessions(
                 db, user_id, reason
             )
-            
+
             self._log_audit_event(
                 db, user_id, 'all_refresh_tokens_revoked',
                 f'Tüm refresh token\'lar iptal edildi: {revoked_count} oturum',
                 {'revoked_count': revoked_count, 'reason': reason}
             )
-            
+
             logger.info("All refresh tokens revoked for user", extra={
                 'operation': 'revoke_all_refresh_tokens',
                 'user_id': user_id,
                 'revoked_count': revoked_count,
                 'reason': reason
             })
-            
+
             return revoked_count
-            
+
         except Exception as e:
             logger.error("All refresh tokens revocation failed", exc_info=True, extra={
                 'operation': 'revoke_all_refresh_tokens',
@@ -445,7 +442,7 @@ class TokenService:
                 'ERR-REFRESH-REVOCATION-ALL-FAILED',
                 'Tüm refresh token iptali başarısız'
             )
-    
+
     def set_refresh_cookie(
         self,
         response: Response,
@@ -467,13 +464,13 @@ class TokenService:
             'samesite': self.cookie_samesite,
             'path': '/'
         }
-        
+
         # Add domain if configured
         if self.cookie_domain:
             cookie_kwargs['domain'] = self.cookie_domain
-        
+
         response.set_cookie(**cookie_kwargs)
-        
+
         logger.debug("Refresh token cookie set", extra={
             'operation': 'set_refresh_cookie',
             'cookie_name': self.cookie_name,
@@ -481,7 +478,7 @@ class TokenService:
             'secure': self.cookie_secure,
             'samesite': self.cookie_samesite
         })
-    
+
     def clear_refresh_cookie(self, response: Response) -> None:
         """
         Clear refresh token cookie.
@@ -496,13 +493,13 @@ class TokenService:
             secure=self.cookie_secure,
             samesite=self.cookie_samesite
         )
-        
+
         logger.debug("Refresh token cookie cleared", extra={
             'operation': 'clear_refresh_cookie',
             'cookie_name': self.cookie_name
         })
-    
-    def get_refresh_token_from_request(self, request: Request) -> Optional[str]:
+
+    def get_refresh_token_from_request(self, request: Request) -> str | None:
         """
         Extract refresh token from request cookie.
         
@@ -513,13 +510,13 @@ class TokenService:
             Refresh token or None if not found
         """
         return request.cookies.get(self.cookie_name)
-    
+
     def _handle_refresh_token_reuse(
         self,
         db: DBSession,
         compromised_session: Session,
-        ip_address: Optional[str],
-        user_agent: Optional[str]
+        ip_address: str | None,
+        user_agent: str | None
     ) -> None:
         """
         Handle refresh token reuse attack with immediate security response.
@@ -531,24 +528,24 @@ class TokenService:
             user_agent: Attacker user agent
         """
         user_id = compromised_session.user_id
-        
+
         # IMMEDIATE SECURITY RESPONSE:
         # 1. Revoke ALL sessions for the user (nuclear option)
         revoked_count = self.session_service.revoke_all_user_sessions(
             db, user_id, 'refresh_token_reuse_detected'
         )
-        
+
         # 2. Log critical security event
         self._log_security_event(
             db, user_id, 'REFRESH_TOKEN_REUSE_ATTACK',
             ip_address, user_agent, {
                 'compromised_session_id': str(compromised_session.id),
                 'sessions_revoked': revoked_count,
-                'attack_timestamp': datetime.now(timezone.utc).isoformat(),
+                'attack_timestamp': datetime.now(UTC).isoformat(),
                 'severity': 'CRITICAL'
             }
         )
-        
+
         # 3. Log audit event
         self._log_audit_event(
             db, user_id, 'security_breach_refresh_reuse',
@@ -559,7 +556,7 @@ class TokenService:
                 'response_action': 'all_sessions_revoked'
             }
         )
-        
+
         logger.critical("SECURITY ALERT: Refresh token reuse attack detected", extra={
             'operation': 'handle_refresh_token_reuse',
             'user_id': user_id,
@@ -569,15 +566,15 @@ class TokenService:
             'attacker_user_agent': user_agent,
             'severity': 'CRITICAL'
         })
-    
+
     def _log_security_event(
         self,
         db: DBSession,
         user_id: int,
         event_type: str,
-        ip_address: Optional[str],
-        user_agent: Optional[str],
-        details: Dict[str, Any]
+        ip_address: str | None,
+        user_agent: str | None,
+        details: dict[str, Any]
     ) -> None:
         """Log security event."""
         try:
@@ -591,19 +588,19 @@ class TokenService:
             )
             db.add(security_event)
             db.flush()
-        except Exception as e:
+        except Exception:
             logger.error("Failed to log security event", exc_info=True, extra={
                 'event_type': event_type,
                 'user_id': user_id
             })
-    
+
     def _log_audit_event(
         self,
         db: DBSession,
         user_id: int,
         action: str,
         description: str,
-        details: Dict[str, Any]
+        details: dict[str, Any]
     ) -> None:
         """Log audit event."""
         try:
@@ -615,7 +612,7 @@ class TokenService:
             )
             db.add(audit_log)
             db.flush()
-        except Exception as e:
+        except Exception:
             logger.error("Failed to log audit event", exc_info=True, extra={
                 'action': action,
                 'user_id': user_id

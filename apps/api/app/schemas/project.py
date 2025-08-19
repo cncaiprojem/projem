@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
-from typing import List, Optional, Literal, Dict, Any
 
 ProjectType = Literal["part", "assembly"]
 
@@ -10,7 +11,7 @@ class ProjectCreate(BaseModel):
     name: str = Field(min_length=1, max_length=200)
     type: ProjectType = "part"
     source: Literal["prompt", "upload"] = "prompt"
-    prompt: Optional[str] = None
+    prompt: str | None = None
 
 
 class ProjectOut(BaseModel):
@@ -26,19 +27,19 @@ class ProjectOut(BaseModel):
 class DesignPlanIn(BaseModel):
     project_id: int
     prompt: str
-    context: Optional[Dict[str, Any]] = None
+    context: dict[str, Any] | None = None
 
 
 class DesignPlanOut(BaseModel):
     is_cnc_related: bool
     kind: ProjectType
-    missing: List[str]
-    plan: Dict[str, Any]
+    missing: list[str]
+    plan: dict[str, Any]
 
 
 class DesignAnswerIn(BaseModel):
     project_id: int
-    answers: Dict[str, Any]
+    answers: dict[str, Any]
 
 
 class DesignAnswerOut(DesignPlanOut):

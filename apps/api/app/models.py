@@ -5,37 +5,32 @@ All models are now in the models/ package.
 
 # Import all models from the new modular structure
 from .models import (
+    Artefact,
+    AuditLog,
     # Base
     Base,
-    TimestampMixin,
-    metadata,
-    
-    # User & Auth
-    User,
-    Session,
-    License,
-    
+    CamRun,
+    ErpMesSync,
     # Billing
     Invoice,
-    Payment,
-    
-    # Core Business
-    Model,
     Job,
-    CamRun,
-    SimRun,
-    Artefact,
-    
+    License,
     # Reference Data
     Machine,
     Material,
-    Tool,
-    
+    # Core Business
+    Model,
     # System
     Notification,
-    ErpMesSync,
-    AuditLog,
+    Payment,
     SecurityEvent,
+    Session,
+    SimRun,
+    TimestampMixin,
+    Tool,
+    # User & Auth
+    User,
+    metadata,
 )
 
 # Re-export for backward compatibility
@@ -44,28 +39,28 @@ __all__ = [
     "Base",
     "TimestampMixin",
     "metadata",
-    
+
     # User & Auth
     "User",
     "Session",
     "License",
-    
+
     # Billing
     "Invoice",
     "Payment",
-    
+
     # Core Business
     "Model",
     "Job",
     "CamRun",
     "SimRun",
     "Artefact",
-    
+
     # Reference Data
     "Machine",
     "Material",
     "Tool",
-    
+
     # System
     "Notification",
     "ErpMesSync",

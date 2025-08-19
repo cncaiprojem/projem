@@ -9,11 +9,11 @@ Pydantic schemas for RBAC-related data validation and API responses with:
 - KVKV compliance considerations
 """
 
-from typing import Optional, List, Dict, Any, Set
 from datetime import datetime
 from enum import Enum
+from typing import Any
 
-from pydantic import BaseModel, Field, validator, root_validator
+from pydantic import BaseModel, Field, validator
 from pydantic.config import ConfigDict
 
 from ..models.enums import UserRole
@@ -21,7 +21,7 @@ from ..models.enums import UserRole
 
 class RBACErrorCode(str, Enum):
     """RBAC error codes for API responses."""
-    
+
     AUTH_REQUIRED = "ERR-AUTH-REQUIRED"
     RBAC_FORBIDDEN = "ERR-RBAC-FORBIDDEN"
     ADMIN_REQUIRED = "ERR-ADMIN-REQUIRED"
@@ -32,7 +32,7 @@ class RBACErrorCode(str, Enum):
 
 class RBACErrorResponse(BaseModel):
     """Standard RBAC error response schema."""
-    
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -46,7 +46,7 @@ class RBACErrorResponse(BaseModel):
             }
         }
     )
-    
+
     error_code: RBACErrorCode = Field(
         ...,
         description="Specific RBAC error code"
@@ -57,7 +57,7 @@ class RBACErrorResponse(BaseModel):
         min_length=1,
         max_length=500
     )
-    details: Optional[Dict[str, Any]] = Field(
+    details: dict[str, Any] | None = Field(
         None,
         description="Additional error details"
     )
@@ -69,7 +69,7 @@ class RBACErrorResponse(BaseModel):
 
 class PermissionScope(BaseModel):
     """Permission scope definition."""
-    
+
     scope: str = Field(
         ...,
         description="Permission scope identifier",
@@ -94,28 +94,28 @@ class PermissionScope(BaseModel):
         min_length=1,
         max_length=50
     )
-    
+
     @validator('scope')
     def validate_scope_format(cls, v):
         """Validate scope follows resource:action format."""
         if ':' not in v:
             raise ValueError("Scope must follow 'resource:action' format")
-        
+
         resource, action = v.split(':', 1)
         if not resource or not action:
             raise ValueError("Both resource and action must be non-empty")
-        
+
         return v
 
 
 class RolePermissions(BaseModel):
     """Role permission definition."""
-    
+
     role: UserRole = Field(
         ...,
         description="User role"
     )
-    scopes: Set[str] = Field(
+    scopes: set[str] = Field(
         ...,
         description="Set of permission scopes for this role"
     )
@@ -125,7 +125,7 @@ class RolePermissions(BaseModel):
         ge=1,
         le=10
     )
-    
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -139,7 +139,7 @@ class RolePermissions(BaseModel):
 
 class UserPermissionSummary(BaseModel):
     """User permission summary for API responses."""
-    
+
     user_id: int = Field(
         ...,
         description="User identifier",
@@ -149,7 +149,7 @@ class UserPermissionSummary(BaseModel):
         ...,
         description="User's current role"
     )
-    scopes: List[str] = Field(
+    scopes: list[str] = Field(
         ...,
         description="List of permission scopes user has"
     )
@@ -161,11 +161,11 @@ class UserPermissionSummary(BaseModel):
         ...,
         description="Whether user account is active"
     )
-    last_permission_check: Optional[datetime] = Field(
+    last_permission_check: datetime | None = Field(
         None,
         description="Last time permissions were checked"
     )
-    
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -182,29 +182,29 @@ class UserPermissionSummary(BaseModel):
 
 class SecurityEventRequest(BaseModel):
     """Request schema for creating security events."""
-    
+
     event_type: str = Field(
         ...,
         description="Type of security event",
         min_length=1,
         max_length=100
     )
-    user_id: Optional[int] = Field(
+    user_id: int | None = Field(
         None,
         description="Associated user ID",
         gt=0
     )
-    ip_address: Optional[str] = Field(
+    ip_address: str | None = Field(
         None,
         description="Source IP address",
         max_length=45
     )
-    user_agent: Optional[str] = Field(
+    user_agent: str | None = Field(
         None,
         description="User agent string",
         max_length=1000
     )
-    additional_data: Optional[Dict[str, Any]] = Field(
+    additional_data: dict[str, Any] | None = Field(
         None,
         description="Additional event data"
     )
@@ -212,7 +212,7 @@ class SecurityEventRequest(BaseModel):
 
 class SecurityEventResponse(BaseModel):
     """Response schema for security events."""
-    
+
     id: int = Field(
         ...,
         description="Security event ID",
@@ -222,11 +222,11 @@ class SecurityEventResponse(BaseModel):
         ...,
         description="Type of security event"
     )
-    user_id: Optional[int] = Field(
+    user_id: int | None = Field(
         None,
         description="Associated user ID"
     )
-    ip_address: Optional[str] = Field(
+    ip_address: str | None = Field(
         None,
         description="Source IP address"
     )
@@ -234,7 +234,7 @@ class SecurityEventResponse(BaseModel):
         ...,
         description="Event timestamp (UTC)"
     )
-    
+
     model_config = ConfigDict(
         from_attributes=True,
         json_schema_extra={
@@ -251,7 +251,7 @@ class SecurityEventResponse(BaseModel):
 
 class PermissionCheckRequest(BaseModel):
     """Request schema for permission checks."""
-    
+
     user_id: int = Field(
         ...,
         description="User ID to check permissions for",
@@ -269,7 +269,7 @@ class PermissionCheckRequest(BaseModel):
         min_length=1,
         max_length=50
     )
-    context: Optional[Dict[str, Any]] = Field(
+    context: dict[str, Any] | None = Field(
         None,
         description="Additional context for permission check"
     )
@@ -277,7 +277,7 @@ class PermissionCheckRequest(BaseModel):
 
 class PermissionCheckResponse(BaseModel):
     """Response schema for permission checks."""
-    
+
     user_id: int = Field(
         ...,
         description="User ID that was checked"
@@ -294,7 +294,7 @@ class PermissionCheckResponse(BaseModel):
         ...,
         description="Whether permission is granted"
     )
-    reason: Optional[str] = Field(
+    reason: str | None = Field(
         None,
         description="Reason for permission decision"
     )
@@ -302,7 +302,7 @@ class PermissionCheckResponse(BaseModel):
         ...,
         description="User's current role"
     )
-    required_scope: Optional[str] = Field(
+    required_scope: str | None = Field(
         None,
         description="Required scope for this permission"
     )
@@ -310,7 +310,7 @@ class PermissionCheckResponse(BaseModel):
         ...,
         description="When permission check was performed"
     )
-    
+
     model_config = ConfigDict(
         json_schema_extra={
             "example": {
@@ -329,7 +329,7 @@ class PermissionCheckResponse(BaseModel):
 
 class RoleUpdateRequest(BaseModel):
     """Request schema for updating user roles."""
-    
+
     user_id: int = Field(
         ...,
         description="User ID to update role for",
@@ -345,7 +345,7 @@ class RoleUpdateRequest(BaseModel):
         min_length=10,
         max_length=500
     )
-    effective_date: Optional[datetime] = Field(
+    effective_date: datetime | None = Field(
         None,
         description="When role change should take effect (default: immediately)"
     )
@@ -353,7 +353,7 @@ class RoleUpdateRequest(BaseModel):
 
 class RoleUpdateResponse(BaseModel):
     """Response schema for role updates."""
-    
+
     user_id: int = Field(
         ...,
         description="User ID that was updated"
@@ -382,20 +382,20 @@ class RoleUpdateResponse(BaseModel):
 
 class SystemPermissionsResponse(BaseModel):
     """Response schema for system-wide permission information."""
-    
-    available_roles: List[RolePermissions] = Field(
+
+    available_roles: list[RolePermissions] = Field(
         ...,
         description="All available roles and their permissions"
     )
-    available_scopes: List[PermissionScope] = Field(
+    available_scopes: list[PermissionScope] = Field(
         ...,
         description="All available permission scopes"
     )
-    role_hierarchy: Dict[str, int] = Field(
+    role_hierarchy: dict[str, int] = Field(
         ...,
         description="Role hierarchy levels"
     )
-    total_users_by_role: Dict[str, int] = Field(
+    total_users_by_role: dict[str, int] = Field(
         ...,
         description="Count of users by role"
     )
@@ -409,29 +409,29 @@ class SystemPermissionsResponse(BaseModel):
 
 class ScopeValidator:
     """Utility class for validating permission scopes."""
-    
+
     VALID_RESOURCES = {
-        'admin', 'designs', 'models', 'jobs', 'cam', 
+        'admin', 'designs', 'models', 'jobs', 'cam',
         'simulations', 'files', 'reports', 'profile'
     }
-    
+
     VALID_ACTIONS = {
-        'read', 'write', 'create', 'delete', 'upload', 
+        'read', 'write', 'create', 'delete', 'upload',
         'users', 'system', 'billing'
     }
-    
+
     @classmethod
     def is_valid_scope(cls, scope: str) -> bool:
         """Check if scope format and content is valid."""
         if ':' not in scope:
             return False
-        
+
         resource, action = scope.split(':', 1)
-        return (resource.lower() in cls.VALID_RESOURCES and 
+        return (resource.lower() in cls.VALID_RESOURCES and
                 action.lower() in cls.VALID_ACTIONS)
-    
+
     @classmethod
-    def validate_scope_list(cls, scopes: List[str]) -> List[str]:
+    def validate_scope_list(cls, scopes: list[str]) -> list[str]:
         """Validate and filter list of scopes."""
         valid_scopes = []
         for scope in scopes:

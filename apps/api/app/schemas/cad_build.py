@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
 
 
 class CadBuildRequest(BaseModel):
@@ -15,10 +16,10 @@ class CadBuildResult(BaseModel):
 
 
 class CadArtifactsOut(BaseModel):
-    fcstd_url: Optional[str] = None
-    step_url: Optional[str] = None
-    stl_url: Optional[str] = None
-    gltf_url: Optional[str] = None
-    stats: Dict[str, Any] = Field(default_factory=dict)
+    fcstd_url: str | None = None
+    step_url: str | None = None
+    stl_url: str | None = None
+    gltf_url: str | None = None
+    stats: dict[str, Any] = Field(default_factory=dict)
 
 

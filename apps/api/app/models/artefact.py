@@ -3,13 +3,9 @@
 Enterprise-grade file artifact tracking with strict Task Master ERD compliance.
 """
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import UTC, datetime
 
-from sqlalchemy import (
-    String, BigInteger, ForeignKey, Index,
-    DateTime, UniqueConstraint
-)
+from sqlalchemy import BigInteger, ForeignKey, Index, String
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -29,86 +25,86 @@ class Artefact(Base, TimestampMixin):
     - meta JSONB for additional metadata
     - Enterprise security and audit trail
     """
-    
+
     __tablename__ = "artefacts"
-    
+
     # Primary key
     id: Mapped[int] = mapped_column(
-        primary_key=True, 
+        primary_key=True,
         autoincrement=True
     )
-    
+
     # Foreign key with CASCADE behavior per ERD
     job_id: Mapped[int] = mapped_column(
         ForeignKey("jobs.id", ondelete="CASCADE", name="fk_artefacts_job_id"),
         nullable=False,
         index=True
     )
-    
+
     # Artifact classification (Task Master ERD requirement)
     type: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
         index=True
     )
-    
+
     # Storage reference (Task Master ERD requirement)
     s3_key: Mapped[str] = mapped_column(
         String(1024),
         unique=True,
         nullable=False
     )
-    
+
     # File size tracking (Task Master ERD requirement)
     size_bytes: Mapped[int] = mapped_column(
         BigInteger,
         nullable=False
     )
-    
+
     # Content integrity (Task Master ERD requirement)
-    sha256: Mapped[Optional[str]] = mapped_column(
+    sha256: Mapped[str | None] = mapped_column(
         String(64),
         nullable=True,
         index=True
     )
-    
+
     # Content type (Task Master ERD requirement)
-    mime: Mapped[Optional[str]] = mapped_column(
+    mime: Mapped[str | None] = mapped_column(
         String(100),
         nullable=True
     )
-    
+
     # Additional metadata (Task Master ERD requirement)
-    meta: Mapped[Optional[dict]] = mapped_column(
+    meta: Mapped[dict | None] = mapped_column(
         JSONB,
         nullable=True
     )
-    
+
     # Relationships
     job: Mapped["Job"] = relationship(
-        "Job", 
+        "Job",
         back_populates="artefacts",
         foreign_keys=[job_id]
     )
-    
+
     # Enterprise-grade indexing strategy
     __table_args__ = (
         Index(
-            'idx_artefacts_job_id_type', 
-            'job_id', 
+            'idx_artefacts_job_id_type',
+            'job_id',
             'type'
         ),
         Index(
-            'idx_artefacts_sha256', 
+            'idx_artefacts_sha256',
             'sha256',
             postgresql_where='sha256 IS NOT NULL'
         ),
         Index(
-            'idx_artefacts_size_bytes', 
+            'idx_artefacts_size_bytes',
             'size_bytes'
         ),
         Index(
-            'idx_artefacts_created_at', 
+            'idx_artefacts_created_at',
             'created_at'
         ),
         # GIN index for JSONB meta field (Task Master ERD optional requirement)
@@ -119,55 +115,55 @@ class Artefact(Base, TimestampMixin):
             postgresql_where='meta IS NOT NULL'
         )
     )
-    
+
     def __repr__(self) -> str:
         """Developer-friendly representation."""
         return (
             f"<Artefact(id={self.id}, job_id={self.job_id}, "
             f"type={self.type}, size={self.size_mb:.2f}MB)>"
         )
-    
+
     def __str__(self) -> str:
         """User-friendly representation."""
         return f"Artifact #{self.id} - {self.type} ({self.size_mb:.2f}MB)"
-    
+
     @property
     def size_kb(self) -> float:
         """Get file size in kilobytes."""
         return self.size_bytes / 1024.0
-    
+
     @property
     def size_mb(self) -> float:
         """Get file size in megabytes."""
         return self.size_bytes / (1024.0 * 1024.0)
-    
+
     @property
     def size_gb(self) -> float:
         """Get file size in gigabytes."""
         return self.size_bytes / (1024.0 * 1024.0 * 1024.0)
-    
+
     @property
     def has_integrity_check(self) -> bool:
         """Check if artifact has SHA-256 hash for integrity."""
         return bool(self.sha256)
-    
+
     def get_meta(self, key: str, default=None):
         """Get metadata value safely."""
         if not self.meta:
             return default
         return self.meta.get(key, default)
-    
+
     def set_meta(self, key: str, value) -> None:
         """Set metadata value safely."""
         if self.meta is None:
             self.meta = {}
         self.meta[key] = value
-    
+
     def add_processing_info(
-        self, 
+        self,
         processing_time_ms: int,
-        compression_ratio: Optional[float] = None,
-        quality_score: Optional[float] = None
+        compression_ratio: float | None = None,
+        quality_score: float | None = None
     ) -> None:
         """Add processing metadata."""
         self.set_meta('processing_time_ms', processing_time_ms)
@@ -175,8 +171,8 @@ class Artefact(Base, TimestampMixin):
             self.set_meta('compression_ratio', compression_ratio)
         if quality_score is not None:
             self.set_meta('quality_score', quality_score)
-        self.set_meta('processed_at', datetime.now(timezone.utc).isoformat())
-    
+        self.set_meta('processed_at', datetime.now(UTC).isoformat())
+
     def verify_integrity(self, provided_hash: str) -> bool:
         """Verify file integrity using SHA-256 hash."""
         if not self.sha256:

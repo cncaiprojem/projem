@@ -11,27 +11,24 @@ This middleware implements banking-level Role-Based Access Control (RBAC) with:
 - Zero false positives/negatives in access control
 """
 
-from typing import Optional, List, Dict, Set, Callable, Any
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
+from typing import Any
 
-from fastapi import Request, HTTPException, status, Depends
-from fastapi.security import HTTPBearer
+from fastapi import HTTPException, Request, status
 from sqlalchemy.orm import Session as DBSession
 
-from ..models.user import User
-from ..models.security_event import SecurityEvent
-from ..models.enums import UserRole
-from ..middleware.jwt_middleware import AuthenticatedUser, get_current_user, get_current_user_optional
 from ..core.logging import get_logger
-from ..db import get_db
+from ..models.enums import UserRole
+from ..models.security_event import SecurityEvent
+from ..models.user import User
 
 logger = get_logger(__name__)
 
 
 class RBACErrorCode(str, Enum):
     """RBAC-specific error codes for Turkish localization."""
-    
+
     AUTH_REQUIRED = "ERR-AUTH-REQUIRED"
     RBAC_FORBIDDEN = "ERR-RBAC-FORBIDDEN"
     ADMIN_REQUIRED = "ERR-ADMIN-REQUIRED"
@@ -42,19 +39,19 @@ class RBACErrorCode(str, Enum):
 
 class RBACError(HTTPException):
     """RBAC authorization error with Turkish localization and security logging."""
-    
+
     def __init__(
         self,
         code: RBACErrorCode,
         message: str,
-        details: Optional[Dict] = None,
-        user_id: Optional[int] = None,
-        request: Optional[Request] = None
+        details: dict | None = None,
+        user_id: int | None = None,
+        request: Request | None = None
     ):
         self.code = code
         self.details = details or {}
         self.user_id = user_id
-        
+
         # Map error codes to HTTP status codes
         status_mapping = {
             RBACErrorCode.AUTH_REQUIRED: status.HTTP_401_UNAUTHORIZED,
@@ -64,21 +61,21 @@ class RBACError(HTTPException):
             RBACErrorCode.ROLE_REQUIRED: status.HTTP_403_FORBIDDEN,
             RBACErrorCode.ACCOUNT_INACTIVE: status.HTTP_403_FORBIDDEN,
         }
-        
+
         # Log security event
         if request and user_id:
             self._log_security_event(request, user_id, code, message)
-        
+
         super().__init__(
             status_code=status_mapping.get(code, status.HTTP_403_FORBIDDEN),
             detail={
                 'error_code': code,
                 'message': message,
                 'details': self.details,
-                'timestamp': datetime.now(timezone.utc).isoformat()
+                'timestamp': datetime.now(UTC).isoformat()
             }
         )
-    
+
     def _log_security_event(self, request: Request, user_id: int, code: str, message: str):
         """Log RBAC security event for audit trail."""
         try:
@@ -91,14 +88,14 @@ class RBACError(HTTPException):
                 RBACErrorCode.ROLE_REQUIRED: "role_required",
                 RBACErrorCode.ACCOUNT_INACTIVE: "account_inactive",
             }
-            
+
             event_type = event_type_mapping.get(code, "rbac_error")
-            
+
             # Extract request metadata
             client_ip = request.client.host if request.client else None
             user_agent = request.headers.get("user-agent", "")
             endpoint = f"{request.method} {request.url.path}"
-            
+
             logger.warning("RBAC authorization denied", extra={
                 'operation': 'rbac_check',
                 'event_type': event_type,
@@ -110,7 +107,7 @@ class RBACError(HTTPException):
                 'user_agent': user_agent[:200] if user_agent else None,
                 'details': self.details
             })
-            
+
         except Exception as e:
             logger.error("Failed to log RBAC security event", exc_info=True, extra={
                 'operation': 'rbac_security_log',
@@ -121,7 +118,7 @@ class RBACError(HTTPException):
 
 class RolePermissions:
     """Role-based permission definitions with hierarchical access."""
-    
+
     # Define role hierarchy (higher number = more permissions)
     ROLE_HIERARCHY = {
         UserRole.VIEWER: 1,
@@ -129,7 +126,7 @@ class RolePermissions:
         UserRole.ENGINEER: 3,
         UserRole.ADMIN: 4
     }
-    
+
     # Scope-based permissions per role
     ROLE_SCOPES = {
         UserRole.ADMIN: {
@@ -175,36 +172,36 @@ class RolePermissions:
             'profile:read'
         }
     }
-    
+
     @classmethod
-    def get_scopes_for_role(cls, role: UserRole) -> Set[str]:
+    def get_scopes_for_role(cls, role: UserRole) -> set[str]:
         """Get all scopes for a given role."""
         return cls.ROLE_SCOPES.get(role, set())
-    
+
     @classmethod
     def role_has_scope(cls, role: UserRole, scope: str) -> bool:
         """Check if a role has a specific scope."""
         return scope in cls.get_scopes_for_role(role)
-    
+
     @classmethod
-    def role_has_any_scope(cls, role: UserRole, scopes: List[str]) -> bool:
+    def role_has_any_scope(cls, role: UserRole, scopes: list[str]) -> bool:
         """Check if a role has any of the specified scopes."""
         role_scopes = cls.get_scopes_for_role(role)
         return any(scope in role_scopes for scope in scopes)
-    
+
     @classmethod
-    def role_has_all_scopes(cls, role: UserRole, scopes: List[str]) -> bool:
+    def role_has_all_scopes(cls, role: UserRole, scopes: list[str]) -> bool:
         """Check if a role has all of the specified scopes."""
         role_scopes = cls.get_scopes_for_role(role)
         return all(scope in role_scopes for scope in scopes)
-    
+
     @classmethod
     def is_role_higher_or_equal(cls, user_role: UserRole, required_role: UserRole) -> bool:
         """Check if user role is higher or equal to required role in hierarchy."""
         user_level = cls.ROLE_HIERARCHY.get(user_role, 0)
         required_level = cls.ROLE_HIERARCHY.get(required_role, 0)
         return user_level >= required_level
-    
+
     @classmethod
     def is_admin_role(cls, role: UserRole) -> bool:
         """Check if role is admin."""
@@ -213,11 +210,11 @@ class RolePermissions:
 
 class RBACService:
     """Core RBAC service for authorization checks with performance optimization."""
-    
+
     def __init__(self):
         self.permissions = RolePermissions()
-    
-    def check_user_active(self, user: User, request: Optional[Request] = None) -> None:
+
+    def check_user_active(self, user: User, request: Request | None = None) -> None:
         """
         Verify user account is active and not locked.
         
@@ -236,7 +233,7 @@ class RBACService:
                 user.id,
                 request
             )
-        
+
         if user.is_account_locked():
             raise RBACError(
                 RBACErrorCode.ACCOUNT_INACTIVE,
@@ -248,13 +245,13 @@ class RBACService:
                 user.id,
                 request
             )
-    
+
     def check_role_permission(
         self,
         user_role: UserRole,
         required_role: UserRole,
         user_id: int,
-        request: Optional[Request] = None
+        request: Request | None = None
     ) -> None:
         """
         Check if user role meets minimum required role.
@@ -279,13 +276,13 @@ class RBACService:
                 user_id,
                 request
             )
-    
+
     def check_scope_permission(
         self,
         user_role: UserRole,
-        required_scopes: List[str],
+        required_scopes: list[str],
         user_id: int,
-        request: Optional[Request] = None,
+        request: Request | None = None,
         require_all: bool = True
     ) -> None:
         """
@@ -305,10 +302,10 @@ class RBACService:
             has_permission = self.permissions.role_has_all_scopes(user_role, required_scopes)
         else:
             has_permission = self.permissions.role_has_any_scope(user_role, required_scopes)
-        
+
         if not has_permission:
             user_scopes = list(self.permissions.get_scopes_for_role(user_role))
-            
+
             raise RBACError(
                 RBACErrorCode.INSUFFICIENT_SCOPES,
                 f"Yetersiz izin kapsamı. Gerekli: {', '.join(required_scopes)}",
@@ -321,12 +318,12 @@ class RBACService:
                 user_id,
                 request
             )
-    
+
     def check_admin_permission(
         self,
         user_role: UserRole,
         user_id: int,
-        request: Optional[Request] = None
+        request: Request | None = None
     ) -> None:
         """
         Check if user has admin permissions.
@@ -356,9 +353,9 @@ rbac_service = RBACService()
 def create_security_event_in_db(
     db: DBSession,
     event_type: str,
-    user_id: Optional[int] = None,
-    ip: Optional[str] = None,
-    user_agent: Optional[str] = None
+    user_id: int | None = None,
+    ip: str | None = None,
+    user_agent: str | None = None
 ) -> None:
     """
     Create security event in database for audit trail.
@@ -379,7 +376,7 @@ def create_security_event_in_db(
         )
         db.add(security_event)
         db.commit()
-        
+
         logger.info("Security event created", extra={
             'operation': 'create_security_event',
             'event_type': event_type,
@@ -387,7 +384,7 @@ def create_security_event_in_db(
             'ip': ip,
             'has_user_agent': bool(user_agent)
         })
-        
+
     except Exception as e:
         logger.error("Failed to create security event", exc_info=True, extra={
             'operation': 'create_security_event',
@@ -398,7 +395,7 @@ def create_security_event_in_db(
         db.rollback()
 
 
-def extract_request_metadata(request: Request) -> Dict[str, Any]:
+def extract_request_metadata(request: Request) -> dict[str, Any]:
     """
     Extract security-relevant metadata from request.
     

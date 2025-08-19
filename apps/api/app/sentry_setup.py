@@ -1,15 +1,13 @@
 from __future__ import annotations
 
-from typing import Optional
-
-from sentry_sdk.integrations.fastapi import FastApiIntegration
 import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
 
 from .config import settings
 
 
 def setup_sentry() -> None:
-    dsn: Optional[str] = settings.sentry_dsn
+    dsn: str | None = settings.sentry_dsn
     if not dsn:
         return
     sentry_sdk.init(

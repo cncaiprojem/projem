@@ -13,25 +13,27 @@ Ultra enterprise features:
 - Complete audit trail for security monitoring
 """
 
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
 import ipaddress
+from datetime import UTC, datetime
+from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from ..db import get_db
-from ..schemas.magic_link_schemas import (
-    MagicLinkRequestRequest, MagicLinkRequestResponse,
-    MagicLinkConsumeRequest, MagicLinkConsumeResponse,
-    MagicLinkErrorResponse, MAGIC_LINK_ERROR_CODES
-)
-from ..services.magic_link_service import magic_link_service, MagicLinkError
-from ..services.token_service import token_service
 from ..core.logging import get_logger
+from ..db import get_db
 from ..middleware.auth_limiter import limiter
 from ..middleware.enterprise_rate_limiter import magic_link_rate_limit
+from ..schemas.magic_link_schemas import (
+    MagicLinkConsumeRequest,
+    MagicLinkConsumeResponse,
+    MagicLinkErrorResponse,
+    MagicLinkRequestRequest,
+    MagicLinkRequestResponse,
+)
+from ..services.magic_link_service import MagicLinkError, magic_link_service
+from ..services.token_service import token_service
 
 logger = get_logger(__name__)
 
@@ -47,7 +49,7 @@ router = APIRouter(
 )
 
 
-def get_client_info(request: Request) -> Dict[str, Optional[str]]:
+def get_client_info(request: Request) -> dict[str, str | None]:
     """Extract client information from request for security audit."""
     # Get real IP address (handle proxy headers)
     ip_address = None
@@ -58,16 +60,16 @@ def get_client_info(request: Request) -> Dict[str, Optional[str]]:
         ip_address = request.headers["x-real-ip"]
     else:
         ip_address = getattr(request.client, 'host', None)
-    
+
     # Validate IP address
     if ip_address:
         try:
             ipaddress.ip_address(ip_address)
         except ValueError:
             ip_address = None
-    
+
     user_agent = request.headers.get("user-agent")
-    
+
     return {
         "ip_address": ip_address,
         "user_agent": user_agent
@@ -77,13 +79,13 @@ def get_client_info(request: Request) -> Dict[str, Optional[str]]:
 def create_magic_link_error_response(error: MagicLinkError) -> JSONResponse:
     """Create standardized magic link error response."""
     status_code = status.HTTP_400_BAD_REQUEST
-    
+
     # Map specific errors to appropriate status codes
     if error.code in ['ERR-ML-EXPIRED', 'ERR-ML-INVALID', 'ERR-ML-ALREADY-USED']:
         status_code = status.HTTP_401_UNAUTHORIZED
     elif error.code == 'ERR-ML-RATE-LIMITED':
         status_code = status.HTTP_429_TOO_MANY_REQUESTS
-    
+
     return JSONResponse(
         status_code=status_code,
         content={
@@ -124,7 +126,7 @@ async def request_magic_link(
     **Her zaman 202 (Accepted) döner** - güvenlik için e-posta varlığı bilgisi verilmez.
     """
     client_info = get_client_info(request)
-    
+
     try:
         # Request magic link (always returns True for security)
         magic_link_service.request_magic_link(
@@ -134,19 +136,19 @@ async def request_magic_link(
             user_agent=client_info["user_agent"],
             device_fingerprint=magic_link_data.device_fingerprint
         )
-        
+
         logger.info("Magic link request processed", extra={
             'operation': 'request_magic_link_endpoint',
             'email_hash': hash(magic_link_data.email) % 1000000,
             'ip_address': client_info["ip_address"],
             'has_device_fingerprint': bool(magic_link_data.device_fingerprint)
         })
-        
+
         return MagicLinkRequestResponse(
             message="Magic link e-posta adresinize gönderildi. Gelen kutunuzu kontrol edin.",
             expires_in_minutes=15
         )
-        
+
     except MagicLinkError as e:
         logger.warning("Magic link request failed", extra={
             "error_code": e.code,
@@ -154,8 +156,8 @@ async def request_magic_link(
             "ip_address": client_info["ip_address"]
         })
         return create_magic_link_error_response(e)
-    
-    except Exception as e:
+
+    except Exception:
         logger.error("Unexpected magic link request error", exc_info=True, extra={
             "email_hash": hash(magic_link_data.email) % 1000000,
             "ip_address": client_info["ip_address"]
@@ -201,7 +203,7 @@ async def consume_magic_link(
     - Kullanıcı bilgileri ve oturum ID'si döner
     """
     client_info = get_client_info(request)
-    
+
     try:
         # Consume magic link and create session
         result = magic_link_service.consume_magic_link(
@@ -211,17 +213,17 @@ async def consume_magic_link(
             user_agent=client_info["user_agent"],
             device_fingerprint=consume_data.device_fingerprint
         )
-        
+
         # Set refresh token in httpOnly cookie
         token_service.set_refresh_cookie(response, result.refresh_token)
-        
+
         logger.info("Magic link consumed successfully", extra={
             'operation': 'consume_magic_link_endpoint',
             'user_id': result.user.id,
             'session_id': result.session_id,
             'ip_address': client_info["ip_address"]
         })
-        
+
         return MagicLinkConsumeResponse(
             access_token=result.access_token,
             token_type="bearer",
@@ -234,7 +236,7 @@ async def consume_magic_link(
             login_method="magic_link",
             password_must_change=result.user.password_must_change
         )
-        
+
     except MagicLinkError as e:
         logger.warning("Magic link consumption failed", extra={
             "error_code": e.code,
@@ -242,8 +244,8 @@ async def consume_magic_link(
             "ip_address": client_info["ip_address"]
         })
         return create_magic_link_error_response(e)
-    
-    except Exception as e:
+
+    except Exception:
         logger.error("Unexpected magic link consumption error", exc_info=True, extra={
             "token_prefix": consume_data.token[:8] if len(consume_data.token) >= 8 else "***",
             "ip_address": client_info["ip_address"]
@@ -263,20 +265,20 @@ async def consume_magic_link(
 )
 async def magic_link_health_check(
     db: Session = Depends(get_db)
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Magic link service health check."""
     try:
         # Check database connectivity
         db.execute("SELECT 1")
-        
+
         return {
             "status": "healthy",
             "service": "magic_link",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "version": "1.0.0"
         }
-        
-    except Exception as e:
+
+    except Exception:
         logger.error("Magic link health check failed", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,

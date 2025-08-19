@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
-from pydantic import BaseModel
+from typing import Any, Literal
 
+from pydantic import BaseModel
 
 SetupStatus = Literal['draft','cam_ready','sim_ok','post_ok']
 
@@ -14,7 +14,7 @@ class SetupCreate(BaseModel):
     orientation_ry_deg: float = 0
     orientation_rz_deg: float = 0
     wcs: str = 'G54'
-    fixture_id: Optional[int] = None
+    fixture_id: int | None = None
 
 
 class SetupOut(BaseModel):
@@ -29,7 +29,7 @@ class SetupOut(BaseModel):
 
 
 class Op3DPlan(BaseModel):
-    ops: List[Dict[str, Any]]
+    ops: list[dict[str, Any]]
 
 
 class FixtureCreate(BaseModel):

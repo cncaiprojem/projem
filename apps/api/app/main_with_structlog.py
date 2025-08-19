@@ -4,41 +4,41 @@ This file can replace main.py once testing is complete.
 """
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from .config import settings
-from .instrumentation import setup_metrics, setup_tracing, setup_celery_instrumentation
-from .sentry_setup import setup_sentry
+from .core.database_logging import setup_database_logging
 
 # Import new structured logging
 from .core.logging import configure_structlog, get_logger, log_security_event
-from .middleware.logging import LoggingMiddleware
-from .core.database_logging import setup_database_logging
+from .instrumentation import setup_celery_instrumentation, setup_metrics, setup_tracing
 
 # Import existing middleware
-from .middleware import SecurityHeadersMiddleware, CORSMiddlewareStrict
+from .middleware import CORSMiddlewareStrict, SecurityHeadersMiddleware
 from .middleware.limiter import RateLimitMiddleware
+from .middleware.logging import LoggingMiddleware
+from .routers import admin_dlq as admin_dlq_router
+from .routers import admin_unmask as admin_unmask_router
+from .routers import assemblies as assemblies_router
 
 # Import routers
 from .routers import auth as auth_router
-from .routers import health as health_router
-from .routers import freecad as freecad_router
-from .routers import assemblies as assemblies_router
-from .routers import cam as cam_router
-from .routers.cad import cam2 as cam2_router
-from .routers import jobs as jobs_router
-from .routers import admin_dlq as admin_dlq_router
-from .routers import admin_unmask as admin_unmask_router
-from .routers import designs as designs_router
-from .routers import projects as projects_router
-from .routers import design as design_router
 from .routers import cad as cad_router
-from .routers import tooling as tooling_router
+from .routers import cam as cam_router
+from .routers import design as design_router
+from .routers import designs as designs_router
+from .routers import fixtures as fixtures_router
+from .routers import freecad as freecad_router
+from .routers import health as health_router
+from .routers import jobs as jobs_router
+from .routers import projects as projects_router
 from .routers import reports as reports_router
 from .routers import setups as setups_router
-from .routers import fixtures as fixtures_router
+from .routers import tooling as tooling_router
+from .routers.cad import cam2 as cam2_router
+from .sentry_setup import setup_sentry
 
 try:
     from .routers import sim as sim_router  # type: ignore
@@ -48,7 +48,6 @@ except Exception:
     _sim_available = False
 
 from .events import router as events_router
-from .settings import app_settings as appset
 
 # Configure structured logging first
 configure_structlog()
@@ -102,7 +101,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         errors=exc.errors(),
         body=exc.body if hasattr(exc, "body") else None,
     )
-    
+
     return JSONResponse(
         status_code=422,
         content={
@@ -149,7 +148,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             path=request.url.path,
             method=request.method,
         )
-    
+
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
@@ -167,7 +166,7 @@ async def general_exception_handler(request: Request, exc: Exception):
         method=request.method,
         exc_info=True,
     )
-    
+
     # Log as security event if it looks suspicious
     if "injection" in str(exc).lower() or "exploit" in str(exc).lower():
         log_security_event(
@@ -179,7 +178,7 @@ async def general_exception_handler(request: Request, exc: Exception):
                 "error": str(exc),
             }
         )
-    
+
     return JSONResponse(
         status_code=500,
         content={"detail": "İç sunucu hatası"},
@@ -196,7 +195,7 @@ async def startup_event():
         middleware_count=len(app.middleware),
         sim_available=_sim_available,
     )
-    
+
     # Setup database logging if engine is available
     try:
         from .db import engine

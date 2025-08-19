@@ -1,26 +1,24 @@
 from __future__ import annotations
 
 import hashlib
-import os
+import io
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List
 
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.units import mm
-from reportlab.pdfgen import canvas
-from reportlab.lib.utils import ImageReader
-import io
 import qrcode
 from cairosvg import svg2png
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfgen import canvas
 
-from ..storage import upload_and_sign, presigned_url, get_s3_client
-from ..metrics import report_build_duration_seconds
 from ..config import settings
 from ..db import db_session
-from ..models_project import Project, ProjectFile, FileKind
-from ..storage_download import download_presigned
 from ..freecad.export_views import project_views
+from ..metrics import report_build_duration_seconds
+from ..models_project import FileKind, Project, ProjectFile
+from ..storage import get_s3_client, presigned_url
+from ..storage_download import download_presigned
 
 
 @dataclass
@@ -38,7 +36,7 @@ def _sha256(path: Path) -> str:
     return h.hexdigest()
 
 
-def build_shop_package_pdf(project_id: int, out_pdf_path: str) -> Dict:
+def build_shop_package_pdf(project_id: int, out_pdf_path: str) -> dict:
     # Basit PDF iskeleti; görsel/tablolar için sonraki iterasyon
     from time import perf_counter
 

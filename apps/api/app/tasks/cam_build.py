@@ -1,22 +1,21 @@
 from __future__ import annotations
 
-import json
 import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from celery import shared_task
 
-from ..db import db_session
-from ..models_project import Project, ProjectFile, FileKind, ProjectStatus
-from ..storage import upload_and_sign, get_s3_client, presigned_url
-from ..freecad.service import detect_freecad
-from ..freecad.path_build import build_cam_job
 from ..cam.cam_plan import derive_cam_params
+from ..db import db_session
+from ..freecad.path_build import build_cam_job
+from ..freecad.service import detect_freecad
+from ..models_project import FileKind, Project, ProjectFile, ProjectStatus
+from ..storage import get_s3_client, presigned_url, upload_and_sign
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3, acks_late=True, queue="cpu")
-def cam_build_task(self, project_id: int, machine_post: str | None, wcs: str, stock: Dict[str, Any], strategy: str = "balanced"):
+def cam_build_task(self, project_id: int, machine_post: str | None, wcs: str, stock: dict[str, Any], strategy: str = "balanced"):
     # Plan ve FCStd artefaktını hazırla
     with db_session() as s:
         p = s.get(Project, project_id)

@@ -2,43 +2,40 @@
 3D Model storage and versioning.
 """
 
-from datetime import datetime
-from typing import Optional, List
+from typing import Optional
 
-from sqlalchemy import (
-    String, Integer, BigInteger, Boolean, ForeignKey,
-    Index, CheckConstraint, Enum as SQLEnum
-)
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, ForeignKey, Index, Integer, String
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
-from .enums import ModelType, FileFormat
+from .enums import FileFormat, ModelType
 
 
 class Model(Base, TimestampMixin):
     """3D CAD model storage and versioning."""
-    
+
     __tablename__ = "models"
-    
+
     # Primary key
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    
+
     # Foreign keys
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
         index=True
     )
-    parent_model_id: Mapped[Optional[int]] = mapped_column(
+    parent_model_id: Mapped[int | None] = mapped_column(
         ForeignKey("models.id", ondelete="SET NULL"),
         index=True
     )
-    
+
     # Model identification
     name: Mapped[str] = mapped_column(String(255), nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(String(1000))
-    
+    description: Mapped[str | None] = mapped_column(String(1000))
+
     # Model type and format
     type: Mapped[ModelType] = mapped_column(
         SQLEnum(ModelType),
@@ -48,7 +45,7 @@ class Model(Base, TimestampMixin):
         SQLEnum(FileFormat),
         nullable=False
     )
-    
+
     # Storage information
     s3_key: Mapped[str] = mapped_column(
         String(1024),
@@ -65,31 +62,31 @@ class Model(Base, TimestampMixin):
         nullable=False,
         index=True
     )
-    
+
     # Versioning
     version: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
         default=1
     )
-    
+
     # Model generation and analysis parameters/metrics
-    params: Mapped[Optional[dict]] = mapped_column(JSONB, default={})
-    metrics: Mapped[Optional[dict]] = mapped_column(JSONB, default={})
-    
+    params: Mapped[dict | None] = mapped_column(JSONB, default={})
+    metrics: Mapped[dict | None] = mapped_column(JSONB, default={})
+
     # Legacy metadata (kept for compatibility)
-    model_metadata: Mapped[Optional[dict]] = mapped_column(JSONB, name="metadata", default={})
-    
+    model_metadata: Mapped[dict | None] = mapped_column(JSONB, name="metadata", default={})
+
     # Thumbnail
-    thumbnail_s3_key: Mapped[Optional[str]] = mapped_column(String(1024))
-    
+    thumbnail_s3_key: Mapped[str | None] = mapped_column(String(1024))
+
     # Soft delete
     is_deleted: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=False
     )
-    
+
     # Relationships
     user: Mapped["User"] = relationship("User", back_populates="models")
     parent_model: Mapped[Optional["Model"]] = relationship(
@@ -99,8 +96,8 @@ class Model(Base, TimestampMixin):
     )
     # Note: cam_runs relationship removed due to Task Master ERD compliance
     # CAM runs now only link to jobs, not models directly
-    
-    # Constraints and indexes  
+
+    # Constraints and indexes
     __table_args__ = (
         CheckConstraint('file_size > 0', name='ck_models_file_size_positive'),
         CheckConstraint('version > 0', name='ck_models_version_positive'),
@@ -114,38 +111,38 @@ class Model(Base, TimestampMixin):
               postgresql_using='gin',
               postgresql_where='metadata IS NOT NULL'),
     )
-    
+
     def __repr__(self) -> str:
         return f"<Model(id={self.id}, name={self.name}, type={self.type.value})>"
-    
+
     @property
     def is_latest_version(self) -> bool:
         """Check if this is the latest version."""
         if not self.versions:
             return True
         return all(v.version < self.version for v in self.versions)
-    
+
     @property
-    def dimensions(self) -> Optional[dict]:
+    def dimensions(self) -> dict | None:
         """Extract dimensions from metadata."""
         if not self.model_metadata:
             return None
         return self.model_metadata.get('dimensions')
-    
+
     @property
-    def materials(self) -> Optional[list]:
+    def materials(self) -> list | None:
         """Extract materials from metadata."""
         if not self.model_metadata:
             return None
         return self.model_metadata.get('materials', [])
-    
+
     @property
-    def bounding_box(self) -> Optional[dict]:
+    def bounding_box(self) -> dict | None:
         """Extract bounding box from metadata."""
         if not self.model_metadata:
             return None
         return self.model_metadata.get('bounding_box')
-    
+
     def create_version(self, **kwargs) -> "Model":
         """Create a new version of this model."""
         new_version = Model(
@@ -163,7 +160,7 @@ class Model(Base, TimestampMixin):
             thumbnail_s3_key=kwargs.get('thumbnail_s3_key')
         )
         return new_version
-    
+
     def update_metadata(self, key: str, value: any):
         """Update specific metadata field."""
         if not self.model_metadata:

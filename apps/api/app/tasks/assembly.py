@@ -2,21 +2,20 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from .worker import celery_app
-from ..settings import app_settings as appset
-
-from ..db import db_session
-from ..logging_setup import get_logger
-from ..models import Job
-from ..schemas.cad import AssemblyRequestV1
-from ..freecad.generate import generate_and_validate
-from ..storage import upload_and_sign
-from ..services.dlq import push_dead
-from ..audit import audit
 from billiard.exceptions import SoftTimeLimitExceeded
-from ..metrics import job_latency_seconds, queue_wait_seconds, failures_total, retried_total
 from opentelemetry import trace
 
+from ..audit import audit
+from ..db import db_session
+from ..freecad.generate import generate_and_validate
+from ..logging_setup import get_logger
+from ..metrics import failures_total, job_latency_seconds, queue_wait_seconds, retried_total
+from ..models import Job
+from ..schemas.cad import AssemblyRequestV1
+from ..services.dlq import push_dead
+from ..settings import app_settings as appset
+from ..storage import upload_and_sign
+from .worker import celery_app
 
 logger = get_logger(__name__)
 
@@ -84,7 +83,7 @@ def assembly_generate(self, job_id: int) -> dict:
                 ...
         audit("task.success", job_id=job_id, task="assembly.generate")
         return {"ok": True}
-    except SoftTimeLimitExceeded as e:
+    except SoftTimeLimitExceeded:
         with db_session() as s:
             job = s.get(Job, job_id)
             job.status = "failed"

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import time
-from typing import Optional
 
 import requests
 
@@ -19,7 +18,7 @@ def download_presigned(
     dst_path: str,
     timeout_s: int = 60,
     max_mb: int = MAX_FCSTD_MB,
-    sha256: Optional[str] = None,
+    sha256: str | None = None,
 ):
     if not url.lower().endswith(".fcstd"):
         raise DownloadError("Beklenen .FCStd uzantısı.")

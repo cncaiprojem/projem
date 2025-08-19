@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 from types import MappingProxyType
-from typing import Any, Dict
+from typing import Any
 
-
-ALLOWED_GLOBALS: Dict[str, Any] = {
+ALLOWED_GLOBALS: dict[str, Any] = {
     "__builtins__": MappingProxyType({  # minimum güvenli yerleşikler
         "range": range,
         "len": len,
@@ -18,9 +17,9 @@ ALLOWED_GLOBALS: Dict[str, Any] = {
 }
 
 
-def build_exec_env() -> Dict[str, Any]:
+def build_exec_env() -> dict[str, Any]:
     # Whitelist modüller FreeCAD içerisinde import edilecektir
-    env: Dict[str, Any] = dict(ALLOWED_GLOBALS)
+    env: dict[str, Any] = dict(ALLOWED_GLOBALS)
     allowed_modules = {"App": None, "Part": None, "Sketcher": None, "Asm4": None, "Path": None}
     env.update(allowed_modules)
     return env

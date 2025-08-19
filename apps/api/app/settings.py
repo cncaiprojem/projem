@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Dict
 
 
 def _get_bool(name: str, default: bool) -> bool:
@@ -32,7 +31,7 @@ def _get_float(name: str, default: float) -> float:
         return default
 
 
-def _get_json_dict(name: str, default: Dict) -> Dict:
+def _get_json_dict(name: str, default: dict) -> dict:
     v = os.getenv(name)
     if not v:
         return default
@@ -50,13 +49,13 @@ class AppSettings:
         self.sim_timeout_s: int = _get_int("SIM_TIMEOUT_S", 1200)
         self.sim_queue_concurrency: int = _get_int("SIM_QUEUE_CONCURRENCY", 1)
         self.require_idempotency: bool = _get_bool("REQUIRE_IDEMPOTENCY", True)
-        self.rate_limits: Dict[str, str] = _get_json_dict(
+        self.rate_limits: dict[str, str] = _get_json_dict(
             "RATE_LIMITS", {"assembly": "6/m", "cam": "12/m", "sim": "4/m"}
         )
-        self.task_time_limits: Dict[str, int] = _get_json_dict(
+        self.task_time_limits: dict[str, int] = _get_json_dict(
             "TASK_TIME_LIMITS", {"freecad": 900, "sim": 1200}
         )
-        self.task_soft_limits: Dict[str, int] = _get_json_dict(
+        self.task_soft_limits: dict[str, int] = _get_json_dict(
             "TASK_SOFT_LIMITS", {"freecad": 870, "sim": 1140}
         )
         # CORS
@@ -68,20 +67,20 @@ class AppSettings:
         self.oidc_audience: str | None = os.getenv("OIDC_AUDIENCE")
         self.oidc_client_id: str | None = os.getenv("OIDC_CLIENT_ID")
         self.roles_claim: str = os.getenv("ROLES_CLAIM", "realm_access.roles")
-        
+
         # Google OAuth2/OIDC Authentication (Task 3.5)
         self.google_oauth_enabled: bool = _get_bool("GOOGLE_OAUTH_ENABLED", True)
         self.google_client_id: str | None = os.getenv("GOOGLE_CLIENT_ID")
         self.google_client_secret: str | None = os.getenv("GOOGLE_CLIENT_SECRET")
         self.google_discovery_url: str = os.getenv("GOOGLE_DISCOVERY_URL", "https://accounts.google.com/.well-known/openid-configuration")
         self.google_oauth_scopes: list[str] = ["openid", "email", "profile"]
-        
+
         # OAuth2 security settings
         self.oauth_state_expire_minutes: int = _get_int("OAUTH_STATE_EXPIRE_MINUTES", 15)
         self.oauth_pkce_verifier_expire_minutes: int = _get_int("OAUTH_PKCE_VERIFIER_EXPIRE_MINUTES", 15)
         self.oauth_callback_timeout_seconds: int = _get_int("OAUTH_CALLBACK_TIMEOUT_SECONDS", 30)
         # Rate limit kuralları (route bazlı)
-        self.rate_limit_rules: Dict[str, str] = _get_json_dict(
+        self.rate_limit_rules: dict[str, str] = _get_json_dict(
             "RATE_LIMIT_RULES", {"assemblies": "60/m", "cam": "120/m", "simulate": "30/m"}
         )
         # Güvenlik başlıkları ve politikalar (Task 3.10)

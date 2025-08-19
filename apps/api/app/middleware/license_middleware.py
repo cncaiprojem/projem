@@ -12,33 +12,32 @@ This middleware implements:
 
 from __future__ import annotations
 
-import asyncio
-import uuid
-from datetime import datetime, timezone
-from typing import Dict, Set, Optional, Callable, Tuple, Any
 import threading
+import uuid
+from collections.abc import Callable
 from contextlib import contextmanager
+from datetime import UTC, datetime
 
-from fastapi import Request, Response, HTTPException, status
+from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
-from starlette.middleware.base import BaseHTTPMiddleware
+from sqlalchemy.exc import IntegrityError, OperationalError, SQLAlchemyError
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import SQLAlchemyError, IntegrityError, OperationalError
+from starlette.middleware.base import BaseHTTPMiddleware
 
-from ..db import get_db, db_session
-from ..middleware.jwt_middleware import _authenticate_user, jwt_bearer_scheme
-from ..services.license_service import LicenseService
-from ..services.session_service import SessionService
-from ..services.audit_service import audit_service
-from ..services.pii_masking_service import pii_masking_service, MaskingLevel
-from ..services.job_cancellation_service import job_cancellation_service
 from ..core.logging import get_logger
+from ..db import db_session
+from ..middleware.jwt_middleware import _authenticate_user
+from ..services.audit_service import audit_service
+from ..services.job_cancellation_service import job_cancellation_service
+from ..services.license_service import LicenseService
+from ..services.pii_masking_service import MaskingLevel, pii_masking_service
+from ..services.session_service import SessionService
 
 logger = get_logger(__name__)
 
 # Thread-safe tracking of (user_id, license_id) tuples who have been processed for license expiry
 # Using tuple key to handle multiple license expirations for same user correctly
-_license_expiry_processed: Set[Tuple[int, uuid.UUID]] = set()
+_license_expiry_processed: set[tuple[int, uuid.UUID]] = set()
 _license_expiry_lock = threading.Lock()
 
 # Session service instance for revocation
@@ -71,7 +70,7 @@ def get_db_session_for_middleware():
 
     try:
         logger.debug(
-            f"Creating database session for middleware",
+            "Creating database session for middleware",
             extra={
                 "operation": "get_db_session_for_middleware",
                 "session_id": session_id,
@@ -83,7 +82,7 @@ def get_db_session_for_middleware():
         with db_session() as session:
             # Track session creation
             logger.debug(
-                f"Database session created successfully",
+                "Database session created successfully",
                 extra={
                     "operation": "get_db_session_for_middleware",
                     "session_id": session_id,
@@ -132,7 +131,7 @@ def get_db_session_for_middleware():
         # The db_session context manager handles closing
         # We just log for monitoring
         logger.debug(
-            f"Database session context completed",
+            "Database session context completed",
             extra={
                 "operation": "get_db_session_for_middleware",
                 "session_id": session_id,
@@ -141,7 +140,7 @@ def get_db_session_for_middleware():
         )
 
 
-async def get_current_user_from_request(request: Request) -> Optional[int]:
+async def get_current_user_from_request(request: Request) -> int | None:
     """
     Extract authenticated user ID from request with proper error handling.
     Returns user ID if authenticated, None otherwise.
@@ -255,7 +254,7 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
     session revocation when licenses expire.
     """
 
-    def __init__(self, app, excluded_paths: Optional[list] = None):
+    def __init__(self, app, excluded_paths: list | None = None):
         super().__init__(app)
         # Default excluded paths - these should not require license checks
         self.excluded_paths = excluded_paths or [
@@ -280,7 +279,7 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                 return True
         return False
 
-    def _get_client_info(self, request: Request) -> Tuple[str, str]:
+    def _get_client_info(self, request: Request) -> tuple[str, str]:
         """
         Extract client IP and user agent for audit purposes.
         Uses shared PII masking service for consistent anonymization.
@@ -416,7 +415,7 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                 ip_address=client_ip,
                 user_agent=user_agent,
             )
-            
+
             # Cancel all running and pending jobs for the user (Task 4.9)
             try:
                 job_cancellation_result = await job_cancellation_service.cancel_jobs_for_expired_license(
@@ -425,7 +424,7 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     user_id=user_id,
                     reason="license_expired"
                 )
-                
+
                 logger.info(
                     "Jobs cancelled for expired license",
                     extra={
@@ -524,7 +523,7 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
 
     async def _check_license_and_enforce(
         self, request: Request, user_id: int, request_id: str
-    ) -> Optional[JSONResponse]:
+    ) -> JSONResponse | None:
         """
         Check user license and enforce restrictions with proper error handling.
         Returns error response if license is invalid, None if valid.
@@ -581,13 +580,13 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                                 "code": "LIC_EXPIRED",
                                 "reason": "no_active_license",
                                 "user_id": user_id,
-                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                                "timestamp": datetime.now(UTC).isoformat(),
                             },
                         },
                     )
 
                 # Check if license is expired (additional safety check)
-                now = datetime.now(timezone.utc)
+                now = datetime.now(UTC)
                 if license.ends_at <= now:
                     # License is expired - revoke sessions and deny access
                     logger.warning(
@@ -660,7 +659,7 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                         "code": "LIC_EXPIRED",
                         "reason": "verification_unavailable",
                         "user_id": user_id,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     },
                 },
             )
@@ -688,7 +687,7 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                         "code": "LIC_EXPIRED",
                         "reason": "verification_failed",
                         "user_id": user_id,
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     },
                 },
             )
@@ -760,7 +759,7 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "detail": {
                         "code": "LIC_EXPIRED",
                         "reason": "service_unavailable",
-                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                        "timestamp": datetime.now(UTC).isoformat(),
                     },
                 },
             )

@@ -4,18 +4,13 @@ from celery import Celery
 from kombu import Exchange, Queue
 
 from ..config import settings
-from ..settings import app_settings as appset
 from ..core.queue_constants import (
-    MAIN_QUEUES,
-    DLQ_PREFIX,
     DLQ_CONFIG,
+    DLQ_PREFIX,
+    MAIN_QUEUES,
     QUEUE_CONFIGS,
-    QUEUE_FREECAD,
-    QUEUE_SIM,
-    QUEUE_CPU,
-    QUEUE_POSTPROC,
 )
-
+from ..settings import app_settings as appset
 
 celery_app = Celery(
     "freecad_tasks",
@@ -66,14 +61,14 @@ for queue_name in MAIN_QUEUES:
 main_queues = []
 for queue_name in MAIN_QUEUES:
     config = QUEUE_CONFIGS[queue_name]
-    
+
     # Priority mapping
     priority_map = {
         "high": settings.queue_priority_high,
         "normal": settings.queue_priority_normal,
         "low": settings.queue_priority_low,
     }
-    
+
     queue = Queue(
         queue_name,
         exchange=default_exchange,

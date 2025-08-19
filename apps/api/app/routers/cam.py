@@ -1,20 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Header, status
 from datetime import datetime
-from ..config import settings
-from ..settings import app_settings as appset
+
+from fastapi import APIRouter, Header, HTTPException, status
 from pydantic import BaseModel, Field
+
 from ..db import db_session
 from ..models import Job
-from ..tasks.cam import cam_generate
 from ..schemas.cam import CamJobCreate
-from ..db import db_session
-from ..models import Job
 from ..services.job_control import is_queue_paused
+from ..settings import app_settings as appset
+from ..tasks.cam import cam_generate
 
-
-router = APIRouter(prefix="/api/v1/cam", tags=["CAM/G-code"]) 
+router = APIRouter(prefix="/api/v1/cam", tags=["CAM/G-code"])
 
 
 class GCodeRequest(BaseModel):

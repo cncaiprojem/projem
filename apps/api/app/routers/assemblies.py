@@ -1,26 +1,22 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Header, status
 from datetime import datetime
-from ..config import settings
-from ..settings import app_settings as appset
-from sqlalchemy.orm import Session
+
+from fastapi import APIRouter, Header, HTTPException, status
 
 from ..db import db_session
 from ..models import Job
 from ..schemas.cad import (
-    AnalysisResponse,
     AnalysisQuestion,
-    AssemblyJobCreate,
-    AssemblyJobResult,
+    AnalysisResponse,
     AssemblyRequestV1,
     PlanetarySpec,
 )
-from ..tasks.assembly import assembly_generate
 from ..services.job_control import is_queue_paused
+from ..settings import app_settings as appset
+from ..tasks.assembly import assembly_generate
 
-
-router = APIRouter(prefix="/api/v1/assemblies", tags=["Montaj Analiz/Üretim"]) 
+router = APIRouter(prefix="/api/v1/assemblies", tags=["Montaj Analiz/Üretim"])
 
 
 CRITICAL_FIELDS = [

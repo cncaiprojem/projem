@@ -6,7 +6,6 @@ from ..db import db_session
 from ..models_tooling import ShopPackage
 from ..tasks.reports import shop_package_task
 
-
 router = APIRouter(prefix="/api/v1/reports", tags=["reports"])
 
 

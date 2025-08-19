@@ -3,7 +3,7 @@ from __future__ import annotations
 import requests
 
 from app.db import db_session
-from app.models_project import Project, Setup, ProjectType
+from app.models_project import Project, ProjectType, Setup
 
 
 def main():

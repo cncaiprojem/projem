@@ -6,16 +6,14 @@ and proper error handling for all file operations.
 """
 
 import os
-import tempfile
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
-from typing import Dict, Optional, Tuple, Union
 from urllib.parse import urlparse
 
 import structlog
 from minio import Minio
-from minio.error import S3Error
 from minio.commonconfig import CopySource
+from minio.error import S3Error
 
 logger = structlog.get_logger(__name__)
 
@@ -30,7 +28,7 @@ class S3Service:
     - Report generation and storage
     - Invoice document management
     """
-    
+
     def __init__(self):
         """Initialize S3 client with environment configuration."""
         self.endpoint = os.getenv("AWS_S3_ENDPOINT", "http://minio:9000")
@@ -38,11 +36,11 @@ class S3Service:
         self.secret_key = os.getenv("AWS_SECRET_ACCESS_KEY", "minioadmin")
         self.region = os.getenv("AWS_S3_REGION", "us-east-1")
         self.secure = os.getenv("AWS_S3_SECURE", "false").lower() == "true"
-        
+
         # Parse endpoint to get host and port
         parsed = urlparse(self.endpoint)
         host_port = parsed.netloc
-        
+
         try:
             self.client = Minio(
                 endpoint=host_port,
@@ -55,7 +53,7 @@ class S3Service:
         except Exception as e:
             logger.error("Failed to initialize S3 client", error=str(e), endpoint=host_port)
             raise
-    
+
     def _ensure_bucket_exists(self, bucket_name: str) -> bool:
         """
         Ensure bucket exists, create if it doesn't.
@@ -74,13 +72,13 @@ class S3Service:
         except S3Error as e:
             logger.error("Error checking bucket existence", bucket=bucket_name, error=str(e))
             return False
-    
+
     def generate_presigned_upload_url(
-        self, 
-        bucket: str, 
-        object_key: str, 
+        self,
+        bucket: str,
+        object_key: str,
         expiry: timedelta = timedelta(hours=1),
-        content_type: Optional[str] = None
+        content_type: str | None = None
     ) -> str:
         """
         Generate presigned URL for file upload.
@@ -100,39 +98,39 @@ class S3Service:
         try:
             if not self._ensure_bucket_exists(bucket):
                 raise S3Error(f"Bucket {bucket} does not exist")
-            
+
             # Prepare additional headers if content type is specified
             extra_headers = {}
             if content_type:
                 extra_headers["Content-Type"] = content_type
-            
+
             url = self.client.presigned_put_object(
                 bucket_name=bucket,
                 object_name=object_key,
                 expires=expiry,
                 response_headers=extra_headers if extra_headers else None
             )
-            
-            logger.info("Generated presigned upload URL", 
-                       bucket=bucket, 
-                       object_key=object_key, 
+
+            logger.info("Generated presigned upload URL",
+                       bucket=bucket,
+                       object_key=object_key,
                        expiry_hours=expiry.total_seconds()/3600)
-            
+
             return url
-            
+
         except S3Error as e:
-            logger.error("Failed to generate presigned upload URL", 
-                        bucket=bucket, 
-                        object_key=object_key, 
+            logger.error("Failed to generate presigned upload URL",
+                        bucket=bucket,
+                        object_key=object_key,
                         error=str(e))
             raise
-    
+
     def generate_presigned_download_url(
-        self, 
-        bucket: str, 
-        object_key: str, 
+        self,
+        bucket: str,
+        object_key: str,
         expiry: timedelta = timedelta(hours=1),
-        response_headers: Optional[Dict[str, str]] = None
+        response_headers: dict[str, str] | None = None
     ) -> str:
         """
         Generate presigned URL for file download.
@@ -152,7 +150,7 @@ class S3Service:
         try:
             if not self._ensure_bucket_exists(bucket):
                 raise S3Error(f"Bucket {bucket} does not exist")
-            
+
             # Check if object exists
             try:
                 self.client.stat_object(bucket, object_key)
@@ -160,35 +158,35 @@ class S3Service:
                 if e.code == "NoSuchKey":
                     raise S3Error(f"Object {object_key} not found in bucket {bucket}")
                 raise
-            
+
             url = self.client.presigned_get_object(
                 bucket_name=bucket,
                 object_name=object_key,
                 expires=expiry,
                 response_headers=response_headers
             )
-            
-            logger.info("Generated presigned download URL", 
-                       bucket=bucket, 
-                       object_key=object_key, 
+
+            logger.info("Generated presigned download URL",
+                       bucket=bucket,
+                       object_key=object_key,
                        expiry_hours=expiry.total_seconds()/3600)
-            
+
             return url
-            
+
         except S3Error as e:
-            logger.error("Failed to generate presigned download URL", 
-                        bucket=bucket, 
-                        object_key=object_key, 
+            logger.error("Failed to generate presigned download URL",
+                        bucket=bucket,
+                        object_key=object_key,
                         error=str(e))
             raise
-    
+
     def upload_file(
-        self, 
-        local_path: Union[str, Path], 
-        bucket: str, 
+        self,
+        local_path: str | Path,
+        bucket: str,
         object_key: str,
-        content_type: Optional[str] = None,
-        metadata: Optional[Dict[str, str]] = None
+        content_type: str | None = None,
+        metadata: dict[str, str] | None = None
     ) -> str:
         """
         Upload file directly to S3.
@@ -208,18 +206,18 @@ class S3Service:
             FileNotFoundError: If local file doesn't exist
         """
         local_path = Path(local_path)
-        
+
         if not local_path.exists():
             raise FileNotFoundError(f"Local file not found: {local_path}")
-        
+
         try:
             if not self._ensure_bucket_exists(bucket):
                 raise S3Error(f"Bucket {bucket} does not exist")
-            
+
             # Auto-detect content type if not provided
             if not content_type:
                 content_type = self._get_content_type(local_path)
-            
+
             self.client.fput_object(
                 bucket_name=bucket,
                 object_name=object_key,
@@ -227,28 +225,28 @@ class S3Service:
                 content_type=content_type,
                 metadata=metadata
             )
-            
-            logger.info("File uploaded successfully", 
+
+            logger.info("File uploaded successfully",
                        local_path=str(local_path),
-                       bucket=bucket, 
+                       bucket=bucket,
                        object_key=object_key,
                        content_type=content_type)
-            
+
             return object_key
-            
+
         except S3Error as e:
-            logger.error("Failed to upload file", 
+            logger.error("Failed to upload file",
                         local_path=str(local_path),
-                        bucket=bucket, 
-                        object_key=object_key, 
+                        bucket=bucket,
+                        object_key=object_key,
                         error=str(e))
             raise
-    
+
     def download_file(
-        self, 
-        bucket: str, 
-        object_key: str, 
-        local_path: Union[str, Path]
+        self,
+        bucket: str,
+        object_key: str,
+        local_path: str | Path
     ) -> Path:
         """
         Download file from S3 to local path.
@@ -265,35 +263,35 @@ class S3Service:
             S3Error: If download fails or object doesn't exist
         """
         local_path = Path(local_path)
-        
+
         try:
             if not self._ensure_bucket_exists(bucket):
                 raise S3Error(f"Bucket {bucket} does not exist")
-            
+
             # Ensure parent directory exists
             local_path.parent.mkdir(parents=True, exist_ok=True)
-            
+
             self.client.fget_object(
                 bucket_name=bucket,
                 object_name=object_key,
                 file_path=str(local_path)
             )
-            
-            logger.info("File downloaded successfully", 
-                       bucket=bucket, 
+
+            logger.info("File downloaded successfully",
+                       bucket=bucket,
                        object_key=object_key,
                        local_path=str(local_path))
-            
+
             return local_path
-            
+
         except S3Error as e:
-            logger.error("Failed to download file", 
-                        bucket=bucket, 
+            logger.error("Failed to download file",
+                        bucket=bucket,
                         object_key=object_key,
-                        local_path=str(local_path), 
+                        local_path=str(local_path),
                         error=str(e))
             raise
-    
+
     def delete_object(self, bucket: str, object_key: str) -> bool:
         """
         Delete object from S3.
@@ -311,26 +309,26 @@ class S3Service:
         try:
             if not self._ensure_bucket_exists(bucket):
                 raise S3Error(f"Bucket {bucket} does not exist")
-            
+
             self.client.remove_object(bucket, object_key)
-            
-            logger.info("Object deleted successfully", 
-                       bucket=bucket, 
+
+            logger.info("Object deleted successfully",
+                       bucket=bucket,
                        object_key=object_key)
-            
+
             return True
-            
+
         except S3Error as e:
-            logger.error("Failed to delete object", 
-                        bucket=bucket, 
-                        object_key=object_key, 
+            logger.error("Failed to delete object",
+                        bucket=bucket,
+                        object_key=object_key,
                         error=str(e))
             raise
-    
+
     def list_objects(
-        self, 
-        bucket: str, 
-        prefix: Optional[str] = None,
+        self,
+        bucket: str,
+        prefix: str | None = None,
         recursive: bool = True
     ) -> list:
         """
@@ -347,7 +345,7 @@ class S3Service:
         try:
             if not self._ensure_bucket_exists(bucket):
                 raise S3Error(f"Bucket {bucket} does not exist")
-            
+
             objects = []
             for obj in self.client.list_objects(bucket, prefix=prefix, recursive=recursive):
                 objects.append({
@@ -356,22 +354,22 @@ class S3Service:
                     "last_modified": obj.last_modified,
                     "etag": obj.etag
                 })
-            
-            logger.info("Listed objects", 
-                       bucket=bucket, 
+
+            logger.info("Listed objects",
+                       bucket=bucket,
                        prefix=prefix,
                        count=len(objects))
-            
+
             return objects
-            
+
         except S3Error as e:
-            logger.error("Failed to list objects", 
-                        bucket=bucket, 
-                        prefix=prefix, 
+            logger.error("Failed to list objects",
+                        bucket=bucket,
+                        prefix=prefix,
                         error=str(e))
             raise
-    
-    def get_object_info(self, bucket: str, object_key: str) -> Dict:
+
+    def get_object_info(self, bucket: str, object_key: str) -> dict:
         """
         Get metadata and information about an object.
         
@@ -388,9 +386,9 @@ class S3Service:
         try:
             if not self._ensure_bucket_exists(bucket):
                 raise S3Error(f"Bucket {bucket} does not exist")
-            
+
             stat = self.client.stat_object(bucket, object_key)
-            
+
             info = {
                 "key": object_key,
                 "size": stat.size,
@@ -400,28 +398,28 @@ class S3Service:
                 "metadata": stat.metadata,
                 "version_id": getattr(stat, 'version_id', None)
             }
-            
-            logger.info("Retrieved object info", 
-                       bucket=bucket, 
+
+            logger.info("Retrieved object info",
+                       bucket=bucket,
                        object_key=object_key,
                        size=stat.size)
-            
+
             return info
-            
+
         except S3Error as e:
-            logger.error("Failed to get object info", 
-                        bucket=bucket, 
-                        object_key=object_key, 
+            logger.error("Failed to get object info",
+                        bucket=bucket,
+                        object_key=object_key,
                         error=str(e))
             raise
-    
+
     def copy_object(
-        self, 
-        source_bucket: str, 
+        self,
+        source_bucket: str,
         source_key: str,
-        dest_bucket: str, 
+        dest_bucket: str,
         dest_key: str,
-        metadata: Optional[Dict[str, str]] = None
+        metadata: dict[str, str] | None = None
     ) -> str:
         """
         Copy object from source to destination.
@@ -444,33 +442,33 @@ class S3Service:
                 raise S3Error(f"Source bucket {source_bucket} does not exist")
             if not self._ensure_bucket_exists(dest_bucket):
                 raise S3Error(f"Destination bucket {dest_bucket} does not exist")
-            
+
             copy_source = CopySource(source_bucket, source_key)
-            
+
             self.client.copy_object(
                 bucket_name=dest_bucket,
                 object_name=dest_key,
                 source=copy_source,
                 metadata=metadata
             )
-            
-            logger.info("Object copied successfully", 
+
+            logger.info("Object copied successfully",
                        source_bucket=source_bucket,
                        source_key=source_key,
                        dest_bucket=dest_bucket,
                        dest_key=dest_key)
-            
+
             return dest_key
-            
+
         except S3Error as e:
-            logger.error("Failed to copy object", 
+            logger.error("Failed to copy object",
                         source_bucket=source_bucket,
                         source_key=source_key,
                         dest_bucket=dest_bucket,
                         dest_key=dest_key,
                         error=str(e))
             raise
-    
+
     def _get_content_type(self, file_path: Path) -> str:
         """
         Determine content type based on file extension.
@@ -482,7 +480,7 @@ class S3Service:
             str: MIME content type
         """
         extension = file_path.suffix.lower()
-        
+
         content_types = {
             '.stl': 'application/sla',
             '.step': 'application/step',
@@ -498,14 +496,14 @@ class S3Service:
             '.jpeg': 'image/jpeg',
             '.svg': 'image/svg+xml'
         }
-        
+
         return content_types.get(extension, 'application/octet-stream')
-    
+
     def create_temp_download_url(
-        self, 
-        bucket: str, 
+        self,
+        bucket: str,
         object_key: str,
-        filename: Optional[str] = None,
+        filename: str | None = None,
         expiry_minutes: int = 15
     ) -> str:
         """
@@ -523,7 +521,7 @@ class S3Service:
         headers = {}
         if filename:
             headers['response-content-disposition'] = f'attachment; filename="{filename}"'
-        
+
         return self.generate_presigned_download_url(
             bucket=bucket,
             object_key=object_key,

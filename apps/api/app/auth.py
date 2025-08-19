@@ -9,7 +9,9 @@
 # - routers/auth_jwt.py (JWT auth endpoints)
 
 from fastapi import HTTPException, status
+
 from .schemas import TokenPair, UserOut
+
 
 def create_token_pair(email: str) -> TokenPair:
     """DEPRECATED: Use services.jwt_service.JWTService instead"""

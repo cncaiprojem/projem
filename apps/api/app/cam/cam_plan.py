@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any
 
 
-def derive_cam_params(plan: Dict[str, Any], strategy: str = "balanced") -> Dict[str, Any]:
+def derive_cam_params(plan: dict[str, Any], strategy: str = "balanced") -> dict[str, Any]:
     """Plan (M13) + varsayılanlara göre operasyon listesi ve takım çaplarını önerir.
     Dönen yapı Path builder tarafından kullanılacaktır.
     """

@@ -14,8 +14,8 @@ Features:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import UTC, datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
@@ -31,9 +31,8 @@ from ..services.rbac_service import rbac_service
 from ..services.security_event_service import (
     SecurityEventType,
     SecuritySeverity,
-    security_event_service
+    security_event_service,
 )
-
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/admin/logs", tags=["admin", "logs", "audit"])
@@ -52,28 +51,28 @@ TURKISH_ERRORS = {
 
 class AuditLogFilter(BaseModel):
     """Audit log filtering parameters with Turkish field descriptions."""
-    
-    correlation_id: Optional[str] = Field(
-        None, 
+
+    correlation_id: str | None = Field(
+        None,
         description="İstek korelasyon ID'si ile filtreleme"
     )
-    user_id: Optional[int] = Field(
+    user_id: int | None = Field(
         None,
         description="Kullanıcı ID'si ile filtreleme"
     )
-    event_type: Optional[str] = Field(
+    event_type: str | None = Field(
         None,
         description="Olay türü ile filtreleme (kısmi eşleşme)"
     )
-    scope_type: Optional[str] = Field(
+    scope_type: str | None = Field(
         None,
         description="Kapsam türü ile filtreleme (user, job, financial, etc.)"
     )
-    start_date: Optional[datetime] = Field(
+    start_date: datetime | None = Field(
         None,
         description="Başlangıç tarihi (ISO 8601 formatında)"
     )
-    end_date: Optional[datetime] = Field(
+    end_date: datetime | None = Field(
         None,
         description="Bitiş tarihi (ISO 8601 formatında)"
     )
@@ -81,28 +80,28 @@ class AuditLogFilter(BaseModel):
 
 class SecurityEventFilter(BaseModel):
     """Security event filtering parameters."""
-    
-    correlation_id: Optional[str] = Field(
+
+    correlation_id: str | None = Field(
         None,
         description="İstek korelasyon ID'si ile filtreleme"
     )
-    user_id: Optional[int] = Field(
+    user_id: int | None = Field(
         None,
         description="Kullanıcı ID'si ile filtreleme"
     )
-    event_type: Optional[str] = Field(
+    event_type: str | None = Field(
         None,
         description="Güvenlik olayı türü ile filtreleme"
     )
-    severity_filter: Optional[List[str]] = Field(
+    severity_filter: list[str] | None = Field(
         None,
         description="Önem derecesi ile filtreleme (info, low, medium, high, critical)"
     )
-    start_date: Optional[datetime] = Field(
+    start_date: datetime | None = Field(
         None,
         description="Başlangıç tarihi"
     )
-    end_date: Optional[datetime] = Field(
+    end_date: datetime | None = Field(
         None,
         description="Bitiş tarihi"
     )
@@ -110,18 +109,18 @@ class SecurityEventFilter(BaseModel):
 
 class AuditLogResponse(BaseModel):
     """Audit log response model with Turkish descriptions."""
-    
+
     id: int = Field(description="Denetim kaydı ID'si")
     event_type: str = Field(description="Olay türü")
     scope_type: str = Field(description="Kapsam türü")
-    scope_id: Optional[int] = Field(description="Kapsam ID'si")
-    user_id: Optional[int] = Field(description="Kullanıcı ID'si")
-    correlation_id: Optional[str] = Field(description="Korelasyon ID'si")
-    session_id: Optional[str] = Field(description="Oturum ID'si")
-    resource: Optional[str] = Field(description="Kaynak")
-    ip_masked: Optional[str] = Field(description="Maskelenmiş IP adresi (KVKV uyumlu)")
-    ua_masked: Optional[str] = Field(description="Maskelenmiş kullanıcı agent'ı")
-    payload: Optional[Dict[str, Any]] = Field(description="Olay verisi")
+    scope_id: int | None = Field(description="Kapsam ID'si")
+    user_id: int | None = Field(description="Kullanıcı ID'si")
+    correlation_id: str | None = Field(description="Korelasyon ID'si")
+    session_id: str | None = Field(description="Oturum ID'si")
+    resource: str | None = Field(description="Kaynak")
+    ip_masked: str | None = Field(description="Maskelenmiş IP adresi (KVKV uyumlu)")
+    ua_masked: str | None = Field(description="Maskelenmiş kullanıcı agent'ı")
+    payload: dict[str, Any] | None = Field(description="Olay verisi")
     chain_hash: str = Field(description="Zincir hash'i (bütünlük doğrulama)")
     created_at: str = Field(description="Oluşturulma zamanı")
     is_system_action: bool = Field(description="Sistem eylemi mi?")
@@ -129,16 +128,16 @@ class AuditLogResponse(BaseModel):
 
 class SecurityEventResponse(BaseModel):
     """Security event response model."""
-    
+
     id: int = Field(description="Güvenlik olayı ID'si")
     type: str = Field(description="Olay türü")
-    user_id: Optional[int] = Field(description="Kullanıcı ID'si")
-    session_id: Optional[str] = Field(description="Oturum ID'si")
-    correlation_id: Optional[str] = Field(description="Korelasyon ID'si")
-    resource: Optional[str] = Field(description="Etkilenen kaynak")
-    ip_masked: Optional[str] = Field(description="Maskelenmiş IP adresi")
-    ua_masked: Optional[str] = Field(description="Maskelenmiş kullanıcı agent'ı")
-    metadata: Optional[Dict[str, Any]] = Field(description="Ek olay verisi")
+    user_id: int | None = Field(description="Kullanıcı ID'si")
+    session_id: str | None = Field(description="Oturum ID'si")
+    correlation_id: str | None = Field(description="Korelasyon ID'si")
+    resource: str | None = Field(description="Etkilenen kaynak")
+    ip_masked: str | None = Field(description="Maskelenmiş IP adresi")
+    ua_masked: str | None = Field(description="Maskelenmiş kullanıcı agent'ı")
+    metadata: dict[str, Any] | None = Field(description="Ek olay verisi")
     created_at: str = Field(description="Oluşturulma zamanı")
     is_anonymous: bool = Field(description="Anonim olay mı?")
     is_authenticated: bool = Field(description="Kimlik doğrulamalı olay mı?")
@@ -147,18 +146,18 @@ class SecurityEventResponse(BaseModel):
 
 class PaginatedAuditResponse(BaseModel):
     """Paginated audit log response."""
-    
-    logs: List[AuditLogResponse] = Field(description="Denetim kayıtları listesi")
-    pagination: Dict[str, Any] = Field(description="Sayfalama bilgileri")
-    filters_applied: Dict[str, Any] = Field(description="Uygulanan filtreler")
+
+    logs: list[AuditLogResponse] = Field(description="Denetim kayıtları listesi")
+    pagination: dict[str, Any] = Field(description="Sayfalama bilgileri")
+    filters_applied: dict[str, Any] = Field(description="Uygulanan filtreler")
 
 
 class PaginatedSecurityResponse(BaseModel):
     """Paginated security events response."""
-    
-    events: List[SecurityEventResponse] = Field(description="Güvenlik olayları listesi")
-    pagination: Dict[str, Any] = Field(description="Sayfalama bilgileri")
-    filters_applied: Dict[str, Any] = Field(description="Uygulanan filtreler")
+
+    events: list[SecurityEventResponse] = Field(description="Güvenlik olayları listesi")
+    pagination: dict[str, Any] = Field(description="Sayfalama bilgileri")
+    filters_applied: dict[str, Any] = Field(description="Uygulanan filtreler")
 
 
 async def verify_admin_access(
@@ -179,12 +178,12 @@ async def verify_admin_access(
     """
     # Check if user has admin role
     has_admin_role = await rbac_service.user_has_role(db, current_user.id, "admin")
-    
+
     # Check if user has audit access permission
     has_audit_permission = await rbac_service.user_has_permission(
         db, current_user.id, "audit:read"
     )
-    
+
     if not (has_admin_role or has_audit_permission):
         # Log unauthorized access attempt
         await security_event_service.create_security_event(
@@ -199,7 +198,7 @@ async def verify_admin_access(
                 "user_roles": current_user.roles if hasattr(current_user, 'roles') else []
             }
         )
-        
+
         raise HTTPException(
             status_code=403,
             detail={
@@ -209,7 +208,7 @@ async def verify_admin_access(
                 "required_permissions": ["admin", "audit:read"]
             }
         )
-    
+
     # Log successful admin access
     await security_event_service.create_security_event(
         db=db,
@@ -222,7 +221,7 @@ async def verify_admin_access(
             "user_permissions": ["admin", "audit:read"]
         }
     )
-    
+
     return current_user
 
 
@@ -234,27 +233,27 @@ async def verify_admin_access(
 )
 async def get_audit_logs(
     request: Request,
-    correlation_id: Optional[str] = Query(
-        None, 
+    correlation_id: str | None = Query(
+        None,
         description="Korelasyon ID'si ile filtreleme"
     ),
-    user_id: Optional[int] = Query(
+    user_id: int | None = Query(
         None,
         description="Kullanıcı ID'si ile filtreleme"
     ),
-    event_type: Optional[str] = Query(
+    event_type: str | None = Query(
         None,
         description="Olay türü ile filtreleme"
     ),
-    scope_type: Optional[str] = Query(
+    scope_type: str | None = Query(
         None,
         description="Kapsam türü ile filtreleme"
     ),
-    start_date: Optional[datetime] = Query(
+    start_date: datetime | None = Query(
         None,
         description="Başlangıç tarihi (ISO 8601)"
     ),
-    end_date: Optional[datetime] = Query(
+    end_date: datetime | None = Query(
         None,
         description="Bitiş tarihi (ISO 8601)"
     ),
@@ -273,7 +272,7 @@ async def get_audit_logs(
     admin_user: User = Depends(verify_admin_access)
 ) -> PaginatedAuditResponse:
     """Get audit logs with filtering and pagination."""
-    
+
     try:
         # Validate date range
         if start_date and end_date and start_date > end_date:
@@ -285,7 +284,7 @@ async def get_audit_logs(
                     "error_message_en": "Start date must be before end date"
                 }
             )
-        
+
         # Get audit logs
         result = await audit_service.get_audit_logs(
             db=db,
@@ -298,12 +297,12 @@ async def get_audit_logs(
             limit=limit,
             offset=offset
         )
-        
+
         # Convert to response format
         audit_logs = [
             AuditLogResponse(**log) for log in result["logs"]
         ]
-        
+
         # Log admin audit access
         await audit_service.create_audit_entry(
             db=db,
@@ -330,13 +329,13 @@ async def get_audit_logs(
                 "total_count": result["pagination"]["total"]
             }
         )
-        
+
         return PaginatedAuditResponse(
             logs=audit_logs,
             pagination=result["pagination"],
             filters_applied=result["filters_applied"]
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -364,27 +363,27 @@ async def get_audit_logs(
 )
 async def get_security_events(
     request: Request,
-    correlation_id: Optional[str] = Query(
+    correlation_id: str | None = Query(
         None,
         description="Korelasyon ID'si ile filtreleme"
     ),
-    user_id: Optional[int] = Query(
+    user_id: int | None = Query(
         None,
         description="Kullanıcı ID'si ile filtreleme"
     ),
-    event_type: Optional[str] = Query(
+    event_type: str | None = Query(
         None,
         description="Güvenlik olayı türü ile filtreleme"
     ),
-    start_date: Optional[datetime] = Query(
+    start_date: datetime | None = Query(
         None,
         description="Başlangıç tarihi (ISO 8601)"
     ),
-    end_date: Optional[datetime] = Query(
+    end_date: datetime | None = Query(
         None,
         description="Bitiş tarihi (ISO 8601)"
     ),
-    severity_filter: Optional[List[str]] = Query(
+    severity_filter: list[str] | None = Query(
         None,
         description="Önem derecesi filtresi"
     ),
@@ -403,7 +402,7 @@ async def get_security_events(
     admin_user: User = Depends(verify_admin_access)
 ) -> PaginatedSecurityResponse:
     """Get security events with filtering and pagination."""
-    
+
     try:
         # Validate date range
         if start_date and end_date and start_date > end_date:
@@ -415,7 +414,7 @@ async def get_security_events(
                     "error_message_en": "Start date must be before end date"
                 }
             )
-        
+
         # Get security events
         result = await security_event_service.get_security_events(
             db=db,
@@ -428,12 +427,12 @@ async def get_security_events(
             limit=limit,
             offset=offset
         )
-        
+
         # Convert to response format
         security_events = [
             SecurityEventResponse(**event) for event in result["events"]
         ]
-        
+
         # Log admin security event access
         await audit_service.create_audit_entry(
             db=db,
@@ -460,13 +459,13 @@ async def get_security_events(
                 "total_count": result["pagination"]["total"]
             }
         )
-        
+
         return PaginatedSecurityResponse(
             events=security_events,
             pagination=result["pagination"],
             filters_applied=result["filters_applied"]
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -495,9 +494,9 @@ async def get_logs_by_correlation(
     correlation_id: str,
     db: Session = Depends(get_db),
     admin_user: User = Depends(verify_admin_access)
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get all logs (audit and security) for a specific correlation ID."""
-    
+
     try:
         # Get audit logs for correlation ID
         audit_result = await audit_service.get_audit_logs(
@@ -505,14 +504,14 @@ async def get_logs_by_correlation(
             correlation_id=correlation_id,
             limit=1000  # High limit for correlation tracing
         )
-        
+
         # Get security events for correlation ID
         security_result = await security_event_service.get_security_events(
             db=db,
             correlation_id=correlation_id,
             limit=1000  # High limit for correlation tracing
         )
-        
+
         if not audit_result["logs"] and not security_result["events"]:
             raise HTTPException(
                 status_code=404,
@@ -522,7 +521,7 @@ async def get_logs_by_correlation(
                     "error_message_en": f"No logs found for correlation ID: {correlation_id}"
                 }
             )
-        
+
         # Log correlation trace access
         await audit_service.create_audit_entry(
             db=db,
@@ -537,7 +536,7 @@ async def get_logs_by_correlation(
                 "total_logs": len(audit_result["logs"]) + len(security_result["events"])
             }
         )
-        
+
         return {
             "correlation_id": correlation_id,
             "audit_logs": {
@@ -562,7 +561,7 @@ async def get_logs_by_correlation(
                 }
             }
         }
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -594,15 +593,15 @@ async def get_security_analytics(
         le=168,  # Max 1 week
         description="Analiz zaman penceresi (saat)"
     ),
-    user_id: Optional[int] = Query(
+    user_id: int | None = Query(
         None,
         description="Belirli kullanıcı için analiz"
     ),
     db: Session = Depends(get_db),
     admin_user: User = Depends(verify_admin_access)
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Get security analytics and trend analysis."""
-    
+
     try:
         # Get security trend analysis
         analytics = await security_event_service.analyze_security_trends(
@@ -610,13 +609,13 @@ async def get_security_analytics(
             time_window_hours=time_window_hours,
             user_id=user_id
         )
-        
+
         # Verify audit chain integrity for the same period
         audit_verification = await audit_service.verify_audit_chain_integrity(
             db=db,
             limit=1000
         )
-        
+
         # Log security analytics access
         await audit_service.create_audit_entry(
             db=db,
@@ -632,7 +631,7 @@ async def get_security_analytics(
                 "audit_chain_status": audit_verification["status"]
             }
         )
-        
+
         return {
             "security_analytics": analytics,
             "audit_chain_integrity": audit_verification,
@@ -642,13 +641,13 @@ async def get_security_analytics(
                 "data_masking_enabled": True,
                 "chain_integrity_verified": audit_verification["status"] == "integrity_verified"
             },
-            "generated_at": datetime.now(timezone.utc).isoformat(),
+            "generated_at": datetime.now(UTC).isoformat(),
             "generated_by": {
                 "user_id": admin_user.id,
                 "correlation_id": get_correlation_id()
             }
         }
-        
+
     except Exception as e:
         logger.error(
             "security_analytics_failed",
@@ -675,38 +674,38 @@ async def get_security_analytics(
 async def audit_system_health(
     db: Session = Depends(get_db),
     admin_user: User = Depends(verify_admin_access)
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """Check health status of audit and security systems."""
-    
+
     try:
         # Check recent audit log creation
         recent_audit = await audit_service.get_audit_logs(
             db=db,
             limit=1
         )
-        
+
         # Check recent security events
         recent_security = await security_event_service.get_security_events(
             db=db,
             limit=1
         )
-        
+
         # Quick chain integrity check
         integrity_check = await audit_service.verify_audit_chain_integrity(
             db=db,
             limit=10  # Quick check on last 10 entries
         )
-        
+
         health_status = {
             "status": "healthy",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "components": {
                 "audit_service": {
                     "status": "operational",
                     "recent_logs": recent_audit["pagination"]["total"] > 0
                 },
                 "security_service": {
-                    "status": "operational", 
+                    "status": "operational",
                     "recent_events": recent_security["pagination"]["total"] > 0
                 },
                 "chain_integrity": {
@@ -724,7 +723,7 @@ async def audit_system_health(
                 }
             }
         }
-        
+
         # Log health check
         await audit_service.create_audit_entry(
             db=db,
@@ -734,20 +733,20 @@ async def audit_system_health(
             resource="audit_system_health",
             payload=health_status
         )
-        
+
         return health_status
-        
+
     except Exception as e:
         logger.error(
             "audit_health_check_failed",
             error=str(e),
             user_id=admin_user.id
         )
-        
+
         error_status = {
             "status": "unhealthy",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "error": str(e)
         }
-        
+
         return error_status

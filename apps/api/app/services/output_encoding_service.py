@@ -5,10 +5,9 @@ Provides comprehensive output encoding for user-generated content display.
 
 from __future__ import annotations
 
-import html
 import json
 import urllib.parse
-from typing import Any, Dict, List, Union
+from typing import Any
 
 
 class OutputEncodingService:
@@ -21,7 +20,7 @@ class OutputEncodingService:
     - CSS context encoding
     - JSON context encoding
     """
-    
+
     def __init__(self):
         """Initialize the output encoding service."""
         # HTML entity mapping for comprehensive encoding
@@ -38,7 +37,7 @@ class OutputEncodingService:
             '\r': '&#13;',
             '\t': '&#9;'
         }
-        
+
         # JavaScript dangerous characters
         self.js_escape_chars = {
             '\\': '\\\\',
@@ -56,7 +55,7 @@ class OutputEncodingService:
             '=': '\\x3D',
             '+': '\\x2B'
         }
-        
+
         # CSS dangerous characters
         self.css_escape_chars = {
             '"': '\\"',
@@ -73,7 +72,7 @@ class OutputEncodingService:
             '{': '\\7B ',
             '}': '\\7D '
         }
-    
+
     def encode_html_content(self, content: Any) -> str:
         """Encode content for safe display in HTML context.
         
@@ -85,17 +84,17 @@ class OutputEncodingService:
         """
         if content is None:
             return ""
-        
+
         if not isinstance(content, str):
             content = str(content)
-        
+
         # Use comprehensive HTML encoding
         encoded = content
         for char, entity in self.html_entities.items():
             encoded = encoded.replace(char, entity)
-        
+
         return encoded
-    
+
     def encode_html_attribute(self, content: Any) -> str:
         """Encode content for safe use in HTML attributes.
         
@@ -107,18 +106,18 @@ class OutputEncodingService:
         """
         if content is None:
             return ""
-        
+
         if not isinstance(content, str):
             content = str(content)
-        
+
         # HTML attribute encoding (stricter than content)
         encoded = self.encode_html_content(content)
-        
+
         # Additional attribute-specific encoding
         encoded = encoded.replace(' ', '&#32;')
-        
+
         return f'"{encoded}"'
-    
+
     def encode_javascript_string(self, content: Any) -> str:
         """Encode content for safe use in JavaScript strings.
         
@@ -130,17 +129,17 @@ class OutputEncodingService:
         """
         if content is None:
             return '""'
-        
+
         if not isinstance(content, str):
             content = str(content)
-        
+
         # JavaScript string encoding
         encoded = content
         for char, escape in self.js_escape_chars.items():
             encoded = encoded.replace(char, escape)
-        
+
         return f'"{encoded}"'
-    
+
     def encode_url_component(self, content: Any) -> str:
         """Encode content for safe use in URL parameters.
         
@@ -152,13 +151,13 @@ class OutputEncodingService:
         """
         if content is None:
             return ""
-        
+
         if not isinstance(content, str):
             content = str(content)
-        
+
         # URL percent encoding
         return urllib.parse.quote(content, safe='')
-    
+
     def encode_css_value(self, content: Any) -> str:
         """Encode content for safe use in CSS values.
         
@@ -170,17 +169,17 @@ class OutputEncodingService:
         """
         if content is None:
             return ""
-        
+
         if not isinstance(content, str):
             content = str(content)
-        
+
         # CSS value encoding
         encoded = content
         for char, escape in self.css_escape_chars.items():
             encoded = encoded.replace(char, escape)
-        
+
         return encoded
-    
+
     def encode_json_value(self, content: Any) -> str:
         """Encode content for safe use in JSON context.
         
@@ -196,7 +195,7 @@ class OutputEncodingService:
         except (TypeError, ValueError):
             # Fallback for non-serializable content
             return json.dumps(str(content), ensure_ascii=True)
-    
+
     def encode_xml_content(self, content: Any) -> str:
         """Encode content for safe use in XML context.
         
@@ -208,19 +207,19 @@ class OutputEncodingService:
         """
         if content is None:
             return ""
-        
+
         if not isinstance(content, str):
             content = str(content)
-        
+
         # XML uses same encoding as HTML for most characters
         encoded = self.encode_html_content(content)
-        
+
         # Additional XML-specific characters
         encoded = encoded.replace('\v', '&#11;')  # Vertical tab
         encoded = encoded.replace('\0', '')  # Remove null bytes
-        
+
         return encoded
-    
+
     def encode_for_context(self, content: Any, context: str) -> str:
         """Encode content based on output context.
         
@@ -232,7 +231,7 @@ class OutputEncodingService:
             Context-appropriate encoded content
         """
         context = context.lower()
-        
+
         encoding_map = {
             'html': self.encode_html_content,
             'javascript': self.encode_javascript_string,
@@ -244,11 +243,11 @@ class OutputEncodingService:
             'attribute': self.encode_html_attribute,
             'attr': self.encode_html_attribute
         }
-        
+
         encoder = encoding_map.get(context, self.encode_html_content)
         return encoder(content)
-    
-    def encode_user_content_safe(self, content: Any, allowed_tags: List[str] = None) -> str:
+
+    def encode_user_content_safe(self, content: Any, allowed_tags: list[str] = None) -> str:
         """Safely encode user-generated content with optional allowed tags.
         
         Args:
@@ -260,17 +259,17 @@ class OutputEncodingService:
         """
         if content is None:
             return ""
-        
+
         if not isinstance(content, str):
             content = str(content)
-        
+
         # For now, always do full encoding (no HTML allowed)
         # This can be extended later with a proper HTML sanitizer
         # if specific tags need to be allowed
-        
+
         return self.encode_html_content(content)
-    
-    def create_safe_template_data(self, data: Dict[str, Any]) -> Dict[str, str]:
+
+    def create_safe_template_data(self, data: dict[str, Any]) -> dict[str, str]:
         """Create template data with all values safely encoded.
         
         Args:
@@ -280,7 +279,7 @@ class OutputEncodingService:
             Dictionary with all string values HTML-encoded
         """
         safe_data = {}
-        
+
         for key, value in data.items():
             if isinstance(value, str):
                 safe_data[key] = self.encode_html_content(value)
@@ -290,9 +289,9 @@ class OutputEncodingService:
                 safe_data[key] = self.encode_json_value(value)
             else:
                 safe_data[key] = self.encode_html_content(str(value))
-        
+
         return safe_data
-    
+
     def create_safe_api_response(self, data: Any) -> Any:
         """Create API response with safely encoded string values.
         

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -18,13 +18,13 @@ class CamJobCreate(BaseModel):
     safe_z_mm: float = Field(5.0)
     stock_margin_mm: float = Field(2.0, ge=0)
     units: Literal["mm", "inch"] = "mm"
-    machine_bounds_mm: Optional[dict] = None  # {"x":[0,300],"y":[0,300],"z":[-50,150]}
+    machine_bounds_mm: dict | None = None  # {"x":[0,300],"y":[0,300],"z":[-50,150]}
 
 
 class CamJobResult(BaseModel):
     status: Literal["pending", "running", "succeeded", "failed"]
-    artefacts: List[ArtefactRef] = []
+    artefacts: list[ArtefactRef] = []
     metrics: dict = {}
-    error_message: Optional[str] = None
+    error_message: str | None = None
 
 

@@ -2,15 +2,14 @@ from __future__ import annotations
 
 import os
 import shutil
-from typing import Optional
 
 from ..config import settings
-from ..schemas import FreeCADDetectResponse
 from ..logging_setup import get_logger
+from ..schemas import FreeCADDetectResponse
 from .subprocess_runner import run_subprocess_with_timeout
 
 
-def find_freecadcmd_path() -> Optional[str]:
+def find_freecadcmd_path() -> str | None:
     if settings.freecadcmd_path and os.path.isfile(settings.freecadcmd_path):
         return settings.freecadcmd_path
     cand = shutil.which("FreeCADCmd")
@@ -28,14 +27,14 @@ def find_freecadcmd_path() -> Optional[str]:
     return None
 
 
-def get_freecad_version(path: str) -> Optional[str]:
+def get_freecad_version(path: str) -> str | None:
     res = run_subprocess_with_timeout([path, "--version"], timeout_seconds=30)
     if res.returncode == 0 and res.stdout:
         return res.stdout.strip().splitlines()[0]
     return None
 
 
-def check_asm4_available(path: str) -> Optional[bool]:
+def check_asm4_available(path: str) -> bool | None:
     # FreeCADCmd içinden Asm4 modülü import edilebilir mi kontrol et
     script = (
         "import importlib, sys; "

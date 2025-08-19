@@ -9,26 +9,27 @@ These schemas define the API contracts for magic link endpoints with:
 """
 
 from datetime import datetime
-from typing import Optional, Dict, Any
+from typing import Any
+
 from pydantic import BaseModel, EmailStr, Field, validator
 
 
 class MagicLinkRequestRequest(BaseModel):
     """Magic link request schema."""
-    
+
     email: EmailStr = Field(
         ...,
         description="Magic link gönderilecek e-posta adresi",
         example="kullanici@example.com"
     )
-    
-    device_fingerprint: Optional[str] = Field(
+
+    device_fingerprint: str | None = Field(
         None,
         max_length=512,
         description="Cihaz parmak izi (güvenlik için)",
         example="fp_abc123..."
     )
-    
+
     @validator('email')
     def validate_email(cls, v):
         """Validate and normalize email."""
@@ -37,12 +38,12 @@ class MagicLinkRequestRequest(BaseModel):
 
 class MagicLinkRequestResponse(BaseModel):
     """Magic link request response schema (always success for security)."""
-    
+
     message: str = Field(
         default="Magic link e-posta adresinize gönderildi. Gelen kutunuzu kontrol edin.",
         description="Başarı mesajı (her zaman aynı güvenlik için)"
     )
-    
+
     expires_in_minutes: int = Field(
         default=15,
         description="Magic link geçerlilik süresi (dakika)"
@@ -51,7 +52,7 @@ class MagicLinkRequestResponse(BaseModel):
 
 class MagicLinkConsumeRequest(BaseModel):
     """Magic link consumption request schema."""
-    
+
     token: str = Field(
         ...,
         min_length=10,
@@ -59,8 +60,8 @@ class MagicLinkConsumeRequest(BaseModel):
         description="Magic link token'ı",
         example="eyJ0eXAiOiJKV1QiLCJhbGc..."
     )
-    
-    device_fingerprint: Optional[str] = Field(
+
+    device_fingerprint: str | None = Field(
         None,
         max_length=512,
         description="Cihaz parmak izi (güvenlik doğrulaması için)",
@@ -70,25 +71,25 @@ class MagicLinkConsumeRequest(BaseModel):
 
 class MagicLinkConsumeResponse(BaseModel):
     """Magic link consumption response schema."""
-    
+
     access_token: str = Field(..., description="JWT erişim token'ı")
     token_type: str = Field(default="bearer", description="Token türü")
     expires_in: int = Field(..., description="Token geçerlilik süresi (saniye)")
-    
+
     user_id: int = Field(..., description="Kullanıcı ID'si")
     email: str = Field(..., description="Kullanıcı e-posta adresi")
-    full_name: Optional[str] = Field(None, description="Kullanıcı tam adı")
+    full_name: str | None = Field(None, description="Kullanıcı tam adı")
     role: str = Field(..., description="Kullanıcı rolü")
-    
+
     session_id: str = Field(..., description="Oturum ID'si")
-    
+
     # Additional security information
     login_method: str = Field(
         default="magic_link",
         description="Giriş yöntemi"
     )
-    
-    password_must_change: Optional[bool] = Field(
+
+    password_must_change: bool | None = Field(
         None,
         description="Şifre değiştirilmeli mi?"
     )
@@ -96,7 +97,7 @@ class MagicLinkConsumeResponse(BaseModel):
 
 class MagicLinkErrorResponse(BaseModel):
     """Magic link error response schema."""
-    
+
     error_code: str = Field(
         ...,
         description="Magic link hata kodu",
@@ -107,7 +108,7 @@ class MagicLinkErrorResponse(BaseModel):
         description="Hata mesajı",
         example="Magic link süresi dolmuş"
     )
-    details: Optional[Dict[str, Any]] = Field(
+    details: dict[str, Any] | None = Field(
         None,
         description="Ek hata detayları"
     )
@@ -115,11 +116,11 @@ class MagicLinkErrorResponse(BaseModel):
 
 class MagicLinkStatusResponse(BaseModel):
     """Magic link status response schema (for admin/debugging)."""
-    
+
     magic_link_id: str = Field(..., description="Magic link ID'si")
     email_hash: int = Field(..., description="E-posta hash'i (maskelenmiş)")
     issued_at: datetime = Field(..., description="Oluşturulma zamanı")
-    consumed_at: Optional[datetime] = Field(None, description="Kullanılma zamanı")
+    consumed_at: datetime | None = Field(None, description="Kullanılma zamanı")
     is_expired: bool = Field(..., description="Süresi dolmuş mu?")
     is_consumed: bool = Field(..., description="Kullanılmış mı?")
     is_valid: bool = Field(..., description="Geçerli mi?")

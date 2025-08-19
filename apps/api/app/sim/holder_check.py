@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Iterable, List, Tuple
 
 
 @dataclass
@@ -14,11 +14,11 @@ class Segment:
     z1: float
 
 
-def swept_cylinder_min_clearance(segments: Iterable[Segment], holder_diameter_mm: float, clearance_mm: float) -> Tuple[float, List[dict]]:
+def swept_cylinder_min_clearance(segments: Iterable[Segment], holder_diameter_mm: float, clearance_mm: float) -> tuple[float, list[dict]]:
     # Basit sahte hesap: segment uzunluğunu min clearance ile karşılaştır
     # M18.4'te gerçek geometri kesişimi ile değiştirilecek
     min_clear = 1e9
-    hits: List[dict] = []
+    hits: list[dict] = []
     for i, s in enumerate(segments):
         dx = s.x1 - s.x0
         dy = s.y1 - s.y0
