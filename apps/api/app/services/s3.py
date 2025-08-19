@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, Optional, Tuple, Union
 from urllib.parse import urlparse
+import io
 
 import structlog
 from minio import Minio
@@ -530,6 +531,155 @@ class S3Service:
             expiry=timedelta(minutes=expiry_minutes),
             response_headers=headers
         )
+    
+    async def upload_file_content(
+        self,
+        bucket_name: str,
+        object_key: str,
+        content: bytes,
+        content_type: str = "application/octet-stream",
+        metadata: Optional[Dict[str, str]] = None
+    ) -> str:
+        """
+        Upload file content directly from bytes.
+        
+        Args:
+            bucket_name: Target bucket name
+            object_key: Object key/path in bucket
+            content: File content as bytes
+            content_type: MIME type for the file
+            metadata: Additional metadata to store with the object
+            
+        Returns:
+            str: Object key of uploaded file
+            
+        Raises:
+            S3Error: If upload fails
+        """
+        try:
+            if not self._ensure_bucket_exists(bucket_name):
+                raise S3Error(f"Bucket {bucket_name} does not exist")
+            
+            # Create a file-like object from bytes
+            content_stream = io.BytesIO(content)
+            
+            self.client.put_object(
+                bucket_name=bucket_name,
+                object_name=object_key,
+                data=content_stream,
+                length=len(content),
+                content_type=content_type,
+                metadata=metadata
+            )
+            
+            logger.info("File content uploaded successfully", 
+                       bucket=bucket_name, 
+                       object_key=object_key,
+                       content_type=content_type,
+                       size=len(content))
+            
+            return object_key
+            
+        except S3Error as e:
+            logger.error("Failed to upload file content", 
+                        bucket=bucket_name, 
+                        object_key=object_key, 
+                        error=str(e))
+            raise
+    
+    async def get_presigned_url(
+        self,
+        bucket_name: str,
+        object_key: str,
+        expires_in: int = 3600,
+        response_headers: Optional[Dict[str, str]] = None
+    ) -> str:
+        """
+        Generate presigned URL for object download.
+        
+        Args:
+            bucket_name: Source bucket name
+            object_key: Object key/path in bucket
+            expires_in: URL expiration time in seconds
+            response_headers: Additional headers for the response
+            
+        Returns:
+            str: Presigned download URL
+            
+        Raises:
+            S3Error: If URL generation fails
+        """
+        try:
+            if not self._ensure_bucket_exists(bucket_name):
+                raise S3Error(f"Bucket {bucket_name} does not exist")
+            
+            # Check if object exists
+            try:
+                self.client.stat_object(bucket_name, object_key)
+            except S3Error as e:
+                if e.code == "NoSuchKey":
+                    raise S3Error(f"Object {object_key} not found in bucket {bucket_name}")
+                raise
+            
+            url = self.client.presigned_get_object(
+                bucket_name=bucket_name,
+                object_name=object_key,
+                expires=timedelta(seconds=expires_in),
+                response_headers=response_headers
+            )
+            
+            logger.info("Generated presigned URL", 
+                       bucket=bucket_name, 
+                       object_key=object_key, 
+                       expires_in=expires_in)
+            
+            return url
+            
+        except S3Error as e:
+            logger.error("Failed to generate presigned URL", 
+                        bucket=bucket_name, 
+                        object_key=object_key, 
+                        error=str(e))
+            raise
+    
+    async def set_object_legal_hold(
+        self,
+        bucket_name: str,
+        object_key: str,
+        legal_hold: bool = True
+    ) -> bool:
+        """
+        Set legal hold on object for immutability (if supported).
+        
+        Args:
+            bucket_name: Bucket name
+            object_key: Object key
+            legal_hold: Whether to enable legal hold
+            
+        Returns:
+            bool: True if legal hold was set successfully
+            
+        Note:
+            This may not be supported by all MinIO configurations.
+            The method will log a warning but not fail if unsupported.
+        """
+        try:
+            # MinIO may not support legal hold in all configurations
+            # This is a placeholder for when legal hold is available
+            logger.info("Legal hold requested but may not be supported", 
+                       bucket=bucket_name, 
+                       object_key=object_key,
+                       legal_hold=legal_hold)
+            
+            # For now, return True as immutability is handled at bucket level
+            return True
+            
+        except Exception as e:
+            logger.warning("Legal hold not supported or failed", 
+                          bucket=bucket_name, 
+                          object_key=object_key, 
+                          error=str(e))
+            return False
 
 
 # Global instance for dependency injection

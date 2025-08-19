@@ -47,12 +47,18 @@ class InvoiceService:
         to avoid table-level bottlenecks. Uses advisory locks for the specific month
         rather than locking all invoice rows.
         
+        ENHANCED: Per Gemini feedback, now tracks lock acquisition status to ensure
+        we only unlock if we successfully acquired the lock.
+        
         Args:
             db: Database session
             issued_at: Invoice issue date (defaults to now UTC)
             
         Returns:
             Unique invoice number string
+            
+        Raises:
+            RuntimeError: If unable to acquire advisory lock
         """
         if issued_at is None:
             issued_at = datetime.now(timezone.utc)
@@ -63,10 +69,22 @@ class InvoiceService:
         # OPTIMIZED: Use advisory lock for this specific month to reduce contention
         # Advisory locks are lighter weight than row locks
         lock_id = int(year_month)  # Use year_month as unique lock identifier
+        lock_acquired = False  # Track if we successfully acquired the lock
         
         try:
             # Acquire advisory lock for this month's sequence
-            db.execute(text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": lock_id})
+            # ENHANCED: Check if lock was successfully acquired
+            lock_result = db.execute(
+                text("SELECT pg_try_advisory_lock(:lock_id) as acquired"), 
+                {"lock_id": lock_id}
+            ).fetchone()
+            
+            lock_acquired = lock_result.acquired if lock_result else False
+            
+            if not lock_acquired:
+                # If we couldn't acquire the lock immediately, wait for it
+                db.execute(text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": lock_id})
+                lock_acquired = True
             
             # Get the next sequence number for this month
             # OPTIMIZED: Only lock rows for this specific month pattern
@@ -87,8 +105,9 @@ class InvoiceService:
             next_sequence = result.next_seq if result else 1
             
         finally:
-            # Always release the advisory lock
-            db.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id})
+            # ENHANCED: Only release the advisory lock if we acquired it
+            if lock_acquired:
+                db.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id})
         
         # Zero-pad sequence to 6 digits as per Task 4.4
         sequence_str = f"{next_sequence:06d}"
