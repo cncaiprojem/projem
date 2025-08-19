@@ -239,6 +239,34 @@ class UltraEnterpriseEnvironment(BaseSettings):
     )
     
     # ===================================================================
+    # PAYMENT PROVIDERS CONFIGURATION (Task 4.6)
+    # ===================================================================
+    
+    # Stripe Configuration
+    STRIPE_SECRET_KEY: Optional[str] = Field(
+        default=None, 
+        description="Stripe secret key for API calls"
+    )
+    STRIPE_WEBHOOK_SECRET: Optional[str] = Field(
+        default=None,
+        description="Stripe webhook endpoint secret"
+    )
+    STRIPE_ENVIRONMENT: str = Field(
+        default="test",
+        description="Stripe environment (test/live)"
+    )
+    
+    # Payment Configuration
+    DEFAULT_PAYMENT_PROVIDER: str = Field(
+        default="mock",
+        description="Default payment provider (stripe/mock)"
+    )
+    PAYMENT_WEBHOOK_TIMEOUT: int = Field(
+        default=30,
+        description="Payment webhook processing timeout in seconds"
+    )
+    
+    # ===================================================================
     # OAUTH2 & GOOGLE OIDC CONFIGURATION (Task 3.5)
     # ===================================================================
     

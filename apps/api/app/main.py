@@ -44,6 +44,7 @@ from .routers import security as security_router  # Security endpoints (Task 3.1
 from .routers import environment as environment_router  # Environment endpoints (Task 3.12)
 from .routers import license as license_router  # License management endpoints (Task 3.14)
 from .routers import invoices as invoices_router  # Invoice PDF endpoints (Task 4.5)
+from .routers import payments as payments_router  # Payment provider abstraction endpoints (Task 4.6)
 # Legacy routers disabled - not part of Task Master ERD
 # from .routers import projects as projects_router
 # from .routers import design as design_router
@@ -193,6 +194,7 @@ app.include_router(environment_router.router)  # Environment endpoints (Task 3.1
 app.include_router(environment_router.health_router)  # Public health endpoint (Task 3.12)
 app.include_router(license_router.router)  # License management endpoints (Task 3.14)
 app.include_router(invoices_router.router)  # Invoice PDF endpoints (Task 4.5)
+app.include_router(payments_router.router)  # Payment provider abstraction endpoints (Task 4.6)
 if _sim_available and sim_router is not None:
     app.include_router(sim_router.router)
 app.include_router(events_router)

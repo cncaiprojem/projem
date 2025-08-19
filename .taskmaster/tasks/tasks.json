@@ -601,7 +601,7 @@
               "4.4"
             ],
             "details": "Abstraction:\n- Interface PaymentProvider: create_intent(amount, currency, metadata), retrieve(id), confirm(id, params), verify_webhook(sig, payload).\n- payments table: id, invoice_id, provider, provider_payment_id, amount, currency, status ENUM('requires_action','processing','succeeded','failed','canceled','refunded'), raw_request/response JSONB, created_at, updated_at.\nAPI/Webhook:\n- POST /payments/intents { invoice_id } -> { client_secret, provider, provider_payment_id }.\n- POST /payments/webhook: verify signature, parse events (payment_intent.succeeded/failed/refunded). Idempotency by event_id with unique index.\n- On succeeded: set payments.status='succeeded', invoices.paid_status='paid', audit 'payment_succeeded'. On failed: set 'failed', invoices.paid_status='failed'.\n- Log and persist all provider responses (for audit).\nFailure modes:\n- Signature invalid -> 400; unknown invoice -> 404; duplicate webhook -> 200 no-op.\nAcceptance criteria:\n- Creating an intent returns usable client params; webhook updates invoice/payment states correctly; duplicate webhooks are ignored; all interactions audited.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-19T07:19:26.774Z",
+      "updated": "2025-08-19T10:33:20.636Z",
       "description": "Tasks for master context"
     }
   }
