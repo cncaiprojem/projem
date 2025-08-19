@@ -25,5 +25,3 @@ def setup_cam_task_run(setup_id: int):
     cam3d_duration_seconds.labels(status="succeeded").observe(time.time() - started)
     audit("setup.cam3d.finish", setup_id=setup_id)
     return {"ok": True, "setup_id": setup_id, "fcstd": str(res.fcstd_path)}
-
-

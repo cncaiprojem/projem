@@ -612,7 +612,7 @@
               "4.2"
             ],
             "details": "Providers:\n- Email: primary SMTP (e.g., Postmark via SMTP_URL), fallback SMTP or API client.\n- SMS: primary (Twilio) via SMS_API_KEY, fallback (Vonage).\nTemplating:\n- Templates for D-7, D-3, D-1 with variables: {user_name, days_remaining, ends_at, renewal_link}. SMS within 160 chars; Email HTML + plain text.\nPersistence:\n- notifications table: id, user_id, license_id, channel ENUM('email','sms'), template_id, days_out INT, status ENUM('queued','sent','failed'), provider, provider_id, error_text, created_at, sent_at.\nFallback:\n- On provider failure, try fallback provider once, record both attempts.\nConfig:\n- ENV: SMTP_URL, EMAIL_SENDER, SMS_API_KEY, SMS_SENDER.\nAcceptance criteria:\n- Sending works with primary provider; on simulated failure, fallback is used; notifications rows capture success/failure, provider_id, and timing; templates render with correct substitutions.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -624,7 +624,7 @@
               "4.7"
             ],
             "details": "Scheduling:\n- Celery Beat job daily 02:00 UTC: scan_licenses().\nLogic:\n- Query licenses where status='active' and (DATE(ends_at) - DATE(now())) IN (7,3,1).\n- For each, enqueue send_email_sms(user, license, days_out) task; insert notifications row with status='queued'. Prevent duplicates per (license_id, days_out, date) via unique key.\nIdempotency:\n- Use transaction + ON CONFLICT DO NOTHING to avoid duplicate enqueues.\nObservability:\n- Log counts by days_out; metrics for queued/sent/failed.\nAcceptance criteria:\n- With time frozen to D-7/3/1, notifications are enqueued once per license; reruns do not duplicate; notifications persisted with correct days_out.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-19T10:33:20.636Z",
+      "updated": "2025-08-19T17:49:41.364Z",
       "description": "Tasks for master context"
     }
   }

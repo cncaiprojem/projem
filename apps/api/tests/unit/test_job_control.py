@@ -14,7 +14,7 @@ def test_queue_pause_resume():
 def test_cancel_job_no_job(monkeypatch):
     # cancel_job job yoksa False değil, şu an False döndürmüyor; mevcut davranış True dönüyor.
     # Minimum: pid_file yokken akış hata vermesin
-    monkeypatch.setattr("app.services.job_control.db_session", lambda: (__import__('contextlib').nullcontext()))
+    monkeypatch.setattr(
+        "app.services.job_control.db_session", lambda: (__import__("contextlib").nullcontext())
+    )
     assert isinstance(True, bool)
-
-

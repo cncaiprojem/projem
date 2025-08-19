@@ -5,6 +5,7 @@ from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.sdk.trace.sampling import TraceIdRatioBased, ALWAYS_ON
 from prometheus_fastapi_instrumentator import Instrumentator
+
 try:
     from opentelemetry.instrumentation.celery import CeleryInstrumentor
 except Exception:  # pragma: no cover
@@ -35,5 +36,3 @@ def setup_celery_instrumentation() -> None:
         CeleryInstrumentor().instrument()
     except Exception:
         pass
-
-

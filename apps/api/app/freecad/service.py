@@ -60,5 +60,3 @@ def detect_freecad() -> FreeCADDetectResponse:
     logger = get_logger(__name__)
     logger.info("FreeCADCmd tespit edildi", extra={"freecad_version": version})
     return FreeCADDetectResponse(found=True, path=path, version=version, asm4_available=asm4)
-
-

@@ -99,7 +99,13 @@ def cam_generate(self, job_id: int) -> dict:
         # Path Job → gcode
         tracer = trace.get_tracer(__name__)
         with tracer.start_as_current_span("cam.path_job") as span:
-            gcode_path, stats = make_path_job(fc.path, fcstd_path, params, params.get("post", "grbl"), settings.freecad_timeout_seconds)
+            gcode_path, stats = make_path_job(
+                fc.path,
+                fcstd_path,
+                params,
+                params.get("post", "grbl"),
+                settings.freecad_timeout_seconds,
+            )
             span.set_attribute("job_id", job_id)
             span.set_attribute("type", "cam")
         text = gcode_path.read_text(encoding="utf-8", errors="ignore")
@@ -111,14 +117,25 @@ def cam_generate(self, job_id: int) -> dict:
             job.status = "succeeded"
             job.finished_at = datetime.utcnow()
             job.metrics = {**(job.metrics or {}), **stats, **lint}
-            job.artefacts = [{"type": art["type"], "s3_key": art["s3_key"], "size": art["size"], "sha256": art["sha256"]}]
+            job.artefacts = [
+                {
+                    "type": art["type"],
+                    "s3_key": art["s3_key"],
+                    "size": art["size"],
+                    "sha256": art["sha256"],
+                }
+            ]
             s.commit()
         if job.started_at and job.finished_at:
-            job_latency_seconds.labels(type="cam", status="succeeded").observe((job.finished_at - job.started_at).total_seconds())
+            job_latency_seconds.labels(type="cam", status="succeeded").observe(
+                (job.finished_at - job.started_at).total_seconds()
+            )
         if job.started_at and (job.metrics or {}).get("created_at"):
             try:
                 created = datetime.fromisoformat(job.metrics["created_at"]).replace(tzinfo=None)
-                queue_wait_seconds.labels(queue=(job.metrics or {}).get("queue", "cpu")).observe((job.started_at - created).total_seconds())
+                queue_wait_seconds.labels(queue=(job.metrics or {}).get("queue", "cpu")).observe(
+                    (job.started_at - created).total_seconds()
+                )
             except Exception:
                 ...
         audit("task.success", job_id=job_id, task="cam.generate")
@@ -149,7 +166,3 @@ def cam_generate(self, job_id: int) -> dict:
             retried_total.labels(task="cam.generate").inc()
         audit("dlq.push", job_id=job_id, task="cam.generate", reason=str(e))
         raise
-
-
-
-

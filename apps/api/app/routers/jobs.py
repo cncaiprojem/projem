@@ -12,11 +12,13 @@ from ..security.oidc import require_role
 from ..db import db_session
 
 
-router = APIRouter(prefix="/api/v1/jobs", tags=["İşler"]) 
+router = APIRouter(prefix="/api/v1/jobs", tags=["İşler"])
 
 
 @router.get("")
-def list_jobs(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), type: str | None = None):
+def list_jobs(
+    limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0), type: str | None = None
+):
     with db_session() as s:
         q = s.query(Job)
         if type:
@@ -24,15 +26,18 @@ def list_jobs(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)
         q = q.order_by(Job.id.desc()).offset(offset).limit(limit)
         items = []
         for j in q.all():
-            items.append({
-                "id": j.id,
-                "type": j.type,
-                "status": j.status,
-                "started_at": j.started_at.isoformat() if j.started_at else None,
-                "finished_at": j.finished_at.isoformat() if j.finished_at else None,
-                "metrics": j.metrics,
-            })
+            items.append(
+                {
+                    "id": j.id,
+                    "type": j.type,
+                    "status": j.status,
+                    "started_at": j.started_at.isoformat() if j.started_at else None,
+                    "finished_at": j.finished_at.isoformat() if j.finished_at else None,
+                    "metrics": j.metrics,
+                }
+            )
         return {"items": items, "limit": limit, "offset": offset}
+
 
 @router.get("/{job_id}")
 def get_job(job_id: int):
@@ -74,5 +79,3 @@ def pause_queue(name: str):
 def resume_queue(name: str):
     queue_resume(name)
     return {"queue": name, "status": "resumed"}
-
-

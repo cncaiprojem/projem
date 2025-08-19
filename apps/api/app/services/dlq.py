@@ -31,7 +31,14 @@ def list_dead(limit: int = 100, offset: int = 0) -> List[dict]:
     with db_session() as s:
         q = s.query(DeadJob).order_by(DeadJob.id.desc()).offset(offset).limit(limit)
         return [
-            {"id": d.id, "job_id": d.job_id, "task": d.task, "reason": d.reason, "created_at": d.created_at.isoformat()} for d in q.all()
+            {
+                "id": d.id,
+                "job_id": d.job_id,
+                "task": d.task,
+                "reason": d.reason,
+                "created_at": d.created_at.isoformat(),
+            }
+            for d in q.all()
         ]
 
 
@@ -51,5 +58,3 @@ def requeue(job_id: int) -> bool:
             return False
         celery_app.send_task(task_name, args=[job_id], queue=queue)
         return True
-
-

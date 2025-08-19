@@ -14,7 +14,7 @@ from ..models import Job
 from ..services.job_control import is_queue_paused
 
 
-router = APIRouter(prefix="/api/v1/cam", tags=["CAM/G-code"]) 
+router = APIRouter(prefix="/api/v1/cam", tags=["CAM/G-code"])
 
 
 class GCodeRequest(BaseModel):
@@ -30,9 +30,14 @@ class GCodeResponse(BaseModel):
 
 
 @router.post("/gcode", response_model=dict)
-def generate_gcode(body: CamJobCreate, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+def generate_gcode(
+    body: CamJobCreate, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")
+):
     if appset.require_idempotency and not idempotency_key:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Idempotency-Key başlığı zorunludur")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Idempotency-Key başlığı zorunludur",
+        )
     if is_queue_paused("freecad"):
         raise HTTPException(status_code=409, detail="freecad kuyruğu geçici olarak duraklatıldı.")
     with db_session() as s:
@@ -40,6 +45,7 @@ def generate_gcode(body: CamJobCreate, idempotency_key: str | None = Header(defa
             exist = s.query(Job).filter_by(idempotency_key=idempotency_key, type="cam").first()
             if exist:
                 from ..audit import audit
+
                 audit("idempotent_hit", job_id=exist.id, key=idempotency_key)
                 return {"job_id": exist.id, "idempotent_hit": True}
         params = body.model_dump()
@@ -54,5 +60,3 @@ def generate_gcode(body: CamJobCreate, idempotency_key: str | None = Header(defa
         s.refresh(job)
         cam_generate.delay(job.id)
         return {"job_id": job.id}
-
-

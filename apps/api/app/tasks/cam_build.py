@@ -15,8 +15,22 @@ from ..freecad.path_build import build_cam_job
 from ..cam.cam_plan import derive_cam_params
 
 
-@shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3, acks_late=True, queue="cpu")
-def cam_build_task(self, project_id: int, machine_post: str | None, wcs: str, stock: Dict[str, Any], strategy: str = "balanced"):
+@shared_task(
+    bind=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    max_retries=3,
+    acks_late=True,
+    queue="cpu",
+)
+def cam_build_task(
+    self,
+    project_id: int,
+    machine_post: str | None,
+    wcs: str,
+    stock: Dict[str, Any],
+    strategy: str = "balanced",
+):
     # Plan ve FCStd artefaktını hazırla
     with db_session() as s:
         p = s.get(Project, project_id)
@@ -30,7 +44,11 @@ def cam_build_task(self, project_id: int, machine_post: str | None, wcs: str, st
             .order_by(ProjectFile.created_at.desc())
             .first()
         )
-        if not fcstd_file or not fcstd_file.s3_key or not fcstd_file.s3_key.lower().endswith(".fcstd"):
+        if (
+            not fcstd_file
+            or not fcstd_file.s3_key
+            or not fcstd_file.s3_key.lower().endswith(".fcstd")
+        ):
             raise RuntimeError("FCStd artefaktı bulunamadı.")
         s3_key = fcstd_file.s3_key
 
@@ -61,7 +79,15 @@ def cam_build_task(self, project_id: int, machine_post: str | None, wcs: str, st
     tmp_build = Path(tmp_root) / "build"
     tmp_build.mkdir(parents=True, exist_ok=True)
 
-    out = build_cam_job(str(fcstd_local), cam=cam, stock=stock, wcs=wcs, post_name=machine_post, tmpdir=str(tmp_build), db=None)
+    out = build_cam_job(
+        str(fcstd_local),
+        cam=cam,
+        stock=stock,
+        wcs=wcs,
+        post_name=machine_post,
+        tmpdir=str(tmp_build),
+        db=None,
+    )
 
     # Güncellenen FCStd ve özet JSON'u yükle
     fcstd_art = upload_and_sign(fcstd_local, "cam/fcstd")
@@ -97,5 +123,3 @@ def cam_build_task(self, project_id: int, machine_post: str | None, wcs: str, st
         "artifacts": arts,
         "ops": out.get("ops", []),
     }
-
-

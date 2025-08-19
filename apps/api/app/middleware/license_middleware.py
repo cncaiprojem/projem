@@ -5,7 +5,7 @@ Ultra-Enterprise License Enforcement with Session Revocation on Expiry
 This middleware implements:
 1. Global license enforcement for protected routes
 2. Session revocation when license expires
-3. Turkish KVKK compliance 
+3. Turkish KVKK compliance
 4. Thread-safe single revocation per user
 5. Banking-grade security standards
 """
@@ -46,7 +46,7 @@ session_service = SessionService()
 
 class LicenseExpiredError(Exception):
     """Exception raised when license is expired."""
-    
+
     def __init__(self, user_id: int, expired_at: datetime):
         self.user_id = user_id
         self.expired_at = expired_at
@@ -58,26 +58,26 @@ def get_db_session_for_middleware():
     """
     Dedicated synchronous context manager for database sessions in middleware.
     Provides proper session management with guaranteed cleanup and rollback.
-    
+
     ENHANCED: Per review feedback, improved error handling and session lifecycle management
     to ensure no session leaks even in extreme error conditions.
-    
+
     This is a synchronous function because SQLAlchemy sessions are synchronous.
     Using async context manager with sync session was causing runtime errors.
     """
     session = None
     session_id = str(uuid.uuid4())[:8]  # Short ID for tracking in logs
-    
+
     try:
         logger.debug(
             f"Creating database session for middleware",
             extra={
                 "operation": "get_db_session_for_middleware",
                 "session_id": session_id,
-                "action": "create"
-            }
+                "action": "create",
+            },
         )
-        
+
         # Use the db_session context manager from db.py
         with db_session() as session:
             # Track session creation
@@ -86,11 +86,11 @@ def get_db_session_for_middleware():
                 extra={
                     "operation": "get_db_session_for_middleware",
                     "session_id": session_id,
-                    "action": "created"
-                }
+                    "action": "created",
+                },
             )
             yield session
-            
+
     except (SQLAlchemyError, OperationalError) as e:
         logger.error(
             "Database session error in middleware",
@@ -100,8 +100,8 @@ def get_db_session_for_middleware():
                 "session_id": session_id,
                 "error_type": type(e).__name__,
                 "error_message": str(e),
-                "action": "error"
-            }
+                "action": "error",
+            },
         )
         # EXPLICIT: Per Gemini feedback, be clear about rollback behavior
         # The db_session context manager from db.py automatically handles:
@@ -110,7 +110,7 @@ def get_db_session_for_middleware():
         # 3. Implicit rollback on exceptions (SQLAlchemy default behavior)
         # No explicit rollback needed here as it's handled by SQLAlchemy
         raise
-        
+
     except Exception as e:
         logger.error(
             "Unexpected error in database session",
@@ -119,14 +119,14 @@ def get_db_session_for_middleware():
                 "operation": "get_db_session_for_middleware",
                 "session_id": session_id,
                 "error_type": type(e).__name__,
-                "action": "unexpected_error"
-            }
+                "action": "unexpected_error",
+            },
         )
         # EXPLICIT: Per Gemini feedback, be clear about rollback behavior
         # The db_session context manager automatically handles rollback
         # SQLAlchemy will rollback any uncommitted changes when an exception occurs
         raise
-        
+
     finally:
         # The db_session context manager handles closing
         # We just log for monitoring
@@ -135,8 +135,8 @@ def get_db_session_for_middleware():
             extra={
                 "operation": "get_db_session_for_middleware",
                 "session_id": session_id,
-                "action": "complete"
-            }
+                "action": "complete",
+            },
         )
 
 
@@ -144,15 +144,15 @@ async def get_current_user_from_request(request: Request) -> Optional[int]:
     """
     Extract authenticated user ID from request with proper error handling.
     Returns user ID if authenticated, None otherwise.
-    
+
     Args:
         request: FastAPI request object
-        
+
     Returns:
         User ID if authenticated, None otherwise
     """
     correlation_id = getattr(request.state, "correlation_id", str(uuid.uuid4()))
-    
+
     try:
         # Extract authorization header
         auth_header = request.headers.get("authorization")
@@ -162,14 +162,14 @@ async def get_current_user_from_request(request: Request) -> Optional[int]:
                 extra={
                     "operation": "get_current_user_from_request",
                     "correlation_id": correlation_id,
-                    "has_auth_header": bool(auth_header)
-                }
+                    "has_auth_header": bool(auth_header),
+                },
             )
             return None
-        
+
         # Get token from header
         token = auth_header[7:]  # Remove "Bearer " prefix
-        
+
         # Validate token format
         if not token or len(token) < 10:
             logger.warning(
@@ -177,38 +177,38 @@ async def get_current_user_from_request(request: Request) -> Optional[int]:
                 extra={
                     "operation": "get_current_user_from_request",
                     "correlation_id": correlation_id,
-                    "token_length": len(token) if token else 0
-                }
+                    "token_length": len(token) if token else 0,
+                },
             )
             return None
-        
+
         # Use dedicated context manager for database session
         with get_db_session_for_middleware() as db:
             try:
                 # Authenticate user using JWT middleware logic
                 authenticated_user = _authenticate_user(token, db)
-                
+
                 if not authenticated_user:
                     logger.debug(
                         "Token authentication failed",
                         extra={
                             "operation": "get_current_user_from_request",
-                            "correlation_id": correlation_id
-                        }
+                            "correlation_id": correlation_id,
+                        },
                     )
                     return None
-                
+
                 logger.debug(
                     "User authenticated successfully",
                     extra={
                         "operation": "get_current_user_from_request",
                         "correlation_id": correlation_id,
-                        "user_id": authenticated_user.user_id
-                    }
+                        "user_id": authenticated_user.user_id,
+                    },
                 )
-                
+
                 return authenticated_user.user_id
-                
+
             except (ValueError, KeyError) as e:
                 logger.warning(
                     "Token validation error",
@@ -216,11 +216,11 @@ async def get_current_user_from_request(request: Request) -> Optional[int]:
                         "operation": "get_current_user_from_request",
                         "correlation_id": correlation_id,
                         "error_type": type(e).__name__,
-                        "error_message": str(e)
-                    }
+                        "error_message": str(e),
+                    },
                 )
                 return None
-                
+
     except SQLAlchemyError as e:
         logger.error(
             "Database error during user authentication",
@@ -228,11 +228,11 @@ async def get_current_user_from_request(request: Request) -> Optional[int]:
             extra={
                 "operation": "get_current_user_from_request",
                 "correlation_id": correlation_id,
-                "error_type": type(e).__name__
-            }
+                "error_type": type(e).__name__,
+            },
         )
         return None
-        
+
     except Exception as e:
         logger.error(
             "Unexpected error extracting user from request",
@@ -240,8 +240,8 @@ async def get_current_user_from_request(request: Request) -> Optional[int]:
             extra={
                 "operation": "get_current_user_from_request",
                 "correlation_id": correlation_id,
-                "error_type": type(e).__name__
-            }
+                "error_type": type(e).__name__,
+            },
         )
         return None
 
@@ -249,11 +249,11 @@ async def get_current_user_from_request(request: Request) -> Optional[int]:
 class LicenseGuardMiddleware(BaseHTTPMiddleware):
     """
     Ultra-Enterprise License Guard Middleware
-    
+
     Enforces license requirements on protected routes and handles
     session revocation when licenses expire.
     """
-    
+
     def __init__(self, app, excluded_paths: Optional[list] = None):
         super().__init__(app)
         # Default excluded paths - these should not require license checks
@@ -265,88 +265,84 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
             "/redoc",
             "/openapi.json",
             "/",
-            "/api/v1/license/me"  # Allow checking license status even when expired
+            "/api/v1/license/me",  # Allow checking license status even when expired
         ]
         logger.info(
             "License Guard Middleware initialized",
-            extra={
-                "operation": "license_guard_init",
-                "excluded_paths": self.excluded_paths
-            }
+            extra={"operation": "license_guard_init", "excluded_paths": self.excluded_paths},
         )
-    
+
     def _is_path_excluded(self, path: str) -> bool:
         """Check if the request path should be excluded from license checks."""
         for excluded_path in self.excluded_paths:
             if path.startswith(excluded_path):
                 return True
         return False
-    
+
     def _get_client_info(self, request: Request) -> Tuple[str, str]:
         """
         Extract client IP and user agent for audit purposes.
         Uses shared PII masking service for consistent anonymization.
-        
+
         Args:
             request: FastAPI request object
-            
+
         Returns:
             Tuple of (masked_ip, user_agent)
         """
         # Get raw IP address
         client_ip = request.client.host if request.client else "unknown"
-        
+
         # Use shared PII masking service for KVKK compliance
         # Using MEDIUM level as per KVKK recommendations (masks last 2 octets)
         if client_ip and client_ip != "unknown":
             try:
-                masked_ip = pii_masking_service.mask_ip_address(
-                    client_ip, 
-                    MaskingLevel.MEDIUM
-                )
+                masked_ip = pii_masking_service.mask_ip_address(client_ip, MaskingLevel.MEDIUM)
             except Exception as e:
                 logger.warning(
                     "Failed to mask IP address, using fallback",
                     extra={
                         "operation": "_get_client_info",
                         "error_type": type(e).__name__,
-                        "original_ip_prefix": client_ip.split('.')[0] if '.' in client_ip else client_ip[:4]
-                    }
+                        "original_ip_prefix": client_ip.split(".")[0]
+                        if "." in client_ip
+                        else client_ip[:4],
+                    },
                 )
                 # Fallback to simple masking if service fails
                 masked_ip = "***.***.***.**"
         else:
             masked_ip = client_ip
-        
+
         # Extract and sanitize user agent
         user_agent = request.headers.get("user-agent", "unknown")
         if user_agent:
             # Truncate for storage and security
             user_agent = user_agent[:200]
             # Remove any potential injection attempts
-            user_agent = user_agent.replace('\n', ' ').replace('\r', ' ')
-        
+            user_agent = user_agent.replace("\n", " ").replace("\r", " ")
+
         return masked_ip, user_agent
-    
+
     async def _revoke_user_sessions_on_expiry(
-        self, 
-        db: Session, 
+        self,
+        db: Session,
         user_id: int,
         license_id: uuid.UUID,
         client_ip: str,
         user_agent: str,
-        request_id: str
+        request_id: str,
     ) -> bool:
         """
         Revoke all user sessions when license expires.
-        
+
         ULTRA-ENTERPRISE THREAD SAFETY:
         - Uses (user_id, license_id) tuple as tracking key for precise control
         - Thread-safe with global lock ensuring atomic check-and-set
         - Handles multiple licenses per user correctly
         - Removes from tracking on failure to allow retry
         - Banking-grade idempotency guaranteed
-        
+
         Args:
             db: Database session
             user_id: User whose sessions to revoke
@@ -354,10 +350,10 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
             client_ip: Masked client IP for audit (KVKK compliant)
             user_agent: Client user agent (sanitized)
             request_id: Request correlation ID for tracing
-            
+
         Returns:
             True if sessions were revoked or already processed, False on error
-            
+
         Thread Safety Guarantees:
             - Exactly-once processing per (user, license) pair
             - No race conditions between concurrent requests
@@ -372,15 +368,15 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "operation": "license_expiry_invalid_params",
                     "user_id": user_id,
                     "license_id": str(license_id) if license_id else None,
-                    "request_id": request_id
-                }
+                    "request_id": request_id,
+                },
             )
             return False
-        
+
         # Create tracking key as (user_id, license_id) tuple
         # This allows handling multiple license expirations per user
         tracking_key = (user_id, license_id)
-        
+
         # Thread-safe check if this user+license has already been processed
         with _license_expiry_lock:
             if tracking_key in _license_expiry_processed:
@@ -392,11 +388,11 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                         "license_id": str(license_id),
                         "request_id": request_id,
                         "tracking_key": f"{user_id}:{license_id}",
-                        "tracking_set_size": len(_license_expiry_processed)
-                    }
+                        "tracking_set_size": len(_license_expiry_processed),
+                    },
                 )
                 return True
-            
+
             # Mark user+license as being processed (atomic operation)
             _license_expiry_processed.add(tracking_key)
             logger.debug(
@@ -406,10 +402,10 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "user_id": user_id,
                     "license_id": str(license_id),
                     "tracking_key": f"{user_id}:{license_id}",
-                    "tracking_set_size": len(_license_expiry_processed)
-                }
+                    "tracking_set_size": len(_license_expiry_processed),
+                },
             )
-        
+
         try:
             # Revoke all user sessions
             revoked_count = session_service.revoke_all_user_sessions(
@@ -417,9 +413,9 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                 user_id=user_id,
                 reason="license_expired",
                 ip_address=client_ip,
-                user_agent=user_agent
+                user_agent=user_agent,
             )
-            
+
             # Emit audit event for session revocation
             await audit_service.log_business_event(
                 user_id=user_id,
@@ -430,16 +426,16 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "license_id": str(license_id),
                     "ip_address": client_ip,
                     "user_agent": user_agent,
-                    "request_id": request_id
+                    "request_id": request_id,
                 },
                 metadata={
                     "compliance": "kvkk_audit_trail",
                     "security_action": "session_revocation",
                     "automated_action": True,
-                    "tracking_key": f"{user_id}:{license_id}"
-                }
+                    "tracking_key": f"{user_id}:{license_id}",
+                },
             )
-            
+
             logger.warning(
                 "All user sessions revoked due to license expiry",
                 extra={
@@ -448,13 +444,13 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "license_id": str(license_id),
                     "revoked_sessions_count": revoked_count,
                     "request_id": request_id,
-                    "tracking_key": f"{user_id}:{license_id}"
-                }
+                    "tracking_key": f"{user_id}:{license_id}",
+                },
             )
-            
+
             db.commit()
             return True
-            
+
         except (IntegrityError, OperationalError) as e:
             db.rollback()
             logger.error(
@@ -466,14 +462,14 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "license_id": str(license_id),
                     "error_type": type(e).__name__,
                     "error_message": str(e),
-                    "request_id": request_id
-                }
+                    "request_id": request_id,
+                },
             )
             # Remove from processed set so it can be retried
             with _license_expiry_lock:
                 _license_expiry_processed.discard(tracking_key)
             return False
-            
+
         except Exception as e:
             db.rollback()
             logger.error(
@@ -484,34 +480,31 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "user_id": user_id,
                     "license_id": str(license_id),
                     "error_type": type(e).__name__,
-                    "request_id": request_id
-                }
+                    "request_id": request_id,
+                },
             )
             # Remove from processed set so it can be retried
             with _license_expiry_lock:
                 _license_expiry_processed.discard(tracking_key)
             return False
-    
+
     async def _check_license_and_enforce(
-        self, 
-        request: Request, 
-        user_id: int,
-        request_id: str
+        self, request: Request, user_id: int, request_id: str
     ) -> Optional[JSONResponse]:
         """
         Check user license and enforce restrictions with proper error handling.
         Returns error response if license is invalid, None if valid.
-        
+
         Args:
             request: FastAPI request object
             user_id: User ID to check license for
             request_id: Request correlation ID
-            
+
         Returns:
             JSONResponse with error if license invalid, None if valid
         """
         client_ip, user_agent = self._get_client_info(request)
-        
+
         try:
             # Use dedicated context manager for database session
             with get_db_session_for_middleware() as db:
@@ -527,11 +520,11 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                             "operation": "license_guard_get_license_error",
                             "user_id": user_id,
                             "error_type": type(e).__name__,
-                            "request_id": request_id
-                        }
+                            "request_id": request_id,
+                        },
                     )
                     raise
-                
+
                 if not license:
                     # No active license found
                     logger.warning(
@@ -540,10 +533,10 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                             "operation": "license_guard_no_license",
                             "user_id": user_id,
                             "request_id": request_id,
-                            "path": str(request.url.path)
-                        }
+                            "path": str(request.url.path),
+                        },
                     )
-                    
+
                     return JSONResponse(
                         status_code=status.HTTP_403_FORBIDDEN,
                         content={
@@ -554,11 +547,11 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                                 "code": "LIC_EXPIRED",
                                 "reason": "no_active_license",
                                 "user_id": user_id,
-                                "timestamp": datetime.now(timezone.utc).isoformat()
-                            }
-                        }
+                                "timestamp": datetime.now(timezone.utc).isoformat(),
+                            },
+                        },
                     )
-                
+
                 # Check if license is expired (additional safety check)
                 now = datetime.now(timezone.utc)
                 if license.ends_at <= now:
@@ -571,15 +564,15 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                             "license_id": str(license.id),
                             "expired_at": license.ends_at.isoformat(),
                             "request_id": request_id,
-                            "path": str(request.url.path)
-                        }
+                            "path": str(request.url.path),
+                        },
                     )
-                    
+
                     # Trigger session revocation with license_id
                     await self._revoke_user_sessions_on_expiry(
                         db, user_id, license.id, client_ip, user_agent, request_id
                     )
-                    
+
                     return JSONResponse(
                         status_code=status.HTTP_403_FORBIDDEN,
                         content={
@@ -588,14 +581,14 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                             "message_tr": "Lisansın süresi dolmuş",
                             "detail": {
                                 "code": "LIC_EXPIRED",
-                                "reason": "license_expired", 
+                                "reason": "license_expired",
                                 "expired_at": license.ends_at.isoformat(),
                                 "user_id": user_id,
-                                "timestamp": now.isoformat()
-                            }
-                        }
+                                "timestamp": now.isoformat(),
+                            },
+                        },
                     )
-                
+
                 # License is valid - log successful check
                 logger.debug(
                     "License check passed",
@@ -604,12 +597,12 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                         "user_id": user_id,
                         "license_id": str(license.id),
                         "expires_at": license.ends_at.isoformat(),
-                        "request_id": request_id
-                    }
+                        "request_id": request_id,
+                    },
                 )
-                
+
                 return None  # License is valid, allow request to proceed
-                
+
         except (SQLAlchemyError, OperationalError) as e:
             # Database error - fail closed (deny access)
             logger.error(
@@ -619,10 +612,10 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "operation": "license_guard_db_error",
                     "user_id": user_id,
                     "error_type": type(e).__name__,
-                    "request_id": request_id
-                }
+                    "request_id": request_id,
+                },
             )
-            
+
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={
@@ -633,11 +626,11 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                         "code": "LIC_EXPIRED",
                         "reason": "verification_unavailable",
                         "user_id": user_id,
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    }
-                }
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                },
             )
-            
+
         except Exception as e:
             # Unexpected error - fail closed (deny access)
             logger.error(
@@ -647,10 +640,10 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "operation": "license_guard_unexpected_error",
                     "user_id": user_id,
                     "error_type": type(e).__name__,
-                    "request_id": request_id
-                }
+                    "request_id": request_id,
+                },
             )
-            
+
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={
@@ -661,16 +654,16 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                         "code": "LIC_EXPIRED",
                         "reason": "verification_failed",
                         "user_id": user_id,
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    }
-                }
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                },
             )
-    
+
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Main middleware dispatch method."""
         request_id = str(uuid.uuid4())
         path = str(request.url.path)
-        
+
         # Skip license check for excluded paths
         if self._is_path_excluded(path):
             logger.debug(
@@ -678,15 +671,15 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                 extra={
                     "operation": "license_guard_excluded",
                     "path": path,
-                    "request_id": request_id
-                }
+                    "request_id": request_id,
+                },
             )
             return await call_next(request)
-        
+
         try:
             # Extract current user from request
             current_user_id = await get_current_user_from_request(request)
-            
+
             if not current_user_id:
                 # No authenticated user - let auth middleware handle it
                 logger.debug(
@@ -694,23 +687,23 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     extra={
                         "operation": "license_guard_no_user",
                         "path": path,
-                        "request_id": request_id
-                    }
+                        "request_id": request_id,
+                    },
                 )
                 return await call_next(request)
-            
+
             # Check license for authenticated user
             license_response = await self._check_license_and_enforce(
                 request, current_user_id, request_id
             )
-            
+
             if license_response:
                 # License check failed - return error response
                 return license_response
-            
+
             # License is valid - proceed with request
             return await call_next(request)
-            
+
         except Exception as e:
             # Unexpected error in middleware - fail closed
             logger.error(
@@ -720,10 +713,10 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "operation": "license_guard_middleware_error",
                     "path": path,
                     "error_type": type(e).__name__,
-                    "request_id": request_id
-                }
+                    "request_id": request_id,
+                },
             )
-            
+
             return JSONResponse(
                 status_code=status.HTTP_403_FORBIDDEN,
                 content={
@@ -733,9 +726,9 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                     "detail": {
                         "code": "LIC_EXPIRED",
                         "reason": "service_unavailable",
-                        "timestamp": datetime.now(timezone.utc).isoformat()
-                    }
-                }
+                        "timestamp": datetime.now(timezone.utc).isoformat(),
+                    },
+                },
             )
 
 
@@ -750,10 +743,7 @@ def clear_license_expiry_cache() -> None:
         _license_expiry_processed.clear()
     logger.info(
         "License expiry cache cleared",
-        extra={
-            "operation": "clear_license_expiry_cache",
-            "cleared_count": count
-        }
+        extra={"operation": "clear_license_expiry_cache", "cleared_count": count},
     )
 
 
@@ -761,11 +751,11 @@ def clear_license_expiry_cache() -> None:
 def is_license_expiry_processed(user_id: int, license_id: uuid.UUID) -> bool:
     """
     Check if a specific user+license expiry has been processed.
-    
+
     Args:
         user_id: User ID to check
         license_id: License ID to check
-        
+
     Returns:
         True if this user+license combination has been processed
     """
@@ -779,10 +769,10 @@ def is_user_license_expiry_processed(user_id: int) -> bool:
     """
     Check if any license expiry for this user has been processed.
     Provided for backward compatibility - prefer is_license_expiry_processed.
-    
+
     Args:
         user_id: User ID to check
-        
+
     Returns:
         True if any license for this user has been processed
     """

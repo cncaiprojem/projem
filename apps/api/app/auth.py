@@ -11,25 +11,25 @@
 from fastapi import HTTPException, status
 from .schemas import TokenPair, UserOut
 
+
 def create_token_pair(email: str) -> TokenPair:
     """DEPRECATED: Use services.jwt_service.JWTService instead"""
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Legacy JWT implementation disabled. Use new Task 3.3 JWT system."
+        detail="Legacy JWT implementation disabled. Use new Task 3.3 JWT system.",
     )
+
 
 def get_current_user(*args, **kwargs) -> UserOut:
     """DEPRECATED: Use middleware.jwt_middleware instead"""
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Legacy JWT implementation disabled. Use new JWT middleware."
+        detail="Legacy JWT implementation disabled. Use new JWT middleware.",
     )
+
 
 def dev_login(*args, **kwargs) -> TokenPair:
     """DEPRECATED: Use new dev auth system"""
     raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail="Legacy dev login disabled."
+        status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Legacy dev login disabled."
     )
-
-

@@ -12,5 +12,3 @@ router = enterprise_router
 
 # Legacy router is available for development/compatibility
 __all__ = ["router", "legacy_router"]
-
-

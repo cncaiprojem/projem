@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     )
     env: str = "development"
     secret_key: str
-    
+
     # Task 3.3: Ultra Enterprise JWT Configuration
     jwt_secret_key: str | None = None  # Separate key for JWT signing
     jwt_algorithm: str = "HS256"
@@ -20,14 +20,14 @@ class Settings(BaseSettings):
     jwt_refresh_token_expire_days: int = 7  # 7 days
     jwt_issuer: str = "freecad-api"
     jwt_audience: str = "freecad-users"
-    
+
     # Refresh token security configuration
     refresh_token_length: int = 64  # 512 bit entropy (64 bytes)
     refresh_token_cookie_name: str = "rt"
     refresh_token_cookie_domain: str | None = None  # Set in production
     refresh_token_cookie_secure: bool = True  # HTTPS only
     refresh_token_cookie_samesite: str = "strict"
-    
+
     # Legacy settings (for backward compatibility during migration)
     access_token_expire_minutes: int = 30
     refresh_token_expire_minutes: int = 30 * 24 * 60
@@ -71,7 +71,7 @@ class Settings(BaseSettings):
     celery_task_acks_late: bool = True
     celery_task_reject_on_worker_lost: bool = True
     celery_broker_pool_limit: int = 10
-    
+
     # Queue priorities (1-10, higher = more priority)
     queue_priority_urgent: int = 9
     queue_priority_high: int = 7
@@ -89,5 +89,3 @@ class Settings(BaseSettings):
 
 
 settings = Settings()  # type: ignore[call-arg]
-
-

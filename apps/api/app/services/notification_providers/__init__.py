@@ -9,7 +9,7 @@ from .provider_factory import NotificationProviderFactory
 
 __all__ = [
     "NotificationProvider",
-    "NotificationResult", 
+    "NotificationResult",
     "EmailNotification",
     "SMSNotification",
     "MockNotificationProvider",

@@ -14,7 +14,11 @@ from ..audit import audit
 def _kill_tree_by_pid(pid: int) -> None:
     system = platform.system().lower()
     if system == "windows":
-        subprocess.run(["taskkill", "/T", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(pid)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
     else:
         try:
             os.killpg(pid, 9)
@@ -45,7 +49,7 @@ def cancel_job(job_id: int) -> bool:
         job.error_code = "CANCELLED"
         job.error_message = "İş kullanıcı tarafından iptal edildi"
         s.commit()
-    audit("job.cancel", job_id=job_id, task_id=(job.task_id if 'job' in locals() and job else None))
+    audit("job.cancel", job_id=job_id, task_id=(job.task_id if "job" in locals() and job else None))
     return True
 
 
@@ -64,5 +68,3 @@ def queue_resume(name: str) -> None:
 
 def is_queue_paused(name: str) -> bool:
     return name in _paused_queues
-
-

@@ -56,7 +56,7 @@ def build_fcstd(params: BuildParams, out_dir: str) -> Dict[str, str]:
         base = box
         doc.recompute()
 
-        for (x, y, d) in params.holes:
+        for x, y, d in params.holes:
             cyl = doc.addObject("Part::Cylinder", f"Hole_{x}_{y}")
             cyl.Radius = d / 2.0
             cyl.Height = params.thickness + 1.0
@@ -71,7 +71,9 @@ def build_fcstd(params: BuildParams, out_dir: str) -> Dict[str, str]:
         if params.chamfer_mm:
             ch = doc.addObject("Part::Chamfer", "Chamfer")
             ch.Base = base
-            edges = [(f"Edge{i+1}", float(params.chamfer_mm)) for i in range(len(base.Shape.Edges))]
+            edges = [
+                (f"Edge{i + 1}", float(params.chamfer_mm)) for i in range(len(base.Shape.Edges))
+            ]
             ch.Edges = edges
             doc.recompute()
             base = ch
@@ -79,7 +81,9 @@ def build_fcstd(params: BuildParams, out_dir: str) -> Dict[str, str]:
         if params.fillet_mm:
             fl = doc.addObject("Part::Fillet", "Fillet")
             fl.Base = base
-            edges = [(f"Edge{i+1}", float(params.fillet_mm)) for i in range(len(base.Shape.Edges))]
+            edges = [
+                (f"Edge{i + 1}", float(params.fillet_mm)) for i in range(len(base.Shape.Edges))
+            ]
             fl.Edges = edges
             doc.recompute()
             base = fl
@@ -132,5 +136,3 @@ def build_from_plan(plan: Dict[str, Any], out_dir: str) -> Tuple[Dict[str, str],
     paths = build_fcstd(params, out_dir)
     stats = validate_fcstd(paths["fcstd"])
     return paths, stats
-
-

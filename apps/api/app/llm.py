@@ -15,8 +15,11 @@ def get_openai_client() -> OpenAI:
 FREECAD_SCRIPT_SCHEMA: Dict[str, Any] = {
     "type": "object",
     "properties": {
-        "script": {"type": "string", "description": "FreeCADCmd ortamında çalışacak Python scripti"},
-        "notes": {"type": "string"}
+        "script": {
+            "type": "string",
+            "description": "FreeCADCmd ortamında çalışacak Python scripti",
+        },
+        "notes": {"type": "string"},
     },
     "required": ["script"],
     "additionalProperties": False,
@@ -46,5 +49,3 @@ def generate_freecad_script_for_planetary(spec: Dict[str, Any]) -> Dict[str, str
     out = resp.output[0].content[0].text  # type: ignore[attr-defined]
     data = json.loads(out)
     return {"script": data["script"], "notes": data.get("notes", "")}
-
-

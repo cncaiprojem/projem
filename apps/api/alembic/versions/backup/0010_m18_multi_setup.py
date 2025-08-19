@@ -25,13 +25,23 @@ def upgrade():
     op.create_table(
         "setups",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("project_id", sa.Integer, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "project_id",
+            sa.Integer,
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("name", sa.Text, nullable=False),
         sa.Column("orientation_rx_deg", sa.Float, nullable=False, server_default="0"),
         sa.Column("orientation_ry_deg", sa.Float, nullable=False, server_default="0"),
         sa.Column("orientation_rz_deg", sa.Float, nullable=False, server_default="0"),
         sa.Column("wcs", sa.Text, nullable=False, server_default="G54"),
-        sa.Column("fixture_id", sa.Integer, sa.ForeignKey("fixtures.id", ondelete="SET NULL"), nullable=True),
+        sa.Column(
+            "fixture_id",
+            sa.Integer,
+            sa.ForeignKey("fixtures.id", ondelete="SET NULL"),
+            nullable=True,
+        ),
         sa.Column("stock_override_json", postgresql.JSONB, nullable=True),
         sa.Column("status", sa.Text, nullable=False, server_default="draft"),
         sa.Column("created_at", sa.DateTime, server_default=sa.func.now(), nullable=False),
@@ -41,7 +51,9 @@ def upgrade():
     op.create_table(
         "ops_3d",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("setup_id", sa.Integer, sa.ForeignKey("setups.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "setup_id", sa.Integer, sa.ForeignKey("setups.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("op_type", sa.Text, nullable=False),
         sa.Column("target_faces_json", postgresql.JSONB, nullable=True),
         sa.Column("tool_id", sa.Integer, nullable=True),
@@ -52,7 +64,9 @@ def upgrade():
     op.create_table(
         "collisions",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("setup_id", sa.Integer, sa.ForeignKey("setups.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "setup_id", sa.Integer, sa.ForeignKey("setups.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("phase", sa.Text, nullable=False),
         sa.Column("type", sa.Text, nullable=False),
         sa.Column("severity", sa.Text, nullable=False, server_default="warn"),
@@ -63,7 +77,9 @@ def upgrade():
     op.create_table(
         "posts_runs",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("setup_id", sa.Integer, sa.ForeignKey("setups.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "setup_id", sa.Integer, sa.ForeignKey("setups.id", ondelete="CASCADE"), nullable=False
+        ),
         sa.Column("processor", sa.Text, nullable=False),
         sa.Column("nc_path", sa.Text, nullable=False),
         sa.Column("line_count", sa.Integer, nullable=False),
@@ -90,5 +106,3 @@ def downgrade():
     op.drop_table("ops_3d")
     op.drop_table("setups")
     op.drop_table("fixtures")
-
-

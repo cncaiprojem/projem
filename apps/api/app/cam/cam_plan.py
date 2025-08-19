@@ -29,7 +29,12 @@ def derive_cam_params(plan: Dict[str, Any], strategy: str = "balanced") -> Dict[
         {
             "type": "contour",
             "tool": {"type": "endmill_flat", "dia": 6.0},
-            "params": {"side": "outside", "depth_per_pass": stepdown, "finish_pass": True, "allowance": 0.2},
+            "params": {
+                "side": "outside",
+                "depth_per_pass": stepdown,
+                "finish_pass": True,
+                "allowance": 0.2,
+            },
         }
     )
     # 3) Holes (varsa)
@@ -54,5 +59,3 @@ def derive_cam_params(plan: Dict[str, Any], strategy: str = "balanced") -> Dict[
         )
 
     return {"material": material, "ops": ops, "wcs": plan.get("wcs") or "G54"}
-
-

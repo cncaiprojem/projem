@@ -37,5 +37,3 @@ def test_presign_missing_env(monkeypatch):
 
     monkeypatch.setattr("app.storage.get_s3_client", lambda: Bad())
     assert presigned_url("k") is None
-
-

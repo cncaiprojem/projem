@@ -40,5 +40,3 @@ def upgrade():
 def downgrade():
     op.drop_constraint("uix_cutting", "cutting_data", type_="unique")
     op.drop_table("cutting_data")
-
-

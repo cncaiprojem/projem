@@ -42,6 +42,7 @@ from .routers import fixtures as fixtures_router
 
 try:
     from .routers import sim as sim_router  # type: ignore
+
     _sim_available = True
 except Exception:
     sim_router = None  # type: ignore
@@ -90,6 +91,7 @@ app.add_middleware(RateLimitMiddleware)
 setup_metrics(app)
 setup_celery_instrumentation()
 
+
 # Custom exception handlers with structured logging
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
@@ -102,7 +104,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
         errors=exc.errors(),
         body=exc.body if hasattr(exc, "body") else None,
     )
-    
+
     return JSONResponse(
         status_code=422,
         content={
@@ -110,6 +112,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
             "errors": exc.errors(),
         },
     )
+
 
 @app.exception_handler(StarletteHTTPException)
 async def http_exception_handler(request: Request, exc: StarletteHTTPException):
@@ -130,7 +133,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             details={
                 "path": request.url.path,
                 "method": request.method,
-            }
+            },
         )
     elif exc.status_code == 403:
         log_security_event(
@@ -139,7 +142,7 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             details={
                 "path": request.url.path,
                 "method": request.method,
-            }
+            },
         )
     elif exc.status_code >= 400:
         logger.warning(
@@ -149,11 +152,12 @@ async def http_exception_handler(request: Request, exc: StarletteHTTPException):
             path=request.url.path,
             method=request.method,
         )
-    
+
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},
     )
+
 
 @app.exception_handler(Exception)
 async def general_exception_handler(request: Request, exc: Exception):
@@ -167,7 +171,7 @@ async def general_exception_handler(request: Request, exc: Exception):
         method=request.method,
         exc_info=True,
     )
-    
+
     # Log as security event if it looks suspicious
     if "injection" in str(exc).lower() or "exploit" in str(exc).lower():
         log_security_event(
@@ -177,13 +181,14 @@ async def general_exception_handler(request: Request, exc: Exception):
                 "path": request.url.path,
                 "method": request.method,
                 "error": str(exc),
-            }
+            },
         )
-    
+
     return JSONResponse(
         status_code=500,
         content={"detail": "İç sunucu hatası"},
     )
+
 
 # Application lifecycle events
 @app.on_event("startup")
@@ -196,10 +201,11 @@ async def startup_event():
         middleware_count=len(app.middleware),
         sim_available=_sim_available,
     )
-    
+
     # Setup database logging if engine is available
     try:
         from .db import engine
+
         setup_database_logging(
             engine,
             log_queries=settings.ENVIRONMENT == "development",
@@ -212,6 +218,7 @@ async def startup_event():
             error=str(e),
         )
 
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Log application shutdown."""
@@ -219,6 +226,7 @@ async def shutdown_event():
         "application_shutdown",
         event="Uygulama kapatılıyor",
     )
+
 
 # Include routers
 app.include_router(health_router.router)

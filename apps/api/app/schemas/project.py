@@ -43,5 +43,3 @@ class DesignAnswerIn(BaseModel):
 
 class DesignAnswerOut(DesignPlanOut):
     pass
-
-

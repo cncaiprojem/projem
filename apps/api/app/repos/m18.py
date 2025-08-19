@@ -30,10 +30,12 @@ def add_ops3d(s: Session, setup_id: int, ops: List[Dict[str, Any]]) -> int:
     return count
 
 
-def add_collision(s: Session, setup_id: int, phase: str, ctype: str, severity: str, details: Dict[str, Any]) -> int:
-    rec = Collision(setup_id=setup_id, phase=phase, type=ctype, severity=severity, details_json=details)
+def add_collision(
+    s: Session, setup_id: int, phase: str, ctype: str, severity: str, details: Dict[str, Any]
+) -> int:
+    rec = Collision(
+        setup_id=setup_id, phase=phase, type=ctype, severity=severity, details_json=details
+    )
     s.add(rec)
     s.commit()
     return rec.id
-
-

@@ -42,5 +42,3 @@ def download_presigned(
     if time.time() - t0 > timeout_s * 2:
         raise DownloadError("İndirme makul sürenin üzerinde.")
     return {"bytes": size, "sha256": hasher.hexdigest()}
-
-

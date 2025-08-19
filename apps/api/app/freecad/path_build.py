@@ -46,8 +46,8 @@ def _add_face(doc, job, base, tc, params):
     op = PathFace.Create("Face", job)
     op.setEditorProperty("Base", [(base, ("Face1",))])
     op.setEditorProperty("ToolController", tc)
-    op.setExpression("StepOver", f'{float(params.get("stepover", 60))} %')
-    op.setExpression("StepDown", f'{float(params.get("stepdown", 1.0))} mm')
+    op.setExpression("StepOver", f"{float(params.get('stepover', 60))} %")
+    op.setExpression("StepDown", f"{float(params.get('stepdown', 1.0))} mm")
     doc.recompute()
     return op
 
@@ -59,7 +59,7 @@ def _add_contour(doc, job, base, tc, params):
     op.setEditorProperty("Base", [(base, ("Face1",))])
     op.setEditorProperty("ToolController", tc)
     op.setEditorProperty("Side", params.get("side", "Outside").capitalize())
-    op.setExpression("StepDown", f'{float(params.get("depth_per_pass", 1.5))} mm')
+    op.setExpression("StepDown", f"{float(params.get('depth_per_pass', 1.5))} mm")
     op.setEditorProperty("FinishDepth", float(params.get("finish_pass", True)))
     doc.recompute()
     return op
@@ -89,7 +89,15 @@ def _add_chamfer(doc, job, base, tc, params):
     return op
 
 
-def build_cam_job(fcstd_path: str, cam: Dict[str, Any], stock: Dict[str, Any], wcs: str, post_name: str | None, tmpdir: str, db=None):
+def build_cam_job(
+    fcstd_path: str,
+    cam: Dict[str, Any],
+    stock: Dict[str, Any],
+    wcs: str,
+    post_name: str | None,
+    tmpdir: str,
+    db=None,
+):
     _ensure_mm()
     import FreeCAD as App  # type: ignore
     import Path  # type: ignore
@@ -119,7 +127,13 @@ def build_cam_job(fcstd_path: str, cam: Dict[str, Any], stock: Dict[str, Any], w
                     from ..services.cutting import pick_cut  # type: ignore
 
                     dia = float(tool.get("dia", 6.0))
-                    cut = pick_cut(db, cam.get("material", "Al6061"), tool.get("type", "endmill_flat"), dia, op.get("type", ""))
+                    cut = pick_cut(
+                        db,
+                        cam.get("material", "Al6061"),
+                        tool.get("type", "endmill_flat"),
+                        dia,
+                        op.get("type", ""),
+                    )
                     feeds = {"rpm": cut["rpm"], "feed": cut["feed"], "plunge": cut["plunge"]}
                 except Exception:
                     feeds = {"rpm": 10000, "feed": 600, "plunge": 150}
@@ -144,9 +158,9 @@ def build_cam_job(fcstd_path: str, cam: Dict[str, Any], stock: Dict[str, Any], w
         # basit özet json
         jpath = os.path.join(tmpdir, "job_summary.json")
         with open(jpath, "w", encoding="utf-8") as f:
-            json.dump({"ops": ops_summary, "wcs": wcs, "stock": stock}, f, ensure_ascii=False, indent=2)
+            json.dump(
+                {"ops": ops_summary, "wcs": wcs, "stock": stock}, f, ensure_ascii=False, indent=2
+            )
         return {"ops": ops_summary, "job_json": jpath, "svg": ""}
     finally:
         App.closeDocument(doc.Name)
-
-

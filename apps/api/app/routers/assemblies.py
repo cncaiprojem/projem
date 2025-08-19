@@ -20,7 +20,7 @@ from ..tasks.assembly import assembly_generate
 from ..services.job_control import is_queue_paused
 
 
-router = APIRouter(prefix="/api/v1/assemblies", tags=["Montaj Analiz/Üretim"]) 
+router = APIRouter(prefix="/api/v1/assemblies", tags=["Montaj Analiz/Üretim"])
 
 
 CRITICAL_FIELDS = [
@@ -39,7 +39,9 @@ def analyze_spec(spec: PlanetarySpec) -> AnalysisResponse:
     # Maks 5 soru: eksik/hatalı kritik alanları soralım
     # stages kontrolü
     if not spec.stages:
-        questions.append(AnalysisQuestion(field="spec.stages", question="Kaç kademe ve oranları nedir?"))
+        questions.append(
+            AnalysisQuestion(field="spec.stages", question="Kaç kademe ve oranları nedir?")
+        )
 
     # overall vs stages çarpımı uyuşmuyor mu?
     prod = 1.0
@@ -47,10 +49,12 @@ def analyze_spec(spec: PlanetarySpec) -> AnalysisResponse:
         prod *= s.ratio
     # %10 tolerans
     if spec.stages and not (0.9 <= (prod / spec.overall_ratio) <= 1.1):
-        questions.append(AnalysisQuestion(
-            field="spec.overall_ratio",
-            question=f"Kademe oranlarının çarpımı ≈ {prod:.2f}. Toplam oranı {spec.overall_ratio} yerine {prod:.2f} olarak mı güncelleyelim?",
-        ))
+        questions.append(
+            AnalysisQuestion(
+                field="spec.overall_ratio",
+                question=f"Kademe oranlarının çarpımı ≈ {prod:.2f}. Toplam oranı {spec.overall_ratio} yerine {prod:.2f} olarak mı güncelleyelim?",
+            )
+        )
 
     return AnalysisResponse(questions=questions[:5], appliedDefaults=applied)
 
@@ -58,12 +62,17 @@ def analyze_spec(spec: PlanetarySpec) -> AnalysisResponse:
 @router.post("/analyze", response_model=AnalysisResponse)
 def analyze(req: AssemblyRequestV1) -> AnalysisResponse:
     if req.type != "planetary_gearbox":
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Desteklenmeyen montaj türü")
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Desteklenmeyen montaj türü"
+        )
     return analyze_spec(req.spec)
 
 
 @router.post("", response_model=dict)
-def create_assembly_job(body: AssemblyRequestV1, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+def create_assembly_job(
+    body: AssemblyRequestV1,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
     # Basit 422 doğrulama Pydantic tarafından sağlanır; ilave iş kuralları gerekiyorsa burada 422 verilebilir
     if appset.require_idempotency and not idempotency_key:
         raise HTTPException(status_code=422, detail="Idempotency-Key başlığı zorunludur")
@@ -75,12 +84,17 @@ def create_assembly_job(body: AssemblyRequestV1, idempotency_key: str | None = H
             exist = s.query(Job).filter_by(idempotency_key=idempotency_key, type="assembly").first()
             if exist:
                 from ..audit import audit
+
                 audit("idempotent_hit", job_id=exist.id, key=idempotency_key)
                 return {"job_id": exist.id, "idempotent_hit": True}
         job = Job(
             type="assembly",
             status="pending",
-            metrics={"request": body.model_dump(), "created_at": datetime.utcnow().isoformat(), "queue": "freecad"},
+            metrics={
+                "request": body.model_dump(),
+                "created_at": datetime.utcnow().isoformat(),
+                "queue": "freecad",
+            },
             idempotency_key=idempotency_key,
         )
         s.add(job)
@@ -92,7 +106,7 @@ def create_assembly_job(body: AssemblyRequestV1, idempotency_key: str | None = H
             # kuyruğa gönderilemediyse kaydı geri al
             s.delete(job)
             s.commit()
-            raise HTTPException(status_code=503, detail="Kuyruk geçici olarak erişilemiyor. Lütfen tekrar deneyin.")
+            raise HTTPException(
+                status_code=503, detail="Kuyruk geçici olarak erişilemiyor. Lütfen tekrar deneyin."
+            )
         return {"job_id": job.id}
-
-

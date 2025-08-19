@@ -20,9 +20,12 @@ def create_shop_package(payload: dict):
 @router.get("/projects/{project_id}/shop-package")
 def last_shop_package(project_id: int):
     with db_session() as s:
-        sp = s.query(ShopPackage).filter(ShopPackage.project_id == project_id).order_by(ShopPackage.id.desc()).first()
+        sp = (
+            s.query(ShopPackage)
+            .filter(ShopPackage.project_id == project_id)
+            .order_by(ShopPackage.id.desc())
+            .first()
+        )
         if not sp:
             raise HTTPException(status_code=404, detail="Paket bulunamadı")
         return {"s3_key": sp.pdf_path, "sha256": sp.pdf_sha256}
-
-

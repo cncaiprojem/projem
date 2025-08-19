@@ -14,7 +14,12 @@ def upgrade():
         sa.Column("id", sa.Integer, primary_key=True),
         sa.Column("idempotency_key", sa.String(255), nullable=True),
         sa.Column("name", sa.String(200), nullable=False),
-        sa.Column("type", sa.Enum("part", "assembly", name="projecttype"), nullable=False, server_default="part"),
+        sa.Column(
+            "type",
+            sa.Enum("part", "assembly", name="projecttype"),
+            nullable=False,
+            server_default="part",
+        ),
         sa.Column(
             "status",
             sa.Enum(
@@ -43,8 +48,17 @@ def upgrade():
     op.create_table(
         "project_files",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("project_id", sa.Integer, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("kind", sa.Enum("cad", "cam", "sim", "gcode", "package", "doc", name="filekind"), nullable=False),
+        sa.Column(
+            "project_id",
+            sa.Integer,
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column(
+            "kind",
+            sa.Enum("cad", "cam", "sim", "gcode", "package", "doc", name="filekind"),
+            nullable=False,
+        ),
         sa.Column("s3_key", sa.String(512), nullable=False),
         sa.Column("size", sa.Integer, nullable=True),
         sa.Column("sha256", sa.String(128), nullable=True),
@@ -56,7 +70,12 @@ def upgrade():
     op.create_table(
         "ai_qna",
         sa.Column("id", sa.Integer, primary_key=True),
-        sa.Column("project_id", sa.Integer, sa.ForeignKey("projects.id", ondelete="CASCADE"), nullable=False),
+        sa.Column(
+            "project_id",
+            sa.Integer,
+            sa.ForeignKey("projects.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
         sa.Column("question", sa.Text, nullable=False),
         sa.Column("answer", sa.Text, nullable=True),
         sa.Column("missing_fields", postgresql.JSONB, nullable=True),
@@ -72,5 +91,3 @@ def downgrade():
     op.execute("DROP TYPE IF EXISTS projecttype")
     op.execute("DROP TYPE IF EXISTS projectstatus")
     op.execute("DROP TYPE IF EXISTS filekind")
-
-

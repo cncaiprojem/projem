@@ -8,7 +8,9 @@ from pydantic import BaseModel, Field, field_validator
 class GearStage(BaseModel):
     ratio: float = Field(..., gt=0, description="Kademe dişli oranı (örn. 3.2)")
     helix: bool = Field(default=False, description="Helisel diş mi?")
-    module: Optional[float] = Field(default=None, gt=0, description="Dişli modul değeri (opsiyonel)")
+    module: Optional[float] = Field(
+        default=None, gt=0, description="Dişli modul değeri (opsiyonel)"
+    )
 
 
 class MaterialsSpec(BaseModel):
@@ -79,5 +81,3 @@ class AssemblyJobResult(BaseModel):
     error_message: str | None = None
     metrics: dict | None = None
     artefacts: list[ArtefactRef] | None = None
-
-

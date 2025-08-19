@@ -43,5 +43,3 @@ class CamArtifactsOut(BaseModel):
     artifacts: CamBuildArtifacts
     ops: List[CamOpSummary] = []
     job_stats: Dict[str, Any] = {}
-
-

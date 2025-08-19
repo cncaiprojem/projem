@@ -4,7 +4,7 @@ from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel
 
 
-SetupStatus = Literal['draft','cam_ready','sim_ok','post_ok']
+SetupStatus = Literal["draft", "cam_ready", "sim_ok", "post_ok"]
 
 
 class SetupCreate(BaseModel):
@@ -13,7 +13,7 @@ class SetupCreate(BaseModel):
     orientation_rx_deg: float = 0
     orientation_ry_deg: float = 0
     orientation_rz_deg: float = 0
-    wcs: str = 'G54'
+    wcs: str = "G54"
     fixture_id: Optional[int] = None
 
 
@@ -34,7 +34,7 @@ class Op3DPlan(BaseModel):
 
 class FixtureCreate(BaseModel):
     name: str
-    type: Literal['vise','plate','custom']
+    type: Literal["vise", "plate", "custom"]
     safety_clear_mm: float = 10.0
 
 
@@ -43,5 +43,3 @@ class FixtureOut(BaseModel):
     name: str
     type: str
     safety_clear_mm: float
-
-

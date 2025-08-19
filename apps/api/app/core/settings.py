@@ -23,28 +23,28 @@ warnings.warn(
     "Use apps.api.app.core.environment instead. This fixes Task 3.12 "
     "Gemini Code Assist feedback about configuration duplication.",
     DeprecationWarning,
-    stacklevel=2
+    stacklevel=2,
 )
 
 
 class UltraEnterpriseSettings(UltraEnterpriseEnvironment):
     """
     DEPRECATED: Legacy settings class for backward compatibility.
-    
+
     This class inherits from UltraEnterpriseEnvironment to maintain
     compatibility with existing code while consolidating configuration.
-    
+
     **Migration Path**:
     - Replace imports: from .settings import UltraEnterpriseSettings
     - With: from .environment import UltraEnterpriseEnvironment
     """
-    
+
     def __init__(self, **kwargs: Any) -> None:
         # Issue warning on instantiation
         warnings.warn(
             "UltraEnterpriseSettings is deprecated. Use UltraEnterpriseEnvironment instead.",
             DeprecationWarning,
-            stacklevel=2
+            stacklevel=2,
         )
         super().__init__(**kwargs)
 

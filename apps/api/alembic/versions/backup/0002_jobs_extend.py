@@ -4,6 +4,7 @@ Revision ID: 0002_jobs_extend
 Revises: 0001_init
 Create Date: 2025-08-09
 """
+
 from __future__ import annotations
 
 from alembic import op
@@ -28,5 +29,3 @@ def downgrade() -> None:
         batch.drop_column("artefacts")
         batch.drop_column("error_message")
         batch.drop_column("error_code")
-
-

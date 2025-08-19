@@ -35,13 +35,19 @@ def setup_post_task(self, setup_id: int):
     except Exception:
         ...
     with db_session() as s:
-        pr = PostRun(setup_id=setup_id, processor="grbl", nc_path=str(out), line_count=len(nc_text.splitlines()), lint_json=lint, duration_ms=int((time.time()-started)*1000), ok=True)
+        pr = PostRun(
+            setup_id=setup_id,
+            processor="grbl",
+            nc_path=str(out),
+            line_count=len(nc_text.splitlines()),
+            lint_json=lint,
+            duration_ms=int((time.time() - started) * 1000),
+            ok=True,
+        )
         s.add(pr)
         st = s.get(Setup, setup_id)
         st.status = "post_ok"
         s.commit()
-    job_latency_seconds.labels(type="post", status="succeeded").observe(time.time()-started)
+    job_latency_seconds.labels(type="post", status="succeeded").observe(time.time() - started)
     audit("post.finish", setup_id=setup_id)
     return {"ok": True, "lint": lint, "artefact": art}
-
-

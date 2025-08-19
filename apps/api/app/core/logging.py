@@ -104,8 +104,17 @@ def add_turkish_messages(logger: Any, method_name: str, event_dict: EventDict) -
 def mask_sensitive_data(logger: Any, method_name: str, event_dict: EventDict) -> EventDict:
     """Mask sensitive data in log entries."""
     sensitive_keys = {
-        "password", "token", "secret", "api_key", "authorization",
-        "şifre", "parola", "gizli", "anahtar", "kredi_kartı", "credit_card"
+        "password",
+        "token",
+        "secret",
+        "api_key",
+        "authorization",
+        "şifre",
+        "parola",
+        "gizli",
+        "anahtar",
+        "kredi_kartı",
+        "credit_card",
     }
 
     def mask_value(value: Any) -> Any:
@@ -122,7 +131,9 @@ def mask_sensitive_data(logger: Any, method_name: str, event_dict: EventDict) ->
             elif isinstance(value, dict):
                 masked[key] = mask_dict(value)
             elif isinstance(value, list):
-                masked[key] = [mask_dict(item) if isinstance(item, dict) else item for item in value]
+                masked[key] = [
+                    mask_dict(item) if isinstance(item, dict) else item for item in value
+                ]
             else:
                 masked[key] = value
         return masked
@@ -236,11 +247,11 @@ def configure_structlog() -> None:
 def get_logger(name: str | None = None, **kwargs: Any) -> LoggerProtocol:
     """
     Get a configured structlog logger.
-    
+
     Args:
         name: Logger name (defaults to module name)
         **kwargs: Additional context to bind to logger
-    
+
     Returns:
         Configured structlog logger
     """
@@ -259,19 +270,20 @@ def log_execution(
 ) -> Callable[[F], F]:
     """
     Decorator to log function execution with timing.
-    
+
     Args:
         level: Log level for entry/exit messages
         include_args: Whether to log function arguments
         include_result: Whether to log function result
         max_length: Maximum length for logged values
         sanitize_params: Whether to mask sensitive parameters
-    
+
     Example:
         @log_execution(level="DEBUG", include_result=True)
         async def process_data(user_id: str, data: dict) -> dict:
             ...
     """
+
     def decorator(func: F) -> F:
         @wraps(func)
         async def async_wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -395,6 +407,7 @@ def log_execution(
 
         # Return appropriate wrapper based on function type
         import asyncio
+
         if asyncio.iscoroutinefunction(func):
             return async_wrapper  # type: ignore
         else:
@@ -403,10 +416,12 @@ def log_execution(
     return decorator
 
 
-def log_database_query(query: str, params: dict[str, Any] | None = None, duration_ms: int | None = None) -> None:
+def log_database_query(
+    query: str, params: dict[str, Any] | None = None, duration_ms: int | None = None
+) -> None:
     """
     Log database query with optional parameters and duration.
-    
+
     Args:
         query: SQL query string
         params: Query parameters
@@ -447,7 +462,7 @@ def log_external_api_call(
 ) -> None:
     """
     Log external API call with details.
-    
+
     Args:
         service: Name of the external service
         method: HTTP method
@@ -489,7 +504,7 @@ def log_security_event(
 ) -> None:
     """
     Log security-related events.
-    
+
     Args:
         event_type: Type of security event (e.g., "failed_login", "unauthorized_access")
         user_id: User ID if available

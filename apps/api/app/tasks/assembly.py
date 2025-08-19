@@ -50,7 +50,9 @@ def assembly_generate(self, job_id: int) -> dict:
     try:
         tracer = trace.get_tracer(__name__)
         started = datetime.utcnow()
-        req = AssemblyRequestV1.model_validate(job.metrics.get("request"))  # request ham hali metrics içinde
+        req = AssemblyRequestV1.model_validate(
+            job.metrics.get("request")
+        )  # request ham hali metrics içinde
         pid_file = f"/tmp/{self.request.id}.pid"
         with tracer.start_as_current_span("freecad.generate_validate") as span:
             fcstd_path, metrics = generate_and_validate(req, pid_file=pid_file)
@@ -65,20 +67,26 @@ def assembly_generate(self, job_id: int) -> dict:
             job.status = "succeeded"
             job.finished_at = datetime.utcnow()
             job.metrics = {**(job.metrics or {}), **metrics}
-            job.artefacts = [{
-                "type": artefact["type"],
-                "s3_key": artefact["s3_key"],
-                "size": artefact["size"],
-                "sha256": artefact["sha256"],
-            }]  # type: ignore[assignment]
+            job.artefacts = [
+                {
+                    "type": artefact["type"],
+                    "s3_key": artefact["s3_key"],
+                    "size": artefact["size"],
+                    "sha256": artefact["sha256"],
+                }
+            ]  # type: ignore[assignment]
             s.commit()
         # Metrikler
         if job.started_at and job.finished_at:
-            job_latency_seconds.labels(type="assembly", status="succeeded").observe((job.finished_at - job.started_at).total_seconds())
+            job_latency_seconds.labels(type="assembly", status="succeeded").observe(
+                (job.finished_at - job.started_at).total_seconds()
+            )
         if job.started_at and job.metrics and job.metrics.get("created_at"):
             try:
                 created = datetime.fromisoformat(job.metrics["created_at"]).replace(tzinfo=None)
-                queue_wait_seconds.labels(queue=job.metrics.get("queue", "freecad")).observe((job.started_at - created).total_seconds())
+                queue_wait_seconds.labels(queue=job.metrics.get("queue", "freecad")).observe(
+                    (job.started_at - created).total_seconds()
+                )
             except Exception:
                 # created_at parse edilemezse atla
                 ...
@@ -110,5 +118,3 @@ def assembly_generate(self, job_id: int) -> dict:
         if getattr(self.request, "retries", 0) < getattr(self.request, "max_retries", 0):
             retried_total.labels(task="assembly.generate").inc()
         raise
-
-

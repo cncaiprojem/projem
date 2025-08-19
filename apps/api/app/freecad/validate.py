@@ -8,5 +8,3 @@ class ValidationReport:
     ok: bool
     object_count: int
     details: dict
-
-

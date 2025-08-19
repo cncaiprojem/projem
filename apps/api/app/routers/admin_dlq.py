@@ -8,7 +8,7 @@ from ..services import dlq
 from ..security.oidc import require_role
 
 
-router = APIRouter(prefix="/api/v1/admin/dlq", tags=["DLQ Yönetimi"]) 
+router = APIRouter(prefix="/api/v1/admin/dlq", tags=["DLQ Yönetimi"])
 
 
 @router.get("", dependencies=[Depends(require_role("admin"))])
@@ -22,5 +22,3 @@ def requeue(job_id: int):
     if not ok:
         raise HTTPException(status_code=404, detail="İş yeniden sıraya alınamadı")
     return {"status": "requeued", "job_id": job_id}
-
-

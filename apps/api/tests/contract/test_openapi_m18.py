@@ -12,5 +12,3 @@ def test_openapi_contains_m18_paths():
     assert "/api/v1/setups/{setup_id}/simulate" in paths
     assert "/api/v1/setups/{setup_id}/post" in paths
     assert "/api/v1/fixtures" in paths
-
-
