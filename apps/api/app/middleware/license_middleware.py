@@ -37,7 +37,7 @@ logger = get_logger(__name__)
 
 # Thread-safe tracking of (user_id, license_id) tuples who have been processed for license expiry
 # Using tuple key to handle multiple license expirations for same user correctly
-_license_expiry_processed: Set[Tuple[int, uuid.UUID]] = set()
+_license_expiry_processed: Set[Tuple[int, int]] = set()
 _license_expiry_lock = threading.Lock()
 
 # Session service instance for revocation
@@ -332,7 +332,7 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
         self, 
         db: Session, 
         user_id: int,
-        license_id: uuid.UUID,
+        license_id: int,
         client_ip: str,
         user_agent: str,
         request_id: str
@@ -758,7 +758,7 @@ def clear_license_expiry_cache() -> None:
 
 
 # Utility function to check if user+license is in processed cache
-def is_license_expiry_processed(user_id: int, license_id: uuid.UUID) -> bool:
+def is_license_expiry_processed(user_id: int, license_id: int) -> bool:
     """
     Check if a specific user+license expiry has been processed.
     
