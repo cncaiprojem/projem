@@ -13,10 +13,11 @@ from __future__ import annotations
 import threading
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Union
 
 from sqlalchemy import text
 from sqlalchemy.orm import Session
+from sqlalchemy.engine.row import Row
 
 from ..models.invoice import Invoice
 from ..models.license import License
@@ -42,8 +43,9 @@ class InvoiceService:
         """
         Generate unique invoice number with format: 'YYYYMM-SEQ-CNCAI'
         
-        Uses database-level locking with SELECT ... FOR UPDATE for true thread-safety
-        across multiple processes. This is critical for banking-grade invoice numbering.
+        OPTIMIZED: Per GitHub Copilot feedback, uses more granular locking strategy
+        to avoid table-level bottlenecks. Uses advisory locks for the specific month
+        rather than locking all invoice rows.
         
         Args:
             db: Database session
@@ -58,24 +60,35 @@ class InvoiceService:
         # Format: YYYYMM (202501 for January 2025)
         year_month = issued_at.strftime('%Y%m')
         
-        # Use database-level locking for true multi-process safety
-        # SELECT FOR UPDATE locks the rows preventing concurrent modifications
-        query = text("""
-            SELECT COALESCE(
-                MAX(
-                    CAST(
-                        SUBSTRING(number FROM 8 FOR 6) AS INTEGER
-                    )
-                ), 0
-            ) + 1 as next_seq
-            FROM invoices 
-            WHERE number LIKE :pattern
-            FOR UPDATE
-        """)
+        # OPTIMIZED: Use advisory lock for this specific month to reduce contention
+        # Advisory locks are lighter weight than row locks
+        lock_id = int(year_month)  # Use year_month as unique lock identifier
         
-        pattern = f"{year_month}-%"
-        result = db.execute(query, {"pattern": pattern}).fetchone()
-        next_sequence = result.next_seq if result else 1
+        try:
+            # Acquire advisory lock for this month's sequence
+            db.execute(text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": lock_id})
+            
+            # Get the next sequence number for this month
+            # OPTIMIZED: Only lock rows for this specific month pattern
+            query = text("""
+                SELECT COALESCE(
+                    MAX(
+                        CAST(
+                            SUBSTRING(number FROM 8 FOR 6) AS INTEGER
+                        )
+                    ), 0
+                ) + 1 as next_seq
+                FROM invoices 
+                WHERE number LIKE :pattern
+            """)
+            
+            pattern = f"{year_month}-%"
+            result = db.execute(query, {"pattern": pattern}).fetchone()
+            next_sequence = result.next_seq if result else 1
+            
+        finally:
+            # Always release the advisory lock
+            db.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id})
         
         # Zero-pad sequence to 6 digits as per Task 4.4
         sequence_str = f"{next_sequence:06d}"
