@@ -89,7 +89,7 @@ class PaymentService:
         )
         
         self.db.add(payment)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(payment)
         
         # Create audit log
@@ -104,7 +104,7 @@ class PaymentService:
                 "provider_payment_id": result.payment_intent.provider_payment_id
             }
         )
-        self.db.commit()
+        # Note: Final commit should be handled by the calling router to ensure atomicity
         
         # Return client parameters
         client_params = {

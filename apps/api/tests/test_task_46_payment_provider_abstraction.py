@@ -29,7 +29,7 @@ client = TestClient(app)
 class TestPaymentProviders:
     """Test payment provider implementations."""
     
-    def test_mock_provider_create_intent(self):
+    async def test_mock_provider_create_intent(self):
         """Test mock provider can create payment intents."""
         provider = MockProvider({"test_mode": True})
         
@@ -46,7 +46,7 @@ class TestPaymentProviders:
         assert result.payment_intent.status == PaymentStatus.REQUIRES_ACTION
         assert "pi_mock_" in result.payment_intent.provider_payment_id
     
-    def test_mock_provider_create_intent_with_failure(self):
+    async def test_mock_provider_create_intent_with_failure(self):
         """Test mock provider can simulate failures."""
         provider = MockProvider({"test_mode": True, "fail_percentage": 1.0})
         
@@ -59,7 +59,7 @@ class TestPaymentProviders:
         assert result.error_message == "Mock payment failure for testing"
         assert result.error_code == "mock_failure"
     
-    def test_mock_provider_retrieve(self):
+    async def test_mock_provider_retrieve(self):
         """Test mock provider can retrieve payment intents."""
         provider = MockProvider({"test_mode": True})
         
@@ -72,7 +72,7 @@ class TestPaymentProviders:
         assert result.success
         assert result.payment_intent.status == PaymentStatus.FAILED
     
-    def test_mock_provider_confirm(self):
+    async def test_mock_provider_confirm(self):
         """Test mock provider can confirm payment intents."""
         provider = MockProvider({"test_mode": True})
         
@@ -186,7 +186,7 @@ class TestPaymentService:
         db.refresh(invoice)
         return invoice
     
-    def test_create_payment_intent_success(self, db: Session, sample_invoice):
+    async def test_create_payment_intent_success(self, db: Session, sample_invoice):
         """Test successful payment intent creation."""
         service = PaymentService(db)
         
@@ -208,14 +208,14 @@ class TestPaymentService:
         assert "client_secret" in client_params
         assert "provider_payment_id" in client_params
     
-    def test_create_payment_intent_invoice_not_found(self, db: Session):
+    async def test_create_payment_intent_invoice_not_found(self, db: Session):
         """Test payment intent creation with non-existent invoice."""
         service = PaymentService(db)
         
         with pytest.raises(ValueError, match="Invoice 99999 not found"):
             await service.create_payment_intent(invoice_id=99999, provider_name="mock")
     
-    def test_create_payment_intent_already_paid(self, db: Session, sample_invoice):
+    async def test_create_payment_intent_already_paid(self, db: Session, sample_invoice):
         """Test payment intent creation for already paid invoice."""
         sample_invoice.paid_status = PaidStatus.PAID
         db.commit()

@@ -51,6 +51,9 @@ async def create_payment_intent(
             provider_name=request.provider
         )
         
+        # Commit the transaction atomically
+        db.commit()
+        
         return PaymentIntentResponse(
             client_secret=client_params.get("client_secret"),
             provider=client_params["provider"],
@@ -178,6 +181,10 @@ async def process_webhook(
             payload=raw_payload,
             parsed_payload=parsed_payload
         )
+        
+        # Commit webhook processing transaction atomically
+        if result["status"] == "success":
+            db.commit()
         
         if result["status"] == "error":
             # Determine appropriate HTTP status based on error type
