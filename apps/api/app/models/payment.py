@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
     BigInteger, CheckConstraint, DateTime, Enum as SQLEnum, 
-    ForeignKey, Index, String, UniqueConstraint, text
+    ForeignKey, Index, String, Text, UniqueConstraint, text
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import INET, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
@@ -328,13 +328,13 @@ class PaymentAuditLog(Base):
     )
     
     ip_address: Mapped[Optional[str]] = mapped_column(
-        String(45),  # IPv6 max length
+        INET,  # Use INET type for PostgreSQL
         nullable=True,
         comment="IP address of request"
     )
     
     user_agent: Mapped[Optional[str]] = mapped_column(
-        String(1000),
+        Text,
         nullable=True,
         comment="User agent string"
     )
