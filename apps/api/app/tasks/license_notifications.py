@@ -6,14 +6,14 @@ Ultra-enterprise Celery Beat scheduler for D-7/3/1 license expiry notifications.
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Dict, List
 
 from celery import current_task
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from ..config import settings
 from ..core.database import get_db_session
@@ -21,7 +21,12 @@ from ..models.license import License
 from ..models.notification_delivery import NotificationDelivery
 from ..models.notification_template import NotificationTemplate
 from ..models.user import User
-from ..models.enums import NotificationChannel, NotificationProvider, NotificationStatus
+from ..models.enums import (
+    NotificationChannel,
+    NotificationProvider,
+    NotificationStatus,
+    NotificationTemplateType,
+)
 from ..services.template_service import TemplateService
 from .worker import celery_app
 
@@ -154,9 +159,6 @@ def _get_licenses_expiring_in_days(db: Session, days_out: int) -> List[License]:
     Returns:
         List of License objects with user relationships loaded
     """
-    from datetime import datetime, timedelta, timezone
-    from sqlalchemy.orm import joinedload
-
     # Calculate the date range for licenses expiring in exactly N days
     today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
     target_date = today + timedelta(days=days_out)
@@ -208,16 +210,14 @@ def _enqueue_license_notification(
         return False
 
     # Get notification template
-    # Map days_out to template type
-    from ..models.enums import NotificationTemplateType
-
-    if days_out == 7:
-        template_type = NotificationTemplateType.LICENSE_REMINDER_D7
-    elif days_out == 3:
-        template_type = NotificationTemplateType.LICENSE_REMINDER_D3
-    elif days_out == 1:
-        template_type = NotificationTemplateType.LICENSE_REMINDER_D1
-    else:
+    # Map days_out to template type using dictionary for DRY principle
+    template_type_map = {
+        7: NotificationTemplateType.LICENSE_REMINDER_D7,
+        3: NotificationTemplateType.LICENSE_REMINDER_D3,
+        1: NotificationTemplateType.LICENSE_REMINDER_D1,
+    }
+    template_type = template_type_map.get(days_out)
+    if not template_type:
         logger.error(f"[TASK-4.8] Invalid days_out value: {days_out}")
         return False
 
@@ -253,7 +253,7 @@ def _enqueue_license_notification(
         template_service = TemplateService(db)
         rendered_content = template_service.render_template(template=template, variables=variables)
     except Exception as e:
-        logger.error(f"[TASK-4.8] Template rendering failed for {template_code}: {str(e)}")
+        logger.error(f"[TASK-4.8] Template rendering failed for {template_type}: {str(e)}")
         return False
 
     # Determine recipient and provider
