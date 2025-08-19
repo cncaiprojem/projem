@@ -13,6 +13,7 @@ from sqlalchemy import (
     DateTime,
     CheckConstraint,
     Enum as SQLEnum,
+    Boolean,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -82,6 +83,19 @@ class Job(Base, TimestampMixin):
 
     # Performance metrics
     metrics: Mapped[Optional[dict]] = mapped_column(JSONB)
+    
+    # Cancellation fields (Task 4.9)
+    cancel_requested: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        comment="Flag to request graceful job cancellation"
+    )
+    cancellation_reason: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Reason for job cancellation (e.g., license_expired, user_requested)"
+    )
 
     # Relationships
     user: Mapped[Optional["User"]] = relationship("User", back_populates="jobs")
@@ -181,10 +195,12 @@ class Job(Base, TimestampMixin):
         self.error_message = error_message
         self.retry_count += 1
 
-    def set_cancelled(self):
+    def set_cancelled(self, reason: str = None):
         """Mark job as cancelled."""
         self.status = JobStatus.CANCELLED
         self.finished_at = datetime.now(timezone.utc)
+        if reason:
+            self.cancellation_reason = reason
 
     def update_progress(self, progress: int, message: str = None):
         """Update job progress."""

@@ -31,6 +31,7 @@ from ..services.license_service import LicenseService
 from ..services.session_service import SessionService
 from ..services.audit_service import audit_service
 from ..services.pii_masking_service import pii_masking_service, MaskingLevel
+from ..services.job_cancellation_service import job_cancellation_service
 from ..core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -415,6 +416,39 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
                 ip_address=client_ip,
                 user_agent=user_agent,
             )
+            
+            # Cancel all running and pending jobs for the user (Task 4.9)
+            try:
+                job_cancellation_result = await job_cancellation_service.cancel_jobs_for_expired_license(
+                    db=db,
+                    license_id=license_id,
+                    user_id=user_id,
+                    reason="license_expired"
+                )
+                
+                logger.info(
+                    "Jobs cancelled for expired license",
+                    extra={
+                        "operation": "license_expiry_jobs_cancelled",
+                        "user_id": user_id,
+                        "license_id": str(license_id),
+                        "affected_jobs": job_cancellation_result.get("affected_jobs", []),
+                        "request_id": request_id,
+                    }
+                )
+            except Exception as e:
+                # Log error but don't fail the entire license expiry handling
+                logger.error(
+                    "Failed to cancel jobs for expired license",
+                    exc_info=True,
+                    extra={
+                        "operation": "license_expiry_job_cancellation_failed",
+                        "user_id": user_id,
+                        "license_id": str(license_id),
+                        "error": str(e),
+                        "request_id": request_id,
+                    }
+                )
 
             # Emit audit event for session revocation
             await audit_service.log_business_event(

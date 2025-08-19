@@ -21,6 +21,7 @@ from ..models.enums import UserRole
 from ..models.license import License
 from ..services.license_service import LicenseService, LicenseStateError
 from ..services.idempotency_service import IdempotencyService
+from ..services.job_cancellation_service import job_cancellation_service
 from ..schemas.license import (
     LicenseAssignRequest,
     LicenseAssignResponse,
