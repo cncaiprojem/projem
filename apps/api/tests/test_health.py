@@ -9,5 +9,3 @@ def test_healthz():
     assert resp.status_code in (200, 503)
     data = resp.json()
     assert "status" in data and "dependencies" in data
-
-

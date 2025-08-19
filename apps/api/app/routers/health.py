@@ -9,6 +9,7 @@ from ..schemas import HealthStatus
 try:
     import structlog
     from ..services.s3 import get_s3_service
+
     HAS_STRUCTLOG = True
     logger = structlog.get_logger(__name__)
 except ImportError:
@@ -16,7 +17,7 @@ except ImportError:
     logger = None
 
 
-router = APIRouter(prefix="/api/v1", tags=["Sağlık"]) 
+router = APIRouter(prefix="/api/v1", tags=["Sağlık"])
 
 
 @router.get("/healthz", response_model=HealthStatus)
@@ -28,7 +29,7 @@ async def healthz(response: Response, request: Request) -> HealthStatus:
 
     # Check Redis using the application's Redis client if available
     try:
-        redis_client = getattr(request.app.state, 'redis', None)
+        redis_client = getattr(request.app.state, "redis", None)
         if redis_client:
             redis_ok = await check_redis(redis_client)
             deps["redis"] = "ok" if redis_ok else "hata"
@@ -50,14 +51,14 @@ async def healthz(response: Response, request: Request) -> HealthStatus:
             )
             s3 = session.client("s3", endpoint_url=settings.aws_s3_endpoint)
             s3.list_buckets()
-            
+
             # Test new S3 service and bucket availability if available
             if HAS_STRUCTLOG:
                 try:
                     s3_service = get_s3_service()
                     required_buckets = ["artefacts", "logs", "reports", "invoices"]
                     bucket_status = {}
-                    
+
                     for bucket in required_buckets:
                         try:
                             bucket_exists = s3_service._ensure_bucket_exists(bucket)
@@ -66,30 +67,32 @@ async def healthz(response: Response, request: Request) -> HealthStatus:
                             if logger:
                                 logger.warning("Bucket check failed", bucket=bucket, error=str(e))
                             bucket_status[bucket] = "hata"
-                    
+
                     # Overall S3 status
                     all_buckets_ok = all(status == "ok" for status in bucket_status.values())
                     deps["s3"] = "ok" if all_buckets_ok else "partial"
-                    deps.update({f"s3_bucket_{bucket}": status for bucket, status in bucket_status.items()})
+                    deps.update(
+                        {f"s3_bucket_{bucket}": status for bucket, status in bucket_status.items()}
+                    )
                 except Exception as e:
                     if logger:
                         logger.error("S3 service check failed", error=str(e))
                     deps["s3"] = "ok"  # Fall back to basic connectivity
             else:
                 deps["s3"] = "ok"  # Basic S3 connectivity works
-            
+
         except Exception as e:
             deps["s3"] = "hata"
     else:
         deps["s3"] = "atılandı"
 
     overall = "ok" if all(v == "ok" for v in deps.values()) else "hata"
-    response.status_code = status.HTTP_200_OK if overall == "ok" else status.HTTP_503_SERVICE_UNAVAILABLE
+    response.status_code = (
+        status.HTTP_200_OK if overall == "ok" else status.HTTP_503_SERVICE_UNAVAILABLE
+    )
     return HealthStatus(status=overall, dependencies=deps)
 
 
 @router.get("/readyz", response_model=HealthStatus)
 async def readyz(response: Response, request: Request) -> HealthStatus:
     return await healthz(response, request)
-
-

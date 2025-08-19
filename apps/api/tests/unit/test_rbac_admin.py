@@ -27,5 +27,3 @@ def test_admin_routes_allowed_for_admin(monkeypatch):
         assert r.status_code in (200, 204)
     finally:
         app.dependency_overrides.clear()
-
-

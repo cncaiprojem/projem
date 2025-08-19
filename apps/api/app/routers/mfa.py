@@ -18,11 +18,17 @@ from sqlalchemy.orm import Session
 
 from ..db import get_db
 from ..schemas.mfa import (
-    MFASetupStartResponse, MFASetupVerifyRequest, MFASetupVerifyResponse,
-    MFADisableRequest, MFADisableResponse,
-    MFAChallengeRequest, MFAChallengeResponse,
-    MFABackupCodesResponse, MFAStatusResponse,
-    MFAErrorResponse, EXTENDED_AUTH_ERROR_CODES
+    MFASetupStartResponse,
+    MFASetupVerifyRequest,
+    MFASetupVerifyResponse,
+    MFADisableRequest,
+    MFADisableResponse,
+    MFAChallengeRequest,
+    MFAChallengeResponse,
+    MFABackupCodesResponse,
+    MFAStatusResponse,
+    MFAErrorResponse,
+    EXTENDED_AUTH_ERROR_CODES,
 )
 from ..services.mfa_service import mfa_service, MFAError
 from ..services.token_service import token_service
@@ -43,7 +49,7 @@ router = APIRouter(
         409: {"model": MFAErrorResponse, "description": "Çakışma hatası"},
         429: {"model": MFAErrorResponse, "description": "Çok fazla istek"},
         500: {"model": MFAErrorResponse, "description": "Sunucu hatası"},
-    }
+    },
 )
 
 
@@ -56,25 +62,20 @@ def get_client_info(request: Request) -> Dict[str, Optional[str]]:
     elif "x-real-ip" in request.headers:
         ip_address = request.headers["x-real-ip"]
     else:
-        ip_address = getattr(request.client, 'host', None)
-    
+        ip_address = getattr(request.client, "host", None)
+
     user_agent = request.headers.get("user-agent")
-    
-    return {
-        "ip_address": ip_address,
-        "user_agent": user_agent
-    }
+
+    return {"ip_address": ip_address, "user_agent": user_agent}
 
 
-def create_mfa_error_response(error: MFAError, status_code: int = status.HTTP_400_BAD_REQUEST) -> JSONResponse:
+def create_mfa_error_response(
+    error: MFAError, status_code: int = status.HTTP_400_BAD_REQUEST
+) -> JSONResponse:
     """Create standardized MFA error response."""
     return JSONResponse(
         status_code=status_code,
-        content={
-            "error_code": error.code,
-            "message": error.message,
-            "details": error.details
-        }
+        content={"error_code": error.code, "message": error.message, "details": error.details},
     )
 
 
@@ -83,24 +84,24 @@ def create_mfa_error_response(error: MFAError, status_code: int = status.HTTP_40
     response_model=MFASetupStartResponse,
     summary="MFA kurulum başlatma",
     description="TOTP MFA kurulumunu başlatır ve QR kod ile gizli anahtar döner.",
-    response_description="MFA kurulum bilgileri"
+    response_description="MFA kurulum bilgileri",
 )
 async def start_mfa_setup(
     request: Request,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    _rate_limit_check: None = Depends(mfa_rate_limit)
+    _rate_limit_check: None = Depends(mfa_rate_limit),
 ) -> MFASetupStartResponse:
     """
     MFA kurulumunu başlatır.
-    
+
     **Kimlik doğrulama gereklidir (Bearer token)**
-    
+
     Dönen bilgiler:
     - **secret_masked**: Maskelenmiş TOTP gizli anahtarı
     - **otpauth_url**: TOTP uygulaması için OTPAuth URL
     - **qr_png_base64**: QR kod PNG formatında base64 kodlanmış
-    
+
     **Güvenlik Özellikleri:**
     - AES-256-GCM ile şifrelenmiş secret saklama
     - Güvenli QR kod oluşturma
@@ -108,47 +109,53 @@ async def start_mfa_setup(
     - Kapsamlı audit loglama
     """
     client_info = get_client_info(request)
-    
+
     try:
         # Get full user from database
         user = db.query(User).filter(User.email == current_user.user.email).first()
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Kullanıcı bulunamadı"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı"
             )
-        
+
         setup_data = mfa_service.setup_mfa(
             db=db,
             user=user,
             ip_address=client_info["ip_address"],
-            user_agent=client_info["user_agent"]
+            user_agent=client_info["user_agent"],
         )
-        
+
         return MFASetupStartResponse(**setup_data)
-        
+
     except MFAError as e:
-        logger.warning("MFA setup failed", extra={
-            "error_code": e.code,
-            "user_id": current_user.user.id,
-            "email": current_user.user.email,
-            "ip_address": client_info["ip_address"]
-        })
-        
-        if e.code == 'ERR-MFA-ALREADY-ENABLED':
+        logger.warning(
+            "MFA setup failed",
+            extra={
+                "error_code": e.code,
+                "user_id": current_user.user.id,
+                "email": current_user.user.email,
+                "ip_address": client_info["ip_address"],
+            },
+        )
+
+        if e.code == "ERR-MFA-ALREADY-ENABLED":
             return create_mfa_error_response(e, status.HTTP_409_CONFLICT)
         return create_mfa_error_response(e)
-        
+
     except Exception as e:
-        logger.error("Unexpected MFA setup error", exc_info=True, extra={
-            "user_id": current_user.user.id,
-            "email": current_user.user.email,
-            "ip_address": client_info["ip_address"]
-        })
-        return create_mfa_error_response(MFAError(
-            'ERR-MFA-SYSTEM-ERROR',
-            'MFA kurulumu sırasında sistem hatası'
-        ), status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error(
+            "Unexpected MFA setup error",
+            exc_info=True,
+            extra={
+                "user_id": current_user.user.id,
+                "email": current_user.user.email,
+                "ip_address": client_info["ip_address"],
+            },
+        )
+        return create_mfa_error_response(
+            MFAError("ERR-MFA-SYSTEM-ERROR", "MFA kurulumu sırasında sistem hatası"),
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 @router.post(
@@ -156,22 +163,22 @@ async def start_mfa_setup(
     response_model=MFASetupVerifyResponse,
     summary="MFA kurulum doğrulama",
     description="TOTP kodunu doğrulayarak MFA'yı etkinleştirir ve yedek kodlar oluşturur.",
-    response_description="MFA etkinleştirme sonucu ve yedek kodlar"
+    response_description="MFA etkinleştirme sonucu ve yedek kodlar",
 )
 async def verify_mfa_setup(
     request: Request,
     verify_data: MFASetupVerifyRequest,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    _rate_limit_check: None = Depends(mfa_rate_limit)
+    _rate_limit_check: None = Depends(mfa_rate_limit),
 ) -> MFASetupVerifyResponse:
     """
     MFA kurulum doğrulaması yapar ve etkinleştirir.
-    
+
     **Kimlik doğrulama gereklidir (Bearer token)**
-    
+
     - **code**: TOTP uygulamasından alınan 6 haneli kod
-    
+
     **Güvenlik Özellikleri:**
     - TOTP kod doğrulaması (±30 saniye tolerance)
     - 10 adet tek kullanımlık yedek kod oluşturma
@@ -180,53 +187,58 @@ async def verify_mfa_setup(
     - Timing attack koruması
     """
     client_info = get_client_info(request)
-    
+
     try:
         # Get full user from database
         user = db.query(User).filter(User.email == current_user.user.email).first()
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Kullanıcı bulunamadı"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı"
             )
-        
+
         result = mfa_service.verify_and_enable_mfa(
             db=db,
             user=user,
             code=verify_data.code,
             ip_address=client_info["ip_address"],
-            user_agent=client_info["user_agent"]
+            user_agent=client_info["user_agent"],
         )
-        
+
         return MFASetupVerifyResponse(
-            message=result['message'],
-            backup_codes=result['backup_codes']
+            message=result["message"], backup_codes=result["backup_codes"]
         )
-        
+
     except MFAError as e:
-        logger.warning("MFA verification failed", extra={
-            "error_code": e.code,
-            "user_id": current_user.user.id,
-            "email": current_user.user.email,
-            "ip_address": client_info["ip_address"]
-        })
-        
-        if e.code == 'ERR-MFA-ALREADY-ENABLED':
+        logger.warning(
+            "MFA verification failed",
+            extra={
+                "error_code": e.code,
+                "user_id": current_user.user.id,
+                "email": current_user.user.email,
+                "ip_address": client_info["ip_address"],
+            },
+        )
+
+        if e.code == "ERR-MFA-ALREADY-ENABLED":
             return create_mfa_error_response(e, status.HTTP_409_CONFLICT)
-        elif e.code in ['ERR-MFA-INVALID', 'ERR-MFA-RATE-LIMITED']:
+        elif e.code in ["ERR-MFA-INVALID", "ERR-MFA-RATE-LIMITED"]:
             return create_mfa_error_response(e, status.HTTP_401_UNAUTHORIZED)
         return create_mfa_error_response(e)
-        
+
     except Exception as e:
-        logger.error("Unexpected MFA verification error", exc_info=True, extra={
-            "user_id": current_user.user.id,
-            "email": current_user.user.email,
-            "ip_address": client_info["ip_address"]
-        })
-        return create_mfa_error_response(MFAError(
-            'ERR-MFA-SYSTEM-ERROR',
-            'MFA doğrulama sırasında sistem hatası'
-        ), status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error(
+            "Unexpected MFA verification error",
+            exc_info=True,
+            extra={
+                "user_id": current_user.user.id,
+                "email": current_user.user.email,
+                "ip_address": client_info["ip_address"],
+            },
+        )
+        return create_mfa_error_response(
+            MFAError("ERR-MFA-SYSTEM-ERROR", "MFA doğrulama sırasında sistem hatası"),
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 @router.post(
@@ -234,23 +246,23 @@ async def verify_mfa_setup(
     response_model=MFADisableResponse,
     summary="MFA devre dışı bırakma",
     description="TOTP kodu ile MFA'yı devre dışı bırakır (admin kullanıcılar için yasak).",
-    response_description="MFA devre dışı bırakma sonucu"
+    response_description="MFA devre dışı bırakma sonucu",
 )
 async def disable_mfa(
     request: Request,
     disable_data: MFADisableRequest,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    _rate_limit_check: None = Depends(mfa_rate_limit)
+    _rate_limit_check: None = Depends(mfa_rate_limit),
 ) -> MFADisableResponse:
     """
     MFA'yı devre dışı bırakır.
-    
+
     **Kimlik doğrulama gereklidir (Bearer token)**
     **Admin kullanıcılar MFA'yı devre dışı bırakamaz (güvenlik)**
-    
+
     - **code**: TOTP uygulamasından alınan 6 haneli kod
-    
+
     **Güvenlik Özellikleri:**
     - TOTP kod doğrulaması zorunlu
     - Tüm yedek kodları siler
@@ -258,52 +270,58 @@ async def disable_mfa(
     - Kapsamlı audit loglama
     """
     client_info = get_client_info(request)
-    
+
     try:
         # Get full user from database
         user = db.query(User).filter(User.email == current_user.user.email).first()
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Kullanıcı bulunamadı"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı"
             )
-        
+
         result = mfa_service.disable_mfa(
             db=db,
             user=user,
             code=disable_data.code,
             ip_address=client_info["ip_address"],
-            user_agent=client_info["user_agent"]
+            user_agent=client_info["user_agent"],
         )
-        
-        return MFADisableResponse(message=result['message'])
-        
+
+        return MFADisableResponse(message=result["message"])
+
     except MFAError as e:
-        logger.warning("MFA disable failed", extra={
-            "error_code": e.code,
-            "user_id": current_user.user.id,
-            "email": current_user.user.email,
-            "ip_address": client_info["ip_address"]
-        })
-        
-        if e.code == 'ERR-MFA-NOT-ENABLED':
+        logger.warning(
+            "MFA disable failed",
+            extra={
+                "error_code": e.code,
+                "user_id": current_user.user.id,
+                "email": current_user.user.email,
+                "ip_address": client_info["ip_address"],
+            },
+        )
+
+        if e.code == "ERR-MFA-NOT-ENABLED":
             return create_mfa_error_response(e, status.HTTP_400_BAD_REQUEST)
-        elif e.code in ['ERR-MFA-INVALID', 'ERR-MFA-ADMIN-REQUIRED']:
+        elif e.code in ["ERR-MFA-INVALID", "ERR-MFA-ADMIN-REQUIRED"]:
             return create_mfa_error_response(e, status.HTTP_401_UNAUTHORIZED)
-        elif e.code == 'ERR-MFA-RATE-LIMITED':
+        elif e.code == "ERR-MFA-RATE-LIMITED":
             return create_mfa_error_response(e, status.HTTP_429_TOO_MANY_REQUESTS)
         return create_mfa_error_response(e)
-        
+
     except Exception as e:
-        logger.error("Unexpected MFA disable error", exc_info=True, extra={
-            "user_id": current_user.user.id,
-            "email": current_user.user.email,
-            "ip_address": client_info["ip_address"]
-        })
-        return create_mfa_error_response(MFAError(
-            'ERR-MFA-SYSTEM-ERROR',
-            'MFA devre dışı bırakma sırasında sistem hatası'
-        ), status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error(
+            "Unexpected MFA disable error",
+            exc_info=True,
+            extra={
+                "user_id": current_user.user.id,
+                "email": current_user.user.email,
+                "ip_address": client_info["ip_address"],
+            },
+        )
+        return create_mfa_error_response(
+            MFAError("ERR-MFA-SYSTEM-ERROR", "MFA devre dışı bırakma sırasında sistem hatası"),
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 @router.post(
@@ -311,7 +329,7 @@ async def disable_mfa(
     response_model=MFAChallengeResponse,
     summary="MFA doğrulama challenge",
     description="Login sırasında MFA challenge'ı. TOTP veya yedek kod kabul eder.",
-    response_description="MFA challenge sonucu ve access token"
+    response_description="MFA challenge sonucu ve access token",
 )
 async def mfa_challenge(
     request: Request,
@@ -319,16 +337,16 @@ async def mfa_challenge(
     challenge_data: MFAChallengeRequest,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    _rate_limit_check: None = Depends(mfa_rate_limit)
+    _rate_limit_check: None = Depends(mfa_rate_limit),
 ) -> MFAChallengeResponse:
     """
     MFA challenge işlemi (login akışı sonrası).
-    
+
     **Kimlik doğrulama gereklidir (Bearer token)**
     **Bu endpoint sadece MFA etkin kullanıcılar için çalışır**
-    
+
     - **code**: TOTP kodu (6 hane) veya yedek kod (8 hane)
-    
+
     **Güvenlik Özellikleri:**
     - TOTP ve yedek kod desteği
     - Tek kullanımlık yedek kodlar
@@ -336,29 +354,25 @@ async def mfa_challenge(
     - Session temelli doğrulama
     """
     client_info = get_client_info(request)
-    
+
     try:
         # Get full user from database
         user = db.query(User).filter(User.email == current_user.user.email).first()
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Kullanıcı bulunamadı"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı"
             )
-        
+
         # Check if user has MFA enabled
         if not user.mfa_enabled:
-            raise MFAError(
-                'ERR-MFA-NOT-ENABLED',
-                'MFA aktif değil'
-            )
-        
+            raise MFAError("ERR-MFA-NOT-ENABLED", "MFA aktif değil")
+
         # Determine if it's TOTP or backup code
         is_totp = len(challenge_data.code) == 6
         is_backup = len(challenge_data.code) == 8
-        
+
         verification_success = False
-        
+
         if is_totp:
             # Verify TOTP code
             verification_success = mfa_service.verify_totp_code(
@@ -366,7 +380,7 @@ async def mfa_challenge(
                 user=user,
                 code=challenge_data.code,
                 ip_address=client_info["ip_address"],
-                user_agent=client_info["user_agent"]
+                user_agent=client_info["user_agent"],
             )
         elif is_backup:
             # Verify backup code
@@ -375,14 +389,11 @@ async def mfa_challenge(
                 user=user,
                 code=challenge_data.code,
                 ip_address=client_info["ip_address"],
-                user_agent=client_info["user_agent"]
+                user_agent=client_info["user_agent"],
             )
         else:
-            raise MFAError(
-                'ERR-MFA-INVALID',
-                'MFA kodu geçersiz format'
-            )
-        
+            raise MFAError("ERR-MFA-INVALID", "MFA kodu geçersiz format")
+
         if verification_success:
             # MFA challenge successful - create new session
             token_result = token_service.create_refresh_session(
@@ -390,48 +401,52 @@ async def mfa_challenge(
                 user=user,
                 device_fingerprint=None,  # Get from request if needed
                 ip_address=client_info["ip_address"],
-                user_agent=client_info["user_agent"]
+                user_agent=client_info["user_agent"],
             )
-            
+
             # Set refresh token in httpOnly cookie
             token_service.set_refresh_cookie(response, token_result.refresh_token)
-            
+
             return MFAChallengeResponse(
                 access_token=token_result.access_token,
                 token_type="bearer",
                 expires_in=token_result.expires_in,
-                message="MFA doğrulaması başarılı"
+                message="MFA doğrulaması başarılı",
             )
         else:
-            raise MFAError(
-                'ERR-MFA-INVALID',
-                'MFA kodu geçersiz'
-            )
-            
+            raise MFAError("ERR-MFA-INVALID", "MFA kodu geçersiz")
+
     except MFAError as e:
-        logger.warning("MFA challenge failed", extra={
-            "error_code": e.code,
-            "user_id": current_user.user.id,
-            "email": current_user.user.email,
-            "ip_address": client_info["ip_address"]
-        })
-        
-        if e.code in ['ERR-MFA-INVALID', 'ERR-MFA-NOT-ENABLED']:
+        logger.warning(
+            "MFA challenge failed",
+            extra={
+                "error_code": e.code,
+                "user_id": current_user.user.id,
+                "email": current_user.user.email,
+                "ip_address": client_info["ip_address"],
+            },
+        )
+
+        if e.code in ["ERR-MFA-INVALID", "ERR-MFA-NOT-ENABLED"]:
             return create_mfa_error_response(e, status.HTTP_401_UNAUTHORIZED)
-        elif e.code == 'ERR-MFA-RATE-LIMITED':
+        elif e.code == "ERR-MFA-RATE-LIMITED":
             return create_mfa_error_response(e, status.HTTP_429_TOO_MANY_REQUESTS)
         return create_mfa_error_response(e)
-        
+
     except Exception as e:
-        logger.error("Unexpected MFA challenge error", exc_info=True, extra={
-            "user_id": current_user.user.id,
-            "email": current_user.user.email,
-            "ip_address": client_info["ip_address"]
-        })
-        return create_mfa_error_response(MFAError(
-            'ERR-MFA-SYSTEM-ERROR',
-            'MFA doğrulama sırasında sistem hatası'
-        ), status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error(
+            "Unexpected MFA challenge error",
+            exc_info=True,
+            extra={
+                "user_id": current_user.user.id,
+                "email": current_user.user.email,
+                "ip_address": client_info["ip_address"],
+            },
+        )
+        return create_mfa_error_response(
+            MFAError("ERR-MFA-SYSTEM-ERROR", "MFA doğrulama sırasında sistem hatası"),
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 @router.get(
@@ -439,23 +454,23 @@ async def mfa_challenge(
     response_model=MFABackupCodesResponse,
     summary="MFA yedek kodları",
     description="Yeni yedek kodlar oluşturur (eskiler geçersiz olur).",
-    response_description="Yeni yedek kodlar"
+    response_description="Yeni yedek kodlar",
 )
 async def get_backup_codes(
     request: Request,
     current_user: AuthenticatedUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    _rate_limit_check: None = Depends(mfa_rate_limit)
+    _rate_limit_check: None = Depends(mfa_rate_limit),
 ) -> MFABackupCodesResponse:
     """
     MFA yedek kodlarını yeniden oluşturur.
-    
+
     **Kimlik doğrulama gereklidir (Bearer token)**
     **MFA etkin olmalıdır**
-    
+
     **ÖNEMLİ:** Bu işlem tüm eski yedek kodları geçersiz kılar!
     Yeni kodları güvenli bir yerde saklamanız gerekmektedir.
-    
+
     **Güvenlik Özellikleri:**
     - 10 adet yeni tek kullanımlık kod
     - SHA-256 ile hashlenmiş saklama
@@ -463,51 +478,57 @@ async def get_backup_codes(
     - Eski kodları otomatik geçersiz kılma
     """
     client_info = get_client_info(request)
-    
+
     try:
         # Get full user from database
         user = db.query(User).filter(User.email == current_user.user.email).first()
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Kullanıcı bulunamadı"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı"
             )
-        
+
         backup_codes = mfa_service.regenerate_backup_codes(
             db=db,
             user=user,
             ip_address=client_info["ip_address"],
-            user_agent=client_info["user_agent"]
+            user_agent=client_info["user_agent"],
         )
-        
+
         return MFABackupCodesResponse(
             backup_codes=backup_codes,
             codes_count=len(backup_codes),
-            message="Yeni yedek kodlar oluşturuldu. Güvenli bir yerde saklayın."
+            message="Yeni yedek kodlar oluşturuldu. Güvenli bir yerde saklayın.",
         )
-        
+
     except MFAError as e:
-        logger.warning("Backup codes generation failed", extra={
-            "error_code": e.code,
-            "user_id": current_user.user.id,
-            "email": current_user.user.email,
-            "ip_address": client_info["ip_address"]
-        })
-        
-        if e.code == 'ERR-MFA-NOT-ENABLED':
+        logger.warning(
+            "Backup codes generation failed",
+            extra={
+                "error_code": e.code,
+                "user_id": current_user.user.id,
+                "email": current_user.user.email,
+                "ip_address": client_info["ip_address"],
+            },
+        )
+
+        if e.code == "ERR-MFA-NOT-ENABLED":
             return create_mfa_error_response(e, status.HTTP_400_BAD_REQUEST)
         return create_mfa_error_response(e)
-        
+
     except Exception as e:
-        logger.error("Unexpected backup codes error", exc_info=True, extra={
-            "user_id": current_user.user.id,
-            "email": current_user.user.email,
-            "ip_address": client_info["ip_address"]
-        })
-        return create_mfa_error_response(MFAError(
-            'ERR-MFA-SYSTEM-ERROR',
-            'Yedek kod oluşturma sırasında sistem hatası'
-        ), status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error(
+            "Unexpected backup codes error",
+            exc_info=True,
+            extra={
+                "user_id": current_user.user.id,
+                "email": current_user.user.email,
+                "ip_address": client_info["ip_address"],
+            },
+        )
+        return create_mfa_error_response(
+            MFAError("ERR-MFA-SYSTEM-ERROR", "Yedek kod oluşturma sırasında sistem hatası"),
+            status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 @router.get(
@@ -515,17 +536,16 @@ async def get_backup_codes(
     response_model=MFAStatusResponse,
     summary="MFA durum bilgisi",
     description="Kullanıcının MFA durum bilgilerini getirir.",
-    response_description="MFA durum bilgileri"
+    response_description="MFA durum bilgileri",
 )
 async def get_mfa_status(
-    current_user: AuthenticatedUser = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    current_user: AuthenticatedUser = Depends(get_current_user), db: Session = Depends(get_db)
 ) -> MFAStatusResponse:
     """
     Kullanıcının MFA durum bilgilerini getirir.
-    
+
     **Kimlik doğrulama gereklidir (Bearer token)**
-    
+
     Dönen bilgiler:
     - MFA etkinleştirilme durumu
     - Etkinleştirilme tarihi
@@ -538,24 +558,24 @@ async def get_mfa_status(
         user = db.query(User).filter(User.email == current_user.user.email).first()
         if not user:
             raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Kullanıcı bulunamadı"
+                status_code=status.HTTP_404_NOT_FOUND, detail="Kullanıcı bulunamadı"
             )
-        
+
         return MFAStatusResponse(
             mfa_enabled=user.mfa_enabled,
             mfa_enabled_at=user.mfa_enabled_at,
             backup_codes_count=user.mfa_backup_codes_count,
             can_disable_mfa=user.can_disable_mfa(),
-            requires_mfa=user.requires_mfa()
+            requires_mfa=user.requires_mfa(),
         )
-        
+
     except Exception as e:
-        logger.error("Failed to get MFA status", exc_info=True, extra={
-            "user_id": current_user.user.id,
-            "email": current_user.user.email
-        })
+        logger.error(
+            "Failed to get MFA status",
+            exc_info=True,
+            extra={"user_id": current_user.user.id, "email": current_user.user.email},
+        )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="MFA durum bilgileri alınamadı"
+            detail="MFA durum bilgileri alınamadı",
         )

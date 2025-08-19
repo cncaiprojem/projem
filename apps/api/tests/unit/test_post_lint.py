@@ -33,5 +33,3 @@ M30
     out = lint_gcode(nc, dialect="fanuc", tool_plane_enabled=True)
     assert any("Units" in w for w in out["warnings"])  # G21/G20 yok
     assert any("Tool plane" in w for w in out["warnings"])  # G68 yok
-
-

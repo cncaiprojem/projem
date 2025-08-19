@@ -13,5 +13,3 @@ def test_op3dplan_requires_ops():
         Op3DPlan(ops=None)  # type: ignore
     p = Op3DPlan(ops=[{"op_type": "surface", "params": {}}])
     assert p.ops and p.ops[0]["op_type"] == "surface"
-
-

@@ -22,7 +22,7 @@ from app.services.pii_masking_service import DataClassification
 from app.services.security_event_service import (
     SecurityEventType,
     SecuritySeverity,
-    security_event_service
+    security_event_service,
 )
 
 
@@ -30,7 +30,7 @@ from app.services.security_event_service import (
 app = FastAPI(
     title="FreeCAD Ultra-Enterprise Platform",
     description="CAD/CAM platform with banking-level audit and security",
-    version="1.0.0"
+    version="1.0.0",
 )
 
 # Setup audit system (this should be done in main.py)
@@ -39,24 +39,20 @@ setup_audit_system(app)
 
 # Example: Auth router integration
 @app.post("/api/auth/login")
-async def login_example(
-    request: Request,
-    credentials: dict,
-    db: Session = Depends(get_db)
-):
+async def login_example(request: Request, credentials: dict, db: Session = Depends(get_db)):
     """Example login endpoint with comprehensive audit logging."""
-    
+
     # Extract request context
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
-    
+
     try:
         # Authenticate user (this would call auth_service.authenticate_user)
         # user, auth_data = await auth_service.authenticate_user(...)
-        
+
         # For demo purposes, assume successful authentication
         user_id = 123
-        
+
         # Log successful authentication as security event
         await security_event_service.record_authentication_event(
             db=db,
@@ -68,32 +64,28 @@ async def login_example(
             additional_data={
                 "authentication_method": "password",
                 "device_trusted": True,
-                "session_duration_hours": 8
-            }
+                "session_duration_hours": 8,
+            },
         )
-        
+
         # Log authentication action as audit entry
         await audit_service.audit_user_action(
             db=db,
             action="login",
             user_id=user_id,
             resource="authentication_endpoint",
-            details={
-                "login_method": "email_password",
-                "success": True,
-                "session_created": True
-            },
+            details={"login_method": "email_password", "success": True, "session_created": True},
             classification=DataClassification.PERSONAL,
             ip_address=ip_address,
-            user_agent=user_agent
+            user_agent=user_agent,
         )
-        
+
         return {
             "success": True,
             "correlation_id": get_correlation_id(),
-            "session_id": get_session_id()
+            "session_id": get_session_id(),
         }
-        
+
     except Exception as e:
         # Log failed authentication
         await security_event_service.record_authentication_event(
@@ -105,10 +97,10 @@ async def login_example(
             user_agent=user_agent,
             additional_data={
                 "error_type": type(e).__name__,
-                "failure_reason": "invalid_credentials"
-            }
+                "failure_reason": "invalid_credentials",
+            },
         )
-        
+
         raise
 
 
@@ -118,14 +110,14 @@ async def create_job_example(
     request: Request,
     job_data: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Example job creation with comprehensive audit trail."""
-    
+
     try:
         # Create job (simplified for example)
         job_id = 456
-        
+
         # Comprehensive audit logging for job creation
         await audit_service.create_audit_entry(
             db=db,
@@ -140,11 +132,11 @@ async def create_job_example(
                 "estimated_duration_minutes": job_data.get("duration", 30),
                 "parameters": job_data.get("parameters", {}),
                 "user_permissions": ["job:create", "cad:design"],
-                "compliance_check": True
+                "compliance_check": True,
             },
-            classification=DataClassification.CONFIDENTIAL
+            classification=DataClassification.CONFIDENTIAL,
         )
-        
+
         # Log job creation as security event for monitoring
         await security_event_service.create_security_event(
             db=db,
@@ -156,16 +148,12 @@ async def create_job_example(
                 "action": "job_creation",
                 "job_type": job_data.get("type"),
                 "resource_allocation": "standard",
-                "estimated_cost_cents": job_data.get("cost_estimate", 0)
-            }
+                "estimated_cost_cents": job_data.get("cost_estimate", 0),
+            },
         )
-        
-        return {
-            "job_id": job_id,
-            "status": "created",
-            "correlation_id": get_correlation_id()
-        }
-        
+
+        return {"job_id": job_id, "status": "created", "correlation_id": get_correlation_id()}
+
     except Exception as e:
         # Log job creation failure
         await security_event_service.create_security_event(
@@ -174,10 +162,7 @@ async def create_job_example(
             severity=SecuritySeverity.MEDIUM,
             user_id=current_user.id,
             resource="job_creation",
-            metadata={
-                "error_type": type(e).__name__,
-                "failure_reason": str(e)
-            }
+            metadata={"error_type": type(e).__name__, "failure_reason": str(e)},
         )
         raise
 
@@ -188,15 +173,15 @@ async def process_payment_example(
     request: Request,
     payment_data: dict,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Example payment processing with financial audit compliance."""
-    
+
     try:
         # Process payment (simplified)
         payment_id = 789
         amount_cents = payment_data.get("amount_cents", 0)
-        
+
         # Financial transaction audit with Turkish compliance
         await audit_service.audit_financial_transaction(
             db=db,
@@ -212,10 +197,10 @@ async def process_payment_example(
                 "kdv_amount_cents": amount_cents * 20 // 120,  # Calculate VAT
                 "total_amount_cents": amount_cents,
                 "banking_reference": f"PAY_{payment_id}_{datetime.now().strftime('%Y%m%d')}",
-                "compliance_framework": "Turkish_Banking_Law"
-            }
+                "compliance_framework": "Turkish_Banking_Law",
+            },
         )
-        
+
         # Security event for financial transaction monitoring
         await security_event_service.create_security_event(
             db=db,
@@ -229,17 +214,17 @@ async def process_payment_example(
                 "currency": "TRY",
                 "risk_score": "low",
                 "fraud_check_passed": True,
-                "banking_compliance": True
-            }
+                "banking_compliance": True,
+            },
         )
-        
+
         return {
             "payment_id": payment_id,
             "status": "processed",
             "correlation_id": get_correlation_id(),
-            "audit_compliant": True
+            "audit_compliant": True,
         }
-        
+
     except Exception as e:
         # Critical security event for payment failure
         await security_event_service.create_security_event(
@@ -251,8 +236,8 @@ async def process_payment_example(
             metadata={
                 "error_type": type(e).__name__,
                 "payment_failure": True,
-                "requires_investigation": True
-            }
+                "requires_investigation": True,
+            },
         )
         raise
 
@@ -264,14 +249,14 @@ async def assign_role_example(
     role_data: dict,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Example admin role assignment with privilege escalation audit."""
-    
+
     try:
         # Assign role (simplified)
         new_role = role_data.get("role")
-        
+
         # High-security audit for privilege changes
         await audit_service.create_audit_entry(
             db=db,
@@ -289,11 +274,11 @@ async def assign_role_example(
                 "new_roles": ["user", new_role],
                 "privilege_escalation": True,
                 "requires_approval": False,
-                "security_clearance_level": "admin"
+                "security_clearance_level": "admin",
             },
-            classification=DataClassification.RESTRICTED
+            classification=DataClassification.RESTRICTED,
         )
-        
+
         # Critical security event for privilege escalation
         await security_event_service.create_security_event(
             db=db,
@@ -307,18 +292,18 @@ async def assign_role_example(
                 "new_role": new_role,
                 "admin_authorization": True,
                 "security_impact": "high",
-                "requires_monitoring": True
-            }
+                "requires_monitoring": True,
+            },
         )
-        
+
         return {
             "success": True,
             "user_id": user_id,
             "role_assigned": new_role,
             "correlation_id": get_correlation_id(),
-            "audit_trail": "complete"
+            "audit_trail": "complete",
         }
-        
+
     except Exception as e:
         # Critical failure in privilege management
         await security_event_service.create_security_event(
@@ -331,8 +316,8 @@ async def assign_role_example(
                 "error_type": type(e).__name__,
                 "privilege_failure": True,
                 "security_breach_potential": True,
-                "immediate_investigation_required": True
-            }
+                "immediate_investigation_required": True,
+            },
         )
         raise
 
@@ -341,9 +326,9 @@ async def assign_role_example(
 @app.get("/api/health/audit")
 async def audit_health_check():
     """Health check endpoint specifically for audit system."""
-    
+
     health_status = verify_audit_system_health()
-    
+
     return {
         "audit_system": health_status,
         "correlation_id": get_correlation_id(),
@@ -352,8 +337,8 @@ async def audit_health_check():
             "kvkv_compliant": True,
             "gdpr_compliant": True,
             "audit_integrity": True,
-            "pii_masking_active": True
-        }
+            "pii_masking_active": True,
+        },
     }
 
 
@@ -362,25 +347,21 @@ async def audit_health_check():
 async def trace_correlation_example(
     correlation_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(get_current_user),
 ):
     """Example endpoint to demonstrate correlation ID tracing."""
-    
+
     try:
         # This would typically be in the admin routes
         # Get all logs for correlation ID
         audit_logs = await audit_service.get_audit_logs(
-            db=db,
-            correlation_id=correlation_id,
-            limit=1000
+            db=db, correlation_id=correlation_id, limit=1000
         )
-        
+
         security_events = await security_event_service.get_security_events(
-            db=db,
-            correlation_id=correlation_id,
-            limit=1000
+            db=db, correlation_id=correlation_id, limit=1000
         )
-        
+
         # Log the trace request itself
         await audit_service.audit_user_action(
             db=db,
@@ -391,19 +372,19 @@ async def trace_correlation_example(
                 "traced_correlation_id": correlation_id,
                 "audit_logs_found": len(audit_logs["logs"]),
                 "security_events_found": len(security_events["events"]),
-                "requester_user_id": current_user.id
+                "requester_user_id": current_user.id,
             },
-            classification=DataClassification.RESTRICTED
+            classification=DataClassification.RESTRICTED,
         )
-        
+
         return {
             "correlation_id": correlation_id,
             "audit_logs": audit_logs,
             "security_events": security_events,
             "trace_timestamp": datetime.now(timezone.utc).isoformat(),
-            "total_entries": len(audit_logs["logs"]) + len(security_events["events"])
+            "total_entries": len(audit_logs["logs"]) + len(security_events["events"]),
         }
-        
+
     except Exception as e:
         # Log trace failure
         await security_event_service.create_security_event(
@@ -415,8 +396,8 @@ async def trace_correlation_example(
             metadata={
                 "error_type": type(e).__name__,
                 "trace_failure": True,
-                "correlation_id": correlation_id
-            }
+                "correlation_id": correlation_id,
+            },
         )
         raise
 

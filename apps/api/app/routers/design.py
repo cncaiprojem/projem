@@ -8,11 +8,14 @@ from ..schemas.project import DesignPlanIn, DesignPlanOut, DesignAnswerIn, Desig
 from ..llm_router import analyze_and_plan, refine_plan
 
 
-router = APIRouter(prefix="/api/v1/design", tags=["Tasarım Planı"]) 
+router = APIRouter(prefix="/api/v1/design", tags=["Tasarım Planı"])
 
 
 @router.post("/plan", response_model=DesignPlanOut)
-def design_plan(payload: DesignPlanIn, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key")):
+def design_plan(
+    payload: DesignPlanIn,
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+):
     with db_session() as s:
         p = s.get(Project, payload.project_id)
         if not p:
@@ -38,5 +41,3 @@ def design_answer(payload: DesignAnswerIn):
         p.summary_json = new_plan
         s.commit()
         return new_plan
-
-

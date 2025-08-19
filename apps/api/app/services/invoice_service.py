@@ -28,64 +28,63 @@ from ..models.enums import PaidStatus
 class InvoiceService:
     """
     Ultra-enterprise invoice service for Task 4.4.
-    
+
     Handles:
     - Sequential invoice numbering with 'YYYYMM-SEQ-CNCAI' format
     - Thread-safe sequence generation per month
     - 20% Turkish KDV calculation
     - License event invoice creation
     """
-    
+
     _lock = threading.Lock()
-    
+
     @classmethod
     def generate_invoice_number(cls, db: Session, issued_at: Optional[datetime] = None) -> str:
         """
         Generate unique invoice number with format: 'YYYYMM-SEQ-CNCAI'
-        
+
         OPTIMIZED: Per GitHub Copilot feedback, uses more granular locking strategy
         to avoid table-level bottlenecks. Uses advisory locks for the specific month
         rather than locking all invoice rows.
-        
+
         ENHANCED: Per Gemini feedback, now tracks lock acquisition status to ensure
         we only unlock if we successfully acquired the lock.
-        
+
         Args:
             db: Database session
             issued_at: Invoice issue date (defaults to now UTC)
-            
+
         Returns:
             Unique invoice number string
-            
+
         Raises:
             RuntimeError: If unable to acquire advisory lock
         """
         if issued_at is None:
             issued_at = datetime.now(timezone.utc)
-        
+
         # Format: YYYYMM (202501 for January 2025)
-        year_month = issued_at.strftime('%Y%m')
-        
+        year_month = issued_at.strftime("%Y%m")
+
         # OPTIMIZED: Use advisory lock for this specific month to reduce contention
         # Advisory locks are lighter weight than row locks
         lock_id = int(year_month)  # Use year_month as unique lock identifier
         lock_acquired = False  # Track if we successfully acquired the lock
-        
+
         try:
             # Acquire advisory lock for this month's sequence
             # ENHANCED: Check if lock was successfully acquired
             lock_result = db.execute(
-                text("SELECT pg_try_advisory_lock(:lock_id) as acquired"), 
-                {"lock_id": lock_id}
+                text("SELECT pg_try_advisory_lock(:lock_id) as acquired"), {"lock_id": lock_id}
             ).fetchone()
-            
+
             lock_acquired = lock_result.acquired if lock_result else False
-            
+
             if not lock_acquired:
                 # If we couldn't acquire the lock immediately, wait for it
                 db.execute(text("SELECT pg_advisory_lock(:lock_id)"), {"lock_id": lock_id})
                 lock_acquired = True
-            
+
             # Get the next sequence number for this month
             # OPTIMIZED: Only lock rows for this specific month pattern
             query = text("""
@@ -99,55 +98,51 @@ class InvoiceService:
                 FROM invoices 
                 WHERE number LIKE :pattern
             """)
-            
+
             pattern = f"{year_month}-%"
             result = db.execute(query, {"pattern": pattern}).fetchone()
             next_sequence = result.next_seq if result else 1
-            
+
         finally:
             # ENHANCED: Only release the advisory lock if we acquired it
             if lock_acquired:
                 db.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id})
-        
+
         # Zero-pad sequence to 6 digits as per Task 4.4
         sequence_str = f"{next_sequence:06d}"
-        
+
         # Format: YYYYMM-SEQ-CNCAI
         invoice_number = f"{year_month}-{sequence_str}-CNCAI"
-        
+
         return invoice_number
-    
+
     @classmethod
     def calculate_invoice_amounts(cls, base_amount: Decimal) -> Dict[str, Decimal]:
         """
         Calculate invoice amounts with Turkish KDV compliance.
-        
+
         Task 4.4 specification:
         - VAT = round(amount * 0.20, 2) with half-up rounding
         - Total = amount + VAT
-        
+
         Args:
             base_amount: Base amount before VAT
-            
+
         Returns:
             Dict with amount, vat, total (all Decimal with 2 decimal places)
         """
         # Ensure base amount has proper precision
-        amount = base_amount.quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        
+        amount = base_amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
         # Calculate 20% Turkish KDV
-        vat_rate = Decimal('0.20')
-        vat = (amount * vat_rate).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP)
-        
+        vat_rate = Decimal("0.20")
+        vat = (amount * vat_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+
         # Calculate total
         total = amount + vat
-        
-        return {
-            'amount': amount,
-            'vat': vat,
-            'total': total
-        }
-    
+
+        return {"amount": amount, "vat": vat, "total": total}
+
     @classmethod
     def create_invoice_for_license_event(
         cls,
@@ -155,66 +150,62 @@ class InvoiceService:
         user: User,
         license_obj: License,
         base_amount: Decimal,
-        event_type: str = "license_assign"
+        event_type: str = "license_assign",
     ) -> Invoice:
         """
         Create invoice for license assign/extend events.
-        
+
         Task 4.4: One invoice per assign/extend event with proper linkage.
-        
+
         Args:
             db: Database session
             user: User owning the license
             license_obj: License being invoiced
             base_amount: Base amount before VAT
             event_type: Type of event (assign/extend)
-            
+
         Returns:
             Created invoice instance
         """
         # Generate unique invoice number
         issued_at = datetime.now(timezone.utc)
         invoice_number = cls.generate_invoice_number(db, issued_at)
-        
+
         # Calculate amounts with Turkish KDV
         amounts = cls.calculate_invoice_amounts(base_amount)
-        
+
         # Create invoice with Task 4.4 specifications
         invoice = Invoice(
             user_id=user.id,
             license_id=license_obj.id,
             number=invoice_number,
-            amount=amounts['amount'],
-            currency='TRY',  # Fixed to TRY per Task 4.4
-            vat=amounts['vat'],
-            total=amounts['total'],
+            amount=amounts["amount"],
+            currency="TRY",  # Fixed to TRY per Task 4.4
+            vat=amounts["vat"],
+            total=amounts["total"],
             paid_status=PaidStatus.UNPAID,  # Default per Task 4.4
-            issued_at=issued_at
+            issued_at=issued_at,
         )
-        
+
         # Add to session and flush to get ID
         db.add(invoice)
         db.flush()
-        
+
         return invoice
-    
+
     @classmethod
     def create_license_assign_invoice(
-        cls,
-        db: Session,
-        user: User,
-        license_obj: License,
-        license_price: Decimal
+        cls, db: Session, user: User, license_obj: License, license_price: Decimal
     ) -> Invoice:
         """
         Create invoice for license assignment.
-        
+
         Args:
             db: Database session
             user: User being assigned the license
             license_obj: License being assigned
             license_price: Price for the license
-            
+
         Returns:
             Created invoice
         """
@@ -223,26 +214,22 @@ class InvoiceService:
             user=user,
             license_obj=license_obj,
             base_amount=license_price,
-            event_type="license_assign"
+            event_type="license_assign",
         )
-    
+
     @classmethod
     def create_license_extend_invoice(
-        cls,
-        db: Session,
-        user: User,
-        license_obj: License,
-        extension_price: Decimal
+        cls, db: Session, user: User, license_obj: License, extension_price: Decimal
     ) -> Invoice:
         """
         Create invoice for license extension.
-        
+
         Args:
             db: Database session
             user: User extending the license
             license_obj: License being extended
             extension_price: Price for the extension
-            
+
         Returns:
             Created invoice
         """
@@ -251,57 +238,54 @@ class InvoiceService:
             user=user,
             license_obj=license_obj,
             base_amount=extension_price,
-            event_type="license_extend"
+            event_type="license_extend",
         )
-    
+
     @classmethod
     def get_invoice_by_number(cls, db: Session, invoice_number: str) -> Optional[Invoice]:
         """
         Get invoice by unique number.
-        
+
         Args:
             db: Database session
             invoice_number: Unique invoice number
-            
+
         Returns:
             Invoice if found, None otherwise
         """
         return db.query(Invoice).filter(Invoice.number == invoice_number).first()
-    
+
     @classmethod
     def get_user_invoices(
-        cls, 
-        db: Session, 
-        user: User, 
-        paid_status: Optional[PaidStatus] = None
+        cls, db: Session, user: User, paid_status: Optional[PaidStatus] = None
     ) -> List[Invoice]:
         """
         Get invoices for a user, optionally filtered by payment status.
-        
+
         Args:
             db: Database session
             user: User to get invoices for
             paid_status: Optional payment status filter
-            
+
         Returns:
             List of invoices
         """
         query = db.query(Invoice).filter(Invoice.user_id == user.id)
-        
+
         if paid_status:
             query = query.filter(Invoice.paid_status == paid_status)
-        
+
         return query.order_by(Invoice.issued_at.desc()).all()
-    
+
     @classmethod
     def get_license_invoices(cls, db: Session, license_obj: License) -> List[Invoice]:
         """
         Get all invoices for a specific license.
-        
+
         Args:
             db: Database session
             license_obj: License to get invoices for
-            
+
         Returns:
             List of invoices for the license
         """
@@ -311,67 +295,64 @@ class InvoiceService:
             .order_by(Invoice.issued_at.desc())
             .all()
         )
-    
+
     @classmethod
     def mark_invoice_paid(
-        cls,
-        db: Session,
-        invoice: Invoice,
-        provider_payment_id: Optional[str] = None
+        cls, db: Session, invoice: Invoice, provider_payment_id: Optional[str] = None
     ) -> Invoice:
         """
         Mark invoice as paid with optional provider payment ID.
-        
+
         NOTE: The database commit is handled by the request context/API handler
         to ensure proper transaction boundaries and error handling.
-        
+
         Args:
             db: Database session
             invoice: Invoice to mark as paid
             provider_payment_id: External payment provider transaction ID
-            
+
         Returns:
             Updated invoice
         """
         invoice.mark_as_paid(provider_payment_id)
         db.flush()  # Flush changes but don't commit - let request context handle it
         return invoice
-    
+
     @classmethod
     def mark_invoice_failed(cls, db: Session, invoice: Invoice) -> Invoice:
         """
         Mark invoice payment as failed.
-        
+
         NOTE: The database commit is handled by the request context/API handler
         to ensure proper transaction boundaries and error handling.
-        
+
         Args:
             db: Database session
             invoice: Invoice to mark as failed
-            
+
         Returns:
             Updated invoice
         """
         invoice.mark_as_failed()
         db.flush()  # Flush changes but don't commit - let request context handle it
         return invoice
-    
+
     @classmethod
     def get_monthly_invoice_stats(cls, db: Session, year: int, month: int) -> Dict[str, Any]:
         """
         Get invoice statistics for a specific month.
-        
+
         Args:
             db: Database session
             year: Year (e.g., 2025)
             month: Month (1-12)
-            
+
         Returns:
             Dictionary with monthly statistics
         """
         year_month = f"{year:04d}{month:02d}"
         pattern = f"{year_month}-%"
-        
+
         query = text("""
             SELECT 
                 COUNT(*) as total_invoices,
@@ -383,28 +364,28 @@ class InvoiceService:
             FROM invoices 
             WHERE number LIKE :pattern
         """)
-        
+
         result = db.execute(query, {"pattern": pattern}).fetchone()
-        
+
         if result:
             return {
-                'year_month': year_month,
-                'total_invoices': result.total_invoices or 0,
-                'paid_invoices': result.paid_invoices or 0,
-                'unpaid_invoices': result.unpaid_invoices or 0,
+                "year_month": year_month,
+                "total_invoices": result.total_invoices or 0,
+                "paid_invoices": result.paid_invoices or 0,
+                "unpaid_invoices": result.unpaid_invoices or 0,
                 # Use string representation to maintain Decimal precision
-                'total_amount': str(result.total_amount or Decimal("0")),
-                'paid_amount': str(result.paid_amount or Decimal("0")),
-                'unpaid_amount': str(result.unpaid_amount or Decimal("0"))
+                "total_amount": str(result.total_amount or Decimal("0")),
+                "paid_amount": str(result.paid_amount or Decimal("0")),
+                "unpaid_amount": str(result.unpaid_amount or Decimal("0")),
             }
-        
+
         return {
-            'year_month': year_month,
-            'total_invoices': 0,
-            'paid_invoices': 0,
-            'unpaid_invoices': 0,
+            "year_month": year_month,
+            "total_invoices": 0,
+            "paid_invoices": 0,
+            "unpaid_invoices": 0,
             # Use string representation for consistent Decimal handling
-            'total_amount': str(Decimal("0")),
-            'paid_amount': str(Decimal("0")),
-            'unpaid_amount': str(Decimal("0"))
+            "total_amount": str(Decimal("0")),
+            "paid_amount": str(Decimal("0")),
+            "unpaid_amount": str(Decimal("0")),
         }

@@ -47,7 +47,11 @@ doc.close()
     if not fc:
         return {"front": "", "right": "", "iso": ""}
     subprocess.run([fc, tmp], check=False)
-    return {"front": os.path.join(out_dir, "front.svg"), "right": os.path.join(out_dir, "right.svg"), "iso": os.path.join(out_dir, "iso.svg")}
+    return {
+        "front": os.path.join(out_dir, "front.svg"),
+        "right": os.path.join(out_dir, "right.svg"),
+        "iso": os.path.join(out_dir, "iso.svg"),
+    }
 
 
 def project_views(fcstd_path: str, out_dir: str) -> Dict[str, str]:
@@ -56,5 +60,3 @@ def project_views(fcstd_path: str, out_dir: str) -> Dict[str, str]:
         return _run_fc_script(fcstd_path, out_dir)
     except Exception:
         return {"front": "", "right": "", "iso": ""}
-
-

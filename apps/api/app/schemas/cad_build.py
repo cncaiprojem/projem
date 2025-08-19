@@ -20,5 +20,3 @@ class CadArtifactsOut(BaseModel):
     stl_url: Optional[str] = None
     gltf_url: Optional[str] = None
     stats: Dict[str, Any] = Field(default_factory=dict)
-
-

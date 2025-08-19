@@ -29,5 +29,3 @@ def lint_gcode(text: str, dialect: str, tool_plane_enabled: bool) -> Dict:
             warnings.append(f"Sıra uyarısı: {tag} önceki komutlardan sonra gelmeli")
         last_index = idx
     return {"warnings": warnings, "errors": errors}
-
-

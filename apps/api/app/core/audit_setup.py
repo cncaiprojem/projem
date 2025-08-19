@@ -22,14 +22,14 @@ logger = get_logger(__name__)
 
 def setup_audit_system(app: FastAPI) -> None:
     """Setup and configure the ultra-enterprise audit system.
-    
+
     Args:
         app: FastAPI application instance
     """
-    
+
     # Configure structured logging first
     configure_structlog()
-    
+
     # Add correlation middleware for request tracking
     # This should be added early in the middleware stack
     app.add_middleware(
@@ -38,12 +38,12 @@ def setup_audit_system(app: FastAPI) -> None:
         generate_if_missing=True,
         include_response_header=True,
         log_requests=True,
-        mask_sensitive_headers=True
+        mask_sensitive_headers=True,
     )
-    
+
     # Add CORS middleware with ultra-enterprise settings-based configuration
     settings = get_settings()
-    
+
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origins_list,  # Environment-configurable origins
@@ -51,9 +51,9 @@ def setup_audit_system(app: FastAPI) -> None:
         allow_methods=settings.cors_methods_list,
         allow_headers=settings.cors_headers_list,
         expose_headers=settings.cors_expose_headers_list,  # Enhanced audit headers
-        max_age=settings.CORS_MAX_AGE  # Preflight cache optimization
+        max_age=settings.CORS_MAX_AGE,  # Preflight cache optimization
     )
-    
+
     logger.info(
         "ultra_enterprise_audit_system_initialized",
         components={
@@ -63,7 +63,7 @@ def setup_audit_system(app: FastAPI) -> None:
             "pii_masking_service": True,
             "kvkv_compliance": True,
             "hash_chain_integrity": True,
-            "enhanced_cors_config": True  # New enhanced CORS configuration
+            "enhanced_cors_config": True,  # New enhanced CORS configuration
         },
         compliance_frameworks=["KVKV", "GDPR", "Turkish_Banking_Law"],
         security_level="ULTRA_ENTERPRISE",
@@ -73,14 +73,14 @@ def setup_audit_system(app: FastAPI) -> None:
             "credentials_allowed": settings.CORS_ALLOW_CREDENTIALS,
             "production_mode": settings.is_production,
             "max_age": settings.CORS_MAX_AGE,
-            "headers_exposed": len(settings.cors_expose_headers_list)
-        }
+            "headers_exposed": len(settings.cors_expose_headers_list),
+        },
     )
 
 
 def verify_audit_system_health() -> dict:
     """Verify that all audit system components are operational.
-    
+
     Returns:
         Health status dictionary
     """
@@ -91,10 +91,10 @@ def verify_audit_system_health() -> dict:
                 "status": "operational",
                 "features": [
                     "hash_chain_integrity",
-                    "correlation_tracking", 
+                    "correlation_tracking",
                     "pii_masking",
-                    "kvkv_compliance"
-                ]
+                    "kvkv_compliance",
+                ],
             },
             "security_event_service": {
                 "status": "operational",
@@ -102,8 +102,8 @@ def verify_audit_system_health() -> dict:
                     "real_time_monitoring",
                     "threat_detection",
                     "anomaly_analysis",
-                    "compliance_reporting"
-                ]
+                    "compliance_reporting",
+                ],
             },
             "pii_masking_service": {
                 "status": "operational",
@@ -111,8 +111,8 @@ def verify_audit_system_health() -> dict:
                     "email_masking",
                     "ip_masking",
                     "turkish_pii_support",
-                    "gdpr_compliance"
-                ]
+                    "gdpr_compliance",
+                ],
             },
             "correlation_middleware": {
                 "status": "operational",
@@ -120,19 +120,19 @@ def verify_audit_system_health() -> dict:
                     "request_tracking",
                     "distributed_tracing",
                     "session_correlation",
-                    "audit_integration"
-                ]
-            }
+                    "audit_integration",
+                ],
+            },
         },
         "compliance": {
             "kvkv": True,
             "gdpr": True,
             "banking_regulations": True,
             "data_masking": True,
-            "audit_trail": True
-        }
+            "audit_trail": True,
+        },
     }
-    
+
     logger.info("audit_system_health_check", health_status=health_status)
     return health_status
 

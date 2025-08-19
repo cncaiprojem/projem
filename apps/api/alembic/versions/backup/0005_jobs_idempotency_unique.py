@@ -4,6 +4,7 @@ Revision ID: 0005_jobs_idempotency_unique
 Revises: 0004_dead_jobs
 Create Date: 2025-08-09
 """
+
 from __future__ import annotations
 
 from alembic import op
@@ -28,5 +29,3 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_index("uq_jobs_idempotency_key", table_name="jobs")
-
-

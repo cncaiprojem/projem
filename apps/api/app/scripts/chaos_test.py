@@ -24,8 +24,17 @@ def main():
 
     # 1) N adet assembly → cam → sim zinciri başlat
     for i in range(args.n):
-        headers = {"Idempotency-Key": f"chaos-{i}-{random.randint(1000,9999)}"}
-        asm = {"type":"planetary_gearbox","spec":{"stages":[{"ratio":3.16}],"overall_ratio":3.16,"power_kW":1,"materials":{"gear":"steel","housing":"aluminum"},"outputs":{"torqueNm":10,"radialN":10,"axialN":5}}}
+        headers = {"Idempotency-Key": f"chaos-{i}-{random.randint(1000, 9999)}"}
+        asm = {
+            "type": "planetary_gearbox",
+            "spec": {
+                "stages": [{"ratio": 3.16}],
+                "overall_ratio": 3.16,
+                "power_kW": 1,
+                "materials": {"gear": "steel", "housing": "aluminum"},
+                "outputs": {"torqueNm": 10, "radialN": 10, "axialN": 5},
+            },
+        }
         r = requests.post(f"{base}/api/v1/assemblies", json=asm, headers=headers)
         asm_id = r.json()["job_id"]
         created.append(asm_id)
@@ -63,5 +72,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

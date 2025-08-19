@@ -30,7 +30,7 @@ def generate_request_id() -> str:
 class LoggingMiddleware(BaseHTTPMiddleware):
     """
     Comprehensive logging middleware for FastAPI.
-    
+
     Features:
     - Request/response logging with timing
     - Correlation ID generation and propagation
@@ -50,7 +50,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
     ) -> None:
         """
         Initialize logging middleware.
-        
+
         Args:
             app: FastAPI application
             slow_request_threshold_ms: Threshold for slow request warnings (default: 1000ms)
@@ -62,7 +62,13 @@ class LoggingMiddleware(BaseHTTPMiddleware):
         self.slow_request_threshold_ms = slow_request_threshold_ms
         self.log_request_body = log_request_body
         self.log_response_body = log_response_body
-        self.excluded_paths = excluded_paths or ["/health", "/ready", "/metrics", "/docs", "/openapi.json"]
+        self.excluded_paths = excluded_paths or [
+            "/health",
+            "/ready",
+            "/metrics",
+            "/docs",
+            "/openapi.json",
+        ]
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         """Process request and log details."""
@@ -155,7 +161,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                             "path": request.url.path,
                             "method": request.method,
                             "error": error_message,
-                        }
+                        },
                     )
 
                 raise
@@ -198,7 +204,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                         details={
                             "path": request.url.path,
                             "method": request.method,
-                        }
+                        },
                     )
             elif response.status_code >= 400:
                 # Client errors
@@ -210,7 +216,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                         details={
                             "path": request.url.path,
                             "method": request.method,
-                        }
+                        },
                     )
                 elif response.status_code == 403:
                     log_security_event(
@@ -220,7 +226,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                         details={
                             "path": request.url.path,
                             "method": request.method,
-                        }
+                        },
                     )
                 elif response.status_code == 429:
                     log_security_event(
@@ -230,7 +236,7 @@ class LoggingMiddleware(BaseHTTPMiddleware):
                         details={
                             "path": request.url.path,
                             "method": request.method,
-                        }
+                        },
                     )
 
                 logger.warning("http_response_client_error", **response_log_data)
@@ -259,7 +265,7 @@ class CorrelationIdMiddleware:
     def __init__(self, app: ASGIApp, header_name: str = "X-Request-ID") -> None:
         """
         Initialize correlation ID middleware.
-        
+
         Args:
             app: ASGI application
             header_name: Header name for correlation ID
@@ -310,7 +316,7 @@ class PerformanceLoggingMiddleware:
     def __init__(self, app: ASGIApp, slow_threshold_ms: int = 1000) -> None:
         """
         Initialize performance logging middleware.
-        
+
         Args:
             app: ASGI application
             slow_threshold_ms: Threshold for slow request warnings
@@ -376,14 +382,14 @@ def setup_request_logging(
 ) -> ASGIApp:
     """
     Set up all logging middleware for an ASGI application.
-    
+
     Args:
         app: ASGI application
         use_correlation_ids: Whether to use correlation ID middleware
         use_performance_logging: Whether to use performance logging middleware
         slow_request_threshold_ms: Threshold for slow request warnings
         excluded_paths: Paths to exclude from logging
-    
+
     Returns:
         ASGI application with logging middleware
     """

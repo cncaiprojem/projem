@@ -11,5 +11,3 @@ def test_openapi_ok():
     assert r.status_code == 200
     data = r.json()
     assert "paths" in data
-
-

@@ -9,5 +9,3 @@ from ..freecad.service import detect_freecad
 def freecad_detect_task() -> dict:
     res = detect_freecad()
     return res.model_dump()
-
-

@@ -36,5 +36,3 @@ def build_setup_job(*, setup_id: int, fast_mode: bool) -> BuildResult:
     except Exception:
         ...
     return BuildResult(fcstd_path=fc, toolpath_json=j, toolpath_csv=c)
-
-

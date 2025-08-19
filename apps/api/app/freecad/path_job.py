@@ -56,20 +56,23 @@ print('GCODE_OUT=' + gcode_out)
 """
 
 
-def make_path_job(freecad_path: str, fcstd_path: Path, params: Dict, post_name: str, timeout: int) -> Tuple[Path, Dict]:
+def make_path_job(
+    freecad_path: str, fcstd_path: Path, params: Dict, post_name: str, timeout: int
+) -> Tuple[Path, Dict]:
     tmp_script = tempfile.NamedTemporaryFile(delete=False, suffix=".py")
     tmp_script.write(build_cam_script(params).encode("utf-8"))
     tmp_script.close()
     env = os.environ.copy()
-    gcode_out = fcstd_path.with_suffix('.gcode')
-    env['FCSTD_PATH'] = str(fcstd_path)
-    env['GCODE_OUT'] = str(gcode_out)
-    env['POST_NAME'] = post_name
+    gcode_out = fcstd_path.with_suffix(".gcode")
+    env["FCSTD_PATH"] = str(fcstd_path)
+    env["GCODE_OUT"] = str(gcode_out)
+    env["POST_NAME"] = post_name
     import json as _json
-    env['CAM_PARAMS_JSON'] = _json.dumps(params)
-    res = run_subprocess_with_timeout([freecad_path, tmp_script.name], timeout_seconds=timeout, env=env)
+
+    env["CAM_PARAMS_JSON"] = _json.dumps(params)
+    res = run_subprocess_with_timeout(
+        [freecad_path, tmp_script.name], timeout_seconds=timeout, env=env
+    )
     if res.returncode != 0:
         raise RuntimeError(f"FreeCAD Path hatası: {res.stderr}")
     return gcode_out, {"elapsed_ms": res.elapsed_ms}
-
-

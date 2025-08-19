@@ -26,5 +26,3 @@ class CamJobResult(BaseModel):
     artefacts: List[ArtefactRef] = []
     metrics: dict = {}
     error_message: Optional[str] = None
-
-

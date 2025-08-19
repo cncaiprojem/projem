@@ -61,7 +61,9 @@ def _verify_and_decode(token: str) -> Dict[str, Any]:
     try:
         unverified = jwt.get_unverified_header(token)
     except jwt.PyJWTError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Geçersiz token başlığı") from e
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Geçersiz token başlığı"
+        ) from e
     kid = unverified.get("kid")
     if not kid:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token kid eksik")
@@ -70,16 +72,28 @@ def _verify_and_decode(token: str) -> Dict[str, Any]:
         _jwks_cached.cache_clear()
         jwk = _get_key_for_kid(kid)
     if not jwk:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="JWKS anahtarı bulunamadı")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="JWKS anahtarı bulunamadı"
+        )
     try:
         audience = appset.oidc_audience or appset.oidc_client_id
-        claims = jwt.decode(token, key=jwk, algorithms=[jwk.get("alg", "RS256")], audience=audience, options={"verify_aud": bool(audience)})
+        claims = jwt.decode(
+            token,
+            key=jwk,
+            algorithms=[jwk.get("alg", "RS256")],
+            audience=audience,
+            options={"verify_aud": bool(audience)},
+        )
         return claims
     except jwt.PyJWTError as e:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Token doğrulama başarısız") from e
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="Token doğrulama başarısız"
+        ) from e
 
 
-def get_principal(authorization: Optional[str] = Header(default=None, alias="Authorization")) -> Principal:
+def get_principal(
+    authorization: Optional[str] = Header(default=None, alias="Authorization"),
+) -> Principal:
     # Dev-bypass: viewer rolü ver, admin değil
     if not appset.oidc_enabled:
         # dev_login endpoint ile token dağıtılıyor; burada minimal principal
@@ -107,6 +121,5 @@ def require_role(role: str):
             if "admin" in principal.roles:
                 return principal
         raise HTTPException(status_code=403, detail="Yetki yetersiz")
+
     return _dep
-
-

@@ -27,17 +27,17 @@ class PaymentService:
     def __init__(self, db: Session):
         self.db = db
         self.settings = environment
-        
+
     def _log_critical_audit_event(
         self,
         event_type: str,
         audit_context: dict,
         severity: str = "INFO",
         payment_id: Optional[int] = None,
-        invoice_id: Optional[int] = None
+        invoice_id: Optional[int] = None,
     ) -> None:
         """Ultra-enterprise audit logging for payment transactions.
-        
+
         Args:
             event_type: Type of audit event (e.g., 'webhook_processing_success')
             audit_context: Comprehensive context dictionary with transaction details
@@ -48,7 +48,7 @@ class PaymentService:
                 - CRITICAL: Security violations, compliance failures, transaction integrity issues
             payment_id: Associated payment ID for correlation (optional)
             invoice_id: Associated invoice ID for correlation (optional)
-        
+
         COMPLIANCE FEATURES:
         - Immutable audit trail for regulatory requirements
         - Banking-grade transaction logging with ACID guarantees
@@ -73,28 +73,28 @@ class PaymentService:
                     "financial_audit": True,
                     "security_relevant": severity in ["WARNING", "ERROR", "CRITICAL"],
                     "pci_dss_compliant": True,
-                    "banking_regulations": True
+                    "banking_regulations": True,
                 },
                 # Enhanced contextual information for ultra-enterprise monitoring
                 "environment": {
                     "payment_provider": audit_context.get("provider"),
                     "processing_stage": audit_context.get("processing_stage"),
                     "client_ip": audit_context.get("client_ip"),
-                    "user_agent": audit_context.get("user_agent")
+                    "user_agent": audit_context.get("user_agent"),
                 },
                 "transaction_metadata": {
                     "transaction_id": audit_context.get("transaction_id"),
                     "rollback_reason": audit_context.get("rollback_reason"),
                     "error_details": audit_context.get("error_details"),
-                    "processing_time_ms": audit_context.get("processing_time_seconds", 0) * 1000
+                    "processing_time_ms": audit_context.get("processing_time_seconds", 0) * 1000,
                 },
                 "correlation": {
                     "request_id": audit_context.get("request_id"),
                     "correlation_id": audit_context.get("correlation_id"),
-                    "parent_span_id": audit_context.get("parent_span_id")
-                }
+                    "parent_span_id": audit_context.get("parent_span_id"),
+                },
             }
-            
+
             # Log to structured logger for enterprise monitoring
             if severity == "CRITICAL":
                 logger.critical(f"PAYMENT_AUDIT: {event_type}", extra=audit_entry)
@@ -104,7 +104,7 @@ class PaymentService:
                 logger.warning(f"PAYMENT_AUDIT: {event_type}", extra=audit_entry)
             else:
                 logger.info(f"PAYMENT_AUDIT: {event_type}", extra=audit_entry)
-                
+
             # Attempt to persist audit to database for compliance
             if payment_id and invoice_id:
                 try:
@@ -114,31 +114,29 @@ class PaymentService:
                         invoice_id=invoice_id,
                         action=event_type,
                         actor_type="system",
-                        context=audit_entry
+                        context=audit_entry,
                     )
                 except Exception as db_audit_error:
                     # Don't fail processing due to audit logging issues
                     logger.warning(
                         f"Database audit logging failed for {event_type}: {db_audit_error}",
-                        extra={"audit_error": str(db_audit_error)}
+                        extra={"audit_error": str(db_audit_error)},
                     )
-                    
+
         except Exception as audit_error:
             # Critical: audit logging should never fail payment processing
             # But we need to log the audit system failure itself
             try:
                 logger.critical(
                     f"AUDIT_SYSTEM_FAILURE: Failed to log {event_type}",
-                    extra={"audit_system_error": str(audit_error)}
+                    extra={"audit_system_error": str(audit_error)},
                 )
             except Exception:
                 # Ultimate fallback - even audit system error logging failed
                 pass
 
     async def create_payment_intent(
-        self,
-        invoice_id: int,
-        provider_name: str = "mock"
+        self, invoice_id: int, provider_name: str = "mock"
     ) -> tuple[Payment, dict]:
         """Create a payment intent for an invoice.
 
@@ -165,7 +163,7 @@ class PaymentService:
         provider = PaymentProviderFactory.create_provider(provider_name)
 
         # Calculate amount in cents using Decimal for banking-grade precision
-        amount_cents = int(Decimal(str(invoice.total)) * Decimal('100'))
+        amount_cents = int(Decimal(str(invoice.total)) * Decimal("100"))
 
         # Create payment intent with provider
         result = await provider.create_intent(
@@ -174,8 +172,8 @@ class PaymentService:
             metadata={
                 "invoice_id": str(invoice_id),
                 "user_id": str(invoice.user_id),
-                "license_id": str(invoice.license_id)
-            }
+                "license_id": str(invoice.license_id),
+            },
         )
 
         if not result.success:
@@ -194,10 +192,10 @@ class PaymentService:
                 "metadata": {
                     "invoice_id": str(invoice_id),
                     "user_id": str(invoice.user_id),
-                    "license_id": str(invoice.license_id)
+                    "license_id": str(invoice.license_id),
                 }
             },
-            raw_response=result.raw_response
+            raw_response=result.raw_response,
         )
 
         self.db.add(payment)
@@ -213,8 +211,8 @@ class PaymentService:
             context={
                 "provider": provider_name,
                 "amount_cents": amount_cents,
-                "provider_payment_id": result.payment_intent.provider_payment_id
-            }
+                "provider_payment_id": result.payment_intent.provider_payment_id,
+            },
         )
         # Note: Final commit should be handled by the calling router to ensure atomicity
 
@@ -224,7 +222,7 @@ class PaymentService:
             "provider": provider_name,
             "provider_payment_id": result.payment_intent.provider_payment_id,
             "amount_cents": amount_cents,
-            "currency": Currency.TRY.value
+            "currency": Currency.TRY.value,
         }
 
         return payment, client_params
@@ -235,35 +233,34 @@ class PaymentService:
 
     def get_payment_by_provider_id(self, provider: str, provider_payment_id: str) -> Payment | None:
         """Get payment by provider payment ID."""
-        return self.db.query(Payment).filter(
-            Payment.provider == provider,
-            Payment.provider_payment_id == provider_payment_id
-        ).first()
+        return (
+            self.db.query(Payment)
+            .filter(
+                Payment.provider == provider, Payment.provider_payment_id == provider_payment_id
+            )
+            .first()
+        )
 
     def process_webhook_event(
-        self,
-        provider: str,
-        signature: str,
-        payload: bytes,
-        parsed_payload: dict
+        self, provider: str, signature: str, payload: bytes, parsed_payload: dict
     ) -> dict:
         """Process webhook event with ultra-enterprise banking-grade transaction handling.
-        
+
         CRITICAL SECURITY & CONSISTENCY FEATURES:
         - Comprehensive exception handling with rollback guarantees
         - Idempotency protection against duplicate webhooks
         - Audit trail for all transaction states
         - Banking-grade error recovery and logging
-        
+
         Args:
             provider: Payment provider name
             signature: Webhook signature
             payload: Raw webhook payload
             parsed_payload: Parsed webhook payload
-            
+
         Returns:
             Processing result dictionary with guaranteed consistency
-            
+
         Raises:
             RuntimeError: On critical transaction consistency failures
         """
@@ -273,14 +270,14 @@ class PaymentService:
             "provider": provider,
             "event_id": None,
             "payment_id": None,
-            "processing_stage": "initialization"
+            "processing_stage": "initialization",
         }
-        
+
         try:
             # Create savepoint for banking-grade rollback capability
             savepoint = self.db.begin_nested()
             audit_context["processing_stage"] = "signature_verification"
-            
+
             # Create payment provider for signature verification
             provider_instance = PaymentProviderFactory.create_provider(provider)
 
@@ -291,7 +288,7 @@ class PaymentService:
                     "status": "error",
                     "message": "Invalid webhook signature - security violation detected",
                     "code": "invalid_signature",
-                    "audit_context": audit_context
+                    "audit_context": audit_context,
                 }
 
             # Parse event data with error protection
@@ -304,17 +301,21 @@ class PaymentService:
                     "status": "error",
                     "message": "Missing event ID - webhook data integrity violation",
                     "code": "missing_event_id",
-                    "audit_context": audit_context
+                    "audit_context": audit_context,
                 }
-            
+
             audit_context["event_id"] = event_data["event_id"]
             audit_context["processing_stage"] = "idempotency_check"
 
             # Check for idempotency - has this event been processed?
-            existing_event = self.db.query(PaymentWebhookEvent).filter(
-                PaymentWebhookEvent.provider == provider,
-                PaymentWebhookEvent.event_id == event_data["event_id"]
-            ).first()
+            existing_event = (
+                self.db.query(PaymentWebhookEvent)
+                .filter(
+                    PaymentWebhookEvent.provider == provider,
+                    PaymentWebhookEvent.event_id == event_data["event_id"],
+                )
+                .first()
+            )
 
             if existing_event:
                 if existing_event.processed:
@@ -324,7 +325,7 @@ class PaymentService:
                         "status": "success",
                         "message": "Event already processed (idempotent)",
                         "event_id": event_data["event_id"],
-                        "audit_context": audit_context
+                        "audit_context": audit_context,
                     }
                 else:
                     # Event exists but not processed - continue processing
@@ -338,7 +339,7 @@ class PaymentService:
                     provider=provider,
                     event_type=event_data["event_type"],
                     raw_event=parsed_payload,
-                    processed=False
+                    processed=False,
                 )
                 self.db.add(webhook_event)
                 # Use flush with explicit error handling
@@ -347,7 +348,9 @@ class PaymentService:
                 except Exception as flush_error:
                     audit_context["processing_stage"] = "webhook_event_creation_failed"
                     audit_context["error_details"] = str(flush_error)
-                    raise RuntimeError(f"Failed to create webhook event: {flush_error}") from flush_error
+                    raise RuntimeError(
+                        f"Failed to create webhook event: {flush_error}"
+                    ) from flush_error
 
             # Find associated payment with enhanced validation
             audit_context["processing_stage"] = "payment_lookup"
@@ -358,7 +361,7 @@ class PaymentService:
                     "status": "error",
                     "message": "Missing provider payment ID - data integrity violation",
                     "code": "missing_payment_id",
-                    "audit_context": audit_context
+                    "audit_context": audit_context,
                 }
 
             payment = self.get_payment_by_provider_id(provider, provider_payment_id)
@@ -368,7 +371,7 @@ class PaymentService:
                     "status": "error",
                     "message": f"Payment not found for provider payment ID: {provider_payment_id}",
                     "code": "payment_not_found",
-                    "audit_context": audit_context
+                    "audit_context": audit_context,
                 }
 
             audit_context["payment_id"] = payment.id
@@ -384,7 +387,9 @@ class PaymentService:
             except Exception as processing_error:
                 audit_context["processing_stage"] = "event_processing_failed"
                 audit_context["error_details"] = str(processing_error)
-                raise RuntimeError(f"Payment event processing failed: {processing_error}") from processing_error
+                raise RuntimeError(
+                    f"Payment event processing failed: {processing_error}"
+                ) from processing_error
 
             # Mark webhook event as processed
             try:
@@ -393,7 +398,9 @@ class PaymentService:
             except Exception as mark_error:
                 audit_context["processing_stage"] = "webhook_marking_failed"
                 audit_context["error_details"] = str(mark_error)
-                raise RuntimeError(f"Failed to mark webhook as processed: {mark_error}") from mark_error
+                raise RuntimeError(
+                    f"Failed to mark webhook as processed: {mark_error}"
+                ) from mark_error
 
             # Flush changes with comprehensive error handling
             # Note: Final commit should be handled by the calling router
@@ -416,7 +423,7 @@ class PaymentService:
                 audit_context=audit_context,
                 severity="INFO",
                 payment_id=audit_context.get("payment_id"),
-                invoice_id=None  # Will be populated by payment event processing
+                invoice_id=None,  # Will be populated by payment event processing
             )
 
             # Enhance result with audit context
@@ -429,80 +436,80 @@ class PaymentService:
                 savepoint.rollback()
             audit_context["processing_stage"] = "integrity_error_handled"
             audit_context["error_details"] = str(integrity_error)
-            
+
             # Log critical integrity violation with ultra-enterprise audit
             self._log_critical_audit_event(
                 event_type="webhook_integrity_violation",
                 audit_context=audit_context,
                 severity="CRITICAL",
                 payment_id=audit_context.get("payment_id"),
-                invoice_id=None  # Payment might not be found yet
+                invoice_id=None,  # Payment might not be found yet
             )
-            
+
             # Security event logging handled via audit log
             # SecurityEventService removed per Gemini Code Assist feedback
             # All security events are now logged through _log_critical_audit_event
-            
+
             # Likely a duplicate event_id - return idempotent response
             return {
                 "status": "success",
                 "message": "Event already processed (idempotent) - integrity protection",
                 "event_id": audit_context.get("event_id", "unknown"),
-                "audit_context": audit_context
+                "audit_context": audit_context,
             }
-            
+
         except RuntimeError as runtime_error:
             # Handle critical runtime errors with full rollback
             if savepoint:
                 savepoint.rollback()
             audit_context["processing_stage"] = "runtime_error_handled"
             audit_context["error_details"] = str(runtime_error)
-            
+
             # Log critical runtime error with ultra-enterprise audit
             self._log_critical_audit_event(
                 event_type="webhook_runtime_error",
                 audit_context=audit_context,
                 severity="CRITICAL",
                 payment_id=audit_context.get("payment_id"),
-                invoice_id=None
+                invoice_id=None,
             )
-            
+
             # Security event logging handled via audit log
             # SecurityEventService removed per Gemini Code Assist feedback
             # All security events are now logged through _log_critical_audit_event
-                
+
             return {
                 "status": "error",
                 "message": f"Critical webhook processing failure: {runtime_error}",
                 "code": "critical_processing_error",
-                "audit_context": audit_context
+                "audit_context": audit_context,
             }
-            
+
         except Exception as unexpected_error:
             # Handle any other unexpected exceptions with full rollback
             if savepoint:
                 savepoint.rollback()
             audit_context["processing_stage"] = "unexpected_error_handled"
             audit_context["error_details"] = str(unexpected_error)
-            
+
             # Log unexpected error with ultra-enterprise audit
             self._log_critical_audit_event(
                 event_type="webhook_unexpected_error",
                 audit_context=audit_context,
                 severity="ERROR",
                 payment_id=audit_context.get("payment_id"),
-                invoice_id=None
+                invoice_id=None,
             )
-            
+
             # Security event logging handled via audit log
             # SecurityEventService removed per Gemini Code Assist feedback
             # All security events are now logged through _log_critical_audit_event
-                
+
             return {
                 "status": "error",
                 "message": f"Unexpected webhook processing error: {unexpected_error}",
                 "code": "unexpected_processing_error",
-                "audit_context": audit_context
+                "audit_context": audit_context,
             }
 
     def _process_payment_event(self, payment: Payment, event_data: dict) -> dict:
@@ -526,7 +533,7 @@ class PaymentService:
             return {
                 "status": "error",
                 "message": f"Associated invoice {payment.invoice_id} not found",
-                "code": "invoice_not_found"
+                "code": "invoice_not_found",
             }
 
         # Process based on event type and status
@@ -546,15 +553,15 @@ class PaymentService:
                     "event_type": event_type,
                     "old_status": old_status.value if old_status else None,
                     "new_status": new_status.value,
-                    "provider": payment.provider
-                }
+                    "provider": payment.provider,
+                },
             )
 
             return {
                 "status": "success",
                 "message": "Payment succeeded, invoice marked as paid",
                 "event_id": event_data.get("event_id"),
-                "action": "payment_succeeded"
+                "action": "payment_succeeded",
             }
 
         elif new_status == PaymentStatus.FAILED:
@@ -574,15 +581,15 @@ class PaymentService:
                     "old_status": old_status.value if old_status else None,
                     "new_status": new_status.value,
                     "provider": payment.provider,
-                    "failure_reason": event_data.get("metadata", {}).get("failure_reason")
-                }
+                    "failure_reason": event_data.get("metadata", {}).get("failure_reason"),
+                },
             )
 
             return {
                 "status": "success",
                 "message": "Payment failed, invoice marked as failed",
                 "event_id": event_data.get("event_id"),
-                "action": "payment_failed"
+                "action": "payment_failed",
             }
 
         elif new_status == PaymentStatus.REFUNDED:
@@ -601,15 +608,15 @@ class PaymentService:
                     "event_type": event_type,
                     "old_status": old_status.value if old_status else None,
                     "new_status": new_status.value,
-                    "provider": payment.provider
-                }
+                    "provider": payment.provider,
+                },
             )
 
             return {
                 "status": "success",
                 "message": "Payment refunded, invoice marked as refunded",
                 "event_id": event_data.get("event_id"),
-                "action": "payment_refunded"
+                "action": "payment_refunded",
             }
 
         else:
@@ -625,13 +632,13 @@ class PaymentService:
                     "event_type": event_type,
                     "old_status": old_status.value if old_status else None,
                     "new_status": new_status.value if new_status else None,
-                    "provider": payment.provider
-                }
+                    "provider": payment.provider,
+                },
             )
 
             return {
                 "status": "success",
                 "message": "Payment status updated",
                 "event_id": event_data.get("event_id"),
-                "action": "status_updated"
+                "action": "status_updated",
             }

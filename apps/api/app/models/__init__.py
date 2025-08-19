@@ -44,7 +44,6 @@ __all__ = [
     "Base",
     "TimestampMixin",
     "metadata",
-    
     # User & Auth
     "User",
     "Session",
@@ -53,25 +52,21 @@ __all__ = [
     "OIDCAccount",
     "MagicLink",
     "MFABackupCode",
-    
     # Billing
     "Invoice",
     "Payment",
     "PaymentWebhookEvent",
     "PaymentAuditLog",
-    
     # Core Business
     "Model",
     "Job",
     "CamRun",
     "SimRun",
     "Artefact",
-    
     # Reference Data
     "Machine",
     "Material",
     "Tool",
-    
     # System
     "Notification",
     "ErpMesSync",
@@ -84,25 +79,27 @@ __all__ = [
 # Import and setup ultra enterprise validators
 from .validators import (
     IdempotencyKeyValidator,
-    EnumValidator, 
+    EnumValidator,
     JSONBValidator,
     FinancialPrecisionValidator,
     AuditChainValidator,
     TurkishComplianceValidator,
     EnhancedSecurityValidator,
-    setup_model_validators
+    setup_model_validators,
 )
 
 # Automatically setup enterprise validation when models are imported
 setup_model_validators()
 
 # Add validators to __all__ for external use
-__all__.extend([
-    "IdempotencyKeyValidator",
-    "EnumValidator", 
-    "JSONBValidator",
-    "FinancialPrecisionValidator",
-    "AuditChainValidator",
-    "TurkishComplianceValidator",
-    "EnhancedSecurityValidator",
-])
+__all__.extend(
+    [
+        "IdempotencyKeyValidator",
+        "EnumValidator",
+        "JSONBValidator",
+        "FinancialPrecisionValidator",
+        "AuditChainValidator",
+        "TurkishComplianceValidator",
+        "EnhancedSecurityValidator",
+    ]
+)

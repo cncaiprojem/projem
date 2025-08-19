@@ -62,5 +62,3 @@ __all__ = [
     "UserProfileResponse",
     "AUTH_ERROR_CODES",
 ]
-
-

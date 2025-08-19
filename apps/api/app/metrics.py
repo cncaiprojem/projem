@@ -81,5 +81,3 @@ cutting_import_rows_total = Counter(
     name="cutting_import_rows_total",
     documentation="Cutting Data import edilen satır sayısı",
 )
-
-

@@ -1,9 +1,10 @@
 """init tables
 
 Revision ID: 0001_init
-Revises: 
+Revises:
 Create Date: 2025-08-09
 """
+
 from __future__ import annotations
 
 from alembic import op
@@ -58,5 +59,3 @@ def downgrade() -> None:
     op.drop_table("jobs")
     op.drop_index("ix_users_email", table_name="users")
     op.drop_table("users")
-
-

@@ -9,5 +9,3 @@ def test_fixture_create_list():
     r2 = c.get("/api/v1/fixtures")
     assert r2.status_code == 200
     assert "items" in r2.json()
-
-

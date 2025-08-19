@@ -48,5 +48,3 @@ class JobResult(BaseModel):
     message: str
     metrics: JobMetrics
     artefact: ArtefactInfo
-
-

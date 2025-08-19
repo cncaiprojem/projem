@@ -14,6 +14,7 @@ def mask_email(text: str) -> str:
         d = m.group(2)
         tld = m.group(3)
         return f"{u}***@{d[:1]}***.{tld}"
+
     return _EMAIL_RE.sub(_repl, text)
 
 
@@ -29,5 +30,3 @@ def mask_pii_in_json(payload: Any) -> Any:
     if isinstance(payload, str):
         return mask_phone(mask_email(payload))
     return payload
-
-

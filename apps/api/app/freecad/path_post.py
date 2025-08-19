@@ -33,5 +33,3 @@ def export_gcode(job, out_path: str, processor_name: str):
         return out_path
     except Exception as e:  # pragma: no cover - platform dependent
         raise RuntimeError(f"Post-processor bulunamadı/başarısız: {processor_name}: {e}")
-
-

@@ -4,6 +4,7 @@ Revision ID: 0004_dead_jobs
 Revises: 0003_jobs_task_id
 Create Date: 2025-08-09
 """
+
 from __future__ import annotations
 
 from alembic import op
@@ -29,5 +30,3 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     op.drop_table("dead_jobs")
-
-

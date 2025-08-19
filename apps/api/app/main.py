@@ -15,9 +15,9 @@ from .middleware.headers import XSSDetectionMiddleware
 from .middleware.limiter import RateLimitMiddleware
 from .middleware.csrf_middleware import CSRFProtectionMiddleware
 from .middleware.dev_mode_middleware import (
-    DevModeMiddleware, 
-    ProductionHardeningMiddleware, 
-    EnvironmentValidationMiddleware
+    DevModeMiddleware,
+    ProductionHardeningMiddleware,
+    EnvironmentValidationMiddleware,
 )
 from .middleware.license_middleware import LicenseGuardMiddleware
 from .services.rate_limiting_service import rate_limiting_service
@@ -33,6 +33,7 @@ from .routers import health as health_router
 from .routers import freecad as freecad_router
 from .routers import assemblies as assemblies_router
 from .routers import cam as cam_router
+
 # from .routers.cad import cam2 as cam2_router  # Temporarily disabled
 from .routers import jobs as jobs_router
 from .routers import admin_dlq as admin_dlq_router
@@ -44,7 +45,10 @@ from .routers import security as security_router  # Security endpoints (Task 3.1
 from .routers import environment as environment_router  # Environment endpoints (Task 3.12)
 from .routers import license as license_router  # License management endpoints (Task 3.14)
 from .routers import invoices as invoices_router  # Invoice PDF endpoints (Task 4.5)
-from .routers import payments as payments_router  # Payment provider abstraction endpoints (Task 4.6)
+from .routers import (
+    payments as payments_router,
+)  # Payment provider abstraction endpoints (Task 4.6)
+
 # Legacy routers disabled - not part of Task Master ERD
 # from .routers import projects as projects_router
 # from .routers import design as design_router
@@ -55,6 +59,7 @@ from .routers import payments as payments_router  # Payment provider abstraction
 # from .routers import fixtures as fixtures_router
 try:
     from .routers import sim as sim_router  # type: ignore
+
     _sim_available = True
 except Exception:
     sim_router = None  # type: ignore
@@ -72,102 +77,108 @@ setup_sentry()
 async def lifespan(app: FastAPI):
     """Application lifespan manager for startup and shutdown events."""
     # Startup
-    logger.info("Starting FreeCAD API application", extra={
-        'operation': 'application_startup',
-        'version': '0.1.0'
-    })
-    
+    logger.info(
+        "Starting FreeCAD API application",
+        extra={"operation": "application_startup", "version": "0.1.0"},
+    )
+
     try:
         # Initialize Redis client
         app.state.redis = await create_redis_client()
-        logger.info("Redis client initialized successfully", extra={
-            'operation': 'redis_startup'
-        })
+        logger.info("Redis client initialized successfully", extra={"operation": "redis_startup"})
     except Exception as e:
-        logger.error("Failed to initialize Redis client", exc_info=True, extra={
-            'operation': 'redis_startup_failed',
-            'error_type': type(e).__name__
-        })
+        logger.error(
+            "Failed to initialize Redis client",
+            exc_info=True,
+            extra={"operation": "redis_startup_failed", "error_type": type(e).__name__},
+        )
         # Continue without Redis - some features may be unavailable
         app.state.redis = None
-    
+
     try:
         # Initialize environment service (Task 3.12)
         await environment_service.initialize()
-        logger.info("Ultra-Enterprise environment service initialized successfully", extra={
-            'operation': 'environment_service_startup',
-            'environment': environment.ENV,
-            'dev_mode': environment.is_dev_mode
-        })
+        logger.info(
+            "Ultra-Enterprise environment service initialized successfully",
+            extra={
+                "operation": "environment_service_startup",
+                "environment": environment.ENV,
+                "dev_mode": environment.is_dev_mode,
+            },
+        )
     except Exception as e:
-        logger.error("Failed to initialize environment service", exc_info=True, extra={
-            'operation': 'environment_service_startup_failed',
-            'error_type': type(e).__name__
-        })
+        logger.error(
+            "Failed to initialize environment service",
+            exc_info=True,
+            extra={
+                "operation": "environment_service_startup_failed",
+                "error_type": type(e).__name__,
+            },
+        )
         # This is critical - cannot continue without proper environment setup
         raise
-    
+
     try:
         # Initialize enterprise rate limiting
         await rate_limiting_service.initialize()
-        logger.info("Enterprise rate limiting initialized successfully", extra={
-            'operation': 'rate_limiting_startup'
-        })
+        logger.info(
+            "Enterprise rate limiting initialized successfully",
+            extra={"operation": "rate_limiting_startup"},
+        )
     except Exception as e:
-        logger.error("Failed to initialize rate limiting", exc_info=True, extra={
-            'operation': 'rate_limiting_startup_failed',
-            'error_type': type(e).__name__
-        })
+        logger.error(
+            "Failed to initialize rate limiting",
+            exc_info=True,
+            extra={"operation": "rate_limiting_startup_failed", "error_type": type(e).__name__},
+        )
         # Continue without rate limiting - service will fail-open
-    
-    logger.info("Application startup completed", extra={
-        'operation': 'application_startup_complete'
-    })
-    
+
+    logger.info(
+        "Application startup completed", extra={"operation": "application_startup_complete"}
+    )
+
     yield
-    
+
     # Shutdown
-    logger.info("Shutting down FreeCAD API application", extra={
-        'operation': 'application_shutdown'
-    })
-    
+    logger.info(
+        "Shutting down FreeCAD API application", extra={"operation": "application_shutdown"}
+    )
+
     # Close Redis connection
-    if hasattr(app.state, 'redis'):
+    if hasattr(app.state, "redis"):
         await close_redis_client(app.state.redis)
-    
+
     # Close rate limiting service
     try:
         await rate_limiting_service.close()
-        logger.info("Enterprise rate limiting closed successfully", extra={
-            'operation': 'rate_limiting_shutdown'
-        })
+        logger.info(
+            "Enterprise rate limiting closed successfully",
+            extra={"operation": "rate_limiting_shutdown"},
+        )
     except Exception as e:
-        logger.error("Failed to close rate limiting service", exc_info=True, extra={
-            'operation': 'rate_limiting_shutdown_failed',
-            'error_type': type(e).__name__
-        })
-    
-    logger.info("Application shutdown completed", extra={
-        'operation': 'application_shutdown_complete'
-    })
+        logger.error(
+            "Failed to close rate limiting service",
+            exc_info=True,
+            extra={"operation": "rate_limiting_shutdown_failed", "error_type": type(e).__name__},
+        )
+
+    logger.info(
+        "Application shutdown completed", extra={"operation": "application_shutdown_complete"}
+    )
 
 
-app = FastAPI(
-    title="FreeCAD Üretim Platformu API",
-    version="0.1.0",
-    lifespan=lifespan
-)
+app = FastAPI(title="FreeCAD Üretim Platformu API", version="0.1.0", lifespan=lifespan)
 # Ultra enterprise security middleware stack (Tasks 3.8, 3.9, 3.10, 3.12, 4.3)
 # Order is critical for security and proper functioning
-app.add_middleware(EnvironmentValidationMiddleware)    # Environment validation (Task 3.12)
-app.add_middleware(ProductionHardeningMiddleware)      # Production security hardening (Task 3.12)
-app.add_middleware(DevModeMiddleware)                  # Development mode features (Task 3.12)
-app.add_middleware(LicenseGuardMiddleware)             # License enforcement (Task 4.3)
-app.add_middleware(SecurityHeadersMiddleware)          # CSP and security headers (Task 3.10)
-app.add_middleware(XSSDetectionMiddleware)             # XSS detection and prevention (Task 3.10)
-app.add_middleware(CSRFProtectionMiddleware)           # CSRF double-submit protection (Task 3.8)
-app.add_middleware(CORSMiddlewareStrict)               # Strict CORS enforcement (Task 3.10)
-app.add_middleware(RateLimitMiddleware)                # Rate limiting (Task 3.9)
+app.add_middleware(EnvironmentValidationMiddleware)  # Environment validation (Task 3.12)
+app.add_middleware(ProductionHardeningMiddleware)  # Production security hardening (Task 3.12)
+app.add_middleware(DevModeMiddleware)  # Development mode features (Task 3.12)
+app.add_middleware(LicenseGuardMiddleware)  # License enforcement (Task 4.3)
+app.add_middleware(SecurityHeadersMiddleware)  # CSP and security headers (Task 3.10)
+app.add_middleware(XSSDetectionMiddleware)  # XSS detection and prevention (Task 3.10)
+app.add_middleware(CSRFProtectionMiddleware)  # CSRF double-submit protection (Task 3.8)
+app.add_middleware(CORSMiddlewareStrict)  # Strict CORS enforcement (Task 3.10)
+app.add_middleware(RateLimitMiddleware)  # Rate limiting (Task 3.9)
 
 setup_metrics(app)
 setup_celery_instrumentation()
@@ -211,12 +222,12 @@ app.include_router(events_router)
 @app.get("/", include_in_schema=False)
 def root():
     response_data = {
-        "mesaj": "FreeCAD Ultra-Enterprise API çalışıyor", 
+        "mesaj": "FreeCAD Ultra-Enterprise API çalışıyor",
         "env": settings.env,
         "environment": str(environment.ENV),
-        "security_level": environment.security_level_display_tr
+        "security_level": environment.security_level_display_tr,
     }
-    
+
     # Add development information if in dev mode (Task 3.12)
     if environment.is_dev_mode:
         response_data["_dev"] = {
@@ -224,12 +235,13 @@ def root():
             "features_active": {
                 "auth_bypass": environment.DEV_AUTH_BYPASS,
                 "detailed_errors": environment.DEV_DETAILED_ERRORS,
-                "csrf_localhost_bypass": environment.CSRF_DEV_LOCALHOST_BYPASS
+                "csrf_localhost_bypass": environment.CSRF_DEV_LOCALHOST_BYPASS,
             },
-            "warning": "Development mode aktif - Production için uygun değil"
+            "warning": "Development mode aktif - Production için uygun değil",
         }
-    
+
     return response_data
+
 
 from fastapi.responses import JSONResponse
 from starlette.requests import Request
@@ -238,6 +250,7 @@ from starlette.requests import Request
 @app.exception_handler(Exception)
 async def unhandled_exc(request: Request, exc: Exception):
     import logging, traceback
+
     logging.exception("Unhandled exception")
     origin = request.headers.get("origin")
     allowed = (not appset.cors_allowed_origins) or (origin in appset.cors_allowed_origins)
@@ -247,5 +260,3 @@ async def unhandled_exc(request: Request, exc: Exception):
     resp.headers["Vary"] = "Origin"
     resp.headers["Access-Control-Allow-Credentials"] = "false"
     return resp
-
-

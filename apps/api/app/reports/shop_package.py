@@ -57,10 +57,15 @@ def build_shop_package_pdf(project_id: int, out_pdf_path: str) -> Dict:
     if settings.public_web_base_url:
         url = f"{settings.public_web_base_url}/viewer?projectId={project_id}"
         qr = qrcode.QRCode(version=2, box_size=4, border=1)
-        qr.add_data(url); qr.make(fit=True)
+        qr.add_data(url)
+        qr.make(fit=True)
         img = qr.make_image(fill_color="black", back_color="white")
-        buf = io.BytesIO(); img.save(buf, format="PNG"); buf.seek(0)
-        c.drawImage(ImageReader(buf), w - 50 * mm, h - 70 * mm, width=30 * mm, height=30 * mm, mask='auto')
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        buf.seek(0)
+        c.drawImage(
+            ImageReader(buf), w - 50 * mm, h - 70 * mm, width=30 * mm, height=30 * mm, mask="auto"
+        )
         c.setFont("Helvetica", 8)
         c.drawRightString(w - 20 * mm, h - 75 * mm, url)
     # İçindekiler
@@ -68,14 +73,23 @@ def build_shop_package_pdf(project_id: int, out_pdf_path: str) -> Dict:
     c.drawString(20 * mm, h - 60 * mm, "İçindekiler")
     c.setFont("Helvetica", 10)
     y = h - 70 * mm
-    for line in ["1. Kapak", "2. Görünüşler", "3. WCS / Stock", "4. Operasyonlar", "5. Güvenlik Notları"]:
+    for line in [
+        "1. Kapak",
+        "2. Görünüşler",
+        "3. WCS / Stock",
+        "4. Operasyonlar",
+        "5. Güvenlik Notları",
+    ]:
         c.drawString(25 * mm, y, line)
         y -= 6 * mm
     c.showPage()
 
     # FCStd indir → SVG→PNG görünüşler
     front_png = right_png = iso_png = None
-    summary = {}; stock = {}; wcs = "G54"; ops = []
+    summary = {}
+    stock = {}
+    wcs = "G54"
+    ops = []
     with db_session() as s:
         p = s.get(Project, project_id)
         if p and p.summary_json:
@@ -91,10 +105,10 @@ def build_shop_package_pdf(project_id: int, out_pdf_path: str) -> Dict:
             .order_by(ProjectFile.created_at.desc())
             .first()
         )
-        if pf and pf.s3_key and pf.s3_key.endswith('.fcstd'):
+        if pf and pf.s3_key and pf.s3_key.endswith(".fcstd"):
             tmpd = Path(out_pdf_path).parent / f"pkg_{project_id}"
             tmpd.mkdir(parents=True, exist_ok=True)
-            fcstd_local = tmpd / 'model.fcstd'
+            fcstd_local = tmpd / "model.fcstd"
             url = presigned_url(pf.s3_key)
             if url:
                 download_presigned(url, str(fcstd_local))
@@ -107,9 +121,12 @@ def build_shop_package_pdf(project_id: int, out_pdf_path: str) -> Dict:
                     pngp = tmpd / f"{name}.png"
                     try:
                         svg2png(url=str(svgp), write_to=str(pngp), dpi=200)
-                        if name == 'front': front_png = pngp
-                        if name == 'right': right_png = pngp
-                        if name == 'iso': iso_png = pngp
+                        if name == "front":
+                            front_png = pngp
+                        if name == "right":
+                            right_png = pngp
+                        if name == "iso":
+                            iso_png = pngp
                     except Exception:
                         pass
 
@@ -120,7 +137,15 @@ def build_shop_package_pdf(project_id: int, out_pdf_path: str) -> Dict:
     for img in (front_png, right_png, iso_png):
         if img and Path(img).exists():
             try:
-                c.drawImage(str(img), 20 * mm, y_img - 40 * mm, width=60 * mm, height=40 * mm, preserveAspectRatio=True, mask='auto')
+                c.drawImage(
+                    str(img),
+                    20 * mm,
+                    y_img - 40 * mm,
+                    width=60 * mm,
+                    height=40 * mm,
+                    preserveAspectRatio=True,
+                    mask="auto",
+                )
             except Exception:
                 pass
         y_img -= 45 * mm
@@ -131,9 +156,9 @@ def build_shop_package_pdf(project_id: int, out_pdf_path: str) -> Dict:
     c.drawString(20 * mm, h - 30 * mm, "WCS / Stock")
     c.setFont("Helvetica", 10)
     c.drawString(25 * mm, h - 40 * mm, f"WCS: {wcs}")
-    sx = stock.get('x_mm') or stock.get('x') or '-'
-    sy = stock.get('y_mm') or stock.get('y') or '-'
-    sz = stock.get('z_mm') or stock.get('z') or '-'
+    sx = stock.get("x_mm") or stock.get("x") or "-"
+    sy = stock.get("y_mm") or stock.get("y") or "-"
+    sz = stock.get("z_mm") or stock.get("z") or "-"
     c.drawString(25 * mm, h - 48 * mm, f"Stock: X={sx} mm, Y={sy} mm, Z={sz} mm")
     c.showPage()
 
@@ -144,13 +169,16 @@ def build_shop_package_pdf(project_id: int, out_pdf_path: str) -> Dict:
     y_op = h - 40 * mm
     if ops:
         for op in ops:
-            t = op.get('type', '?')
-            tool = op.get('tool') or {}
-            tt = tool.get('type', '?'); dia = tool.get('dia', '?')
+            t = op.get("type", "?")
+            tool = op.get("tool") or {}
+            tt = tool.get("type", "?")
+            dia = tool.get("dia", "?")
             c.drawString(25 * mm, y_op, f"- {t} | Takım: {tt} ⌀{dia} mm")
             y_op -= 6 * mm
             if y_op < 30 * mm:
-                c.showPage(); c.setFont("Helvetica", 10); y_op = h - 30 * mm
+                c.showPage()
+                c.setFont("Helvetica", 10)
+                y_op = h - 30 * mm
     else:
         c.drawString(25 * mm, y_op, "Operasyon verisi yok")
         c.showPage()
@@ -174,5 +202,3 @@ def build_shop_package_pdf(project_id: int, out_pdf_path: str) -> Dict:
     sha = _sha256(p)
     report_build_duration_seconds.labels(status="ok").observe(perf_counter() - t0)
     return {"pages": 1, "sha256": sha, "bytes": size, "path": str(p)}
-
-

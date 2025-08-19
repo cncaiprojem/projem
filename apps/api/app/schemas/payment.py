@@ -13,10 +13,10 @@ from ..models.enums import Currency, PaymentStatus
 
 class PaymentIntentRequest(BaseModel):
     """Request to create a payment intent."""
-    
+
     invoice_id: int = Field(..., description="Invoice ID to create payment for")
     provider: str = Field(default="mock", description="Payment provider to use")
-    
+
     @validator("provider")
     def validate_provider(cls, v):
         """Validate provider is supported."""
@@ -28,20 +28,20 @@ class PaymentIntentRequest(BaseModel):
 
 class PaymentIntentResponse(BaseModel):
     """Response from creating a payment intent."""
-    
+
     client_secret: Optional[str] = Field(None, description="Client secret for frontend")
     provider: str = Field(..., description="Payment provider used")
     provider_payment_id: str = Field(..., description="Provider payment intent ID")
     amount_cents: int = Field(..., description="Payment amount in cents")
     currency: str = Field(..., description="Payment currency")
-    
+
     class Config:
         from_attributes = True
 
 
 class PaymentStatusResponse(BaseModel):
     """Response for payment status."""
-    
+
     id: int = Field(..., description="Payment ID")
     invoice_id: int = Field(..., description="Associated invoice ID")
     provider: str = Field(..., description="Payment provider")
@@ -51,14 +51,14 @@ class PaymentStatusResponse(BaseModel):
     status: PaymentStatus = Field(..., description="Payment status")
     created_at: datetime = Field(..., description="Payment creation timestamp")
     updated_at: datetime = Field(..., description="Payment last update timestamp")
-    
+
     class Config:
         from_attributes = True
 
 
 class WebhookRequest(BaseModel):
     """Request for webhook processing."""
-    
+
     # This will be validated at the router level
     # Raw data will be processed directly
     pass
@@ -66,7 +66,7 @@ class WebhookRequest(BaseModel):
 
 class WebhookResponse(BaseModel):
     """Response from webhook processing."""
-    
+
     status: str = Field(..., description="Processing status (success/error)")
     message: str = Field(..., description="Processing message")
     event_id: Optional[str] = Field(None, description="Webhook event ID")
@@ -76,7 +76,7 @@ class WebhookResponse(BaseModel):
 
 class PaymentAuditLogResponse(BaseModel):
     """Payment audit log entry."""
-    
+
     id: int = Field(..., description="Audit log ID")
     payment_id: Optional[int] = Field(None, description="Associated payment ID")
     invoice_id: Optional[int] = Field(None, description="Associated invoice ID")
@@ -85,14 +85,14 @@ class PaymentAuditLogResponse(BaseModel):
     actor_id: Optional[str] = Field(None, description="Actor identifier")
     context: Optional[Dict[str, Any]] = Field(None, description="Additional context")
     created_at: datetime = Field(..., description="Audit log creation timestamp")
-    
+
     class Config:
         from_attributes = True
 
 
 class PaymentWebhookEventResponse(BaseModel):
     """Payment webhook event entry."""
-    
+
     id: int = Field(..., description="Webhook event ID")
     event_id: str = Field(..., description="Unique provider event ID")
     provider: str = Field(..., description="Payment provider")
@@ -101,6 +101,6 @@ class PaymentWebhookEventResponse(BaseModel):
     processed: bool = Field(..., description="Whether event was processed")
     processed_at: Optional[datetime] = Field(None, description="When event was processed")
     created_at: datetime = Field(..., description="Event creation timestamp")
-    
+
     class Config:
         from_attributes = True

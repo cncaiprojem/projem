@@ -60,7 +60,9 @@ class AppSettings:
             "TASK_SOFT_LIMITS", {"freecad": 870, "sim": 1140}
         )
         # CORS
-        self.cors_allowed_origins: list[str] = [o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()]
+        self.cors_allowed_origins: list[str] = [
+            o.strip() for o in os.getenv("CORS_ALLOWED_ORIGINS", "").split(",") if o.strip()
+        ]
         # OIDC / SSO (Legacy JWT verification)
         self.oidc_enabled: bool = _get_bool("OIDC_ENABLED", False)
         self.oidc_issuer_url: str | None = os.getenv("OIDC_ISSUER_URL")
@@ -68,17 +70,21 @@ class AppSettings:
         self.oidc_audience: str | None = os.getenv("OIDC_AUDIENCE")
         self.oidc_client_id: str | None = os.getenv("OIDC_CLIENT_ID")
         self.roles_claim: str = os.getenv("ROLES_CLAIM", "realm_access.roles")
-        
+
         # Google OAuth2/OIDC Authentication (Task 3.5)
         self.google_oauth_enabled: bool = _get_bool("GOOGLE_OAUTH_ENABLED", True)
         self.google_client_id: str | None = os.getenv("GOOGLE_CLIENT_ID")
         self.google_client_secret: str | None = os.getenv("GOOGLE_CLIENT_SECRET")
-        self.google_discovery_url: str = os.getenv("GOOGLE_DISCOVERY_URL", "https://accounts.google.com/.well-known/openid-configuration")
+        self.google_discovery_url: str = os.getenv(
+            "GOOGLE_DISCOVERY_URL", "https://accounts.google.com/.well-known/openid-configuration"
+        )
         self.google_oauth_scopes: list[str] = ["openid", "email", "profile"]
-        
+
         # OAuth2 security settings
         self.oauth_state_expire_minutes: int = _get_int("OAUTH_STATE_EXPIRE_MINUTES", 15)
-        self.oauth_pkce_verifier_expire_minutes: int = _get_int("OAUTH_PKCE_VERIFIER_EXPIRE_MINUTES", 15)
+        self.oauth_pkce_verifier_expire_minutes: int = _get_int(
+            "OAUTH_PKCE_VERIFIER_EXPIRE_MINUTES", 15
+        )
         self.oauth_callback_timeout_seconds: int = _get_int("OAUTH_CALLBACK_TIMEOUT_SECONDS", 30)
         # Rate limit kuralları (route bazlı)
         self.rate_limit_rules: Dict[str, str] = _get_json_dict(
@@ -89,8 +95,12 @@ class AppSettings:
         self.security_csp_enabled: bool = _get_bool("SECURITY_CSP_ENABLED", True)
         self.security_csp_report_uri: str | None = os.getenv("SECURITY_CSP_REPORT_URI")
         self.security_environment: str = os.getenv("SECURITY_ENVIRONMENT", "production")
-        self.security_input_validation_enabled: bool = _get_bool("SECURITY_INPUT_VALIDATION_ENABLED", True)
-        self.security_xss_detection_enabled: bool = _get_bool("SECURITY_XSS_DETECTION_ENABLED", True)
+        self.security_input_validation_enabled: bool = _get_bool(
+            "SECURITY_INPUT_VALIDATION_ENABLED", True
+        )
+        self.security_xss_detection_enabled: bool = _get_bool(
+            "SECURITY_XSS_DETECTION_ENABLED", True
+        )
 
         # M18 Feature Flags
         self.m18_multiple_setups_enabled: bool = _get_bool("M18_MULTIPLE_SETUPS_ENABLED", True)
@@ -103,5 +113,3 @@ class AppSettings:
 
 
 app_settings = AppSettings()
-
-

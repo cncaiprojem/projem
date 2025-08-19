@@ -17,8 +17,7 @@ router = APIRouter(prefix="/api/v1/projects", tags=["Projeler"])
 
 # Task Master ERD compatible router would use Model entity instead
 from fastapi import APIRouter
+
 router = APIRouter(prefix="/api/v1/legacy-disabled", tags=["Disabled"])
 
 # All legacy project endpoints are disabled - use Model entity endpoints instead
-
-

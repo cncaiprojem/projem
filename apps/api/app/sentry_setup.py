@@ -18,5 +18,3 @@ def setup_sentry() -> None:
         traces_sample_rate=0.1,
         environment=settings.env,
     )
-
-

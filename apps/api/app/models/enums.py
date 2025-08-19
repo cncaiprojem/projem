@@ -7,6 +7,7 @@ import enum
 
 class UserRole(str, enum.Enum):
     """User permission levels."""
+
     ADMIN = "admin"
     ENGINEER = "engineer"
     OPERATOR = "operator"
@@ -15,6 +16,7 @@ class UserRole(str, enum.Enum):
 
 class Locale(str, enum.Enum):
     """Supported UI languages."""
+
     TR = "tr"  # Turkish (default)
     EN = "en"  # English
     DE = "de"  # German
@@ -22,6 +24,7 @@ class Locale(str, enum.Enum):
 
 class LicenseType(str, enum.Enum):
     """Software license tiers."""
+
     TRIAL = "trial"
     BASIC = "basic"
     PROFESSIONAL = "professional"
@@ -30,6 +33,7 @@ class LicenseType(str, enum.Enum):
 
 class LicenseStatus(str, enum.Enum):
     """License lifecycle states."""
+
     ACTIVE = "active"
     EXPIRED = "expired"
     SUSPENDED = "suspended"
@@ -38,6 +42,7 @@ class LicenseStatus(str, enum.Enum):
 
 class JobType(str, enum.Enum):
     """Types of processing jobs."""
+
     CAD_GENERATE = "cad_generate"
     CAD_IMPORT = "cad_import"
     CAD_EXPORT = "cad_export"
@@ -53,6 +58,7 @@ class JobType(str, enum.Enum):
 
 class JobStatus(str, enum.Enum):
     """Job execution states."""
+
     PENDING = "pending"
     QUEUED = "queued"
     RUNNING = "running"
@@ -64,6 +70,7 @@ class JobStatus(str, enum.Enum):
 
 class ModelType(str, enum.Enum):
     """3D model categories."""
+
     PART = "part"
     ASSEMBLY = "assembly"
     DRAWING = "drawing"
@@ -73,6 +80,7 @@ class ModelType(str, enum.Enum):
 
 class FileFormat(str, enum.Enum):
     """Supported file formats."""
+
     # Native
     FCSTD = "FCStd"
     # CAD Exchange
@@ -94,6 +102,7 @@ class FileFormat(str, enum.Enum):
 
 class CamStrategy(str, enum.Enum):
     """CAM processing strategies."""
+
     # 2.5D
     FACE_MILL = "face_mill"
     POCKET_2D = "pocket_2d"
@@ -121,6 +130,7 @@ class CamStrategy(str, enum.Enum):
 
 class ToolType(str, enum.Enum):
     """Cutting tool types."""
+
     # Milling
     ENDMILL_FLAT = "endmill_flat"
     ENDMILL_BALL = "endmill_ball"
@@ -148,6 +158,7 @@ class ToolType(str, enum.Enum):
 
 class ToolMaterial(str, enum.Enum):
     """Tool material composition."""
+
     HSS = "hss"
     CARBIDE = "carbide"
     CARBIDE_COATED = "carbide_coated"
@@ -159,6 +170,7 @@ class ToolMaterial(str, enum.Enum):
 
 class MachineType(str, enum.Enum):
     """CNC machine categories."""
+
     MILL_3AXIS = "mill_3axis"
     MILL_4AXIS = "mill_4axis"
     MILL_5AXIS = "mill_5axis"
@@ -177,6 +189,7 @@ class MachineType(str, enum.Enum):
 
 class MaterialCategory(str, enum.Enum):
     """Material classification."""
+
     # Metals
     STEEL_CARBON = "steel_carbon"
     STEEL_ALLOY = "steel_alloy"
@@ -205,6 +218,7 @@ class MaterialCategory(str, enum.Enum):
 
 class SimulationType(str, enum.Enum):
     """Simulation analysis types."""
+
     COLLISION = "collision"
     MATERIAL_REMOVAL = "material_removal"
     CUTTING_FORCE = "cutting_force"
@@ -217,6 +231,7 @@ class SimulationType(str, enum.Enum):
 
 class SimulationStatus(str, enum.Enum):
     """Simulation result status."""
+
     PASSED = "passed"
     PASSED_WARNINGS = "passed_warnings"
     FAILED = "failed"
@@ -225,6 +240,7 @@ class SimulationStatus(str, enum.Enum):
 
 class NotificationType(str, enum.Enum):
     """Notification categories."""
+
     # Job
     JOB_COMPLETED = "job_completed"
     JOB_FAILED = "job_failed"
@@ -250,6 +266,7 @@ class NotificationType(str, enum.Enum):
 
 class NotificationSeverity(str, enum.Enum):
     """Notification importance levels."""
+
     INFO = "info"
     WARNING = "warning"
     ERROR = "error"
@@ -258,6 +275,7 @@ class NotificationSeverity(str, enum.Enum):
 
 class InvoiceType(str, enum.Enum):
     """Invoice categories."""
+
     SUBSCRIPTION = "subscription"
     USAGE = "usage"
     ONE_TIME = "one_time"
@@ -267,6 +285,7 @@ class InvoiceType(str, enum.Enum):
 
 class InvoiceStatus(str, enum.Enum):
     """Invoice lifecycle states."""
+
     DRAFT = "draft"
     SENT = "sent"
     VIEWED = "viewed"
@@ -279,6 +298,7 @@ class InvoiceStatus(str, enum.Enum):
 
 class PaymentMethod(str, enum.Enum):
     """Payment method types."""
+
     CREDIT_CARD = "credit_card"
     DEBIT_CARD = "debit_card"
     BANK_TRANSFER = "bank_transfer"
@@ -294,6 +314,7 @@ class PaymentMethod(str, enum.Enum):
 
 class PaymentStatus(str, enum.Enum):
     """Payment transaction states - Task 4.6 specification."""
+
     REQUIRES_ACTION = "requires_action"
     PROCESSING = "processing"
     SUCCEEDED = "succeeded"
@@ -304,6 +325,7 @@ class PaymentStatus(str, enum.Enum):
 
 class PaidStatus(str, enum.Enum):
     """Invoice payment status - Task 4.4 specification."""
+
     UNPAID = "unpaid"
     PENDING = "pending"
     PAID = "paid"
@@ -313,6 +335,7 @@ class PaidStatus(str, enum.Enum):
 
 class Currency(str, enum.Enum):
     """Supported currencies."""
+
     TRY = "TRY"
     USD = "USD"
     EUR = "EUR"
@@ -320,6 +343,7 @@ class Currency(str, enum.Enum):
 
 class AuditAction(str, enum.Enum):
     """Auditable actions."""
+
     # Authentication
     AUTH_LOGIN = "auth_login"
     AUTH_LOGOUT = "auth_logout"
@@ -349,6 +373,7 @@ class AuditAction(str, enum.Enum):
 
 class SecurityEventType(str, enum.Enum):
     """Security event categories."""
+
     # Authentication
     LOGIN_FAILED = "login_failed"
     LOGIN_SUSPICIOUS = "login_suspicious"
@@ -370,6 +395,7 @@ class SecurityEventType(str, enum.Enum):
 
 class SecuritySeverity(str, enum.Enum):
     """Security event severity levels."""
+
     LOW = "low"
     MEDIUM = "medium"
     HIGH = "high"
@@ -378,6 +404,7 @@ class SecuritySeverity(str, enum.Enum):
 
 class ErpSystem(str, enum.Enum):
     """Supported ERP/MES systems."""
+
     SAP = "sap"
     ORACLE = "oracle"
     MICROSOFT_D365 = "microsoft_d365"
@@ -391,6 +418,7 @@ class ErpSystem(str, enum.Enum):
 
 class SyncDirection(str, enum.Enum):
     """Data synchronization direction."""
+
     INBOUND = "inbound"
     OUTBOUND = "outbound"
     BIDIRECTIONAL = "bidirectional"
@@ -398,6 +426,7 @@ class SyncDirection(str, enum.Enum):
 
 class SyncStatus(str, enum.Enum):
     """Synchronization status."""
+
     PENDING = "pending"
     IN_PROGRESS = "in_progress"
     SYNCED = "synced"

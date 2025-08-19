@@ -16,5 +16,3 @@ def test_mask_json():
     masked = mask_pii_in_json(data)
     assert masked["email"] != data["email"]
     assert masked["tel"] == "***"
-
-

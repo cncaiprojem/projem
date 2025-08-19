@@ -11,6 +11,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from ..config import settings
 from ..logging_setup import get_logger
 from ..schemas.cad import AssemblyRequestV1
+
 # from ..llm import generate_freecad_script_for_planetary  # Temporarily disabled
 from .script_host import build_exec_env
 from .service import detect_freecad
@@ -69,7 +70,9 @@ sys.exit(0)
 
 
 @retry(stop=stop_after_attempt(2), wait=wait_exponential(multiplier=1, min=1, max=4))
-def generate_and_validate(req: AssemblyRequestV1, pid_file: Optional[str] = None) -> Tuple[Path, dict]:
+def generate_and_validate(
+    req: AssemblyRequestV1, pid_file: Optional[str] = None
+) -> Tuple[Path, dict]:
     # FreeCADCmd var mı
     fc = detect_freecad()
     if not fc.found or not fc.path:
@@ -82,7 +85,9 @@ def generate_and_validate(req: AssemblyRequestV1, pid_file: Optional[str] = None
     full_script = build_freecad_python(script_body)
     out_dir = Path(tempfile.mkdtemp())
     out_fcstd = out_dir / "assembly.fcstd"
-    run_res = run_freecad_cmd(fc.path, full_script, out_fcstd, settings.freecad_timeout_seconds, pid_file=pid_file)
+    run_res = run_freecad_cmd(
+        fc.path, full_script, out_fcstd, settings.freecad_timeout_seconds, pid_file=pid_file
+    )
     if run_res["returncode"] != 0:
         raise RuntimeError(f"FreeCADCmd üretim hatası: {run_res['stderr']}")
     # Doğrulama
@@ -93,13 +98,20 @@ def generate_and_validate(req: AssemblyRequestV1, pid_file: Optional[str] = None
     return out_fcstd, {"elapsed_ms": run_res["elapsed_ms"], "validation_ms": val_res["elapsed_ms"]}
 
 
-def run_freecad_cmd(freecad_path: str, script: str, out_fcstd: Path, timeout: int, pid_file: Optional[str] = None) -> dict:
+def run_freecad_cmd(
+    freecad_path: str, script: str, out_fcstd: Path, timeout: int, pid_file: Optional[str] = None
+) -> dict:
     tmp = tempfile.NamedTemporaryFile(delete=False, suffix=".py")
     tmp.write(script.encode("utf-8"))
     tmp.close()
     env = os.environ.copy()
     env["OUT_FCSTD"] = str(out_fcstd)
-    res = run_subprocess_with_timeout([freecad_path, tmp.name], timeout_seconds=timeout, env=env, pid_file=pid_file)
-    return {"returncode": res.returncode, "stdout": res.stdout, "stderr": res.stderr, "elapsed_ms": res.elapsed_ms}
-
-
+    res = run_subprocess_with_timeout(
+        [freecad_path, tmp.name], timeout_seconds=timeout, env=env, pid_file=pid_file
+    )
+    return {
+        "returncode": res.returncode,
+        "stdout": res.stdout,
+        "stderr": res.stderr,
+        "elapsed_ms": res.elapsed_ms,
+    }

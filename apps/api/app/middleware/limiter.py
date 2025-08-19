@@ -38,7 +38,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         elif path.startswith("/api/v1/cam/gcode"):
             rule = appset.rate_limit_rules.get("cam")
             key = "cam"
-        elif path.startswith("/api/v1/sim/") or path == "/api/v1/sim" or path.startswith("/api/v1/simulate"):
+        elif (
+            path.startswith("/api/v1/sim/")
+            or path == "/api/v1/sim"
+            or path.startswith("/api/v1/simulate")
+        ):
             rule = appset.rate_limit_rules.get("simulate")
             key = "simulate"
         elif path.startswith("/api/v1/designs"):
@@ -59,8 +63,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         while dq and (now - dq[0]) > window:
             dq.popleft()
         if len(dq) >= limit:
-            return Response(status_code=429, content="Hız sınırı aşıldı, lütfen sonra tekrar deneyin.")
+            return Response(
+                status_code=429, content="Hız sınırı aşıldı, lütfen sonra tekrar deneyin."
+            )
         dq.append(now)
         return await call_next(request)
-
-
