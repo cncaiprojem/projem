@@ -590,7 +590,7 @@
               "4.4"
             ],
             "details": "Rendering:\n- Default renderer: WeasyPrint (HTML template with CSS); fallback to ReportLab on failure.\nStorage:\n- Bucket: invoices/. Object key: invoices/{YYYY}/{MM}/{number}.pdf. Set object immutability (legal hold or retention policy) and content-type application/pdf.\n- Persist pdf_url in invoices table.\nDelivery:\n- Generate presigned GET URLs (TTL 2 minutes) for download endpoint GET /invoices/:id/pdf.\nTemplate:\n- Include invoice number, dates, seller/buyer info, line items (license type and duration), amount, VAT, total, currency 'TRY'.\nAudit:\n- Log PDF generated and uploaded with checksum.\nAcceptance criteria:\n- PDF renders identically across engines for sample data; object stored and marked immutable; presigned URL works and expires; pdf_url persisted and points to stored object.\n<info added on 2025-08-19T07:18:14.325Z>\n- Implementation complete with dual-renderer PDFService (WeasyPrint primary, ReportLab fallback) and Turkish-localized HTML/CSS templates\n- MinIO storage uses immutability metadata with legal hold attempts; checksum captured and recorded in audit logs; invoices.pdf_url persisted\n- API endpoints added and integrated into FastAPI: GET /api/v1/invoices/{id}/pdf and POST /api/v1/invoices/{id}/pdf/regenerate\n- Presigned GET URLs issued with 2-minute TTL; comprehensive error handling and structured audit logging for generation and upload events\n- Monetary values rendered using Decimal for exact precision\n- KVKK compliance observed (minimized PII in logs, short-lived URLs)\n- Test suite covers renderer fallback and equivalence for sample data, storage immutability, presigned URL expiry, audit checksum, and endpoint behaviors; all acceptance criteria validated and ready for deployment\n</info added on 2025-08-19T07:18:14.325Z>",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-19T07:11:04.415Z",
+      "updated": "2025-08-19T07:19:26.774Z",
       "description": "Tasks for master context"
     }
   }
