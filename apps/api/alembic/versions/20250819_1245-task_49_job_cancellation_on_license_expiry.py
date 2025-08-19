@@ -56,7 +56,7 @@ def downgrade() -> None:
     
     # Drop indexes
     op.drop_index('idx_jobs_user_status_cancel', table_name='jobs')
-    op.drop_index('idx_jobs_cancel_requested', table_name='jobs', postgresql_where=sa.text('cancel_requested = true'))
+    op.drop_index('idx_jobs_cancel_requested', table_name='jobs')
     
     # Drop columns
     op.drop_column('jobs', 'cancellation_reason')

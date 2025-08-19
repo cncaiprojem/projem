@@ -4,13 +4,14 @@ Celery tasks for job cancellation and checkpoint monitoring.
 Task 4.9: Worker checkpoint checking and graceful cancellation.
 """
 
-from datetime import UTC, datetime
+from datetime import timezone, datetime
 from typing import Any
 
 from ..core.database import get_db_sync
 from ..core.logging import get_logger
 from ..models.enums import JobStatus
 from ..models.job import Job
+from ..services.job_cancellation_service import job_cancellation_service
 from .celery_app import celery_app
 
 logger = get_logger(__name__)
@@ -97,57 +98,16 @@ def worker_checkpoint_task(
 
     try:
         with next(get_db_sync()) as db:
-            job = db.get(Job, job_id)
-
-            if not job:
-                logger.error("Job not found at checkpoint", job_id=job_id)
-                return {"continue": False, "reason": "job_not_found"}
-
-            # Check if job is already in terminal state
-            if job.is_complete:
-                logger.info(
-                    "Job already complete at checkpoint",
-                    job_id=job_id,
-                    status=job.status.value
-                )
-                return {"continue": False, "reason": "job_complete"}
-
-            # Check for cancellation request
-            if job.cancel_requested:
-                logger.info(
-                    "Processing cancellation at checkpoint",
-                    job_id=job_id,
-                    reason=job.cancellation_reason
-                )
-
-                # Save checkpoint data
-                if checkpoint_data:
-                    if not job.metrics:
-                        job.metrics = {}
-                    job.metrics["last_checkpoint"] = checkpoint_data
-                    job.metrics["checkpoint_time"] = datetime.now(UTC).isoformat()
-
-                # Mark as cancelled
-                job.set_cancelled(job.cancellation_reason or "license_expired")
+            # Use shared checkpoint logic from service
+            result = job_cancellation_service._process_checkpoint_sync(
+                db, job_id, checkpoint_data
+            )
+            
+            # Commit changes if checkpoint processing succeeded
+            if result["reason"] != "checkpoint_error":
                 db.commit()
-
-                return {
-                    "continue": False,
-                    "reason": job.cancellation_reason or "license_expired"
-                }
-
-            # Update last checkpoint time
-            if not job.metrics:
-                job.metrics = {}
-            job.metrics["last_checkpoint_time"] = datetime.now(UTC).isoformat()
-
-            # Save checkpoint data if provided
-            if checkpoint_data:
-                job.metrics["checkpoint_data"] = checkpoint_data
-
-            db.commit()
-
-            return {"continue": True, "reason": None}
+            
+            return result
 
     except Exception as e:
         logger.error(
@@ -192,7 +152,7 @@ def scan_jobs_for_cancellation_task(self) -> dict[str, Any]:
                         cancel_time = datetime.fromisoformat(
                             job.metrics["cancel_requested_time"]
                         )
-                        elapsed = (datetime.now(UTC) - cancel_time).total_seconds()
+                        elapsed = (datetime.now(timezone.utc) - cancel_time).total_seconds()
 
                         # Force cancel if it's been more than 5 minutes
                         if elapsed > 300:

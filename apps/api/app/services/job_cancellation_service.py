@@ -4,7 +4,7 @@ Job cancellation service for handling license expiry and graceful job terminatio
 Task 4.9: Edge-case handling for running jobs on license expiry.
 """
 
-from datetime import UTC, datetime
+from datetime import timezone, datetime
 from typing import Any
 
 from sqlalchemy import and_, or_, select
@@ -68,6 +68,9 @@ class JobCancellationService:
                     # Set cancel_requested flag
                     job.cancel_requested = True
                     job.cancellation_reason = reason
+                    if not job.metrics:
+                        job.metrics = {}
+                    job.metrics["cancel_requested_time"] = datetime.now(timezone.utc).isoformat()
                     affected_job_ids.append(job.id)
 
                     # If job is pending or queued, cancel immediately
@@ -102,7 +105,7 @@ class JobCancellationService:
                             "immediately_cancelled": cancelled_count,
                             "cancel_requested": len(affected_job_ids) - cancelled_count,
                             "reason": reason,
-                            "timestamp": datetime.now(UTC).isoformat()
+                            "timestamp": datetime.now(timezone.utc).isoformat()
                         },
                         ip_address="system",
                         user_agent="job_cancellation_service"
@@ -272,6 +275,76 @@ class JobCancellationService:
                 details={"error": str(e)}
             ) from e
 
+    def _process_checkpoint_sync(
+        self,
+        db: Session,
+        job_id: int,
+        checkpoint_data: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """
+        Private synchronous method to process checkpoint logic.
+        This is shared between async handle_checkpoint and Celery worker_checkpoint_task.
+        
+        Args:
+            db: Database session
+            job_id: Job ID being processed
+            checkpoint_data: Optional checkpoint data to save
+            
+        Returns:
+            Dictionary with continue flag and reason
+        """
+        try:
+            job = db.get(Job, job_id)
+            if not job:
+                return {"continue": False, "reason": "job_not_found"}
+
+            # Check if job is already in terminal state
+            if job.is_complete:
+                return {"continue": False, "reason": "job_complete"}
+
+            # Check if cancellation requested
+            if job.cancel_requested:
+                # Save checkpoint data if provided
+                if checkpoint_data:
+                    if not job.metrics:
+                        job.metrics = {}
+                    job.metrics["last_checkpoint"] = checkpoint_data
+                    job.metrics["checkpoint_time"] = datetime.now(timezone.utc).isoformat()
+
+                # Mark job as cancelled
+                job.set_cancelled(job.cancellation_reason or "license_expired")
+                
+                self.logger.info(
+                    "Job cancelled at checkpoint",
+                    job_id=job_id,
+                    reason=job.cancellation_reason
+                )
+
+                return {
+                    "continue": False,
+                    "reason": job.cancellation_reason or "license_expired"
+                }
+
+            # Update last checkpoint time if not cancelling
+            if not job.metrics:
+                job.metrics = {}
+            job.metrics["last_checkpoint_time"] = datetime.now(timezone.utc).isoformat()
+
+            # Save checkpoint data if provided
+            if checkpoint_data:
+                job.metrics["checkpoint_data"] = checkpoint_data
+
+            return {"continue": True, "reason": None}
+
+        except Exception as e:
+            self.logger.error(
+                "Error processing checkpoint",
+                job_id=job_id,
+                error=str(e)
+            )
+            # On error, allow job to continue
+            return {"continue": True, "reason": "checkpoint_error"}
+
     async def handle_checkpoint(
         self,
         db: Session,
@@ -289,42 +362,21 @@ class JobCancellationService:
         Returns:
             True if job should continue, False if it should stop
         """
-        try:
-            job = db.get(Job, job_id)
-            if not job:
-                return False
-
-            # Check if cancellation requested
-            if job.cancel_requested:
-                # Save checkpoint data if provided
-                if checkpoint_data:
-                    if not job.metrics:
-                        job.metrics = {}
-                    job.metrics["last_checkpoint"] = checkpoint_data
-                    job.metrics["checkpoint_time"] = datetime.now(UTC).isoformat()
-
-                # Mark job as cancelled
-                job.set_cancelled(job.cancellation_reason or "license_expired")
+        result = self._process_checkpoint_sync(db, job_id, checkpoint_data)
+        
+        # Commit changes if checkpoint processing succeeded
+        if result["reason"] != "checkpoint_error":
+            try:
                 db.commit()
-
-                self.logger.info(
-                    "Job cancelled at checkpoint",
+            except Exception as e:
+                self.logger.error(
+                    "Error committing checkpoint changes",
                     job_id=job_id,
-                    reason=job.cancellation_reason
+                    error=str(e)
                 )
+                return True  # Allow job to continue on commit error
 
-                return False  # Job should stop
-
-            return True  # Job should continue
-
-        except Exception as e:
-            self.logger.error(
-                "Error handling checkpoint",
-                job_id=job_id,
-                error=str(e)
-            )
-            # On error, allow job to continue
-            return True
+        return result["continue"]
 
 
 # Singleton instance
