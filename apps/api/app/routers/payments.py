@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
@@ -19,12 +22,26 @@ from ..schemas.payment import (
 )
 from ..services.payment_service import PaymentService
 from ..services.rate_limiting_service import RateLimitingService
+from ..services.security_event_service import SecurityEventService
 
 # Initialize router
 router = APIRouter(prefix="/payments", tags=["payments"])
 
 # Security
 security = HTTPBearer()
+
+# Ultra-enterprise error code to HTTP status mapping for banking-grade error handling
+WEBHOOK_ERROR_STATUS_MAP = {
+    "invalid_signature": status.HTTP_400_BAD_REQUEST,
+    "missing_event_id": status.HTTP_400_BAD_REQUEST,
+    "missing_payment_id": status.HTTP_400_BAD_REQUEST,
+    "payment_not_found": status.HTTP_404_NOT_FOUND,
+    "integrity_violation": status.HTTP_409_CONFLICT,
+    "idempotency_error": status.HTTP_409_CONFLICT,
+    "critical_processing_error": status.HTTP_500_INTERNAL_SERVER_ERROR,
+    "unexpected_processing_error": status.HTTP_500_INTERNAL_SERVER_ERROR,
+    "webhook_rollback_failure": status.HTTP_500_INTERNAL_SERVER_ERROR,
+}
 
 
 @router.post(
@@ -187,9 +204,6 @@ async def process_webhook(
         
         try:
             # Start explicit transaction for banking-grade consistency
-            import time
-            from datetime import datetime, timezone
-            
             transaction_start = time.time()
             transaction_audit["processing_start"] = datetime.now(timezone.utc).isoformat()
             transaction_audit["processing_stage"] = "transaction_started"
@@ -245,18 +259,29 @@ async def process_webhook(
                     transaction_audit["processing_stage"] = "rollback_failed"
                     transaction_audit["error_details"] = str(rollback_error)
                     transaction_audit["transaction_outcome"] = "rollback_failed"
-                    # Log critical rollback failure but continue with error response
                     
-                # Determine appropriate HTTP status based on error type
+                    # Log critical rollback failure but continue with error response
+                    try:
+                        security_service = SecurityEventService()
+                        security_service.log_critical_error(
+                            event_type="webhook_rollback_failure_critical",
+                            details={
+                                "transaction_audit": transaction_audit,
+                                "rollback_error": str(rollback_error),
+                                "payment_provider": provider,
+                                "client_ip": client_ip,
+                                "severity": "CRITICAL",
+                                "requires_immediate_attention": True
+                            }
+                        )
+                    except Exception:
+                        # Even security logging failed - ultimate fallback to basic logging
+                        logger = logging.getLogger(__name__)
+                        logger.critical(f"CRITICAL: Transaction rollback failed AND security logging failed: {rollback_error}")
+                    
+                # Determine appropriate HTTP status based on error type using enterprise mapping
                 error_code = result.get("code", "")
-                if error_code == "invalid_signature":
-                    status_code = status.HTTP_400_BAD_REQUEST
-                elif error_code in ["missing_event_id", "missing_payment_id"]:
-                    status_code = status.HTTP_400_BAD_REQUEST
-                elif error_code == "payment_not_found":
-                    status_code = status.HTTP_404_NOT_FOUND
-                else:
-                    status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
+                status_code = WEBHOOK_ERROR_STATUS_MAP.get(error_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
                 raise HTTPException(
                     status_code=status_code,
@@ -310,7 +335,6 @@ async def process_webhook(
             
             # Log critical router error for investigation
             try:
-                from ..services.security_event_service import SecurityEventService
                 security_service = SecurityEventService()
                 security_service.log_critical_error(
                     event_type="webhook_router_critical_error",
@@ -330,10 +354,52 @@ async def process_webhook(
             try:
                 if db.in_transaction():
                     # If we're still in a transaction at this point, something went wrong
-                    db.rollback()
+                    transaction_audit["processing_stage"] = "final_safety_rollback"
                     transaction_audit["final_safety_rollback"] = True
-            except Exception:
-                pass  # Final safety - don't raise exceptions in finally block
+                    transaction_audit["final_safety_rollback_reason"] = "Transaction still active in finally block"
+                    
+                    # Log the safety rollback for monitoring
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"SAFETY_ROLLBACK: Transaction still active in finally block, forcing rollback", extra={
+                        "transaction_audit": transaction_audit,
+                        "safety_rollback": True,
+                        "requires_investigation": True
+                    })
+                    
+                    # Perform the safety rollback
+                    db.rollback()
+                    
+                    # Additional security logging for safety rollbacks
+                    try:
+                        security_service = SecurityEventService()
+                        security_service.log_critical_error(
+                            event_type="webhook_safety_rollback_executed",
+                            details={
+                                "transaction_audit": transaction_audit,
+                                "rollback_reason": "Final safety net activated",
+                                "severity": "WARNING",
+                                "requires_monitoring": True
+                            }
+                        )
+                    except Exception:
+                        pass  # Don't fail if security logging fails
+                        
+            except Exception as safety_rollback_error:
+                # Even the safety rollback failed - this is a critical system issue
+                transaction_audit["safety_rollback_error"] = str(safety_rollback_error)
+                transaction_audit["critical_system_issue"] = True
+                
+                # Log critical system failure
+                try:
+                    logger = logging.getLogger(__name__)
+                    logger.critical(f"CRITICAL_SYSTEM_FAILURE: Safety rollback failed in webhook processing", extra={
+                        "transaction_audit": transaction_audit,
+                        "safety_rollback_error": str(safety_rollback_error),
+                        "requires_immediate_attention": True,
+                        "system_integrity_compromised": True
+                    })
+                except Exception:
+                    pass  # Ultimate fallback - even logging failed
 
     except HTTPException:
         raise

@@ -14,6 +14,7 @@ from ..models.enums import Currency, PaidStatus, PaymentStatus
 from ..models.invoice import Invoice
 from ..models.payment import Payment, PaymentAuditLog, PaymentWebhookEvent
 from .payment_providers import PaymentProviderFactory
+from .security_event_service import SecurityEventService
 
 # Ultra-enterprise banking-grade logger for payment transactions
 logger = logging.getLogger("payment_service.ultra_enterprise")
@@ -37,14 +38,26 @@ class PaymentService:
     ) -> None:
         """Ultra-enterprise audit logging for payment transactions.
         
+        Args:
+            event_type: Type of audit event (e.g., 'webhook_processing_success')
+            audit_context: Comprehensive context dictionary with transaction details
+            severity: Logging severity level with specific banking-grade meanings:
+                - INFO: Normal business operations, successful transactions
+                - WARNING: Recoverable issues, business rule violations, retryable failures
+                - ERROR: Service errors, integration failures, data inconsistencies
+                - CRITICAL: Security violations, compliance failures, transaction integrity issues
+            payment_id: Associated payment ID for correlation (optional)
+            invoice_id: Associated invoice ID for correlation (optional)
+        
         COMPLIANCE FEATURES:
-        - Immutable audit trail
-        - Banking-grade transaction logging
-        - KVKV (Turkish GDPR) compliance
-        - Security event correlation
+        - Immutable audit trail for regulatory requirements
+        - Banking-grade transaction logging with ACID guarantees
+        - KVKV (Turkish GDPR) compliance with data protection
+        - Security event correlation for fraud detection
+        - Multi-level severity for appropriate alerting and monitoring
         """
         try:
-            # Enhanced audit entry with timestamp precision
+            # Enhanced audit entry with timestamp precision and comprehensive context
             audit_entry = {
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "event_type": event_type,
@@ -58,7 +71,27 @@ class PaymentService:
                 "compliance_flags": {
                     "kvkv_logged": True,
                     "financial_audit": True,
-                    "security_relevant": severity in ["WARNING", "ERROR", "CRITICAL"]
+                    "security_relevant": severity in ["WARNING", "ERROR", "CRITICAL"],
+                    "pci_dss_compliant": True,
+                    "banking_regulations": True
+                },
+                # Enhanced contextual information for ultra-enterprise monitoring
+                "environment": {
+                    "payment_provider": audit_context.get("provider"),
+                    "processing_stage": audit_context.get("processing_stage"),
+                    "client_ip": audit_context.get("client_ip"),
+                    "user_agent": audit_context.get("user_agent")
+                },
+                "transaction_metadata": {
+                    "transaction_id": audit_context.get("transaction_id"),
+                    "rollback_reason": audit_context.get("rollback_reason"),
+                    "error_details": audit_context.get("error_details"),
+                    "processing_time_ms": audit_context.get("processing_time_seconds", 0) * 1000
+                },
+                "correlation": {
+                    "request_id": audit_context.get("request_id"),
+                    "correlation_id": audit_context.get("correlation_id"),
+                    "parent_span_id": audit_context.get("parent_span_id")
                 }
             }
             
@@ -409,7 +442,6 @@ class PaymentService:
             
             # Additional security event logging
             try:
-                from ..services.security_event_service import SecurityEventService
                 security_service = SecurityEventService()
                 security_service.log_integrity_violation(
                     event_type="webhook_integrity_error",
@@ -444,7 +476,6 @@ class PaymentService:
             
             # Additional security event logging
             try:
-                from ..services.security_event_service import SecurityEventService
                 security_service = SecurityEventService()
                 security_service.log_critical_error(
                     event_type="webhook_runtime_error",
@@ -478,7 +509,6 @@ class PaymentService:
             
             # Additional security event logging
             try:
-                from ..services.security_event_service import SecurityEventService
                 security_service = SecurityEventService()
                 security_service.log_unexpected_error(
                     event_type="webhook_unexpected_error",

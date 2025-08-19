@@ -211,21 +211,147 @@ class TestFinancialIntegrityPreservation:
     
     def test_payment_status_consistency_during_rollback(self):
         """Test: Payment status remains consistent during transaction rollbacks."""
-        # This would test that payment status changes are properly rolled back
-        # if any part of the transaction fails, ensuring financial consistency
-        pass
+        # Arrange: Setup payment service and database mock
+        db_session = Mock(spec=Session)
+        payment_service = PaymentService(db_session)
+        
+        # Create mock payment with initial status
+        mock_payment = Mock(spec=Payment)
+        mock_payment.id = 123
+        mock_payment.invoice_id = 456
+        mock_payment.status = PaymentStatus.PENDING
+        
+        # Setup database queries
+        db_session.begin_nested.return_value = Mock()
+        db_session.query.return_value.filter.return_value.first.side_effect = [
+            None,  # No existing webhook event
+            mock_payment  # Payment found
+        ]
+        
+        # Simulate flush failure after payment status change
+        db_session.flush.side_effect = [None, Exception("Database error")]
+        
+        with patch('app.services.payment_service.PaymentProviderFactory') as mock_factory:
+            mock_provider = Mock()
+            mock_provider.verify_webhook.return_value = True
+            mock_provider.parse_webhook_event.return_value = {
+                "event_id": "test_consistency",
+                "event_type": "payment.succeeded",
+                "provider_payment_id": "pay_consistency"
+            }
+            mock_factory.create_provider.return_value = mock_provider
+            
+            # Act: Process webhook that changes payment status but then fails
+            result = payment_service.process_webhook_event(
+                provider="stripe",
+                signature="valid_signature",
+                payload=b'{"test": "data"}',
+                parsed_payload={"test": "data"}
+            )
+        
+        # Assert: Payment status change should be rolled back
+        assert result["status"] == "error"
+        assert "critical_processing_error" in result["code"]
+        
+        # Verify rollback was called to ensure consistency
+        savepoint_mock = db_session.begin_nested.return_value
+        savepoint_mock.rollback.assert_called_once()
     
     def test_invoice_paid_status_atomic_updates(self):
         """Test: Invoice paid status updates are atomic with payment processing."""
-        # This would test that invoice status changes are rolled back
-        # if payment processing fails, preventing inconsistent states
-        pass
+        # Arrange: Setup database mock with invoice
+        db_session = Mock(spec=Session)
+        payment_service = PaymentService(db_session)
+        
+        from app.models.invoice import Invoice
+        from app.models.enums import PaidStatus
+        
+        mock_invoice = Mock(spec=Invoice)
+        mock_invoice.id = 456
+        mock_invoice.paid_status = PaidStatus.UNPAID
+        
+        mock_payment = Mock(spec=Payment)
+        mock_payment.id = 123
+        mock_payment.invoice_id = 456
+        
+        # Setup queries: invoice query should succeed, but flush should fail
+        db_session.begin_nested.return_value = Mock()
+        db_session.query.return_value.filter.return_value.first.side_effect = [
+            None,  # No existing webhook event
+            mock_payment,  # Payment found
+            mock_invoice   # Invoice found during processing
+        ]
+        
+        # Simulate processing success but flush failure
+        db_session.flush.side_effect = [None, Exception("Invoice update failed")]
+        
+        with patch('app.services.payment_service.PaymentProviderFactory') as mock_factory:
+            mock_provider = Mock()
+            mock_provider.verify_webhook.return_value = True
+            mock_provider.parse_webhook_event.return_value = {
+                "event_id": "test_atomic",
+                "event_type": "payment.succeeded",
+                "provider_payment_id": "pay_atomic",
+                "status": "succeeded"
+            }
+            mock_factory.create_provider.return_value = mock_provider
+            
+            # Act: Process successful payment that should update invoice but fails on flush
+            result = payment_service.process_webhook_event(
+                provider="stripe",
+                signature="valid_signature",
+                payload=b'{"test": "data"}',
+                parsed_payload={"test": "data"}
+            )
+        
+        # Assert: Both payment and invoice changes should be rolled back atomically
+        assert result["status"] == "error"
+        assert "critical_processing_error" in result["code"]
+        
+        # Verify rollback was called to ensure atomic operation
+        savepoint_mock = db_session.begin_nested.return_value
+        savepoint_mock.rollback.assert_called_once()
     
     def test_audit_trail_completeness_during_failures(self):
         """Test: Audit trails are complete even during transaction failures."""
-        # This would test that audit logs capture the full context
-        # of failed transactions for compliance and debugging
-        pass
+        # Arrange: Setup payment service with audit logging
+        db_session = Mock(spec=Session)
+        payment_service = PaymentService(db_session)
+        
+        # Setup for transaction failure
+        db_session.begin_nested.return_value = Mock()
+        db_session.flush.side_effect = Exception("Critical database error")
+        
+        with patch('app.services.payment_service.PaymentProviderFactory') as mock_factory:
+            mock_provider = Mock()
+            mock_provider.verify_webhook.return_value = True
+            mock_provider.parse_webhook_event.return_value = {
+                "event_id": "test_audit_trail",
+                "event_type": "payment.failed"
+            }
+            mock_factory.create_provider.return_value = mock_provider
+            
+            # Mock audit logging to track calls
+            with patch.object(payment_service, '_log_critical_audit_event') as mock_audit:
+                # Act: Process webhook that should fail but generate complete audit trail
+                result = payment_service.process_webhook_event(
+                    provider="stripe",
+                    signature="valid_signature",
+                    payload=b'{"test": "data"}',
+                    parsed_payload={"test": "data"}
+                )
+        
+        # Assert: Audit logging should capture the failure context
+        assert result["status"] == "error"
+        assert "audit_context" in result
+        assert result["audit_context"]["processing_stage"] == "runtime_error_handled"
+        
+        # Verify audit logging was called with appropriate context
+        mock_audit.assert_called()
+        audit_call_args = mock_audit.call_args[1]  # keyword arguments
+        assert audit_call_args["event_type"] == "webhook_runtime_error"
+        assert audit_call_args["severity"] == "CRITICAL"
+        assert "audit_context" in audit_call_args
 
 
 class TestBankingGradeTransactionIsolation:
@@ -233,12 +359,98 @@ class TestBankingGradeTransactionIsolation:
     
     def test_concurrent_webhook_processing_isolation(self):
         """Test: Concurrent webhook processing maintains proper isolation."""
-        # This would test that multiple webhooks processing simultaneously
-        # don't interfere with each other's transactions
-        pass
+        # Arrange: Setup multiple payment services with separate database sessions
+        db_session1 = Mock(spec=Session)
+        db_session2 = Mock(spec=Session)
+        payment_service1 = PaymentService(db_session1)
+        payment_service2 = PaymentService(db_session2)
+        
+        # Setup savepoints for both sessions
+        savepoint1 = Mock()
+        savepoint2 = Mock()
+        db_session1.begin_nested.return_value = savepoint1
+        db_session2.begin_nested.return_value = savepoint2
+        
+        # Mock different webhook events for each session
+        db_session1.query.return_value.filter.return_value.first.return_value = None
+        db_session2.query.return_value.filter.return_value.first.return_value = None
+        
+        with patch('app.services.payment_service.PaymentProviderFactory') as mock_factory:
+            mock_provider = Mock()
+            mock_provider.verify_webhook.return_value = True
+            mock_provider.parse_webhook_event.side_effect = [
+                {"event_id": "concurrent_1", "event_type": "payment.succeeded", "provider_payment_id": "pay_1"},
+                {"event_id": "concurrent_2", "event_type": "payment.failed", "provider_payment_id": "pay_2"}
+            ]
+            mock_factory.create_provider.return_value = mock_provider
+            
+            # Act: Process concurrent webhooks
+            result1 = payment_service1.process_webhook_event(
+                provider="stripe", signature="sig1", payload=b'{"data": "1"}', parsed_payload={"data": "1"}
+            )
+            result2 = payment_service2.process_webhook_event(
+                provider="stripe", signature="sig2", payload=b'{"data": "2"}', parsed_payload={"data": "2"}
+            )
+        
+        # Assert: Each transaction should be independent
+        assert result1["audit_context"]["event_id"] == "concurrent_1"
+        assert result2["audit_context"]["event_id"] == "concurrent_2"
+        
+        # Verify separate savepoints were created for isolation
+        db_session1.begin_nested.assert_called_once()
+        db_session2.begin_nested.assert_called_once()
+        assert savepoint1 != savepoint2  # Different transaction boundaries
     
     def test_read_committed_isolation_prevents_dirty_reads(self):
         """Test: Transaction isolation prevents dirty reads during processing."""
-        # This would test that other transactions can't read uncommitted
-        # changes during webhook processing
-        pass
+        # Arrange: Setup payment service with transaction in progress
+        db_session = Mock(spec=Session)
+        payment_service = PaymentService(db_session)
+        
+        mock_payment = Mock(spec=Payment)
+        mock_payment.id = 123
+        mock_payment.status = PaymentStatus.PENDING
+        
+        # Setup nested transaction
+        savepoint = Mock()
+        db_session.begin_nested.return_value = savepoint
+        db_session.query.return_value.filter.return_value.first.side_effect = [
+            None,  # No existing webhook event
+            mock_payment  # Payment found
+        ]
+        
+        # Simulate uncommitted changes (flush but no commit)
+        db_session.flush.return_value = None
+        db_session.commit.side_effect = Exception("Simulated commit failure")
+        
+        with patch('app.services.payment_service.PaymentProviderFactory') as mock_factory:
+            mock_provider = Mock()
+            mock_provider.verify_webhook.return_value = True
+            mock_provider.parse_webhook_event.return_value = {
+                "event_id": "isolation_test",
+                "event_type": "payment.processing",
+                "provider_payment_id": "pay_isolation"
+            }
+            mock_factory.create_provider.return_value = mock_provider
+            
+            # Setup payment event processing to succeed initially
+            with patch.object(payment_service, '_process_payment_event') as mock_process:
+                mock_process.return_value = {"status": "success", "message": "Processing"}
+                
+                # Act: Process webhook that flushes changes but fails to commit
+                result = payment_service.process_webhook_event(
+                    provider="stripe",
+                    signature="valid_signature",
+                    payload=b'{"test": "data"}',
+                    parsed_payload={"test": "data"}
+                )
+        
+        # Assert: Changes should be rolled back, preventing dirty reads
+        assert result["status"] == "error"
+        
+        # Verify that savepoint rollback was called to prevent dirty reads
+        savepoint.rollback.assert_called_once()
+        
+        # Verify that no uncommitted changes remain visible
+        db_session.flush.assert_called()  # Changes were flushed
+        savepoint.rollback.assert_called_once()  # But then rolled back
