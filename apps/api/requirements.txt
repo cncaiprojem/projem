@@ -53,4 +53,5 @@ fastapi-limiter==0.1.6
 pyotp==2.9.0
 cryptography==42.0.8
 python-dateutil==2.9.0
+weasyprint==62.3
 

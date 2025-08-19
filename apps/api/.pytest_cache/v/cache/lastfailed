@@ -1,4 +1,7 @@
 {
   "tests/integration/test_migration_integrity.py": true,
-  "tests/contract/test_openapi.py": true
+  "tests/contract/test_openapi.py": true,
+  "tests/test_license_middleware.py": true,
+  "tests/test_invoice_service.py::TestInvoiceNumberGeneration::test_invoice_number_format": true,
+  "tests/test_task_45_pdf_service.py": true
 }
