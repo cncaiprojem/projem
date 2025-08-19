@@ -16,7 +16,7 @@ from .session import Session
 from .license import License
 from .license_audit import LicenseAudit
 from .invoice import Invoice
-from .payment import Payment
+from .payment import Payment, PaymentWebhookEvent, PaymentAuditLog
 from .model import Model
 from .job import Job
 from .cam_run import CamRun
@@ -57,6 +57,8 @@ __all__ = [
     # Billing
     "Invoice",
     "Payment",
+    "PaymentWebhookEvent",
+    "PaymentAuditLog",
     
     # Core Business
     "Model",

@@ -157,6 +157,23 @@ class PDFService:
             logger.error(f"Failed to upload PDF for invoice {invoice.number}: {e}")
             raise PDFGenerationError(f"PDF upload failed: {e}")
     
+    def _format_paid_status(self, paid_status) -> str:
+        """
+        Helper method to safely format paid status value.
+        
+        Handles both enum values and string representations with proper
+        defensive programming to avoid AttributeError.
+        
+        Args:
+            paid_status: The paid status from invoice (enum or string)
+            
+        Returns:
+            Formatted uppercase string representation of status
+        """
+        if hasattr(paid_status, 'value'):
+            return str(paid_status.value).upper()
+        return str(paid_status).upper()
+    
     async def get_invoice_pdf_url(self, invoice: Invoice) -> Optional[str]:
         """
         Get presigned URL for existing invoice PDF.
@@ -257,7 +274,7 @@ class PDFService:
                 ['Fatura No / Invoice Number:', invoice.number],
                 ['Tarih / Date:', invoice.issued_at.strftime('%d.%m.%Y')],
                 ['Para Birimi / Currency:', invoice.currency],
-                ['Durum / Status:', (invoice.paid_status.value if hasattr(invoice.paid_status, 'value') else str(invoice.paid_status)).upper()]
+                ['Durum / Status:', self._format_paid_status(invoice.paid_status)]
             ]
             
             invoice_table = Table(invoice_data, colWidths=[6*cm, 6*cm])
@@ -344,7 +361,7 @@ class PDFService:
                     </div>
                     <div class="detail-row">
                         <span class="label">Durum / Status:</span>
-                        <span class="value status-{invoice.paid_status.value if hasattr(invoice.paid_status, 'value') else str(invoice.paid_status)}">{(invoice.paid_status.value if hasattr(invoice.paid_status, 'value') else str(invoice.paid_status)).upper()}</span>
+                        <span class="value status-{self._format_paid_status(invoice.paid_status).lower()}">{self._format_paid_status(invoice.paid_status)}</span>
                     </div>
                 </div>
                 

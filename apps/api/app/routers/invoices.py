@@ -128,8 +128,8 @@ async def download_invoice_pdf(
                     force_regenerate=False
                 )
                 
-                # Commit the PDF URL update
-                db.commit()
+                # Note: Do NOT commit here - will be done at the end of the transaction
+                # This ensures atomicity of the entire operation
                 
                 logger.info(
                     f"PDF generated for invoice {invoice.number}",
@@ -144,6 +144,8 @@ async def download_invoice_pdf(
                 )
                 
             except PDFGenerationError as e:
+                # Rollback any pending changes on error
+                db.rollback()
                 logger.error(
                     f"PDF generation failed for invoice {invoice.number}: {e}",
                     extra={
@@ -307,9 +309,6 @@ async def regenerate_invoice_pdf(
                 force_regenerate=True
             )
             
-            # Commit the PDF URL update
-            db.commit()
-            
             # Audit the regeneration
             await audit_service.create_audit_entry(
                 db=db,
@@ -328,6 +327,7 @@ async def regenerate_invoice_pdf(
                 }
             )
             
+            # Single atomic commit for all operations
             db.commit()
             
             logger.info(
@@ -352,6 +352,8 @@ async def regenerate_invoice_pdf(
             }
             
         except PDFGenerationError as e:
+            # Rollback any pending changes on error
+            db.rollback()
             logger.error(
                 f"PDF regeneration failed for invoice {invoice.number}: {e}",
                 extra={

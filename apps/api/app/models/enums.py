@@ -293,15 +293,13 @@ class PaymentMethod(str, enum.Enum):
 
 
 class PaymentStatus(str, enum.Enum):
-    """Payment transaction states."""
-    PENDING = "pending"
+    """Payment transaction states - Task 4.6 specification."""
+    REQUIRES_ACTION = "requires_action"
     PROCESSING = "processing"
-    COMPLETED = "completed"
+    SUCCEEDED = "succeeded"
     FAILED = "failed"
-    CANCELLED = "cancelled"
+    CANCELED = "canceled"
     REFUNDED = "refunded"
-    PARTIAL_REFUND = "partial_refund"
-    DISPUTED = "disputed"
 
 
 class PaidStatus(str, enum.Enum):
