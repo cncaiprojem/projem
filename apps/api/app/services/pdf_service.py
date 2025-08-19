@@ -75,7 +75,8 @@ class PDFService:
         
         # Check if PDF already exists and not forcing regeneration
         if invoice.pdf_url and not force_regenerate:
-            logger.info(f"PDF already exists for invoice {invoice.number}")
+            logger.info(f"PDF already exists for invoice {invoice.number}, returning stored object key")
+            # Return object key as first element (not presigned URL) for consistency
             return invoice.pdf_url, ""
             
         logger.info(f"Generating PDF for invoice {invoice.number}")
@@ -125,7 +126,10 @@ class PDFService:
                 expires_in=120  # 2 minutes
             )
             
-            # Update invoice with PDF URL
+            # Update invoice with PDF URL (atomic transaction handling)
+            # Note: We only update the invoice object here and let the calling context
+            # handle the database transaction (commit/rollback). This ensures atomicity
+            # of the entire operation including PDF generation and database update.
             invoice.pdf_url = object_key  # Store object key, not presigned URL
             
             # Audit log
@@ -215,9 +219,10 @@ class PDFService:
         except ImportError as e:
             raise PDFGenerationError(f"ReportLab not available: {e}")
         
+        temp_path = None
         try:
-            # Create temporary file for PDF generation
-            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False) as temp_file:
+            # Create temporary file for PDF generation with proper context management
+            with tempfile.NamedTemporaryFile(suffix='.pdf', delete=False, mode='wb') as temp_file:
                 temp_path = temp_file.name
             
             # Create PDF document
@@ -252,7 +257,7 @@ class PDFService:
                 ['Fatura No / Invoice Number:', invoice.number],
                 ['Tarih / Date:', invoice.issued_at.strftime('%d.%m.%Y')],
                 ['Para Birimi / Currency:', invoice.currency],
-                ['Durum / Status:', invoice.paid_status.value.upper()]
+                ['Durum / Status:', (invoice.paid_status.value if hasattr(invoice.paid_status, 'value') else str(invoice.paid_status)).upper()]
             ]
             
             invoice_table = Table(invoice_data, colWidths=[6*cm, 6*cm])
@@ -288,20 +293,21 @@ class PDFService:
             # Build PDF
             doc.build(story)
             
-            # Read generated PDF
+            # Read generated PDF with proper error handling
             with open(temp_path, 'rb') as pdf_file:
                 pdf_content = pdf_file.read()
-            
-            # Clean up temporary file
-            os.unlink(temp_path)
             
             return pdf_content
             
         except Exception as e:
-            # Clean up temporary file on error
-            if 'temp_path' in locals() and os.path.exists(temp_path):
-                os.unlink(temp_path)
             raise PDFGenerationError(f"ReportLab generation failed: {e}")
+        finally:
+            # Always clean up temporary file in finally block
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except OSError as cleanup_error:
+                    logger.warning(f"Failed to clean up temporary file {temp_path}: {cleanup_error}")
     
     def _generate_invoice_html(self, invoice: Invoice) -> str:
         """Generate HTML template for invoice."""
@@ -338,7 +344,7 @@ class PDFService:
                     </div>
                     <div class="detail-row">
                         <span class="label">Durum / Status:</span>
-                        <span class="value status-{invoice.paid_status.value}">{invoice.paid_status.value.upper()}</span>
+                        <span class="value status-{invoice.paid_status.value if hasattr(invoice.paid_status, 'value') else str(invoice.paid_status)}">{(invoice.paid_status.value if hasattr(invoice.paid_status, 'value') else str(invoice.paid_status)).upper()}</span>
                     </div>
                 </div>
                 

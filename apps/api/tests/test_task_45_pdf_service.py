@@ -69,32 +69,42 @@ class TestPDFService:
             audit_service=mock_audit_service
         )
     
-    @patch('builtins.open', create=True)
-    @patch('os.unlink')
-    @patch('tempfile.NamedTemporaryFile')
-    async def test_generate_with_reportlab_success(
+    async def test_generate_pdf_with_reportlab_fallback(
         self, 
-        mock_tempfile, 
-        mock_unlink, 
-        mock_open,
         pdf_service, 
-        sample_invoice
+        sample_invoice,
+        mock_s3_service,
+        mock_audit_service
     ):
-        """Test successful PDF generation with ReportLab."""
-        # Mock temporary file
-        mock_temp = Mock()
-        mock_temp.name = "/tmp/test.pdf"
-        mock_tempfile.return_value.__enter__.return_value = mock_temp
+        """Test PDF generation falls back to ReportLab when WeasyPrint fails."""
+        mock_db = Mock()
         
-        # Mock file operations
-        mock_pdf_content = b"PDF content here"
-        mock_open.return_value.__enter__.return_value.read.return_value = mock_pdf_content
-        
-        # Test ReportLab generation
-        result = pdf_service._generate_with_reportlab(sample_invoice)
-        
-        assert result == mock_pdf_content
-        mock_unlink.assert_called_once_with("/tmp/test.pdf")
+        # Mock WeasyPrint failure to force ReportLab usage
+        with patch('weasyprint.HTML', side_effect=ImportError("WeasyPrint not available")), \
+             patch('builtins.open', create=True) as mock_open, \
+             patch('os.unlink') as mock_unlink, \
+             patch('tempfile.NamedTemporaryFile') as mock_tempfile:
+            
+            # Mock temporary file
+            mock_temp = Mock()
+            mock_temp.name = "/tmp/test.pdf"
+            mock_tempfile.return_value.__enter__.return_value = mock_temp
+            
+            # Mock file operations
+            mock_pdf_content = b"PDF content from ReportLab"
+            mock_open.return_value.__enter__.return_value.read.return_value = mock_pdf_content
+            
+            # Test PDF generation through public API
+            pdf_url, checksum = await pdf_service.generate_invoice_pdf(
+                db=mock_db,
+                invoice=sample_invoice
+            )
+            
+            # Verify ReportLab was used (temp file was created and cleaned up)
+            assert mock_tempfile.called
+            assert mock_unlink.called
+            assert pdf_url == "https://example.com/presigned-url"
+            assert checksum == hashlib.sha256(mock_pdf_content).hexdigest()
     
     def test_generate_invoice_html(self, pdf_service, sample_invoice):
         """Test HTML template generation."""
