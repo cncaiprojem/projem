@@ -321,7 +321,7 @@
           1,
           2
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -396,7 +396,7 @@
               "3.3"
             ],
             "details": "Design:\n- pyotp TOTP (period=30, digits=6); store mfa_secret encrypted at rest; enforce for admin role and step-up on sensitive endpoints.\n- Backup codes: 10 single-use codes (sha256 hashed) in mfa_backup_codes table.\nAPIs:\n- POST /auth/mfa/setup/start → 200 {secret_masked, otpauth_url, qr_png_base64}.\n- POST /auth/mfa/setup/verify {code} → 200 {} enables MFA.\n- POST /auth/mfa/disable {code} → 200 {}.\n- POST /auth/mfa/challenge {code or backup_code} → 200 {access_token} when login required step-up.\n- GET /auth/mfa/backup-codes → 200 {codes_plaintext_once} (generate/regenerate).\nCookies:\n- Uses refresh cookie issuance from Subtask 3 when MFA satisfied.\nErrors:\n- 401 ERR-MFA-REQUIRED, 401 ERR-MFA-INVALID, 409 ERR-MFA-ALREADY-ENABLED, 400 ERR-MFA-NOT-ENABLED.\nAcceptance:\n- Admin login without MFA triggers mfa_required; providing valid TOTP returns tokens.\n- Backup codes consume once; disabling MFA requires valid TOTP.\nLogging:\n- audit_logs: mfa_enabled, mfa_challenge_succeeded, mfa_disabled.\n- security_events: mfa_challenge_failed, backup_code_used.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -407,7 +407,7 @@
               "3.3"
             ],
             "details": "Design:\n- Issue CSRF cookie and require X-CSRF-Token header matching cookie value for state-changing browser requests.\n- Skip for non-browser clients (no cookies) and for idempotent GET/HEAD.\nAPIs:\n- GET /auth/csrf-token → 200 {} and sets csrf cookie; FE reads cookie and mirrors into header.\nCookies:\n- Name: csrf; HttpOnly=false; Secure=true; SameSite=Strict; Path=/; Max-Age=7200.\nErrors:\n- 403 ERR-CSRF-MISSING, 403 ERR-CSRF-MISMATCH.\nAcceptance:\n- Requests with valid X-CSRF-Token pass; mismatched or missing token returns 403.\n- Token rotates periodically or on login; works with refresh cookie and Authorization header.\nLogging:\n- security_events: csrf_missing, csrf_mismatch (method, path, ua masked).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -445,7 +445,7 @@
               "3.3"
             ],
             "details": "Design:\n- ENV DEV_MODE=true enables relaxed guards for local development (e.g., skip CSRF for localhost), annotate responses dev_mode=true; never enabled in prod.\n- Enforce Secure cookies in prod; reject HTTP (redirect to HTTPS); disable detailed error traces in prod.\n- Feature flags for test OIDC provider.\nAPIs: N/A.\nCookies:\n- Validate cookie attributes vary by environment (Secure, SameSite strict in prod).\nErrors: N/A.\nAcceptance:\n- In dev: convenience features active and flagged; in prod: strict headers and cookies enforced; misconfiguration logs warnings and refuses to start if critical secrets missing.\nLogging:\n- audit_logs: config_loaded (env summary sans secrets).\n- security_events: insecure_config_detected (prod with insecure flags).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -460,7 +460,7 @@
               "3.8"
             ],
             "details": "Design:\n- Pages: /login, /register, /auth/oidc/callback, /auth/magic-link.\n- React Hook Form with dynamic validation mirroring backend policy; i18next with TR default and EN fallback; localized error handling.\n- Fetch flow: obtain CSRF token on app load; submit forms with X-CSRF-Token; store access token in memory (e.g., React state) and refresh via cookie.\nAPIs:\n- Calls backend: /auth/register, /auth/login, /auth/oidc/google/start, /auth/magic-link/request, /auth/magic-link/consume, /auth/csrf-token.\nCookies:\n- Reads CSRF cookie; backend manages refresh cookie; FE never stores refresh token.\nErrors:\n- Display localized messages for 401/403/429; map backend error codes to strings.\nAcceptance:\n- Turkish UI strings shown by default; validation errors inline; OIDC redirects correctly; magic link flow confirms email sent and consumes link successfully.\nLogging:\n- Client console/info logs minimized; no PII; send client telemetry (optional) with correlation ID if enabled.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -472,7 +472,7 @@
               "3.13"
             ],
             "details": "Design:\n- middleware.ts: check for access token presence/validity (e.g., via lightweight endpoint or JWT decode) and redirect to /login; call /license/me to detect expiry → redirect to /license with banner of remaining days.\n- Idle timer: logout after configurable inactivity (e.g., 15–30m); warn before logout; clear memory tokens and call /auth/logout.\nAPIs:\n- GET /license/me → {status: active|expired, days_remaining}.\n- POST /auth/logout.\nCookies:\n- None handled directly; access token held in memory; refresh cookie managed by backend.\nErrors:\n- Redirect on 401; display localized toast on ERR-RBAC-FORBIDDEN when navigating to admin routes.\nAcceptance:\n- Unauthenticated user is redirected; expired license redirects with banner; idle logout triggers and clears session.\nLogging:\n- Client-side event logs (non-PII) for guard redirects and idle logout (optional analytics).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -496,7 +496,7 @@
               "3.14"
             ],
             "details": "Design:\n- Playwright: register→login (pwd), MFA challenge, OIDC login via mocked Google, magic link request→consume, refresh rotation, logout, license guard redirects, idle logout.\n- Security: OWASP ZAP active scan against staging; CSRF negative tests; XSS reflection tests; rate-limit assertions (429 with Retry-After).\nAPIs: Exercise all relevant endpoints from other subtasks.\nCookies: Validate rt cookie attributes and CSRF cookie behaviors.\nErrors:\n- Assert specific codes/messages for failure paths (ERR-* from backend).\nAcceptance:\n- All happy paths pass; all negative paths return correct status and codes; ZAP reports no high/medium issues.\nLogging:\n- Verify audit/security events emitted for key actions and correlate via test-specific correlation IDs.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -521,7 +521,7 @@
               "3.15"
             ],
             "details": "Design:\n- API reference with schemas, error codes, and cookie attributes; sequence diagrams for login, refresh rotation, OIDC, magic link, MFA.\n- Security guide: CSRF model, XSS defenses, header policies, RBAC model, rate-limits.\n- Playbooks: JWT signing key rotation (kid, JWKS), refresh token compromise response (revoke chains), password pepper rotation strategy, OIDC client secret rotation, incident response steps, audit log review, backup/restore for auth tables.\nAPIs: N/A (documentation deliverables).\nCookies: Document rt and csrf attributes and lifetimes.\nErrors: Document canonical ERR-* codes.\nAcceptance:\n- Docs reviewed and approved; includes examples and cURL snippets; on-call runbooks actionable with checklists.\nLogging:\n- Include logging taxonomy and examples; mapping of events to alerting.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           }
         ]
@@ -537,7 +537,7 @@
           2,
           3
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -545,7 +545,7 @@
             "description": "Design license schema, enums, constraints, and lifecycle for assign/extend/cancel/expire with auditability.",
             "dependencies": [],
             "details": "Scope:\n- Define DB tables: licenses, license_audit.\n- licenses fields: id, user_id (FK), type ENUM('3m','6m','12m'), scope JSONB, status ENUM('active','expired','canceled'), reason TEXT NULL, starts_at TIMESTAMPTZ DEFAULT now(), ends_at TIMESTAMPTZ NOT NULL, canceled_at TIMESTAMPTZ NULL, created_at, updated_at.\n- Constraints: one active license per user (partial unique index on (user_id) WHERE status='active' AND ends_at>now()); indexes on (status, ends_at).\n- State transitions:\n  - assign: create active license with ends_at = starts_at + duration (3/6/12 months). Audit event 'license_assigned'.\n  - extend: only if status='active' and ends_at>=now(). On extend, ends_at += duration months (append, not reset). Audit 'license_extended' with delta.\n  - cancel: set status='canceled', reason, canceled_at=now(). Audit 'license_canceled'.\n  - expire: when now()>ends_at treat as expired (status may be updated lazily by middleware or via scheduled task). Audit 'license_expired'.\n- Invariants: cannot have overlapping active licenses per user; canceled/expired licenses are immutable except audit.\nFailure modes:\n- Invalid type, scope not JSON, attempt to assign when active exists, extend non-active, cancel already canceled.\nAcceptance criteria:\n- Data model migrates successfully; constraints enforce single active license; date math verified for 3/6/12 months; audit rows exist for each transition.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -555,8 +555,8 @@
             "dependencies": [
               "4.1"
             ],
-            "details": "Endpoints:\n- POST /license/assign\n  - Auth: admin can assign to any user; user can self-assign if allowed by business rules.\n  - Body: { user_id?: UUID, type: '3m'|'6m'|'12m', scope: object, starts_at?: RFC3339 }\n  - Headers: Idempotency-Key (optional but supported).\n  - Response: { license: { id, type, scope, status, starts_at, ends_at } }\n  - Errors: 409 ACTIVE_LICENSE_EXISTS, 400 INVALID_TYPE, 403 FORBIDDEN.\n- POST /license/extend\n  - Body: { user_id?: UUID, license_id?: UUID, type: '3m'|'6m'|'12m' }\n  - Response: { license_id, previous_ends_at, new_ends_at, added_months }\n  - Errors: 409 LIC_NOT_ACTIVE, 404 NOT_FOUND.\n- POST /license/cancel\n  - Body: { user_id?: UUID, license_id?: UUID, reason: string }\n  - Response: { license_id, status: 'canceled', canceled_at, reason }\n  - Errors: 409 ALREADY_CANCELED, 404 NOT_FOUND.\n- GET /license/me\n  - Response: { status, type?, ends_at?, remaining_days?, scope? }\nAudit:\n- Write audit entries for each API call with actor, target, before/after diffs, request_id.\nSecurity/RBAC:\n- Enforce role-based access; validate ownership for self-service.\nAcceptance criteria:\n- Schemas documented via OpenAPI; success and error responses match; audit rows created for all state changes; idempotent retry (same Idempotency-Key) does not duplicate operations.",
-            "status": "pending",
+            "details": "Endpoints:\n- POST /license/assign\n  - Auth: admin can assign to any user; user can self-assign if allowed by business rules.\n  - Body: { user_id?: UUID, type: '3m'|'6m'|'12m', scope: object, starts_at?: RFC3339 }\n  - Headers: Idempotency-Key (optional but supported).\n  - Response: { license: { id, type, scope, status, starts_at, ends_at } }\n  - Errors: 409 ACTIVE_LICENSE_EXISTS, 400 INVALID_TYPE, 403 FORBIDDEN.\n- POST /license/extend\n  - Body: { user_id?: UUID, license_id?: UUID, type: '3m'|'6m'|'12m' }\n  - Response: { license_id, previous_ends_at, new_ends_at, added_months }\n  - Errors: 409 LIC_NOT_ACTIVE, 404 NOT_FOUND.\n- POST /license/cancel\n  - Body: { user_id?: UUID, license_id?: UUID, reason: string }\n  - Response: { license_id, status: 'canceled', canceled_at, reason }\n  - Errors: 409 ALREADY_CANCELED, 404 NOT_FOUND.\n- GET /license/me\n  - Response: { status, type?, ends_at?, remaining_days?, scope? }\nAudit:\n- Write audit entries for each API call with actor, target, before/after diffs, request_id.\nSecurity/RBAC:\n- Enforce role-based access; validate ownership for self-service.\nAcceptance criteria:\n- Schemas documented via OpenAPI; success and error responses match; audit rows created for all state changes; idempotent retry (same Idempotency-Key) does not duplicate operations.\n<info added on 2025-08-18T18:26:44.021Z>\nImplementation completed and integrated:\n\n- Schemas (apps/api/app/schemas/license.py): LicenseAssignRequest/Response, LicenseExtendRequest/Response, LicenseCancelRequest/Response, LicenseMeResponse, LicenseErrorResponse with Turkish-localized messages and strict validation/error codes\n- Router (apps/api/app/routers/license.py): POST /license/assign, POST /license/extend, POST /license/cancel, GET /license/me with admin vs user RBAC and business-rule checks\n- Audit: full audit trail for all operations via LicenseService (actor, target, before/after diffs, request_id, unique operation IDs)\n- Idempotency: Idempotency-Key header supported (placeholder implementation) to prevent duplicate operations on retries\n- Security & Compliance: authorization enforced; client IP anonymization for KVKV; Turkish status/error localization\n- Integration: uses LicenseService from 4.1; router registered in main.py; works with existing JWT auth middleware\n- Spec alignment: request/response validation via Pydantic; error responses and codes match spec; OpenAPI reflects the schemas\n\nNote: Idempotency is a basic placeholder and can be hardened in a follow-up if needed.\n</info added on 2025-08-18T18:26:44.021Z>",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -567,8 +567,8 @@
               "4.1",
               "4.2"
             ],
-            "details": "Behavior:\n- Implement licenseGuard(request): fetch get_active_license(user). If none or ends_at<now() then raise HTTP 403 with code 'LIC_EXPIRED'.\n- Apply to all protected routes; exclude auth/health/webhook endpoints as needed.\n- On first detection of expiry per user, revoke sessions: update sessions set revoked_at=now() where user_id=? and revoked_at is null; emit audit 'sessions_revoked_license_expired'.\n- Provide helper GET /license/me for UI gating; include remaining_days calculation.\n- Ensure thread-safe single revocation per user via DB condition.\nFailure modes:\n- Clock skew; missing user; DB unavailable (fail closed with 403 unless route is excluded?).\nAcceptance criteria:\n- Expired users receive 403 LIC_EXPIRED across protected endpoints; sessions.revoked_at set; subsequent requests remain blocked; non-expired users unaffected; logs include request_id and user_id.",
-            "status": "pending",
+            "details": "Behavior:\n- Implement licenseGuard(request): fetch get_active_license(user). If none or ends_at<now() then raise HTTP 403 with code 'LIC_EXPIRED'.\n- Apply to all protected routes; exclude auth/health/webhook endpoints as needed.\n- On first detection of expiry per user, revoke sessions: update sessions set revoked_at=now() where user_id=? and revoked_at is null; emit audit 'sessions_revoked_license_expired'.\n- Provide helper GET /license/me for UI gating; include remaining_days calculation.\n- Ensure thread-safe single revocation per user via DB condition.\nFailure modes:\n- Clock skew; missing user; DB unavailable (fail closed with 403 unless route is excluded?).\nAcceptance criteria:\n- Expired users receive 403 LIC_EXPIRED across protected endpoints; sessions.revoked_at set; subsequent requests remain blocked; non-expired users unaffected; logs include request_id and user_id.\n<info added on 2025-08-18T19:17:01.129Z>\n- Implemented global license middleware with path exclusions (/auth, /health, /webhook) that invokes LicenseService.get_active_license(user_id); if missing or ends_at < now, responds 403 with code LIC_EXPIRED and localized TR message; fail-closed on DB errors\n- Integrated middleware into main stack after environment middleware and before other security middleware; continues to rely on JWT auth for user extraction\n- On first expiry detection per user, revoke sessions via SessionService.revoke_all_user_sessions(user_id) which updates sessions.revoked_at=now() where revoked_at IS NULL; guarded by an in-process processed set with lock plus DB condition to ensure single revocation\n- Emit audit event sessions_revoked_license_expired with user_id, license_id, request_id, and anonymized client IP; logs include request_id and user_id on all relevant code paths\n- Compliance enhancements: IP addresses in audit metadata are anonymized; LIC_EXPIRED responses are localized to Turkish\n- Helper GET /license/me remains available for UI gating and includes remaining_days\n- Test coverage added: middleware initialization and ordering; path exclusion behavior; expired vs active license responses; fail-closed behavior on DB errors; single revocation under concurrency; audit event emission with IP anonymization; integration with session and audit services\n- Verified acceptance criteria: expired users receive 403 LIC_EXPIRED across protected endpoints; sessions are marked revoked once and subsequent requests remain blocked; non-expired users unaffected; logs contain request_id and user_id\n</info added on 2025-08-18T19:17:01.129Z>",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -579,7 +579,7 @@
               "4.1"
             ],
             "details": "Data model:\n- invoices fields: id, user_id (FK), license_id (FK), number UNIQUE, amount NUMERIC(12,2), currency CHAR(3) DEFAULT 'TRY', vat NUMERIC(12,2), total NUMERIC(12,2), paid_status ENUM('unpaid','pending','paid','failed','refunded') DEFAULT 'unpaid', issued_at TIMESTAMPTZ DEFAULT now(), pdf_url TEXT NULL, provider_payment_id TEXT NULL, created_at, updated_at.\nNumbering:\n- Format: 'YYYYMM-SEQ-CNCAI' where YYYYMM = issued_at in UTC; SEQ is per-month incremental integer zero-padded (e.g., 000123). CNCAI is static suffix.\nCalculations:\n- vat = round(amount * 0.20, 2); total = amount + vat. Rounding mode: half up.\nLinkage:\n- One invoice per assign/extend event; store pointers to license and user.\nAcceptance criteria:\n- Invoices created with correct number format and amounts; currency fixed to TRY unless feature flag enables multi-currency; paid_status defaults to 'unpaid'.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -589,8 +589,8 @@
             "dependencies": [
               "4.4"
             ],
-            "details": "Rendering:\n- Default renderer: WeasyPrint (HTML template with CSS); fallback to ReportLab on failure.\nStorage:\n- Bucket: invoices/. Object key: invoices/{YYYY}/{MM}/{number}.pdf. Set object immutability (legal hold or retention policy) and content-type application/pdf.\n- Persist pdf_url in invoices table.\nDelivery:\n- Generate presigned GET URLs (TTL 2 minutes) for download endpoint GET /invoices/:id/pdf.\nTemplate:\n- Include invoice number, dates, seller/buyer info, line items (license type and duration), amount, VAT, total, currency 'TRY'.\nAudit:\n- Log PDF generated and uploaded with checksum.\nAcceptance criteria:\n- PDF renders identically across engines for sample data; object stored and marked immutable; presigned URL works and expires; pdf_url persisted and points to stored object.",
-            "status": "pending",
+            "details": "Rendering:\n- Default renderer: WeasyPrint (HTML template with CSS); fallback to ReportLab on failure.\nStorage:\n- Bucket: invoices/. Object key: invoices/{YYYY}/{MM}/{number}.pdf. Set object immutability (legal hold or retention policy) and content-type application/pdf.\n- Persist pdf_url in invoices table.\nDelivery:\n- Generate presigned GET URLs (TTL 2 minutes) for download endpoint GET /invoices/:id/pdf.\nTemplate:\n- Include invoice number, dates, seller/buyer info, line items (license type and duration), amount, VAT, total, currency 'TRY'.\nAudit:\n- Log PDF generated and uploaded with checksum.\nAcceptance criteria:\n- PDF renders identically across engines for sample data; object stored and marked immutable; presigned URL works and expires; pdf_url persisted and points to stored object.\n<info added on 2025-08-19T07:18:14.325Z>\n- Implementation complete with dual-renderer PDFService (WeasyPrint primary, ReportLab fallback) and Turkish-localized HTML/CSS templates\n- MinIO storage uses immutability metadata with legal hold attempts; checksum captured and recorded in audit logs; invoices.pdf_url persisted\n- API endpoints added and integrated into FastAPI: GET /api/v1/invoices/{id}/pdf and POST /api/v1/invoices/{id}/pdf/regenerate\n- Presigned GET URLs issued with 2-minute TTL; comprehensive error handling and structured audit logging for generation and upload events\n- Monetary values rendered using Decimal for exact precision\n- KVKK compliance observed (minimized PII in logs, short-lived URLs)\n- Test suite covers renderer fallback and equivalence for sample data, storage immutability, presigned URL expiry, audit checksum, and endpoint behaviors; all acceptance criteria validated and ready for deployment\n</info added on 2025-08-19T07:18:14.325Z>",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -601,7 +601,7 @@
               "4.4"
             ],
             "details": "Abstraction:\n- Interface PaymentProvider: create_intent(amount, currency, metadata), retrieve(id), confirm(id, params), verify_webhook(sig, payload).\n- payments table: id, invoice_id, provider, provider_payment_id, amount, currency, status ENUM('requires_action','processing','succeeded','failed','canceled','refunded'), raw_request/response JSONB, created_at, updated_at.\nAPI/Webhook:\n- POST /payments/intents { invoice_id } -> { client_secret, provider, provider_payment_id }.\n- POST /payments/webhook: verify signature, parse events (payment_intent.succeeded/failed/refunded). Idempotency by event_id with unique index.\n- On succeeded: set payments.status='succeeded', invoices.paid_status='paid', audit 'payment_succeeded'. On failed: set 'failed', invoices.paid_status='failed'.\n- Log and persist all provider responses (for audit).\nFailure modes:\n- Signature invalid -> 400; unknown invoice -> 404; duplicate webhook -> 200 no-op.\nAcceptance criteria:\n- Creating an intent returns usable client params; webhook updates invoice/payment states correctly; duplicate webhooks are ignored; all interactions audited.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -612,7 +612,7 @@
               "4.2"
             ],
             "details": "Providers:\n- Email: primary SMTP (e.g., Postmark via SMTP_URL), fallback SMTP or API client.\n- SMS: primary (Twilio) via SMS_API_KEY, fallback (Vonage).\nTemplating:\n- Templates for D-7, D-3, D-1 with variables: {user_name, days_remaining, ends_at, renewal_link}. SMS within 160 chars; Email HTML + plain text.\nPersistence:\n- notifications table: id, user_id, license_id, channel ENUM('email','sms'), template_id, days_out INT, status ENUM('queued','sent','failed'), provider, provider_id, error_text, created_at, sent_at.\nFallback:\n- On provider failure, try fallback provider once, record both attempts.\nConfig:\n- ENV: SMTP_URL, EMAIL_SENDER, SMS_API_KEY, SMS_SENDER.\nAcceptance criteria:\n- Sending works with primary provider; on simulated failure, fallback is used; notifications rows capture success/failure, provider_id, and timing; templates render with correct substitutions.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -624,7 +624,7 @@
               "4.7"
             ],
             "details": "Scheduling:\n- Celery Beat job daily 02:00 UTC: scan_licenses().\nLogic:\n- Query licenses where status='active' and (DATE(ends_at) - DATE(now())) IN (7,3,1).\n- For each, enqueue send_email_sms(user, license, days_out) task; insert notifications row with status='queued'. Prevent duplicates per (license_id, days_out, date) via unique key.\nIdempotency:\n- Use transaction + ON CONFLICT DO NOTHING to avoid duplicate enqueues.\nObservability:\n- Log counts by days_out; metrics for queued/sent/failed.\nAcceptance criteria:\n- With time frozen to D-7/3/1, notifications are enqueued once per license; reruns do not duplicate; notifications persisted with correct days_out.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -636,7 +636,7 @@
               "4.2"
             ],
             "details": "Behavior:\n- On detecting expiry in licenseGuard or a background watcher: update jobs set cancel_requested=true where user_id=? and status IN ('running','pending'); enqueue lightweight cancellation signal.\n- Workers: periodically check cancel_requested and stop after safe checkpoint; mark job as 'canceled' with reason 'license_expired'.\n- Persist audit events: 'license_expired_jobs_cancel_requested' with affected job IDs.\n- Provide admin endpoint GET /licenses/:id/impacted-jobs to review state.\nAcceptance criteria:\n- When a license expires, active jobs transition to canceling -> canceled without abrupt termination; audit lists impacted jobs; new job submissions are blocked by licenseGuard.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-17T20:02:04.948Z",
+      "updated": "2025-08-19T18:47:45.415Z",
       "description": "Tasks for master context"
     }
   }
