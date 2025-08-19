@@ -253,14 +253,16 @@ class TestLicenseGuardMiddleware:
     @patch('app.middleware.license_middleware.session_service.revoke_all_user_sessions')
     @patch('app.middleware.license_middleware.audit_service.log_business_event')
     async def test_revoke_user_sessions_on_expiry(self, mock_audit, mock_revoke_sessions, middleware, mock_request):
-        """Test session revocation on license expiry."""
+        """Test session revocation on license expiry with proper parameters."""
         # Setup mocks
         mock_db = Mock()
+        license_id = uuid.uuid4()
         mock_revoke_sessions.return_value = 3  # 3 sessions revoked
         mock_audit.return_value = AsyncMock()
         
+        # FIXED: Pass license_id as required by the updated method signature
         result = await middleware._revoke_user_sessions_on_expiry(
-            mock_db, 123, "192.168.1.xxx", "TestClient/1.0", "test-request-id"
+            mock_db, 123, license_id, "192.168.1.xxx", "TestClient/1.0", "test-request-id"
         )
         
         assert result is True
@@ -311,6 +313,31 @@ class TestLicenseGuardMiddleware:
         
         assert result3 is True
         assert is_license_expiry_processed(123, different_license_id) is True
+    
+    @pytest.mark.asyncio
+    async def test_revoke_user_sessions_with_invalid_params(self, middleware):
+        """Test proper validation of None parameters per Copilot feedback."""
+        mock_db = Mock()
+        
+        # Test with user_id = None (should be caught by is None check)
+        result1 = await middleware._revoke_user_sessions_on_expiry(
+            mock_db, None, uuid.uuid4(), "192.168.1.xxx", "TestClient/1.0", "test-request-id"
+        )
+        assert result1 is False
+        
+        # Test with license_id = None 
+        result2 = await middleware._revoke_user_sessions_on_expiry(
+            mock_db, 123, None, "192.168.1.xxx", "TestClient/1.0", "test-request-id"
+        )
+        assert result2 is False
+        
+        # Test with user_id = 0 (falsy but not None - should pass validation)
+        with patch('app.middleware.license_middleware.session_service.revoke_all_user_sessions', return_value=1):
+            with patch('app.middleware.license_middleware.audit_service.log_business_event', return_value=AsyncMock()):
+                result3 = await middleware._revoke_user_sessions_on_expiry(
+                    mock_db, 0, uuid.uuid4(), "192.168.1.xxx", "TestClient/1.0", "test-request-id"
+                )
+        assert result3 is True  # 0 is a valid user_id
     
     @pytest.mark.asyncio
     @patch('app.middleware.license_middleware.get_current_user_from_request')

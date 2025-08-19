@@ -103,7 +103,12 @@ def get_db_session_for_middleware():
                 "action": "error"
             }
         )
-        # Session rollback is handled by db_session context manager
+        # EXPLICIT: Per Gemini feedback, be clear about rollback behavior
+        # The db_session context manager from db.py automatically handles:
+        # 1. Session creation via SessionLocal()
+        # 2. Session cleanup via session.close() in finally block
+        # 3. Implicit rollback on exceptions (SQLAlchemy default behavior)
+        # No explicit rollback needed here as it's handled by SQLAlchemy
         raise
         
     except Exception as e:
@@ -117,7 +122,9 @@ def get_db_session_for_middleware():
                 "action": "unexpected_error"
             }
         )
-        # Session rollback is handled by db_session context manager
+        # EXPLICIT: Per Gemini feedback, be clear about rollback behavior
+        # The db_session context manager automatically handles rollback
+        # SQLAlchemy will rollback any uncommitted changes when an exception occurs
         raise
         
     finally:
@@ -357,7 +364,8 @@ class LicenseGuardMiddleware(BaseHTTPMiddleware):
             - Automatic retry capability on transient failures
         """
         # Validate inputs for defensive programming
-        if not user_id or not license_id:
+        # ENHANCED: Per Copilot feedback, use precise None checking for user_id
+        if user_id is None or license_id is None:
             logger.error(
                 "Invalid parameters for session revocation",
                 extra={
