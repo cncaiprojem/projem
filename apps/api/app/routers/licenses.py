@@ -118,7 +118,8 @@ async def assign_license(
         # Check for existing active license (will be blocked by unique constraint)
         existing_active = db.query(License).filter(
             License.user_id == request_data.user_id,
-            License.status == LicenseStatus.ACTIVE
+            License.status == LicenseStatus.ACTIVE,
+            License.ends_at > datetime.now(UTC)
         ).first()
 
         if existing_active:

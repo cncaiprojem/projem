@@ -34,13 +34,13 @@ def upgrade() -> None:
         sa.Column('request_path', sa.String(length=500), nullable=False, comment='API endpoint path'),
         sa.Column('request_method', sa.String(length=10), nullable=False, comment='HTTP method'),
         sa.Column('request_hash', sa.String(length=64), nullable=False, comment='SHA256 hash of request body'),
-        sa.Column('response_status', sa.Integer(), nullable=False, comment='HTTP response status code'),
+        sa.Column('response_status', sa.Integer(), nullable=True, comment='HTTP response status code'),
         sa.Column('response_body', postgresql.JSONB(astext_type=sa.Text()), nullable=True, comment='Cached response body'),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False, comment='When this idempotency key expires'),
         sa.Column('is_processing', sa.Boolean(), nullable=False, server_default='false', comment='Whether request is currently being processed'),
         sa.Column('processing_started_at', sa.DateTime(timezone=True), nullable=True, comment='When processing started (for timeout detection)'),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), onupdate=sa.text('CURRENT_TIMESTAMP'), nullable=False),
         sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
         comment='Store idempotency keys to prevent duplicate API operations'
@@ -85,7 +85,7 @@ def upgrade() -> None:
         sa.Column('locked_at', sa.DateTime(timezone=True), nullable=True, comment='When event was locked for processing'),
         sa.Column('locked_by', sa.String(length=100), nullable=True, comment='Worker ID that locked this event'),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
-        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), onupdate=sa.text('CURRENT_TIMESTAMP'), nullable=False),
         sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='SET NULL'),
         sa.PrimaryKeyConstraint('id'),
         comment='Track webhook events for deduplication and retry management'
@@ -116,12 +116,7 @@ def upgrade() -> None:
         postgresql_where=sa.text('locked_at IS NOT NULL')
     )
     
-    # Create unique constraint on event_id for deduplication
-    op.create_unique_constraint(
-        'uq_webhook_events_event_id',
-        'webhook_events',
-        ['event_id']
-    )
+    # Note: Unique constraint on event_id is already enforced by unique index above
     
     # Add unique constraint for one active license per user
     op.create_index(
@@ -167,7 +162,7 @@ def downgrade() -> None:
     op.drop_index('idx_webhook_events_entity_id', 'webhook_events')
     op.drop_index('idx_webhook_events_event_type', 'webhook_events')
     op.drop_index('idx_webhook_events_event_id', 'webhook_events')
-    op.drop_constraint('uq_webhook_events_event_id', 'webhook_events', type_='unique')
+    # Note: No need to drop separate unique constraint - it's handled by the unique index
     op.drop_table('webhook_events')
     
     # Drop idempotency_keys table and its indexes
