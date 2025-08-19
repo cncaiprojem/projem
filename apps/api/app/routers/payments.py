@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
@@ -11,13 +10,12 @@ from sqlalchemy.orm import Session
 
 from ..core.database import get_db
 from ..core.security import get_current_user
-from ..models.payment import Payment
 from ..models.user import User
 from ..schemas.payment import (
     PaymentIntentRequest,
     PaymentIntentResponse,
     PaymentStatusResponse,
-    WebhookResponse
+    WebhookResponse,
 )
 from ..services.payment_service import PaymentService
 from ..services.rate_limiting_service import RateLimitingService
@@ -44,16 +42,16 @@ async def create_payment_intent(
     """Create a payment intent for an invoice - Task 4.6 specification."""
     try:
         payment_service = PaymentService(db)
-        
+
         # Create payment intent
         payment, client_params = await payment_service.create_payment_intent(
             invoice_id=request.invoice_id,
             provider_name=request.provider
         )
-        
+
         # Commit the transaction atomically
         db.commit()
-        
+
         return PaymentIntentResponse(
             client_secret=client_params.get("client_secret"),
             provider=client_params["provider"],
@@ -61,7 +59,7 @@ async def create_payment_intent(
             amount_cents=client_params["amount_cents"],
             currency=client_params["currency"]
         )
-        
+
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -94,13 +92,13 @@ def get_payment_status(
     try:
         payment_service = PaymentService(db)
         payment = payment_service.get_payment_status(payment_id)
-        
+
         if not payment:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Payment {payment_id} not found"
             )
-        
+
         return PaymentStatusResponse(
             id=payment.id,
             invoice_id=payment.invoice_id,
@@ -112,7 +110,7 @@ def get_payment_status(
             created_at=payment.created_at,
             updated_at=payment.updated_at
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -137,7 +135,7 @@ async def process_webhook(
         # Apply rate limiting for webhooks
         rate_limiter = RateLimitingService()
         client_ip = request.client.host if request.client else "unknown"
-        
+
         if not await rate_limiter.check_rate_limit(
             key=f"webhook:{client_ip}",
             limit=100,  # 100 webhooks per minute per IP
@@ -147,18 +145,21 @@ async def process_webhook(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Rate limit exceeded for webhook processing"
             )
-        
+
         # Get webhook signature from headers
-        signature = request.headers.get("stripe-signature") or request.headers.get("webhook-signature", "")
+        signature = (
+            request.headers.get("stripe-signature") or
+            request.headers.get("webhook-signature", "")
+        )
         if not signature:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Missing webhook signature"
             )
-        
+
         # Get raw payload
         raw_payload = await request.body()
-        
+
         # Parse JSON payload
         try:
             parsed_payload = json.loads(raw_payload.decode('utf-8'))
@@ -167,12 +168,12 @@ async def process_webhook(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid JSON payload"
             )
-        
+
         # Determine provider from headers or payload
         provider = "stripe"  # Default to stripe
         if "mock" in request.headers.get("user-agent", "").lower():
             provider = "mock"
-        
+
         # Process webhook
         payment_service = PaymentService(db)
         result = payment_service.process_webhook_event(
@@ -181,11 +182,11 @@ async def process_webhook(
             payload=raw_payload,
             parsed_payload=parsed_payload
         )
-        
-        # Commit webhook processing transaction atomically
+
+        # Commit webhook processing transaction atomically on success
         if result["status"] == "success":
             db.commit()
-        
+
         if result["status"] == "error":
             # Determine appropriate HTTP status based on error type
             error_code = result.get("code", "")
@@ -197,12 +198,12 @@ async def process_webhook(
                 status_code = status.HTTP_404_NOT_FOUND
             else:
                 status_code = status.HTTP_500_INTERNAL_SERVER_ERROR
-                
+
             raise HTTPException(
                 status_code=status_code,
                 detail=result["message"]
             )
-        
+
         return WebhookResponse(
             status=result["status"],
             message=result["message"],
@@ -210,7 +211,7 @@ async def process_webhook(
             action=result.get("action"),
             code=result.get("code")
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
@@ -236,13 +237,13 @@ def get_payment_by_provider_id(
     try:
         payment_service = PaymentService(db)
         payment = payment_service.get_payment_by_provider_id(provider_name, provider_payment_id)
-        
+
         if not payment:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Payment not found for provider {provider_name} with ID {provider_payment_id}"
             )
-        
+
         return PaymentStatusResponse(
             id=payment.id,
             invoice_id=payment.invoice_id,
@@ -254,7 +255,7 @@ def get_payment_by_provider_id(
             created_at=payment.created_at,
             updated_at=payment.updated_at
         )
-        
+
     except HTTPException:
         raise
     except Exception as e:
