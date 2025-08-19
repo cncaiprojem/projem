@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from celery import Celery
+from celery.schedules import crontab
 from kombu import Exchange, Queue
 
 from ..config import settings
@@ -195,10 +196,7 @@ celery_app.conf.beat_schedule = {
     # Task 4.8: License notification scan - daily at 02:00 UTC
     "scan-licenses-for-notifications": {
         "task": "scan_licenses_for_notifications",
-        "schedule": {
-            "hour": 2,
-            "minute": 0
-        },
+        "schedule": crontab(hour=2, minute=0),  # Daily at 02:00 UTC
         "options": {
             "queue": "cpu",
             "priority": settings.queue_priority_normal

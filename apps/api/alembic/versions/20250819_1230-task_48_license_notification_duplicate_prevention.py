@@ -20,11 +20,13 @@ def upgrade() -> None:
     """Add unique constraint for license notification duplicate prevention."""
     
     # Add unique constraint per Task 4.8 requirements:
-    # Prevent duplicates per (license_id, days_out, channel, date)
+    # Prevent duplicates per (license_id, days_out, channel)
+    # Note: Removed date(created_at) from constraint for better database portability
+    # The business logic ensures only one notification per license/days_out/channel combination
     op.create_unique_constraint(
         'uq_notifications_delivery_no_duplicates',
         'notifications_delivery',
-        ['license_id', 'days_out', 'channel', sa.text('date(created_at)')],
+        ['license_id', 'days_out', 'channel'],
         postgresql_where=sa.text('license_id IS NOT NULL AND days_out IS NOT NULL')
     )
 
