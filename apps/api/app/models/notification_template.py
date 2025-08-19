@@ -125,7 +125,6 @@ class NotificationTemplate(Base, TimestampMixin):
             "type",
             "channel",
             "language",
-            "is_active",
             unique=True,
             postgresql_where="is_active = true",
         ),

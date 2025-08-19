@@ -100,13 +100,13 @@ Saygılarımızla,
                 subject = None
                 body = f"Merhaba {{{{user_name}}}}, {{{{license_type}}}} lisansınız {{{{days_remaining}}}} gün sonra sona eriyor. Yenileme: {{{{renewal_link}}}}"
 
-            # Map days_out to template type
-            if days_out == 7:
-                template_type = NotificationTemplateType.LICENSE_REMINDER_D7
-            elif days_out == 3:
-                template_type = NotificationTemplateType.LICENSE_REMINDER_D3
-            elif days_out == 1:
-                template_type = NotificationTemplateType.LICENSE_REMINDER_D1
+            # Map days_out to template type using dictionary for DRY principle
+            template_type_map = {
+                7: NotificationTemplateType.LICENSE_REMINDER_D7,
+                3: NotificationTemplateType.LICENSE_REMINDER_D3,
+                1: NotificationTemplateType.LICENSE_REMINDER_D1,
+            }
+            template_type = template_type_map[days_out]
 
             template = NotificationTemplate(
                 type=template_type,

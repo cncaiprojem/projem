@@ -52,6 +52,18 @@ class NotificationProvider(ABC):
     - Turkish character encoding support
     """
 
+    # Country code configuration for phone number formatting
+    COUNTRY_CODE_MAP = {
+        "TR": {"prefix": "90", "national_length": 10, "trunk_prefix": "0"},
+        "US": {"prefix": "1", "national_length": 10, "trunk_prefix": "1"},
+        "UK": {"prefix": "44", "national_length": 10, "trunk_prefix": "0"},
+        "DE": {"prefix": "49", "national_length": 11, "trunk_prefix": "0"},
+        "FR": {"prefix": "33", "national_length": 9, "trunk_prefix": "0"},
+        "IT": {"prefix": "39", "national_length": 10, "trunk_prefix": "0"},
+        "ES": {"prefix": "34", "national_length": 9, "trunk_prefix": "0"},
+        "NL": {"prefix": "31", "national_length": 9, "trunk_prefix": "0"},
+    }
+
     def __init__(self, provider_name: str, config: Dict[str, Any]):
         """Initialize provider with configuration.
 
@@ -148,18 +160,6 @@ class NotificationProvider(ABC):
         """
         # Default implementation - override in providers that support status checking
         return None
-
-    # Country code configuration for phone number formatting
-    COUNTRY_CODE_MAP = {
-        "TR": {"prefix": "90", "national_length": 10, "trunk_prefix": "0"},
-        "US": {"prefix": "1", "national_length": 10, "trunk_prefix": "1"},
-        "UK": {"prefix": "44", "national_length": 10, "trunk_prefix": "0"},
-        "DE": {"prefix": "49", "national_length": 11, "trunk_prefix": "0"},
-        "FR": {"prefix": "33", "national_length": 9, "trunk_prefix": "0"},
-        "IT": {"prefix": "39", "national_length": 10, "trunk_prefix": "0"},
-        "ES": {"prefix": "34", "national_length": 9, "trunk_prefix": "0"},
-        "NL": {"prefix": "31", "national_length": 9, "trunk_prefix": "0"},
-    }
 
     def format_phone_number(self, phone: str, default_country: str = "TR") -> str:
         """Format phone number to E.164 format.
