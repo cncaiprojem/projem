@@ -3,9 +3,12 @@ Invoice numbering service with atomic sequence generation.
 Task 4.11: Ensures unique, sequential invoice numbers with concurrency protection.
 """
 
+import hashlib
+import secrets
+import time
 from datetime import UTC, datetime
 
-from sqlalchemy import text
+from sqlalchemy import literal_string, text
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
@@ -17,12 +20,12 @@ logger = get_logger(__name__)
 
 class InvoiceNumberingService:
     """Generate unique invoice numbers with atomic operations and retry logic.
-    
+
     Invoice number format: YYYYMM-NNNNN-CNCAI
     - YYYYMM: Year and month
     - NNNNN: Sequential number padded to 5 digits
     - CNCAI: Company identifier suffix
-    
+
     Uses PostgreSQL sequences and advisory locks for concurrency control.
     """
 
@@ -39,14 +42,14 @@ class InvoiceNumberingService:
         invoice_date: datetime | None = None
     ) -> str:
         """Generate a unique invoice number with concurrency protection.
-        
+
         Args:
             db: Database session
             invoice_date: Date for the invoice (defaults to current date)
-            
+
         Returns:
             Unique invoice number in format YYYYMM-NNNNN-CNCAI
-            
+
         Raises:
             RuntimeError: If unable to generate unique number after retries
         """
@@ -56,9 +59,6 @@ class InvoiceNumberingService:
         year_month = invoice_date.strftime("%Y%m")
 
         # Try to generate with retry logic
-        import random
-        import time
-
         for attempt in range(self.MAX_RETRIES):
             try:
                 # Get next number using advisory lock
@@ -74,19 +74,19 @@ class InvoiceNumberingService:
 
                 if existing:
                     self.logger.warning(
-                        f"Invoice number collision detected: {invoice_number}, retrying",
+                        "Invoice number collision detected: %s, retrying", invoice_number,
                         extra={
                             "attempt": attempt + 1,
                             "invoice_number": invoice_number
                         }
                     )
                     # Exponential backoff with jitter
-                    backoff_time = self.BACKOFF_BASE * (2 ** attempt) + random.uniform(0, 0.1)
+                    backoff_time = self.BACKOFF_BASE * (2 ** attempt) + (secrets.randbits(8) / 2560.0)
                     time.sleep(backoff_time)
                     continue
 
                 self.logger.info(
-                    f"Generated invoice number: {invoice_number}",
+                    "Generated invoice number: %s", invoice_number,
                     extra={
                         "invoice_number": invoice_number,
                         "year_month": year_month,
@@ -98,7 +98,7 @@ class InvoiceNumberingService:
 
             except OperationalError as e:
                 self.logger.error(
-                    f"Database error generating invoice number, attempt {attempt + 1}",
+                    "Database error generating invoice number, attempt %d", attempt + 1,
                     exc_info=True,
                     extra={
                         "attempt": attempt + 1,
@@ -109,7 +109,7 @@ class InvoiceNumberingService:
 
                 if attempt < self.MAX_RETRIES - 1:
                     # Exponential backoff with jitter
-                    backoff_time = self.BACKOFF_BASE * (2 ** attempt) + random.uniform(0, 0.1)
+                    backoff_time = self.BACKOFF_BASE * (2 ** attempt) + (secrets.randbits(8) / 2560.0)
                     time.sleep(backoff_time)
                     db.rollback()  # Clear any failed transaction
                 else:
@@ -135,8 +135,10 @@ class InvoiceNumberingService:
             Next sequence number for the period
         """
         # Create a unique lock ID based on year-month
-        # Use hash to convert string to integer for advisory lock
-        lock_id = hash(f"invoice_seq_{year_month}") & 0x7FFFFFFF  # Ensure positive int32
+        # Use stable hash (MD5) to convert string to integer for advisory lock
+        # Python's hash() is not stable across processes, which can cause deadlocks
+        hash_bytes = hashlib.md5(f"invoice_seq_{year_month}".encode('utf-8')).digest()
+        lock_id = int.from_bytes(hash_bytes[:4], byteorder='big') & 0x7FFFFFFF  # Ensure positive int32
 
         try:
             # Acquire advisory lock (waits if another process has it)
@@ -149,8 +151,8 @@ class InvoiceNumberingService:
             seq_exists = db.execute(
                 text("""
                     SELECT EXISTS (
-                        SELECT 1 FROM pg_sequences 
-                        WHERE schemaname = 'public' 
+                        SELECT 1 FROM pg_sequences
+                        WHERE schemaname = 'public'
                         AND sequencename = :seq_name
                     )
                 """),
@@ -159,9 +161,11 @@ class InvoiceNumberingService:
 
             if not seq_exists:
                 # Create sequence starting at 1
+                # Use safe identifier formatting to prevent SQL injection
+                safe_seq_name = literal_string(seq_name)
                 db.execute(
                     text(f"""
-                        CREATE SEQUENCE IF NOT EXISTS {seq_name}
+                        CREATE SEQUENCE IF NOT EXISTS {safe_seq_name}
                         START WITH 1
                         INCREMENT BY 1
                         NO MAXVALUE
@@ -171,13 +175,14 @@ class InvoiceNumberingService:
                 db.commit()
 
                 self.logger.info(
-                    f"Created new invoice sequence: {seq_name}",
+                    "Created new invoice sequence: %s", seq_name,
                     extra={"sequence_name": seq_name}
                 )
 
-            # Get next value from sequence
+            # Get next value from sequence using safe identifier
+            safe_seq_name = literal_string(seq_name)
             next_val = db.execute(
-                text(f"SELECT nextval('{seq_name}')")
+                text(f"SELECT nextval({safe_seq_name})")
             ).scalar()
 
             return int(next_val)
@@ -186,9 +191,9 @@ class InvoiceNumberingService:
             # Always release advisory lock
             try:
                 db.execute(text("SELECT pg_advisory_unlock(:lock_id)"), {"lock_id": lock_id})
-            except Exception as e:
+            except Exception as e:  # Catch all exceptions to release lock safely
                 self.logger.warning(
-                    f"Failed to release advisory lock: {e}",
+                    "Failed to release advisory lock: %s", e,
                     extra={"lock_id": lock_id}
                 )
 
@@ -199,7 +204,7 @@ class InvoiceNumberingService:
         start_value: int = 1
     ) -> None:
         """Reset sequence for a given period (admin operation).
-        
+
         Args:
             db: Database session
             year_month: Year-month string (YYYYMM)
@@ -208,11 +213,12 @@ class InvoiceNumberingService:
         seq_name = f"invoice_seq_{year_month}"
 
         try:
-            # Drop and recreate sequence
-            db.execute(text(f"DROP SEQUENCE IF EXISTS {seq_name} CASCADE"))
+            # Drop and recreate sequence using safe identifier
+            safe_seq_name = literal_string(seq_name)
+            db.execute(text(f"DROP SEQUENCE IF EXISTS {safe_seq_name} CASCADE"))
             db.execute(
                 text(f"""
-                    CREATE SEQUENCE {seq_name}
+                    CREATE SEQUENCE {safe_seq_name}
                     START WITH :start_value
                     INCREMENT BY 1
                     NO MAXVALUE
@@ -223,7 +229,7 @@ class InvoiceNumberingService:
             db.commit()
 
             self.logger.info(
-                f"Reset invoice sequence: {seq_name} to {start_value}",
+                "Reset invoice sequence: %s to %d", seq_name, start_value,
                 extra={
                     "sequence_name": seq_name,
                     "start_value": start_value
@@ -233,7 +239,7 @@ class InvoiceNumberingService:
         except Exception as e:
             db.rollback()
             self.logger.error(
-                f"Failed to reset invoice sequence: {seq_name}",
+                "Failed to reset invoice sequence: %s", seq_name,
                 exc_info=True,
                 extra={
                     "sequence_name": seq_name,
@@ -248,11 +254,11 @@ class InvoiceNumberingService:
         year_month: str
     ) -> int | None:
         """Get current value of sequence without incrementing.
-        
+
         Args:
             db: Database session
             year_month: Year-month string (YYYYMM)
-            
+
         Returns:
             Current sequence value or None if sequence doesn't exist
         """
@@ -279,7 +285,7 @@ class InvoiceNumberingService:
 
         except Exception as e:
             self.logger.error(
-                f"Failed to get sequence value: {seq_name}",
+                "Failed to get sequence value: %s", seq_name,
                 exc_info=True,
                 extra={
                     "sequence_name": seq_name,
