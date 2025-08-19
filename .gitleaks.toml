@@ -1,0 +1,66 @@
+# Gitleaks Configuration
+# Ultra-enterprise security scanning for secrets
+
+title = "FreeCAD Platform Gitleaks Config"
+
+# Extend the base configuration
+[extend]
+useDefault = true
+
+# Additional custom rules for our project
+[[rules]]
+id = "turkish-id-number"
+description = "Turkish ID Number (TC Kimlik No)"
+regex = '''[1-9]\d{10}'''
+tags = ["PII", "Turkish", "KVKK"]
+
+[[rules]]
+id = "database-url"
+description = "Database Connection String"
+regex = '''(?i)(postgres|postgresql|mysql|mongodb|redis)://[^:]+:[^@]+@[^/]+'''
+tags = ["database", "credentials"]
+
+[[rules]]
+id = "jwt-token"
+description = "JWT Token"
+regex = '''eyJ[A-Za-z0-9-_=]+\.[A-Za-z0-9-_=]+\.?[A-Za-z0-9-_.+/=]*'''
+tags = ["jwt", "token"]
+
+[[rules]]
+id = "minio-credentials"
+description = "MinIO Access Credentials"
+regex = '''(?i)(minio|s3).*?(access|secret).*?[=:]\s*["']?[A-Za-z0-9+/]{20,}["']?'''
+tags = ["minio", "s3", "storage"]
+
+# Files to allowlist (ignore)
+[allowlist]
+description = "Global allowlist"
+paths = [
+    '''.env.example''',
+    '''docker-compose\..*\.yml''',
+    '''.*\.md''',
+    '''pyproject\.toml''',
+    '''\.gitleaks\.toml''',
+    '''package-lock\.json''',
+    '''pnpm-lock\.yaml''',
+    '''.*\.test\..*''',
+    '''.*\.spec\..*''',
+    '''infra/compose/data/.*''',  # Ignore development data
+]
+
+# Specific commits/files to ignore
+[[allowlist.commits]]
+commits = ["development", "test", "mock"]
+description = "Ignore commits with development/test in message"
+
+# Additional entropy checks
+[entropy]
+enabled = true
+# These are language-specific entropy thresholds
+[[entropy.groups]]
+regex = '''(?i)(api[_\-]?key|api[_\-]?secret|secret[_\-]?key)'''
+threshold = 4.5
+
+[[entropy.groups]]
+regex = '''(?i)(password|passwd|pwd)'''
+threshold = 4.5
