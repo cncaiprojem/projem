@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 import json
+import logging
+import time
+from datetime import datetime, timezone
+from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer
@@ -10,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from ..core.database import get_db
 from ..core.security import get_current_user
+from ..models.payment import Payment
 from ..models.user import User
 from ..schemas.payment import (
     PaymentIntentRequest,
@@ -19,12 +24,26 @@ from ..schemas.payment import (
 )
 from ..services.payment_service import PaymentService
 from ..services.rate_limiting_service import RateLimitingService
+from ..services.security_event_service import SecurityEventService
 
 # Initialize router
 router = APIRouter(prefix="/payments", tags=["payments"])
 
 # Security
 security = HTTPBearer()
+
+# Ultra-enterprise error code to HTTP status mapping for banking-grade error handling
+WEBHOOK_ERROR_STATUS_MAP = {
+    "invalid_signature": status.HTTP_400_BAD_REQUEST,
+    "missing_event_id": status.HTTP_400_BAD_REQUEST,
+    "missing_payment_id": status.HTTP_400_BAD_REQUEST,
+    "payment_not_found": status.HTTP_404_NOT_FOUND,
+    "integrity_violation": status.HTTP_409_CONFLICT,
+    "idempotency_error": status.HTTP_409_CONFLICT,
+    "critical_processing_error": status.HTTP_500_INTERNAL_SERVER_ERROR,
+    "unexpected_processing_error": status.HTTP_500_INTERNAL_SERVER_ERROR,
+    "webhook_rollback_failure": status.HTTP_500_INTERNAL_SERVER_ERROR,
+}
 
 
 def _determine_webhook_provider(request: Request) -> str:
@@ -37,14 +56,7 @@ def _determine_webhook_provider(request: Request) -> str:
 
 def _get_http_status_for_webhook_error(error_code: str) -> int:
     """Get appropriate HTTP status code for webhook error."""
-    if error_code == "invalid_signature":
-        return status.HTTP_400_BAD_REQUEST
-    elif error_code in ["missing_event_id", "missing_payment_id"]:
-        return status.HTTP_400_BAD_REQUEST
-    elif error_code == "payment_not_found":
-        return status.HTTP_404_NOT_FOUND
-    else:
-        return status.HTTP_500_INTERNAL_SERVER_ERROR
+    return WEBHOOK_ERROR_STATUS_MAP.get(error_code, status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @router.post(
@@ -103,7 +115,7 @@ async def create_payment_intent(
     summary="Get payment status",
     description="Get current payment status and details"
 )
-def get_payment_status(
+async def get_payment_status(
     payment_id: int,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
@@ -167,7 +179,10 @@ async def process_webhook(
             )
 
         # Get webhook signature from headers
-        signature = request.headers.get("stripe-signature") or request.headers.get("webhook-signature", "")
+        signature = (
+            request.headers.get("stripe-signature") or
+            request.headers.get("webhook-signature", "")
+        )
         if not signature:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -238,7 +253,7 @@ async def process_webhook(
     summary="Get payment by provider ID",
     description="Get payment details using provider payment ID"
 )
-def get_payment_by_provider_id(
+async def get_payment_by_provider_id(
     provider_name: str,
     provider_payment_id: str,
     db: Session = Depends(get_db),

@@ -34,6 +34,7 @@ celery_app = Celery(
         "app.tasks.m18_post",
         "app.tasks.maintenance",
         "app.tasks.monitoring",
+        "app.tasks.license_notifications",
     ],
 )
 
@@ -180,11 +181,29 @@ celery_app.conf.task_routes = {
         "priority": settings.queue_priority_background,
         "routing_key": "cpu"
     },
+    # Task 4.8: License notification routing
+    "app.tasks.license_notifications.*": {
+        "queue": "cpu",
+        "priority": settings.queue_priority_normal,
+        "routing_key": "cpu"
+    },
 }
 
 
 # Celery Beat Schedule konfigürasyonu
 celery_app.conf.beat_schedule = {
+    # Task 4.8: License notification scan - daily at 02:00 UTC
+    "scan-licenses-for-notifications": {
+        "task": "scan_licenses_for_notifications",
+        "schedule": {
+            "hour": 2,
+            "minute": 0
+        },
+        "options": {
+            "queue": "cpu",
+            "priority": settings.queue_priority_normal
+        }
+    },
     # Sistem sağlık kontrolü - her 5 dakikada
     "health-check": {
         "task": "app.tasks.maintenance.health_check",
