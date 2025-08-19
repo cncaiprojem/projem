@@ -32,10 +32,12 @@ pytest apps/api/tests/test_file.py::test_name  # Single test
 cd apps/web && pnpm test                    # Web unit tests
 cd apps/web && pnpm test:e2e               # Web E2E tests
 
-# Code quality
+# Code quality - IMPORTANT: Always run these before committing
 make lint                                    # Run all linters
 make fmt                                     # Auto-format all code
 ruff check apps/api --fix                   # Fix Python linting issues
+mypy apps/api/app                          # Type checking for Python
+gitleaks detect --source . --verbose       # Scan for secrets/credentials
 cd apps/web && pnpm typecheck              # TypeScript type checking
 
 # Smoke tests

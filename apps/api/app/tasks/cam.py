@@ -1,30 +1,27 @@
 from __future__ import annotations
 
-import json
 from datetime import datetime
 from pathlib import Path
-from typing import Dict
 
-from .worker import celery_app
+from billiard.exceptions import SoftTimeLimitExceeded
+from opentelemetry import trace
 
+from ..audit import audit
 from ..config import settings
 from ..db import db_session
-from ..logging_setup import get_logger
-from ..models import Job
-from ..storage import upload_and_sign, get_s3_client
-from ..freecad.service import detect_freecad
 from ..freecad.path_job import make_path_job
+from ..freecad.service import detect_freecad
+from ..logging_setup import get_logger
+from ..metrics import failures_total, job_latency_seconds, queue_wait_seconds, retried_total
+from ..models import Job
 from ..services.dlq import push_dead
-from ..audit import audit
-from ..metrics import job_latency_seconds, failures_total, queue_wait_seconds, retried_total
-from opentelemetry import trace
-from billiard.exceptions import SoftTimeLimitExceeded
-
+from ..storage import get_s3_client, upload_and_sign
+from .worker import celery_app
 
 logger = get_logger(__name__)
 
 
-def lint_gcode(text: str, params: Dict) -> Dict:
+def lint_gcode(text: str, params: dict) -> dict:
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     if not lines:
         raise RuntimeError("G-code boş")
@@ -69,7 +66,7 @@ def cam_generate(self, job_id: int) -> dict:
             return {"error": "job yok"}
         job.status = "running"
         job.started_at = datetime.utcnow()
-        params: Dict = job.metrics.get("params", {}) if job.metrics else {}
+        params: dict = job.metrics.get("params", {}) if job.metrics else {}
         assembly_job_id = params.get("assembly_job_id")
         s.commit()
 

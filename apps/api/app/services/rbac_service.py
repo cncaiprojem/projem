@@ -9,43 +9,44 @@ Business logic layer for Role-Based Access Control with:
 - Integration with existing authentication system
 """
 
-from typing import Optional, List, Dict, Any, Set, Tuple
-from datetime import datetime, timezone, timedelta
-from sqlalchemy.orm import Session as DBSession
-from sqlalchemy import and_, or_, func, desc
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
-from ..models.user import User
-from ..models.security_event import SecurityEvent
+from sqlalchemy import and_, desc, func
+from sqlalchemy.orm import Session as DBSession
+
+from ..core.logging import get_logger
+from ..middleware.rbac_middleware import RolePermissions
 from ..models.audit_log import AuditLog
-from ..models.enums import UserRole, AuditAction
+from ..models.enums import AuditAction, UserRole
+from ..models.security_event import SecurityEvent
+from ..models.user import User
 from ..schemas.rbac_schemas import (
     PermissionCheckResponse,
-    UserPermissionSummary,
-    SecurityEventResponse,
+    PermissionScope,
     RoleUpdateResponse,
+    SecurityEventResponse,
     SystemPermissionsResponse,
-    RolePermissions as RolePermissionsSchema,
-    PermissionScope
+    UserPermissionSummary,
 )
-from ..middleware.rbac_middleware import RolePermissions
-from ..core.logging import get_logger
+from ..schemas.rbac_schemas import RolePermissions as RolePermissionsSchema
 
 logger = get_logger(__name__)
 
 
 class RBACBusinessService:
     """Core business logic for RBAC operations."""
-    
+
     def __init__(self):
         self.permissions = RolePermissions()
-    
+
     def check_user_permission(
         self,
         db: DBSession,
         user_id: int,
         resource: str,
         action: str,
-        context: Optional[Dict[str, Any]] = None
+        context: dict[str, Any] | None = None
     ) -> PermissionCheckResponse:
         """
         Check if user has permission for specific resource/action.
@@ -60,8 +61,8 @@ class RBACBusinessService:
         Returns:
             PermissionCheckResponse with permission decision
         """
-        start_time = datetime.now(timezone.utc)
-        
+        start_time = datetime.now(UTC)
+
         # Get user from database
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
@@ -73,9 +74,9 @@ class RBACBusinessService:
                 reason="Kullanıcı bulunamadı",
                 user_role=UserRole.VIEWER,  # Default role for missing user
                 required_scope=f"{resource}:{action}",
-                check_timestamp=datetime.now(timezone.utc)
+                check_timestamp=datetime.now(UTC)
             )
-        
+
         # Check if user account is active
         if not user.is_active or user.is_account_locked():
             return PermissionCheckResponse(
@@ -86,21 +87,21 @@ class RBACBusinessService:
                 reason="Kullanıcı hesabı aktif değil veya kilitli",
                 user_role=user.role,
                 required_scope=f"{resource}:{action}",
-                check_timestamp=datetime.now(timezone.utc)
+                check_timestamp=datetime.now(UTC)
             )
-        
+
         # Construct required scope
         required_scope = f"{resource}:{action}"
-        
+
         # Check if user role has required scope
         has_permission = self.permissions.role_has_scope(user.role, required_scope)
-        
+
         # Admin always has permission
         if user.role == UserRole.ADMIN:
             has_permission = True
-        
-        elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-        
+
+        elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
         # Log permission check
         logger.info("Permission check completed", extra={
             'operation': 'check_user_permission',
@@ -112,7 +113,7 @@ class RBACBusinessService:
             'allowed': has_permission,
             'elapsed_ms': elapsed_ms
         })
-        
+
         return PermissionCheckResponse(
             user_id=user_id,
             resource=resource,
@@ -121,14 +122,14 @@ class RBACBusinessService:
             reason="İzin verildi" if has_permission else f"Gerekli kapsam: {required_scope}",
             user_role=user.role,
             required_scope=required_scope,
-            check_timestamp=datetime.now(timezone.utc)
+            check_timestamp=datetime.now(UTC)
         )
-    
+
     def get_user_permissions(
         self,
         db: DBSession,
         user_id: int
-    ) -> Optional[UserPermissionSummary]:
+    ) -> UserPermissionSummary | None:
         """
         Get comprehensive permission summary for user.
         
@@ -142,19 +143,19 @@ class RBACBusinessService:
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             return None
-        
+
         # Get scopes for user role
         user_scopes = list(self.permissions.get_scopes_for_role(user.role))
-        
+
         return UserPermissionSummary(
             user_id=user.id,
             role=user.role,
             scopes=user_scopes,
             is_admin=self.permissions.is_admin_role(user.role),
             is_active=user.is_active and not user.is_account_locked(),
-            last_permission_check=datetime.now(timezone.utc)
+            last_permission_check=datetime.now(UTC)
         )
-    
+
     def update_user_role(
         self,
         db: DBSession,
@@ -162,7 +163,7 @@ class RBACBusinessService:
         new_role: UserRole,
         updated_by_user_id: int,
         reason: str
-    ) -> Optional[RoleUpdateResponse]:
+    ) -> RoleUpdateResponse | None:
         """
         Update user role with audit logging.
         
@@ -179,13 +180,13 @@ class RBACBusinessService:
         user = db.query(User).filter(User.id == user_id).first()
         if not user:
             return None
-        
+
         old_role = user.role
-        
+
         # Update user role
         user.role = new_role
-        user.updated_at = datetime.now(timezone.utc)
-        
+        user.updated_at = datetime.now(UTC)
+
         # Create audit log entry
         audit_log = AuditLog(
             action=AuditAction.USER_UPDATE,
@@ -199,12 +200,12 @@ class RBACBusinessService:
                 }
             },
             reason=reason,
-            created_at=datetime.now(timezone.utc)
+            created_at=datetime.now(UTC)
         )
-        
+
         db.add(audit_log)
         db.commit()
-        
+
         logger.info("User role updated", extra={
             'operation': 'update_user_role',
             'user_id': user_id,
@@ -213,23 +214,23 @@ class RBACBusinessService:
             'updated_by': updated_by_user_id,
             'reason': reason
         })
-        
+
         return RoleUpdateResponse(
             user_id=user_id,
             old_role=old_role,
             new_role=new_role,
             updated_by=updated_by_user_id,
-            updated_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(UTC),
             reason=reason
         )
-    
+
     def create_security_event(
         self,
         db: DBSession,
         event_type: str,
-        user_id: Optional[int] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        user_id: int | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ) -> SecurityEventResponse:
         """
         Create security event for audit trail.
@@ -249,13 +250,13 @@ class RBACBusinessService:
             type=event_type,
             ip=ip_address,
             ua=user_agent[:1000] if user_agent else None,
-            created_at=datetime.now(timezone.utc)
+            created_at=datetime.now(UTC)
         )
-        
+
         db.add(security_event)
         db.commit()
         db.refresh(security_event)
-        
+
         logger.info("Security event created", extra={
             'operation': 'create_security_event',
             'event_id': security_event.id,
@@ -263,7 +264,7 @@ class RBACBusinessService:
             'user_id': user_id,
             'ip_address': ip_address
         })
-        
+
         return SecurityEventResponse(
             id=security_event.id,
             event_type=security_event.type,
@@ -271,17 +272,17 @@ class RBACBusinessService:
             ip_address=security_event.ip,
             created_at=security_event.created_at
         )
-    
+
     def get_security_events(
         self,
         db: DBSession,
-        user_id: Optional[int] = None,
-        event_types: Optional[List[str]] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        user_id: int | None = None,
+        event_types: list[str] | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 100,
         offset: int = 0
-    ) -> List[SecurityEventResponse]:
+    ) -> list[SecurityEventResponse]:
         """
         Get security events with filtering.
         
@@ -298,26 +299,26 @@ class RBACBusinessService:
             List of SecurityEventResponse
         """
         query = db.query(SecurityEvent)
-        
+
         # Apply filters
         if user_id:
             query = query.filter(SecurityEvent.user_id == user_id)
-        
+
         if event_types:
             query = query.filter(SecurityEvent.type.in_(event_types))
-        
+
         if start_date:
             query = query.filter(SecurityEvent.created_at >= start_date)
-        
+
         if end_date:
             query = query.filter(SecurityEvent.created_at <= end_date)
-        
+
         # Order by most recent first
         query = query.order_by(desc(SecurityEvent.created_at))
-        
+
         # Apply pagination
         events = query.offset(offset).limit(limit).all()
-        
+
         return [
             SecurityEventResponse(
                 id=event.id,
@@ -328,8 +329,8 @@ class RBACBusinessService:
             )
             for event in events
         ]
-    
-    def get_role_statistics(self, db: DBSession) -> Dict[str, int]:
+
+    def get_role_statistics(self, db: DBSession) -> dict[str, int]:
         """
         Get user count statistics by role.
         
@@ -345,18 +346,18 @@ class RBACBusinessService:
             .group_by(User.role)
             .all()
         )
-        
+
         stats = {}
         for role, count in result:
             stats[role.value] = count
-        
+
         # Include zero counts for all roles
         for role in UserRole:
             if role.value not in stats:
                 stats[role.value] = 0
-        
+
         return stats
-    
+
     def get_system_permissions(self, db: DBSession) -> SystemPermissionsResponse:
         """
         Get comprehensive system permission information.
@@ -372,18 +373,18 @@ class RBACBusinessService:
         for role in UserRole:
             scopes = self.permissions.get_scopes_for_role(role)
             hierarchy_level = self.permissions.ROLE_HIERARCHY.get(role, 0)
-            
+
             available_roles.append(RolePermissionsSchema(
                 role=role,
                 scopes=scopes,
                 hierarchy_level=hierarchy_level
             ))
-        
+
         # Build available scopes
         all_scopes = set()
         for role_scopes in self.permissions.ROLE_SCOPES.values():
             all_scopes.update(role_scopes)
-        
+
         available_scopes = []
         for scope in sorted(all_scopes):
             if ':' in scope:
@@ -394,29 +395,29 @@ class RBACBusinessService:
                     resource=resource,
                     action=action
                 ))
-        
+
         # Get role hierarchy
         role_hierarchy = {
-            role.value: level 
+            role.value: level
             for role, level in self.permissions.ROLE_HIERARCHY.items()
         }
-        
+
         # Get user statistics by role
         user_stats = self.get_role_statistics(db)
-        
+
         return SystemPermissionsResponse(
             available_roles=available_roles,
             available_scopes=available_scopes,
             role_hierarchy=role_hierarchy,
             total_users_by_role=user_stats,
-            last_updated=datetime.now(timezone.utc)
+            last_updated=datetime.now(UTC)
         )
-    
+
     def get_recent_security_events_summary(
         self,
         db: DBSession,
         hours: int = 24
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """
         Get summary of recent security events for monitoring.
         
@@ -427,8 +428,8 @@ class RBACBusinessService:
         Returns:
             Dictionary with security event summary
         """
-        cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
-        
+        cutoff_time = datetime.now(UTC) - timedelta(hours=hours)
+
         # Get event counts by type
         event_counts = (
             db.query(SecurityEvent.type, func.count(SecurityEvent.id))
@@ -436,7 +437,7 @@ class RBACBusinessService:
             .group_by(SecurityEvent.type)
             .all()
         )
-        
+
         # Get unique users with security events
         unique_users = (
             db.query(func.count(func.distinct(SecurityEvent.user_id)))
@@ -448,7 +449,7 @@ class RBACBusinessService:
             )
             .scalar()
         )
-        
+
         # Get unique IPs with security events
         unique_ips = (
             db.query(func.count(func.distinct(SecurityEvent.ip)))
@@ -460,17 +461,17 @@ class RBACBusinessService:
             )
             .scalar()
         )
-        
+
         # Get top event types
         top_events = dict(event_counts)
-        
+
         return {
             'time_window_hours': hours,
             'total_events': sum(top_events.values()),
             'unique_users_affected': unique_users or 0,
             'unique_source_ips': unique_ips or 0,
             'events_by_type': top_events,
-            'generated_at': datetime.now(timezone.utc).isoformat()
+            'generated_at': datetime.now(UTC).isoformat()
         }
 
 

@@ -1,17 +1,20 @@
 from __future__ import annotations
 
-from celery import shared_task
 import tempfile
 
+from celery import shared_task
+
 from ..db import SessionLocal
+
+
 # from ..models_project import Project, ProjectFile, FileKind, ProjectStatus  # Module not found
 # Temporary stub for missing models
 class Project: pass
-class ProjectFile: pass  
+class ProjectFile: pass
 class FileKind: pass
 class ProjectStatus: pass
-from ..storage import upload_and_sign
 from ..freecad.cad_build import build_from_plan
+from ..storage import upload_and_sign
 
 
 @shared_task(bind=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=3, acks_late=True, queue='cpu')

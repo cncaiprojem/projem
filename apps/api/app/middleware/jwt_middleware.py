@@ -10,29 +10,29 @@ This middleware implements banking-level JWT authentication with:
 - Integration with existing session management
 """
 
-from typing import Optional, List, Callable, Any
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 
-from fastapi import Request, HTTPException, status, Depends
-from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi import Depends, HTTPException, status
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session as DBSession
 
-from ..models.user import User
-from ..models.session import Session
-from ..services.jwt_service import jwt_service, JWTError, JWTErrorCode, JWTClaims
 from ..core.logging import get_logger
 from ..db import get_db
+from ..models.session import Session
+from ..models.user import User
+from ..services.jwt_service import JWTClaims, JWTError, JWTErrorCode, jwt_service
 
 logger = get_logger(__name__)
 
 
 class JWTAuthenticationError(HTTPException):
     """JWT authentication error with Turkish localization."""
-    
-    def __init__(self, code: str, message: str, details: Optional[dict] = None):
+
+    def __init__(self, code: str, message: str, details: dict | None = None):
         self.code = code
         self.details = details or {}
-        
+
         # Map error codes to HTTP status codes
         status_mapping = {
             JWTErrorCode.TOKEN_INVALID: status.HTTP_401_UNAUTHORIZED,
@@ -44,7 +44,7 @@ class JWTAuthenticationError(HTTPException):
             JWTErrorCode.TOKEN_WRONG_ALGORITHM: status.HTTP_401_UNAUTHORIZED,
             JWTErrorCode.SESSION_NOT_FOUND: status.HTTP_401_UNAUTHORIZED,
         }
-        
+
         super().__init__(
             status_code=status_mapping.get(code, status.HTTP_401_UNAUTHORIZED),
             detail={
@@ -57,39 +57,39 @@ class JWTAuthenticationError(HTTPException):
 
 class AuthenticatedUser:
     """Authenticated user information from JWT token."""
-    
+
     def __init__(self, user: User, session: Session, claims: JWTClaims):
         self.user = user
         self.session = session
         self.claims = claims
-        
+
         # Convenience properties
         self.user_id = user.id
         self.email = user.email
         self.role = user.role
         self.session_id = session.id
         self.scopes = claims.scopes
-    
+
     def has_scope(self, scope: str) -> bool:
         """Check if user has specific scope permission."""
         return scope in self.scopes
-    
-    def has_any_scope(self, scopes: List[str]) -> bool:
+
+    def has_any_scope(self, scopes: list[str]) -> bool:
         """Check if user has any of the specified scopes."""
         return any(scope in self.scopes for scope in scopes)
-    
-    def has_all_scopes(self, scopes: List[str]) -> bool:
+
+    def has_all_scopes(self, scopes: list[str]) -> bool:
         """Check if user has all of the specified scopes."""
         return all(scope in self.scopes for scope in scopes)
-    
+
     def is_admin(self) -> bool:
         """Check if user has admin role."""
         return str(self.role).lower() == 'admin'
-    
+
     def can_write(self) -> bool:
         """Check if user has write permissions."""
         return self.has_scope('write') or self.is_admin()
-    
+
     def can_delete(self) -> bool:
         """Check if user has delete permissions."""
         return self.has_scope('delete') or self.is_admin()
@@ -104,9 +104,9 @@ jwt_bearer_scheme = HTTPBearer(
 
 
 def get_current_user_optional(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(jwt_bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(jwt_bearer_scheme),
     db: DBSession = Depends(get_db)
-) -> Optional[AuthenticatedUser]:
+) -> AuthenticatedUser | None:
     """
     Get current authenticated user from JWT token (optional).
     Returns None if no token provided or token is invalid.
@@ -120,7 +120,7 @@ def get_current_user_optional(
     """
     if not credentials:
         return None
-    
+
     try:
         return _authenticate_user(credentials.credentials, db)
     except JWTAuthenticationError:
@@ -135,7 +135,7 @@ def get_current_user_optional(
 
 
 def get_current_user(
-    credentials: Optional[HTTPAuthorizationCredentials] = Depends(jwt_bearer_scheme),
+    credentials: HTTPAuthorizationCredentials | None = Depends(jwt_bearer_scheme),
     db: DBSession = Depends(get_db)
 ) -> AuthenticatedUser:
     """
@@ -157,7 +157,7 @@ def get_current_user(
             JWTErrorCode.TOKEN_INVALID,
             "Authorization header gerekli. Bearer token bulunamadı."
         )
-    
+
     return _authenticate_user(credentials.credentials, db)
 
 
@@ -181,7 +181,7 @@ def require_scopes(*required_scopes: str) -> Callable:
                 'user_scopes': current_user.scopes,
                 'required_scopes': list(required_scopes)
             })
-            
+
             raise JWTAuthenticationError(
                 'ERR-INSUFFICIENT-SCOPES',
                 f"Bu işlem için gerekli izinler: {', '.join(required_scopes)}",
@@ -190,9 +190,9 @@ def require_scopes(*required_scopes: str) -> Callable:
                     'user_scopes': current_user.scopes
                 }
             )
-        
+
         return current_user
-    
+
     return scope_dependency
 
 
@@ -212,15 +212,15 @@ def require_admin() -> Callable:
                 'user_id': current_user.user_id,
                 'user_role': str(current_user.role)
             })
-            
+
             raise JWTAuthenticationError(
                 'ERR-ADMIN-REQUIRED',
                 "Bu işlem için admin yetkisi gereklidir",
                 {'user_role': str(current_user.role)}
             )
-        
+
         return current_user
-    
+
     return admin_dependency
 
 
@@ -238,12 +238,12 @@ def _authenticate_user(token: str, db: DBSession) -> AuthenticatedUser:
     Raises:
         JWTAuthenticationError: If authentication fails
     """
-    start_time = datetime.now(timezone.utc)
-    
+    start_time = datetime.now(UTC)
+
     try:
         # Verify JWT token and get claims
         claims = jwt_service.verify_access_token(token, db)
-        
+
         # Get user from database
         user = db.query(User).filter(User.id == int(claims.sub)).first()
         if not user:
@@ -251,14 +251,14 @@ def _authenticate_user(token: str, db: DBSession) -> AuthenticatedUser:
                 'ERR-USER-NOT-FOUND',
                 "Token'da belirtilen kullanıcı bulunamadı"
             )
-        
+
         # Verify user is still active
         if not user.is_active:
             raise JWTAuthenticationError(
                 'ERR-USER-INACTIVE',
                 "Kullanıcı hesabı aktif değil"
             )
-        
+
         # Get session from database (should be cached from JWT verification)
         session = db.query(Session).filter(Session.id == claims.sid).first()
         if not session:
@@ -266,9 +266,9 @@ def _authenticate_user(token: str, db: DBSession) -> AuthenticatedUser:
                 JWTErrorCode.SESSION_NOT_FOUND,
                 "Token'a bağlı oturum bulunamadı"
             )
-        
-        elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-        
+
+        elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
         # Log successful authentication
         logger.info("JWT authentication successful", extra={
             'operation': 'jwt_authenticate_user',
@@ -278,23 +278,23 @@ def _authenticate_user(token: str, db: DBSession) -> AuthenticatedUser:
             'scopes': claims.scopes,
             'elapsed_ms': elapsed_ms
         })
-        
+
         return AuthenticatedUser(user, session, claims)
-        
+
     except JWTError as e:
         # Convert JWT service errors to authentication errors
         raise JWTAuthenticationError(e.code, e.message, e.details)
-    
+
     except JWTAuthenticationError:
         raise  # Re-raise authentication errors
-    
+
     except Exception as e:
         logger.error("JWT authentication failed", exc_info=True, extra={
             'operation': 'jwt_authenticate_user',
             'error_type': type(e).__name__,
             'token_preview': token[:20] + '...' if len(token) > 20 else token
         })
-        
+
         raise JWTAuthenticationError(
             'ERR-AUTH-FAILED',
             "Kimlik doğrulama başarısız",

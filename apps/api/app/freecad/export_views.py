@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 import os
-from typing import Dict
-import subprocess, json, tempfile
+import subprocess
+import tempfile
 
 
-def _run_fc_script(fcstd_path: str, out_dir: str) -> Dict[str, str]:
+def _run_fc_script(fcstd_path: str, out_dir: str) -> dict[str, str]:
     """FreeCADCmd içinde minimal Part projection → SVG (front/right/iso)."""
     script = f"""
 import FreeCAD as App
@@ -50,7 +50,7 @@ doc.close()
     return {"front": os.path.join(out_dir, "front.svg"), "right": os.path.join(out_dir, "right.svg"), "iso": os.path.join(out_dir, "iso.svg")}
 
 
-def project_views(fcstd_path: str, out_dir: str) -> Dict[str, str]:
+def project_views(fcstd_path: str, out_dir: str) -> dict[str, str]:
     os.makedirs(out_dir, exist_ok=True)
     try:
         return _run_fc_script(fcstd_path, out_dir)

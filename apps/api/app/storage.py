@@ -4,7 +4,6 @@ import hashlib
 import mimetypes
 from datetime import timedelta
 from pathlib import Path
-from typing import Optional
 
 import boto3
 import structlog
@@ -39,12 +38,12 @@ def upload_file(path: Path, key: str, bucket: str = None) -> str:
     """
     if bucket is None:
         bucket = settings.s3_bucket_name
-    
+
     try:
         # Use new S3 service
         s3_service = get_s3_service()
         ctype, _ = mimetypes.guess_type(str(path))
-        
+
         return s3_service.upload_file(
             local_path=path,
             bucket=bucket,
@@ -52,9 +51,9 @@ def upload_file(path: Path, key: str, bucket: str = None) -> str:
             content_type=ctype or "application/octet-stream"
         )
     except Exception as e:
-        logger.warning("New S3 service failed, falling back to legacy method", 
+        logger.warning("New S3 service failed, falling back to legacy method",
                       error=str(e), path=str(path), key=key)
-        
+
         # Fallback to legacy boto3 method
         s3 = get_s3_client()
         ctype, _ = mimetypes.guess_type(str(path))
@@ -63,7 +62,7 @@ def upload_file(path: Path, key: str, bucket: str = None) -> str:
         return key
 
 
-def presigned_url(key: str, expires: int = 3600, bucket: str = None) -> Optional[str]:
+def presigned_url(key: str, expires: int = 3600, bucket: str = None) -> str | None:
     """
     Generate presigned download URL using new S3 service with fallback.
     
@@ -77,7 +76,7 @@ def presigned_url(key: str, expires: int = 3600, bucket: str = None) -> Optional
     """
     if bucket is None:
         bucket = settings.s3_bucket_name
-    
+
     try:
         # Use new S3 service
         s3_service = get_s3_service()
@@ -88,9 +87,9 @@ def presigned_url(key: str, expires: int = 3600, bucket: str = None) -> Optional
         )
         return url
     except Exception as e:
-        logger.warning("New S3 service failed for presigned URL, falling back to legacy method", 
+        logger.warning("New S3 service failed for presigned URL, falling back to legacy method",
                       error=str(e), key=key, bucket=bucket)
-        
+
         try:
             # Fallback to legacy boto3 method
             s3 = get_s3_client()
@@ -118,17 +117,17 @@ def upload_and_sign(path: Path, artefact_type: str, bucket: str = None) -> dict:
     """
     if bucket is None:
         bucket = settings.s3_bucket_name
-        
+
     sha = hashlib.sha256(path.read_bytes()).hexdigest()
     size = path.stat().st_size
     key = f"artefacts/{path.name}"
-    
+
     # Upload file
     upload_file(path, key, bucket)
-    
+
     # Generate presigned URL
     url = presigned_url(key, bucket=bucket)
-    
+
     return {
         "type": artefact_type,
         "path": str(path),
@@ -140,7 +139,7 @@ def upload_and_sign(path: Path, artefact_type: str, bucket: str = None) -> dict:
     }
 
 
-def presigned_upload_url(key: str, expires: int = 3600, bucket: str = None, content_type: str = None) -> Optional[str]:
+def presigned_upload_url(key: str, expires: int = 3600, bucket: str = None, content_type: str = None) -> str | None:
     """
     Generate presigned upload URL using new S3 service.
     
@@ -155,7 +154,7 @@ def presigned_upload_url(key: str, expires: int = 3600, bucket: str = None, cont
     """
     if bucket is None:
         bucket = settings.s3_bucket_name
-    
+
     try:
         s3_service = get_s3_service()
         url = s3_service.generate_presigned_upload_url(
@@ -166,7 +165,7 @@ def presigned_upload_url(key: str, expires: int = 3600, bucket: str = None, cont
         )
         return url
     except Exception as e:
-        logger.error("Failed to generate presigned upload URL", 
+        logger.error("Failed to generate presigned upload URL",
                     error=str(e), key=key, bucket=bucket)
         return None
 
@@ -185,13 +184,13 @@ def download_file(key: str, local_path: Path, bucket: str = None) -> bool:
     """
     if bucket is None:
         bucket = settings.s3_bucket_name
-    
+
     try:
         s3_service = get_s3_service()
         s3_service.download_file(bucket, key, local_path)
         return True
     except Exception as e:
-        logger.error("Failed to download file", 
+        logger.error("Failed to download file",
                     error=str(e), key=key, bucket=bucket, local_path=str(local_path))
         return False
 
@@ -209,13 +208,13 @@ def delete_file(key: str, bucket: str = None) -> bool:
     """
     if bucket is None:
         bucket = settings.s3_bucket_name
-    
+
     try:
         s3_service = get_s3_service()
         s3_service.delete_object(bucket, key)
         return True
     except Exception as e:
-        logger.error("Failed to delete file", 
+        logger.error("Failed to delete file",
                     error=str(e), key=key, bucket=bucket)
         return False
 
@@ -233,12 +232,12 @@ def list_files(prefix: str = None, bucket: str = None) -> list:
     """
     if bucket is None:
         bucket = settings.s3_bucket_name
-    
+
     try:
         s3_service = get_s3_service()
         return s3_service.list_objects(bucket, prefix=prefix)
     except Exception as e:
-        logger.error("Failed to list files", 
+        logger.error("Failed to list files",
                     error=str(e), prefix=prefix, bucket=bucket)
         return []
 

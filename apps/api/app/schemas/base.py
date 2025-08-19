@@ -1,5 +1,4 @@
-from datetime import datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -17,7 +16,7 @@ class TokenPair(BaseModel):
 
 
 class UserOut(BaseModel):
-    id: Optional[int] = None
+    id: int | None = None
     email: str
     role: str = "engineer"
     locale: str = "tr"
@@ -25,22 +24,22 @@ class UserOut(BaseModel):
 
 class FreeCADDetectResponse(BaseModel):
     found: bool
-    path: Optional[str] = None
-    version: Optional[str] = None
-    asm4_available: Optional[bool] = None
-    message: Optional[str] = None
+    path: str | None = None
+    version: str | None = None
+    asm4_available: bool | None = None
+    message: str | None = None
 
 
 class JobMetrics(BaseModel):
     elapsed_ms: int
-    file_size: Optional[int] = None
-    object_count: Optional[int] = None
-    freecad_version: Optional[str] = None
+    file_size: int | None = None
+    object_count: int | None = None
+    freecad_version: str | None = None
 
 
 class ArtefactInfo(BaseModel):
-    path: Optional[str] = None
-    s3_key: Optional[str] = None
+    path: str | None = None
+    s3_key: str | None = None
 
 
 class JobResult(BaseModel):

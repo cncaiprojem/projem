@@ -11,28 +11,26 @@ FastAPI dependency injectors for RBAC enforcement with:
 - Turkish localized error messages
 """
 
-from typing import List, Callable, Optional, Union
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 
-from fastapi import Depends, Request, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session as DBSession
 
-from ..middleware.jwt_middleware import (
-    AuthenticatedUser, 
-    get_current_user, 
-    get_current_user_optional,
-    JWTAuthenticationError
-)
-from ..middleware.rbac_middleware import (
-    rbac_service,
-    RBACError,
-    RBACErrorCode,
-    create_security_event_in_db,
-    extract_request_metadata
-)
-from ..models.enums import UserRole
 from ..core.logging import get_logger
 from ..db import get_db
+from ..middleware.jwt_middleware import (
+    AuthenticatedUser,
+    get_current_user,
+    get_current_user_optional,
+)
+from ..middleware.rbac_middleware import (
+    RBACError,
+    create_security_event_in_db,
+    extract_request_metadata,
+    rbac_service,
+)
+from ..models.enums import UserRole
 
 logger = get_logger(__name__)
 
@@ -78,15 +76,15 @@ def require_auth() -> Callable:
         current_user: AuthenticatedUser = Depends(get_current_user),
         db: DBSession = Depends(get_db)
     ) -> AuthenticatedUser:
-        start_time = datetime.now(timezone.utc)
-        
+        start_time = datetime.now(UTC)
+
         try:
             # Check user account status
             rbac_service.check_user_active(current_user.user, request)
-            
+
             # Log successful authentication check
-            elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-            
+            elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
             logger.debug("Authentication check successful", extra={
                 'operation': 'require_auth',
                 'user_id': current_user.user_id,
@@ -94,14 +92,14 @@ def require_auth() -> Callable:
                 'elapsed_ms': elapsed_ms,
                 'endpoint': f"{request.method} {request.url.path}"
             })
-            
+
             return current_user
-            
+
         except RBACError:
             # Log security event for account status issues
             _log_rbac_security_event(db, request, current_user, "account_inactive")
             raise
-            
+
         except Exception as e:
             logger.error("Authentication check failed", exc_info=True, extra={
                 'operation': 'require_auth',
@@ -110,11 +108,11 @@ def require_auth() -> Callable:
                 'endpoint': f"{request.method} {request.url.path}"
             })
             raise
-    
+
     return auth_dependency
 
 
-def require_role(required_role: Union[UserRole, str]) -> Callable:
+def require_role(required_role: UserRole | str) -> Callable:
     """
     Dependency to require minimum user role.
     
@@ -133,14 +131,14 @@ def require_role(required_role: Union[UserRole, str]) -> Callable:
             required_role = UserRole(required_role.lower())
         except ValueError:
             raise ValueError(f"Invalid role: {required_role}")
-    
+
     async def role_dependency(
         request: Request,
         current_user: AuthenticatedUser = Depends(require_auth()),
         db: DBSession = Depends(get_db)
     ) -> AuthenticatedUser:
-        start_time = datetime.now(timezone.utc)
-        
+        start_time = datetime.now(UTC)
+
         try:
             # Check role permission
             rbac_service.check_role_permission(
@@ -149,9 +147,9 @@ def require_role(required_role: Union[UserRole, str]) -> Callable:
                 user_id=current_user.user_id,
                 request=request
             )
-            
-            elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-            
+
+            elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
             logger.debug("Role check successful", extra={
                 'operation': 'require_role',
                 'user_id': current_user.user_id,
@@ -160,14 +158,14 @@ def require_role(required_role: Union[UserRole, str]) -> Callable:
                 'elapsed_ms': elapsed_ms,
                 'endpoint': f"{request.method} {request.url.path}"
             })
-            
+
             return current_user
-            
-        except RBACError as e:
+
+        except RBACError:
             # Log security event for role access denial
             _log_rbac_security_event(db, request, current_user, "role_required")
             raise
-    
+
     return role_dependency
 
 
@@ -190,8 +188,8 @@ def require_scopes(*required_scopes: str, require_all: bool = True) -> Callable:
         current_user: AuthenticatedUser = Depends(require_auth()),
         db: DBSession = Depends(get_db)
     ) -> AuthenticatedUser:
-        start_time = datetime.now(timezone.utc)
-        
+        start_time = datetime.now(UTC)
+
         try:
             # Check scope permissions
             rbac_service.check_scope_permission(
@@ -201,9 +199,9 @@ def require_scopes(*required_scopes: str, require_all: bool = True) -> Callable:
                 request=request,
                 require_all=require_all
             )
-            
-            elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-            
+
+            elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
             logger.debug("Scope check successful", extra={
                 'operation': 'require_scopes',
                 'user_id': current_user.user_id,
@@ -213,14 +211,14 @@ def require_scopes(*required_scopes: str, require_all: bool = True) -> Callable:
                 'elapsed_ms': elapsed_ms,
                 'endpoint': f"{request.method} {request.url.path}"
             })
-            
+
             return current_user
-            
-        except RBACError as e:
+
+        except RBACError:
             # Log security event for scope access denial
             _log_rbac_security_event(db, request, current_user, "insufficient_scopes")
             raise
-    
+
     return scope_dependency
 
 
@@ -239,8 +237,8 @@ def require_admin() -> Callable:
         current_user: AuthenticatedUser = Depends(require_auth()),
         db: DBSession = Depends(get_db)
     ) -> AuthenticatedUser:
-        start_time = datetime.now(timezone.utc)
-        
+        start_time = datetime.now(UTC)
+
         try:
             # Check admin permission
             rbac_service.check_admin_permission(
@@ -248,9 +246,9 @@ def require_admin() -> Callable:
                 user_id=current_user.user_id,
                 request=request
             )
-            
-            elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-            
+
+            elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
             logger.debug("Admin check successful", extra={
                 'operation': 'require_admin',
                 'user_id': current_user.user_id,
@@ -258,14 +256,14 @@ def require_admin() -> Callable:
                 'elapsed_ms': elapsed_ms,
                 'endpoint': f"{request.method} {request.url.path}"
             })
-            
+
             return current_user
-            
-        except RBACError as e:
+
+        except RBACError:
             # Log security event for admin access denial
             _log_rbac_security_event(db, request, current_user, "admin_required")
             raise
-    
+
     return admin_dependency
 
 
@@ -348,23 +346,23 @@ def optional_auth() -> Callable:
     """
     async def optional_auth_dependency(
         request: Request,
-        current_user: Optional[AuthenticatedUser] = Depends(get_current_user_optional),
+        current_user: AuthenticatedUser | None = Depends(get_current_user_optional),
         db: DBSession = Depends(get_db)
-    ) -> Optional[AuthenticatedUser]:
+    ) -> AuthenticatedUser | None:
         if current_user:
             try:
                 # Check user account status if authenticated
                 rbac_service.check_user_active(current_user.user, request)
-                
+
                 logger.debug("Optional authentication successful", extra={
                     'operation': 'optional_auth',
                     'user_id': current_user.user_id,
                     'role': current_user.role.value,
                     'endpoint': f"{request.method} {request.url.path}"
                 })
-                
+
                 return current_user
-                
+
             except RBACError:
                 # Return None for inactive accounts in optional auth
                 logger.info("Optional authentication failed - inactive account", extra={
@@ -373,9 +371,9 @@ def optional_auth() -> Callable:
                     'endpoint': f"{request.method} {request.url.path}"
                 })
                 return None
-        
+
         return None
-    
+
     return optional_auth_dependency
 
 

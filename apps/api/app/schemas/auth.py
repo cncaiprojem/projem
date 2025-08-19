@@ -4,13 +4,14 @@ These schemas define the API contracts for authentication endpoints including JW
 """
 
 from datetime import datetime
-from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, EmailStr, Field, validator, root_validator
+from typing import Any
+
+from pydantic import BaseModel, EmailStr, Field, root_validator, validator
 
 
 class UserRegisterRequest(BaseModel):
     """User registration request schema."""
-    
+
     email: EmailStr = Field(
         ...,
         description="Kullanıcı e-posta adresi",
@@ -23,7 +24,7 @@ class UserRegisterRequest(BaseModel):
         description="Kullanıcı şifresi (en az 12 karakter)",
         example="GüçlüŞifre123!"
     )
-    full_name: Optional[str] = Field(
+    full_name: str | None = Field(
         None,
         min_length=2,
         max_length=255,
@@ -38,12 +39,12 @@ class UserRegisterRequest(BaseModel):
         False,
         description="Pazarlama iletişimi rızası (isteğe bağlı)"
     )
-    
+
     @validator('email')
     def validate_email(cls, v):
         """Validate and normalize email."""
         return v.lower().strip()
-    
+
     @validator('full_name')
     def validate_full_name(cls, v):
         """Validate full name if provided."""
@@ -52,7 +53,7 @@ class UserRegisterRequest(BaseModel):
             if len(v) < 2:
                 raise ValueError('Tam ad en az 2 karakter olmalıdır')
         return v
-    
+
     @root_validator
     def validate_required_consent(cls, values):
         """Ensure required KVKK consent is given."""
@@ -63,7 +64,7 @@ class UserRegisterRequest(BaseModel):
 
 class UserRegisterResponse(BaseModel):
     """User registration response schema."""
-    
+
     user_id: int = Field(..., description="Oluşturulan kullanıcı ID'si")
     email: str = Field(..., description="Kullanıcı e-posta adresi")
     message: str = Field(
@@ -74,7 +75,7 @@ class UserRegisterResponse(BaseModel):
 
 class UserLoginRequest(BaseModel):
     """User login request schema."""
-    
+
     email: EmailStr = Field(
         ...,
         description="Kullanıcı e-posta adresi",
@@ -87,20 +88,20 @@ class UserLoginRequest(BaseModel):
         description="Kullanıcı şifresi",
         example="GüçlüŞifre123!"
     )
-    device_fingerprint: Optional[str] = Field(
+    device_fingerprint: str | None = Field(
         None,
         max_length=512,
         description="Cihaz parmak izi (güvenlik için)",
         example="fp_123abc..."
     )
-    mfa_code: Optional[str] = Field(
+    mfa_code: str | None = Field(
         None,
         min_length=6,
         max_length=8,
         description="İki faktörlü doğrulama kodu (gerekirse)",
         example="123456"
     )
-    
+
     @validator('email')
     def validate_email(cls, v):
         """Validate and normalize email."""
@@ -109,19 +110,19 @@ class UserLoginRequest(BaseModel):
 
 class UserLoginResponse(BaseModel):
     """User login response schema."""
-    
+
     access_token: str = Field(..., description="JWT erişim token'ı")
     token_type: str = Field(default="bearer", description="Token türü")
     expires_in: int = Field(..., description="Token geçerlilik süresi (saniye)")
     user_id: int = Field(..., description="Kullanıcı ID'si")
     email: str = Field(..., description="Kullanıcı e-posta adresi")
-    full_name: Optional[str] = Field(None, description="Kullanıcı tam adı")
+    full_name: str | None = Field(None, description="Kullanıcı tam adı")
     role: str = Field(..., description="Kullanıcı rolü")
-    mfa_required: Optional[bool] = Field(
+    mfa_required: bool | None = Field(
         None,
         description="İki faktörlü doğrulama gerekli mi?"
     )
-    password_must_change: Optional[bool] = Field(
+    password_must_change: bool | None = Field(
         None,
         description="Şifre değiştirilmeli mi?"
     )
@@ -129,7 +130,7 @@ class UserLoginResponse(BaseModel):
 
 class PasswordStrengthRequest(BaseModel):
     """Password strength check request schema."""
-    
+
     password: str = Field(
         ...,
         min_length=1,
@@ -141,7 +142,7 @@ class PasswordStrengthRequest(BaseModel):
 
 class PasswordStrengthResponse(BaseModel):
     """Password strength check response schema."""
-    
+
     score: int = Field(
         ...,
         ge=0,
@@ -152,7 +153,7 @@ class PasswordStrengthResponse(BaseModel):
         ...,
         description="Şifre minimum gereksinimleri karşılıyor mu?"
     )
-    feedback: List[str] = Field(
+    feedback: list[str] = Field(
         ...,
         description="Şifre iyileştirme önerileri",
         example=["Şifre en az 12 karakter olmalıdır", "Özel karakter ekleyin"]
@@ -161,13 +162,13 @@ class PasswordStrengthResponse(BaseModel):
 
 class PasswordForgotRequest(BaseModel):
     """Password forgot/reset initiation request schema."""
-    
+
     email: EmailStr = Field(
         ...,
         description="Şifre sıfırlanacak e-posta adresi",
         example="kullanici@example.com"
     )
-    
+
     @validator('email')
     def validate_email(cls, v):
         """Validate and normalize email."""
@@ -176,7 +177,7 @@ class PasswordForgotRequest(BaseModel):
 
 class PasswordForgotResponse(BaseModel):
     """Password forgot response schema."""
-    
+
     message: str = Field(
         default="Şifre sıfırlama bağlantısı e-posta adresinize gönderildi.",
         description="Başarı mesajı"
@@ -185,7 +186,7 @@ class PasswordForgotResponse(BaseModel):
 
 class PasswordResetRequest(BaseModel):
     """Password reset completion request schema."""
-    
+
     token: str = Field(
         ...,
         min_length=32,
@@ -204,7 +205,7 @@ class PasswordResetRequest(BaseModel):
 
 class PasswordResetResponse(BaseModel):
     """Password reset completion response schema."""
-    
+
     message: str = Field(
         default="Şifre başarıyla güncellendi.",
         description="Başarı mesajı"
@@ -214,7 +215,7 @@ class PasswordResetResponse(BaseModel):
 
 class AuthErrorResponse(BaseModel):
     """Authentication error response schema."""
-    
+
     error_code: str = Field(
         ...,
         description="Hata kodu",
@@ -225,7 +226,7 @@ class AuthErrorResponse(BaseModel):
         description="Hata mesajı",
         example="E-posta adresi veya şifre hatalı"
     )
-    details: Optional[Dict[str, Any]] = Field(
+    details: dict[str, Any] | None = Field(
         None,
         description="Ek hata detayları"
     )
@@ -233,18 +234,18 @@ class AuthErrorResponse(BaseModel):
 
 class UserProfileResponse(BaseModel):
     """User profile response schema."""
-    
+
     user_id: int = Field(..., description="Kullanıcı ID'si")
     email: str = Field(..., description="E-posta adresi")
-    full_name: Optional[str] = Field(None, description="Tam ad")
-    display_name: Optional[str] = Field(None, description="Görünen ad")
+    full_name: str | None = Field(None, description="Tam ad")
+    display_name: str | None = Field(None, description="Görünen ad")
     role: str = Field(..., description="Kullanıcı rolü")
     account_status: str = Field(..., description="Hesap durumu")
     is_email_verified: bool = Field(..., description="E-posta doğrulandı mı?")
     locale: str = Field(..., description="Dil ayarı")
     timezone: str = Field(..., description="Zaman dilimi")
     created_at: datetime = Field(..., description="Hesap oluşturma tarihi")
-    last_login_at: Optional[datetime] = Field(None, description="Son giriş tarihi")
+    last_login_at: datetime | None = Field(None, description="Son giriş tarihi")
     total_login_count: int = Field(..., description="Toplam giriş sayısı")
     data_processing_consent: bool = Field(..., description="KVKK veri işleme rızası")
     marketing_consent: bool = Field(..., description="Pazarlama iletişimi rızası")
@@ -252,20 +253,20 @@ class UserProfileResponse(BaseModel):
 
 class SecurityEventResponse(BaseModel):
     """Security event response schema for audit logs."""
-    
+
     event_id: int = Field(..., description="Güvenlik olayı ID'si")
     event_type: str = Field(..., description="Olay türü")
     timestamp: datetime = Field(..., description="Olay zamanı")
-    ip_address: Optional[str] = Field(None, description="IP adresi (maskelenmiş)")
-    user_agent: Optional[str] = Field(None, description="Kullanıcı aracısı")
-    details: Dict[str, Any] = Field(..., description="Olay detayları")
+    ip_address: str | None = Field(None, description="IP adresi (maskelenmiş)")
+    user_agent: str | None = Field(None, description="Kullanıcı aracısı")
+    details: dict[str, Any] = Field(..., description="Olay detayları")
 
 
 # Task 3.3: JWT Token Management Schemas
 
 class TokenRefreshResponse(BaseModel):
     """JWT token refresh response schema."""
-    
+
     access_token: str = Field(..., description="Yeni JWT erişim token'ı")
     token_type: str = Field(default="bearer", description="Token türü")
     expires_in: int = Field(..., description="Token geçerlilik süresi (saniye)")
@@ -273,7 +274,7 @@ class TokenRefreshResponse(BaseModel):
 
 class LogoutResponse(BaseModel):
     """Logout response schema."""
-    
+
     message: str = Field(
         default="Oturum başarıyla kapatıldı",
         description="Başarı mesajı"
@@ -282,7 +283,7 @@ class LogoutResponse(BaseModel):
 
 class LogoutAllResponse(BaseModel):
     """Logout all sessions response schema."""
-    
+
     message: str = Field(
         default="Tüm oturumlar başarıyla kapatıldı",
         description="Başarı mesajı"
@@ -292,14 +293,14 @@ class LogoutAllResponse(BaseModel):
 
 class SessionInfo(BaseModel):
     """Session information schema."""
-    
+
     session_id: str = Field(..., description="Oturum ID'si")
     created_at: datetime = Field(..., description="Oluşturulma zamanı")
-    last_used_at: Optional[datetime] = Field(None, description="Son kullanım zamanı")
+    last_used_at: datetime | None = Field(None, description="Son kullanım zamanı")
     expires_at: datetime = Field(..., description="Geçerlilik sonu")
     is_current: bool = Field(..., description="Mevcut oturum mu?")
-    device_fingerprint: Optional[str] = Field(None, description="Cihaz parmak izi (kısaltılmış)")
-    ip_address: Optional[str] = Field(None, description="IP adresi (maskelenmiş)")
+    device_fingerprint: str | None = Field(None, description="Cihaz parmak izi (kısaltılmış)")
+    ip_address: str | None = Field(None, description="IP adresi (maskelenmiş)")
     is_suspicious: bool = Field(..., description="Şüpheli oturum mu?")
     age_days: int = Field(..., description="Oturum yaşı (gün)")
     expires_in_days: int = Field(..., description="Geçerlilik süresi (gün)")
@@ -307,8 +308,8 @@ class SessionInfo(BaseModel):
 
 class ActiveSessionsResponse(BaseModel):
     """Active sessions list response schema."""
-    
-    sessions: List[SessionInfo] = Field(..., description="Aktif oturum listesi")
+
+    sessions: list[SessionInfo] = Field(..., description="Aktif oturum listesi")
     total_count: int = Field(..., description="Toplam oturum sayısı")
     current_session_id: str = Field(..., description="Mevcut oturum ID'si")
 
@@ -326,7 +327,7 @@ AUTH_ERROR_CODES = {
     'ERR-AUTH-REGISTRATION-FAILED': 'Kayıt işlemi başarısız',
     'ERR-AUTH-RESET-FAILED': 'Şifre sıfırlama işlemi başarısız',
     'ERR-AUTH-SYSTEM-ERROR': 'Sistem hatası',
-    
+
     # Task 3.3: JWT-specific error codes
     'ERR-TOKEN-INVALID': 'Geçersiz token',
     'ERR-TOKEN-EXPIRED': 'Token süresi dolmuş',
@@ -341,7 +342,7 @@ AUTH_ERROR_CODES = {
     'ERR-SESSION-NOT-FOUND': 'Oturum bulunamadı',
     'ERR-INSUFFICIENT-SCOPES': 'Yetersiz yetki',
     'ERR-ADMIN-REQUIRED': 'Admin yetkisi gerekli',
-    
+
     # Task 3.6: Magic Link error codes
     'ERR-ML-MALFORMED': 'Magic link formatı geçersiz',
     'ERR-ML-INVALID': 'Magic link geçersiz',

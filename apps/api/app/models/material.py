@@ -3,12 +3,9 @@ Material model for machining material database.
 """
 
 from decimal import Decimal
-from typing import Optional
 
-from sqlalchemy import (
-    String, Integer, Index,
-    Numeric, CheckConstraint, Enum as SQLEnum
-)
+from sqlalchemy import CheckConstraint, Index, Integer, Numeric, String
+from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -18,12 +15,12 @@ from .enums import MaterialCategory
 
 class Material(Base, TimestampMixin):
     """Material database for machining."""
-    
+
     __tablename__ = "materials"
-    
+
     # Primary key
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    
+
     # Material identification
     category: Mapped[MaterialCategory] = mapped_column(
         SQLEnum(MaterialCategory),
@@ -35,33 +32,33 @@ class Material(Base, TimestampMixin):
         nullable=False,
         index=True
     )
-    grade: Mapped[Optional[str]] = mapped_column(String(50))
-    
+    grade: Mapped[str | None] = mapped_column(String(50))
+
     # Physical properties
-    density_g_cm3: Mapped[Optional[Decimal]] = mapped_column(
+    density_g_cm3: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 3)
     )
-    hardness_hb: Mapped[Optional[int]] = mapped_column(Integer)
-    tensile_strength_mpa: Mapped[Optional[int]] = mapped_column(Integer)
-    
+    hardness_hb: Mapped[int | None] = mapped_column(Integer)
+    tensile_strength_mpa: Mapped[int | None] = mapped_column(Integer)
+
     # Machining properties
-    machinability_rating: Mapped[Optional[int]] = mapped_column(Integer)
-    cutting_speed_m_min: Mapped[Optional[Decimal]] = mapped_column(
+    machinability_rating: Mapped[int | None] = mapped_column(Integer)
+    cutting_speed_m_min: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2)
     )
-    feed_rate_mm_tooth: Mapped[Optional[Decimal]] = mapped_column(
+    feed_rate_mm_tooth: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 4)
     )
-    
+
     # Additional properties
-    properties: Mapped[Optional[dict]] = mapped_column(JSONB)
-    
+    properties: Mapped[dict | None] = mapped_column(JSONB)
+
     # Cost information
-    cost_per_kg: Mapped[Optional[Decimal]] = mapped_column(
+    cost_per_kg: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2)
     )
-    supplier: Mapped[Optional[str]] = mapped_column(String(255))
-    
+    supplier: Mapped[str | None] = mapped_column(String(255))
+
     # Constraints and indexes
     __table_args__ = (
         CheckConstraint('density_g_cm3 > 0',
@@ -82,10 +79,10 @@ class Material(Base, TimestampMixin):
               postgresql_using='gin',
               postgresql_where='properties IS NOT NULL'),
     )
-    
+
     def __repr__(self) -> str:
         return f"<Material(id={self.id}, name={self.name}, category={self.category.value})>"
-    
+
     @property
     def is_metal(self) -> bool:
         """Check if material is a metal."""
@@ -104,7 +101,7 @@ class Material(Base, TimestampMixin):
             MaterialCategory.MAGNESIUM
         ]
         return self.category in metal_categories
-    
+
     @property
     def is_plastic(self) -> bool:
         """Check if material is a plastic."""
@@ -114,7 +111,7 @@ class Material(Base, TimestampMixin):
             MaterialCategory.PLASTIC_FIBER
         ]
         return self.category in plastic_categories
-    
+
     @property
     def is_wood(self) -> bool:
         """Check if material is wood."""
@@ -124,14 +121,14 @@ class Material(Base, TimestampMixin):
             MaterialCategory.WOOD_MDF
         ]
         return self.category in wood_categories
-    
+
     def get_property(self, key: str, default=None):
         """Get specific property value."""
         if not self.properties:
             return default
         return self.properties.get(key, default)
-    
-    def calculate_weight(self, volume_cm3: float) -> Optional[float]:
+
+    def calculate_weight(self, volume_cm3: float) -> float | None:
         """Calculate weight in kg for given volume."""
         if not self.density_g_cm3:
             return None

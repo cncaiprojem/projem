@@ -3,12 +3,11 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import Dict, Tuple
 
 from .subprocess_runner import run_subprocess_with_timeout
 
 
-def build_cam_script(params: Dict) -> str:
+def build_cam_script(params: dict) -> str:
     return """
 import os, json, App, Path
 from PathScripts import PathJob, PathToolController, PathPostProcessor
@@ -56,7 +55,7 @@ print('GCODE_OUT=' + gcode_out)
 """
 
 
-def make_path_job(freecad_path: str, fcstd_path: Path, params: Dict, post_name: str, timeout: int) -> Tuple[Path, Dict]:
+def make_path_job(freecad_path: str, fcstd_path: Path, params: dict, post_name: str, timeout: int) -> tuple[Path, dict]:
     tmp_script = tempfile.NamedTemporaryFile(delete=False, suffix=".py")
     tmp_script.write(build_cam_script(params).encode("utf-8"))
     tmp_script.close()

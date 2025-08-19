@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict
-
+from typing import Any
 
 _EMAIL_RE = re.compile(r"([A-Za-z0-9._%+-])[^@\s]*@([A-Za-z0-9.-]+)\.(\w+)")
 _PHONE_RE = re.compile(r"\+?\d[\d\s-]{5,}")

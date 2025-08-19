@@ -3,12 +3,11 @@ from __future__ import annotations
 import os
 import platform
 import subprocess
-from typing import Optional
 
+from ..audit import audit
 from ..db import db_session
 from ..models import Job
 from ..tasks.worker import celery_app
-from ..audit import audit
 
 
 def _kill_tree_by_pid(pid: int) -> None:

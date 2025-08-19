@@ -1,15 +1,17 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Header
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Header, HTTPException
 
-from ..db import db_session
-from ..schemas.cad_build import CadBuildRequest, CadBuildResult, CadArtifactsOut
-from ..tasks.cad import cad_build_task
-# from ..models_project import Project  # Module not found
-from ..schemas.cam_build import CamBuildRequest, CamBuildOut, CamArtifactsOut as CamArtifactsOut2, CamBuildArtifacts, CamOpSummary
-from ..tasks.cam_build import cam_build_task  # noqa: F401
 from ..config import settings
+from ..db import db_session
+from ..schemas.cad_build import CadArtifactsOut, CadBuildRequest, CadBuildResult
+from ..schemas.cam_build import CamArtifactsOut as CamArtifactsOut2
+
+# from ..models_project import Project  # Module not found
+from ..schemas.cam_build import CamBuildArtifacts, CamBuildOut, CamBuildRequest, CamOpSummary
+from ..tasks.cad import cad_build_task
+from ..tasks.cam_build import cam_build_task  # noqa: F401
+
 
 def _broker_ok() -> bool:
     try:

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from celery import shared_task
 import time
-from datetime import datetime
 from pathlib import Path
 
-from ..db import db_session
-from ..models_project import Setup, PostRun
-from ..post.lint import lint_gcode
-from ..metrics import job_latency_seconds
+from celery import shared_task
+
 from ..audit import audit
+from ..db import db_session
+from ..metrics import job_latency_seconds
+from ..models_project import PostRun, Setup
+from ..post.lint import lint_gcode
 from ..storage import upload_and_sign
 
 

@@ -24,7 +24,7 @@ def main() -> None:
             print("[seed] dev@local eklendi")
         else:
             print("[seed] dev@local mevcut")
-    
+
     print("\nFor manufacturing data (machines, materials, tools),")
     print("run: alembic upgrade head")
     print("This will apply Task 2.8 seed data migration.")

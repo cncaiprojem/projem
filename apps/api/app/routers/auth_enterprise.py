@@ -9,40 +9,41 @@ This router implements banking-level authentication endpoints:
 - POST /auth/password/reset - Password reset completion
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional
 import ipaddress
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from ..core.logging import get_logger
 from ..db import get_db
-from ..schemas.auth import (
-    UserRegisterRequest, UserRegisterResponse,
-    UserLoginRequest, UserLoginResponse,
-    PasswordStrengthRequest, PasswordStrengthResponse,
-    PasswordForgotRequest, PasswordForgotResponse,
-    PasswordResetRequest, PasswordResetResponse,
-    AuthErrorResponse, UserProfileResponse,
-    AUTH_ERROR_CODES
+from ..middleware.auth_limiter import limiter
+from ..middleware.enterprise_rate_limiter import (
+    login_rate_limit,
+    password_reset_rate_limit,
+    registration_rate_limit,
 )
-from ..services.auth_service import auth_service, AuthenticationError
+from ..middleware.jwt_middleware import AuthenticatedUser, get_current_user
+from ..schemas.auth import (
+    AuthErrorResponse,
+    PasswordForgotRequest,
+    PasswordForgotResponse,
+    PasswordResetRequest,
+    PasswordResetResponse,
+    PasswordStrengthRequest,
+    PasswordStrengthResponse,
+    UserLoginRequest,
+    UserLoginResponse,
+    UserProfileResponse,
+    UserRegisterRequest,
+    UserRegisterResponse,
+)
+from ..services.auth_service import AuthenticationError, auth_service
 from ..services.password_service import password_service
+
 # Legacy auth import disabled - using new JWT system
 # from ..auth import create_token_pair, get_current_user
 from ..services.token_service import token_service
-from ..services.jwt_service import jwt_service
-from ..schemas import UserOut
-from ..middleware.jwt_middleware import get_current_user, AuthenticatedUser
-from ..core.logging import get_logger
-from ..middleware.auth_limiter import limiter
-from ..middleware.enterprise_rate_limiter import (
-    login_rate_limit, 
-    registration_rate_limit, 
-    password_reset_rate_limit
-)
-from ..settings import app_settings as settings
 
 logger = get_logger(__name__)
 
@@ -58,7 +59,7 @@ router = APIRouter(
 )
 
 
-def get_client_info(request: Request) -> Dict[str, Optional[str]]:
+def get_client_info(request: Request) -> dict[str, str | None]:
     """Extract client information from request."""
     # Get real IP address (handle proxy headers)
     ip_address = None
@@ -69,16 +70,16 @@ def get_client_info(request: Request) -> Dict[str, Optional[str]]:
         ip_address = request.headers["x-real-ip"]
     else:
         ip_address = getattr(request.client, 'host', None)
-    
+
     # Validate IP address
     if ip_address:
         try:
             ipaddress.ip_address(ip_address)
         except ValueError:
             ip_address = None
-    
+
     user_agent = request.headers.get("user-agent")
-    
+
     return {
         "ip_address": ip_address,
         "user_agent": user_agent
@@ -121,7 +122,7 @@ async def register_user(
     - **marketing_consent**: Pazarlama iletişimi rızası (isteğe bağlı)
     """
     client_info = get_client_info(request)
-    
+
     try:
         user = auth_service.register_user(
             db=db,
@@ -133,13 +134,13 @@ async def register_user(
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"]
         )
-        
+
         return UserRegisterResponse(
             user_id=user.id,
             email=user.email,
             message="Kayıt başarılı. E-posta doğrulama bağlantısı gönderildi."
         )
-        
+
     except AuthenticationError as e:
         logger.warning("User registration failed", extra={
             "error_code": e.code,
@@ -147,8 +148,8 @@ async def register_user(
             "ip_address": client_info["ip_address"]
         })
         return create_auth_error_response(e)
-    
-    except Exception as e:
+
+    except Exception:
         logger.error("Unexpected registration error", exc_info=True, extra={
             "email": user_data.email,
             "ip_address": client_info["ip_address"]
@@ -188,7 +189,7 @@ async def login_user(
     - Kapsamlı audit loglama
     """
     client_info = get_client_info(request)
-    
+
     try:
         user, auth_metadata = auth_service.authenticate_user(
             db=db,
@@ -198,7 +199,7 @@ async def login_user(
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"]
         )
-        
+
         # Create refresh session with JWT access token (Task 3.3)
         token_result = token_service.create_refresh_session(
             db=db,
@@ -207,10 +208,10 @@ async def login_user(
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"]
         )
-        
+
         # Set refresh token in httpOnly cookie
         token_service.set_refresh_cookie(response, token_result.refresh_token)
-        
+
         return UserLoginResponse(
             access_token=token_result.access_token,
             token_type="bearer",
@@ -222,7 +223,7 @@ async def login_user(
             mfa_required=False,  # TODO: Implement MFA
             password_must_change=user.password_must_change
         )
-        
+
     except AuthenticationError as e:
         logger.warning("User login failed", extra={
             "error_code": e.code,
@@ -230,8 +231,8 @@ async def login_user(
             "ip_address": client_info["ip_address"]
         })
         return create_auth_error_response(e)
-    
-    except Exception as e:
+
+    except Exception:
         logger.error("Unexpected login error", exc_info=True, extra={
             "email": login_data.email,
             "ip_address": client_info["ip_address"]
@@ -270,14 +271,14 @@ async def check_password_strength(
     """
     try:
         strength_result = password_service.validate_password_strength(password_data.password)
-        
+
         return PasswordStrengthResponse(
             score=strength_result.score,
             ok=strength_result.ok,
             feedback=strength_result.feedback
         )
-        
-    except Exception as e:
+
+    except Exception:
         logger.error("Password strength check failed", exc_info=True, extra={
             "ip_address": get_client_info(request)["ip_address"]
         })
@@ -313,7 +314,7 @@ async def forgot_password(
     - Audit loglama
     """
     client_info = get_client_info(request)
-    
+
     try:
         auth_service.initiate_password_reset(
             db=db,
@@ -321,12 +322,12 @@ async def forgot_password(
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"]
         )
-        
+
         return PasswordForgotResponse(
             message="Şifre sıfırlama bağlantısı e-posta adresinize gönderildi."
         )
-        
-    except Exception as e:
+
+    except Exception:
         logger.error("Password reset initiation failed", exc_info=True, extra={
             "email": forgot_data.email,
             "ip_address": client_info["ip_address"]
@@ -363,7 +364,7 @@ async def reset_password(
     - Audit loglama
     """
     client_info = get_client_info(request)
-    
+
     try:
         user = auth_service.reset_password(
             db=db,
@@ -372,12 +373,12 @@ async def reset_password(
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"]
         )
-        
+
         return PasswordResetResponse(
             message="Şifre başarıyla güncellendi.",
             user_id=user.id
         )
-        
+
     except AuthenticationError as e:
         logger.warning("Password reset failed", extra={
             "error_code": e.code,
@@ -385,8 +386,8 @@ async def reset_password(
             "ip_address": client_info["ip_address"]
         })
         return create_auth_error_response(e)
-    
-    except Exception as e:
+
+    except Exception:
         logger.error("Unexpected password reset error", exc_info=True, extra={
             "token_prefix": reset_data.token[:8],
             "ip_address": client_info["ip_address"]
@@ -424,13 +425,13 @@ async def get_current_user_profile(
         # Get full user details from database
         from ..models.user import User
         user = db.query(User).filter(User.email == current_user.user.email).first()
-        
+
         if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Kullanıcı bulunamadı"
             )
-        
+
         return UserProfileResponse(
             user_id=user.id,
             email=user.email,
@@ -447,10 +448,10 @@ async def get_current_user_profile(
             data_processing_consent=user.data_processing_consent,
             marketing_consent=user.marketing_consent
         )
-        
+
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.error("Failed to get user profile", exc_info=True, extra={
             "user_email": current_user.user.email
         })

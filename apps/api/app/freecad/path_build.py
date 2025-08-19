@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from typing import Any, Dict
+from typing import Any
 
 
 def _ensure_mm():
@@ -14,7 +14,7 @@ def _ensure_mm():
         pass
 
 
-def _mk_toolbit(tmpdir: str, tool: Dict[str, Any]) -> str:
+def _mk_toolbit(tmpdir: str, tool: dict[str, Any]) -> str:
     ttype = tool["type"]
     dia = float(tool.get("dia", 6.0))
     tb = {
@@ -89,10 +89,9 @@ def _add_chamfer(doc, job, base, tc, params):
     return op
 
 
-def build_cam_job(fcstd_path: str, cam: Dict[str, Any], stock: Dict[str, Any], wcs: str, post_name: str | None, tmpdir: str, db=None):
+def build_cam_job(fcstd_path: str, cam: dict[str, Any], stock: dict[str, Any], wcs: str, post_name: str | None, tmpdir: str, db=None):
     _ensure_mm()
     import FreeCAD as App  # type: ignore
-    import Path  # type: ignore
     from PathScripts import PathJob  # type: ignore
 
     doc = App.openDocument(fcstd_path)

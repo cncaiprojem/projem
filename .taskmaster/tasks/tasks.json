@@ -663,7 +663,7 @@
               "4.6"
             ],
             "details": "Invoice numbering:\n- Use DB sequence per month or a (period, seq) allocator with advisory locks. Compose number = YYYYMM + '-' + LPAD(seq,5,'0') + '-CNCAI'. Unique index on number.\n- Retry on conflict with bounded backoff.\nAPI idempotency:\n- Respect Idempotency-Key for /license/assign and /license/extend: store request hash keyed by (user_id, key) with response snapshot; return same result on retry.\nWebhooks:\n- Deduplicate via unique event_id table; process-once semantics.\nOther guards:\n- Unique active license per user enforced by partial unique index.\nAcceptance criteria:\n- Under concurrent 100x invoice creations in same month, zero duplicate numbers; repeated Idempotency-Key returns same response without side effects; duplicate webhook deliveries are no-ops.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-19T18:47:45.415Z",
+      "updated": "2025-08-19T19:20:55.123Z",
       "description": "Tasks for master context"
     }
   }

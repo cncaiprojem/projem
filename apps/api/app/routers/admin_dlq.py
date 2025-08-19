@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query, Depends
-
-from ..services import dlq
-
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ..security.oidc import require_role
+from ..services import dlq
 
-
-router = APIRouter(prefix="/api/v1/admin/dlq", tags=["DLQ Yönetimi"]) 
+router = APIRouter(prefix="/api/v1/admin/dlq", tags=["DLQ Yönetimi"])
 
 
 @router.get("", dependencies=[Depends(require_role("admin"))])

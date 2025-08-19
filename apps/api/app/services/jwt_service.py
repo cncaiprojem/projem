@@ -10,28 +10,25 @@ This service implements banking-level JWT token management with:
 - Security audit logging for token operations
 """
 
-import jwt
-import secrets
 import uuid
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional, List, Set
+from datetime import UTC, datetime, timedelta
 from enum import Enum
+from typing import Any
 
-from fastapi import HTTPException, status
+import jwt
 from sqlalchemy.orm import Session as DBSession
 
-from ..models.user import User
-from ..models.session import Session
-from ..models.audit_log import AuditLog
-from ..core.logging import get_logger
 from ..config import settings
+from ..core.logging import get_logger
+from ..models.session import Session
+from ..models.user import User
 
 logger = get_logger(__name__)
 
 
 class JWTErrorCode(str, Enum):
     """JWT-specific error codes for Turkish localization."""
-    
+
     TOKEN_INVALID = "ERR-TOKEN-INVALID"
     TOKEN_EXPIRED = "ERR-TOKEN-EXPIRED"
     TOKEN_REVOKED = "ERR-TOKEN-REVOKED"
@@ -44,8 +41,8 @@ class JWTErrorCode(str, Enum):
 
 class JWTError(Exception):
     """Base JWT service error with Turkish localization."""
-    
-    def __init__(self, code: JWTErrorCode, message: str, details: Optional[Dict] = None):
+
+    def __init__(self, code: JWTErrorCode, message: str, details: dict | None = None):
         self.code = code
         self.message = message
         self.details = details or {}
@@ -54,12 +51,12 @@ class JWTError(Exception):
 
 class JWTClaims:
     """JWT claims structure for type safety."""
-    
+
     def __init__(
         self,
         sub: str,  # User ID as string
         role: str,
-        scopes: List[str],
+        scopes: list[str],
         sid: str,  # Session ID as string
         iat: int,  # Issued at timestamp
         exp: int,  # Expiration timestamp
@@ -76,8 +73,8 @@ class JWTClaims:
         self.iss = iss or settings.jwt_issuer
         self.aud = aud or settings.jwt_audience
         self.jti = jti or str(uuid.uuid4())
-    
-    def to_dict(self) -> Dict[str, Any]:
+
+    def to_dict(self) -> dict[str, Any]:
         """Convert claims to dictionary for JWT encoding."""
         return {
             'sub': self.sub,
@@ -90,9 +87,9 @@ class JWTClaims:
             'aud': self.aud,
             'jti': self.jti
         }
-    
+
     @classmethod
-    def from_dict(cls, payload: Dict[str, Any]) -> "JWTClaims":
+    def from_dict(cls, payload: dict[str, Any]) -> "JWTClaims":
         """Create claims from JWT payload dictionary."""
         return cls(
             sub=payload.get('sub'),
@@ -109,7 +106,7 @@ class JWTClaims:
 
 class JWTService:
     """Ultra enterprise JWT token management service with banking-level security."""
-    
+
     def __init__(self):
         # Use separate JWT secret or fallback to main secret
         self.secret_key = settings.jwt_secret_key or settings.secret_key
@@ -117,20 +114,20 @@ class JWTService:
         self.access_token_expire_minutes = settings.jwt_access_token_expire_minutes
         self.issuer = settings.jwt_issuer
         self.audience = settings.jwt_audience
-        
+
         # Validate configuration
         if len(self.secret_key) < 32:
             raise ValueError("JWT secret key must be at least 32 characters for security")
-        
+
         # Algorithm validation for security
         if self.algorithm not in ['HS256', 'HS384', 'HS512', 'RS256', 'RS384', 'RS512']:
             raise ValueError(f"Unsupported JWT algorithm: {self.algorithm}")
-    
+
     def create_access_token(
         self,
         user: User,
         session: Session,
-        scopes: Optional[List[str]] = None
+        scopes: list[str] | None = None
     ) -> str:
         """
         Create JWT access token with enterprise security claims.
@@ -146,18 +143,18 @@ class JWTService:
         Raises:
             JWTError: If token creation fails
         """
-        start_time = datetime.now(timezone.utc)
-        
+        start_time = datetime.now(UTC)
+
         try:
             # Default scopes based on user role
             if scopes is None:
                 scopes = self._get_default_scopes_for_role(user.role)
-            
+
             # Create timestamp claims
-            now = datetime.now(timezone.utc)
+            now = datetime.now(UTC)
             iat = int(now.timestamp())
             exp = int((now + timedelta(minutes=self.access_token_expire_minutes)).timestamp())
-            
+
             # Build claims
             claims = JWTClaims(
                 sub=str(user.id),
@@ -169,16 +166,16 @@ class JWTService:
                 iss=self.issuer,
                 aud=self.audience
             )
-            
+
             # Encode JWT with PyJWT 2.8
             token = jwt.encode(
                 claims.to_dict(),
                 self.secret_key,
                 algorithm=self.algorithm
             )
-            
-            elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-            
+
+            elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
             logger.info("JWT access token created", extra={
                 'operation': 'jwt_create_access_token',
                 'user_id': user.id,
@@ -188,9 +185,9 @@ class JWTService:
                 'expires_in_minutes': self.access_token_expire_minutes,
                 'elapsed_ms': elapsed_ms
             })
-            
+
             return token
-            
+
         except Exception as e:
             logger.error("JWT access token creation failed", exc_info=True, extra={
                 'operation': 'jwt_create_access_token',
@@ -203,7 +200,7 @@ class JWTService:
                 "JWT token oluşturma başarısız",
                 {'error_type': type(e).__name__}
             )
-    
+
     def verify_access_token(
         self,
         token: str,
@@ -222,8 +219,8 @@ class JWTService:
         Raises:
             JWTError: If token verification fails
         """
-        start_time = datetime.now(timezone.utc)
-        
+        start_time = datetime.now(UTC)
+
         try:
             # Decode JWT with PyJWT 2.8
             payload = jwt.decode(
@@ -241,41 +238,41 @@ class JWTService:
                     "require": ["sub", "role", "sid", "iat", "exp"]
                 }
             )
-            
+
             # Parse claims
             claims = JWTClaims.from_dict(payload)
-            
+
             # Validate required claims
             if not all([claims.sub, claims.role, claims.sid]):
                 raise JWTError(
                     JWTErrorCode.TOKEN_MISSING_CLAIMS,
                     "Token'da gerekli bilgiler eksik"
                 )
-            
+
             # Validate session exists and is active
             session = db.query(Session).filter(
                 Session.id == uuid.UUID(claims.sid),
                 Session.user_id == int(claims.sub)
             ).first()
-            
+
             if not session:
                 raise JWTError(
                     JWTErrorCode.SESSION_NOT_FOUND,
                     "Token'a bağlı oturum bulunamadı"
                 )
-            
+
             if not session.is_active:
                 raise JWTError(
                     JWTErrorCode.TOKEN_REVOKED,
                     "Token iptal edilmiş veya süresi dolmuş"
                 )
-            
+
             # Note: Session.update_last_used() removed to eliminate database side effect
             # in verification method. Session last_used should only be updated during
             # login/refresh operations, not during every JWT verification.
-            
-            elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-            
+
+            elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
             logger.info("JWT access token verified", extra={
                 'operation': 'jwt_verify_access_token',
                 'user_id': int(claims.sub),
@@ -283,9 +280,9 @@ class JWTService:
                 'token_id': claims.jti,
                 'elapsed_ms': elapsed_ms
             })
-            
+
             return claims
-            
+
         except jwt.ExpiredSignatureError:
             raise JWTError(
                 JWTErrorCode.TOKEN_EXPIRED,
@@ -319,7 +316,7 @@ class JWTService:
                 "Token doğrulama başarısız",
                 {'error_type': type(e).__name__}
             )
-    
+
     def revoke_tokens_for_session(
         self,
         db: DBSession,
@@ -339,7 +336,7 @@ class JWTService:
             if session and session.is_active:
                 session.revoke(reason)
                 db.commit()
-                
+
                 logger.info("JWT tokens revoked for session", extra={
                     'operation': 'jwt_revoke_session_tokens',
                     'session_id': str(session_id),
@@ -354,7 +351,7 @@ class JWTService:
                 'error_type': type(e).__name__
             })
             raise
-    
+
     def revoke_all_tokens_for_user(
         self,
         db: DBSession,
@@ -378,23 +375,23 @@ class JWTService:
                 Session.user_id == user_id,
                 Session.revoked_at.is_(None)
             ).all()
-            
+
             revoked_count = 0
             for session in active_sessions:
                 session.revoke(reason)
                 revoked_count += 1
-            
+
             db.commit()
-            
+
             logger.info("All JWT tokens revoked for user", extra={
                 'operation': 'jwt_revoke_all_user_tokens',
                 'user_id': user_id,
                 'sessions_revoked': revoked_count,
                 'reason': reason
             })
-            
+
             return revoked_count
-            
+
         except Exception as e:
             db.rollback()
             logger.error("User JWT token revocation failed", exc_info=True, extra={
@@ -403,8 +400,8 @@ class JWTService:
                 'error_type': type(e).__name__
             })
             raise
-    
-    def _get_default_scopes_for_role(self, role: str) -> List[str]:
+
+    def _get_default_scopes_for_role(self, role: str) -> list[str]:
         """Get default permission scopes for user role."""
         role_scopes = {
             'admin': ['read', 'write', 'delete', 'admin'],
@@ -412,12 +409,12 @@ class JWTService:
             'viewer': ['read'],
             'guest': ['read']
         }
-        
+
         # Handle both string and enum role types
         role_str = role.value if hasattr(role, 'value') else str(role).lower()
         return role_scopes.get(role_str, ['read'])
-    
-    def get_token_claims_without_verification(self, token: str) -> Optional[Dict[str, Any]]:
+
+    def get_token_claims_without_verification(self, token: str) -> dict[str, Any] | None:
         """
         Decode JWT token without verification for debugging/logging.
         WARNING: Only use for non-security purposes!

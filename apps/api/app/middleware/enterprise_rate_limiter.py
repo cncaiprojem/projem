@@ -13,35 +13,36 @@ Features:
 - Security event logging and brute force detection
 """
 
-from typing import Optional, Callable, Any, Awaitable
+from collections.abc import Awaitable, Callable
 from functools import wraps
+from typing import Any
 
-from fastapi import Request, Depends, HTTPException
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session
+from structlog import get_logger
 
 from ..db import get_db
+from ..middleware.jwt_middleware import AuthenticatedUser, get_current_user_optional
 from ..services.rate_limiting_service import (
-    EnterpriseRateLimitingService, 
+    EnterpriseRateLimitingService,
     RateLimitType,
-    get_rate_limiting_service
+    get_rate_limiting_service,
 )
-from ..middleware.jwt_middleware import get_current_user_optional, AuthenticatedUser
-from structlog import get_logger
 
 logger = get_logger(__name__)
 
 
 class RateLimitDependency:
     """FastAPI dependency for rate limiting specific endpoint types."""
-    
+
     def __init__(self, policy_type: RateLimitType):
         self.policy_type = policy_type
-    
+
     async def __call__(
         self,
         request: Request,
         db: Session = Depends(get_db),
-        current_user: Optional[AuthenticatedUser] = Depends(get_current_user_optional()),
+        current_user: AuthenticatedUser | None = Depends(get_current_user_optional()),
         rate_service: EnterpriseRateLimitingService = Depends(get_rate_limiting_service)
     ) -> None:
         """
@@ -51,7 +52,7 @@ class RateLimitDependency:
         try:
             # Extract session ID for session-based rate limiting
             session_id = current_user.session_id if current_user else None
-            
+
             # Check rate limit
             result = await rate_service.check_rate_limit(
                 request=request,
@@ -60,7 +61,7 @@ class RateLimitDependency:
                 user=current_user,
                 session_id=session_id
             )
-            
+
             # If rate limit exceeded, raise exception
             if not result.allowed:
                 logger.warning("Rate limit exceeded", extra={
@@ -72,9 +73,9 @@ class RateLimitDependency:
                     'limit': result.limit,
                     'window_seconds': result.window
                 })
-                
+
                 raise rate_service.create_rate_limit_exception(result, self.policy_type)
-            
+
             # Log successful rate limit check for monitoring
             logger.debug("Rate limit check passed", extra={
                 'operation': 'rate_limit_middleware',
@@ -83,7 +84,7 @@ class RateLimitDependency:
                 'remaining': result.remaining,
                 'limit': result.limit
             })
-            
+
         except HTTPException:
             # Re-raise rate limit exceptions
             raise
@@ -124,7 +125,7 @@ def rate_limit(policy_type: RateLimitType):
             request = None
             db = None
             current_user = None
-            
+
             # Extract from args
             for arg in args:
                 if isinstance(arg, Request):
@@ -133,7 +134,7 @@ def rate_limit(policy_type: RateLimitType):
                     db = arg
                 elif isinstance(arg, AuthenticatedUser):
                     current_user = arg
-            
+
             # Extract from kwargs
             if not request:
                 request = kwargs.get('request')
@@ -141,15 +142,15 @@ def rate_limit(policy_type: RateLimitType):
                 db = kwargs.get('db')
             if not current_user:
                 current_user = kwargs.get('current_user')
-            
+
             # Perform rate limiting if we have required dependencies
             if request and db:
                 try:
                     rate_service = await get_rate_limiting_service()
-                    
+
                     # Extract session ID
                     session_id = current_user.session_id if current_user else None
-                    
+
                     # Check rate limit
                     result = await rate_service.check_rate_limit(
                         request=request,
@@ -158,11 +159,11 @@ def rate_limit(policy_type: RateLimitType):
                         user=current_user,
                         session_id=session_id
                     )
-                    
+
                     # If rate limit exceeded, raise exception
                     if not result.allowed:
                         raise rate_service.create_rate_limit_exception(result, policy_type)
-                        
+
                 except HTTPException:
                     raise
                 except Exception as e:
@@ -172,10 +173,10 @@ def rate_limit(policy_type: RateLimitType):
                         'error': str(e)
                     })
                     # Continue without rate limiting
-            
+
             # Call original function
             return await func(*args, **kwargs)
-        
+
         return wrapper
     return decorator
 
@@ -185,7 +186,7 @@ class AutoRateLimitMiddleware:
     Automatic rate limiting middleware that applies appropriate policies
     based on request path patterns.
     """
-    
+
     # Path pattern to rate limit type mapping
     PATH_PATTERNS = {
         '/api/v1/auth/login': RateLimitType.LOGIN,
@@ -195,7 +196,7 @@ class AutoRateLimitMiddleware:
         '/api/v1/auth/password/forgot': RateLimitType.PASSWORD_RESET,
         '/api/v1/auth/password/reset': RateLimitType.PASSWORD_RESET,
     }
-    
+
     # Pattern-based matching for AI endpoints
     AI_PATTERNS = [
         '/api/v1/designs',
@@ -203,34 +204,34 @@ class AutoRateLimitMiddleware:
         '/api/v1/cam',
         '/api/v1/sim'
     ]
-    
+
     def __init__(self, app):
         self.app = app
-    
+
     async def __call__(self, scope, receive, send):
         """ASGI middleware for automatic rate limiting."""
         if scope["type"] != "http":
             await self.app(scope, receive, send)
             return
-        
+
         # Extract path
         path = scope.get("path", "")
-        
+
         # Determine rate limit policy
         policy_type = None
-        
+
         # Check exact path matches
         if path in self.PATH_PATTERNS:
             policy_type = self.PATH_PATTERNS[path]
-        
+
         # Check AI endpoint patterns
         elif any(path.startswith(pattern) for pattern in self.AI_PATTERNS):
             policy_type = RateLimitType.AI_PROMPT
-        
+
         # If no specific policy, use general rate limiting for API endpoints
         elif path.startswith('/api/'):
             policy_type = RateLimitType.GENERAL
-        
+
         # If rate limiting applies, check it
         if policy_type:
             try:
@@ -244,7 +245,7 @@ class AutoRateLimitMiddleware:
                     'path': path,
                     'error': str(e)
                 })
-        
+
         # Continue with request
         await self.app(scope, receive, send)
 
@@ -255,12 +256,12 @@ def get_current_user_optional() -> Callable:
     Dependency function to get current user from JWT if available, 
     without requiring authentication. Used for composite IP+user rate limiting keys.
     """
-    async def _get_current_user_optional(request: Request) -> Optional[AuthenticatedUser]:
+    async def _get_current_user_optional(request: Request) -> AuthenticatedUser | None:
         try:
             from ..middleware.jwt_middleware import get_current_user
             return await get_current_user(request)
         except:
             # No authentication available, return None
             return None
-    
+
     return _get_current_user_optional

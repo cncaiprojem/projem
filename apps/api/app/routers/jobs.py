@@ -1,18 +1,14 @@
 from __future__ import annotations
 
-from datetime import datetime
-from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from fastapi import APIRouter, HTTPException, Query, status, Depends
-
-from ..models import Job
-from ..storage import presigned_url
-from ..services.job_control import cancel_job, queue_pause, queue_resume
-from ..security.oidc import require_role
 from ..db import db_session
+from ..models import Job
+from ..security.oidc import require_role
+from ..services.job_control import cancel_job, queue_pause, queue_resume
+from ..storage import presigned_url
 
-
-router = APIRouter(prefix="/api/v1/jobs", tags=["İşler"]) 
+router = APIRouter(prefix="/api/v1/jobs", tags=["İşler"])
 
 
 @router.get("")
@@ -37,7 +33,7 @@ def list_jobs(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)
 @router.get("/{job_id}")
 def get_job(job_id: int):
     with db_session() as s:
-        job: Optional[Job] = s.get(Job, job_id)
+        job: Job | None = s.get(Job, job_id)
         if not job:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="İş bulunamadı")
         artefacts = []

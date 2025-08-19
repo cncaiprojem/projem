@@ -9,12 +9,8 @@ ensuring all components work together seamlessly.
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from ..core.logging import configure_structlog, get_logger
 from ..middleware.correlation_middleware import CorrelationMiddleware
-from ..services.audit_service import audit_service
-from ..services.security_event_service import security_event_service
-from ..services.pii_masking_service import pii_masking_service
-from ..core.logging import get_logger, configure_structlog
-
 
 logger = get_logger(__name__)
 
@@ -25,10 +21,10 @@ def setup_audit_system(app: FastAPI) -> None:
     Args:
         app: FastAPI application instance
     """
-    
+
     # Configure structured logging first
     configure_structlog()
-    
+
     # Add correlation middleware for request tracking
     # This should be added early in the middleware stack
     app.add_middleware(
@@ -39,7 +35,7 @@ def setup_audit_system(app: FastAPI) -> None:
         log_requests=True,
         mask_sensitive_headers=True
     )
-    
+
     # Add CORS middleware with audit-friendly configuration
     app.add_middleware(
         CORSMiddleware,
@@ -49,7 +45,7 @@ def setup_audit_system(app: FastAPI) -> None:
         allow_headers=["*"],
         expose_headers=["X-Correlation-ID", "X-Session-ID", "X-KVKV-Compliant"]
     )
-    
+
     logger.info(
         "ultra_enterprise_audit_system_initialized",
         components={
@@ -78,7 +74,7 @@ def verify_audit_system_health() -> dict:
                 "status": "operational",
                 "features": [
                     "hash_chain_integrity",
-                    "correlation_tracking", 
+                    "correlation_tracking",
                     "pii_masking",
                     "kvkv_compliance"
                 ]
@@ -119,7 +115,7 @@ def verify_audit_system_health() -> dict:
             "audit_trail": True
         }
     }
-    
+
     logger.info("audit_system_health_check", health_status=health_status)
     return health_status
 

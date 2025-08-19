@@ -1,13 +1,14 @@
-from fastapi import APIRouter, Response, status, Request, Depends
-import redis
 import boto3
+import redis
+from fastapi import APIRouter, Request, Response, status
 
 from ..config import settings
-from ..db import check_db, check_redis, get_redis
+from ..db import check_db, check_redis
 from ..schemas import HealthStatus
 
 try:
     import structlog
+
     from ..services.s3 import get_s3_service
     HAS_STRUCTLOG = True
     logger = structlog.get_logger(__name__)
@@ -16,7 +17,7 @@ except ImportError:
     logger = None
 
 
-router = APIRouter(prefix="/api/v1", tags=["Sağlık"]) 
+router = APIRouter(prefix="/api/v1", tags=["Sağlık"])
 
 
 @router.get("/healthz", response_model=HealthStatus)
@@ -50,14 +51,14 @@ async def healthz(response: Response, request: Request) -> HealthStatus:
             )
             s3 = session.client("s3", endpoint_url=settings.aws_s3_endpoint)
             s3.list_buckets()
-            
+
             # Test new S3 service and bucket availability if available
             if HAS_STRUCTLOG:
                 try:
                     s3_service = get_s3_service()
                     required_buckets = ["artefacts", "logs", "reports", "invoices"]
                     bucket_status = {}
-                    
+
                     for bucket in required_buckets:
                         try:
                             bucket_exists = s3_service._ensure_bucket_exists(bucket)
@@ -66,7 +67,7 @@ async def healthz(response: Response, request: Request) -> HealthStatus:
                             if logger:
                                 logger.warning("Bucket check failed", bucket=bucket, error=str(e))
                             bucket_status[bucket] = "hata"
-                    
+
                     # Overall S3 status
                     all_buckets_ok = all(status == "ok" for status in bucket_status.values())
                     deps["s3"] = "ok" if all_buckets_ok else "partial"
@@ -77,8 +78,8 @@ async def healthz(response: Response, request: Request) -> HealthStatus:
                     deps["s3"] = "ok"  # Fall back to basic connectivity
             else:
                 deps["s3"] = "ok"  # Basic S3 connectivity works
-            
-        except Exception as e:
+
+        except Exception:
             deps["s3"] = "hata"
     else:
         deps["s3"] = "atılandı"

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List
 
 from sqlalchemy import Column, DateTime, Integer, String
-from sqlalchemy.orm import Session
 
 from ..db import db_session
 from ..models import Base, Job
@@ -27,7 +25,7 @@ def push_dead(job_id: int, task: str, reason: str, ts: datetime | None = None) -
         s.commit()
 
 
-def list_dead(limit: int = 100, offset: int = 0) -> List[dict]:
+def list_dead(limit: int = 100, offset: int = 0) -> list[dict]:
     with db_session() as s:
         q = s.query(DeadJob).order_by(DeadJob.id.desc()).offset(offset).limit(limit)
         return [

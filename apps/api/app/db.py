@@ -1,8 +1,8 @@
+from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Generator, Optional, Any
+
 import redis.asyncio as redis
 from fastapi import Request
-
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import scoped_session, sessionmaker
 
@@ -48,11 +48,11 @@ def check_db() -> bool:
         return False
 
 
-async def check_redis(redis_client: Optional[redis.Redis]) -> bool:
+async def check_redis(redis_client: redis.Redis | None) -> bool:
     """Check Redis connectivity."""
     if not redis_client:
         return False
-        
+
     try:
         await redis_client.ping()
         return True
@@ -87,17 +87,17 @@ async def create_redis_client() -> redis.Redis:
             max_connections=20,
             health_check_interval=30
         )
-        
+
         # Test connection
         await redis_client.ping()
-        
+
         logger.info("Redis client created successfully", extra={
             'operation': 'create_redis_client',
             'redis_url': settings.redis_url.split('@')[-1] if '@' in settings.redis_url else settings.redis_url
         })
-        
+
         return redis_client
-        
+
     except Exception as e:
         logger.error("Failed to create Redis client", exc_info=True, extra={
             'operation': 'create_redis_client',
@@ -106,7 +106,7 @@ async def create_redis_client() -> redis.Redis:
         raise
 
 
-async def close_redis_client(redis_client: Optional[redis.Redis]) -> None:
+async def close_redis_client(redis_client: redis.Redis | None) -> None:
     """
     Safely close Redis connection.
     
@@ -145,7 +145,7 @@ def get_redis(request: Request) -> redis.Redis:
             'operation': 'get_redis'
         })
         raise RuntimeError("Redis client not initialized. Ensure startup event handler is configured.")
-    
+
     return redis_client
 
 

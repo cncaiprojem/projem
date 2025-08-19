@@ -14,24 +14,24 @@ Security features:
 - Comprehensive audit logging
 """
 
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.orm import Session as DBSession
 
-from ..db import get_db
-from ..schemas.auth import (
-    TokenRefreshResponse, LogoutResponse, LogoutAllResponse,
-    AuthErrorResponse, ActiveSessionsResponse
-)
-from ..services.token_service import token_service, TokenServiceError
-from ..services.jwt_service import jwt_service
-from ..middleware.jwt_middleware import get_current_user, AuthenticatedUser
 from ..core.logging import get_logger
-from ..models.audit_log import AuditLog
+from ..db import get_db
 from ..middleware.enterprise_rate_limiter import token_refresh_rate_limit
+from ..middleware.jwt_middleware import AuthenticatedUser, get_current_user
+from ..models.audit_log import AuditLog
+from ..schemas.auth import (
+    ActiveSessionsResponse,
+    AuthErrorResponse,
+    LogoutAllResponse,
+    LogoutResponse,
+    TokenRefreshResponse,
+)
+from ..services.token_service import TokenServiceError, token_service
 
 logger = get_logger(__name__)
 
@@ -107,8 +107,8 @@ async def refresh_access_token(
     Refresh access token using refresh token from httpOnly cookie.
     Implements automatic token rotation and reuse detection.
     """
-    start_time = datetime.now(timezone.utc)
-    
+    start_time = datetime.now(UTC)
+
     try:
         # Extract refresh token from httpOnly cookie
         refresh_token = token_service.get_refresh_token_from_request(request)
@@ -118,7 +118,7 @@ async def refresh_access_token(
                 'has_cookies': bool(request.cookies),
                 'cookie_names': list(request.cookies.keys())
             })
-            
+
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail={
@@ -127,12 +127,12 @@ async def refresh_access_token(
                     'details': {}
                 }
             )
-        
+
         # Extract client information for security analysis
         client_ip = request.client.host if request.client else None
         user_agent = request.headers.get('User-Agent')
         device_fingerprint = request.headers.get('X-Device-Fingerprint')
-        
+
         # Rotate refresh token (includes reuse detection)
         result = token_service.rotate_refresh_token(
             db=db,
@@ -141,12 +141,12 @@ async def refresh_access_token(
             ip_address=client_ip,
             user_agent=user_agent
         )
-        
+
         # Set new refresh token in httpOnly cookie
         token_service.set_refresh_cookie(response, result.refresh_token)
-        
-        elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-        
+
+        elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
         logger.info("Access token refreshed successfully", extra={
             'operation': 'refresh_access_token',
             'user_id': result.session.user_id,
@@ -154,13 +154,13 @@ async def refresh_access_token(
             'new_session_id': str(result.session.id),
             'elapsed_ms': elapsed_ms
         })
-        
+
         return TokenRefreshResponse(
             access_token=result.access_token,
             token_type="bearer",
             expires_in=result.expires_in
         )
-        
+
     except TokenServiceError as e:
         # Convert token service errors to HTTP responses
         status_mapping = {
@@ -168,7 +168,7 @@ async def refresh_access_token(
             'ERR-REFRESH-REUSE': status.HTTP_401_UNAUTHORIZED,
             'ERR-REFRESH-ROTATION-FAILED': status.HTTP_500_INTERNAL_SERVER_ERROR,
         }
-        
+
         raise HTTPException(
             status_code=status_mapping.get(e.code, status.HTTP_401_UNAUTHORIZED),
             detail={
@@ -177,13 +177,13 @@ async def refresh_access_token(
                 'details': e.details
             }
         )
-        
+
     except Exception as e:
         logger.error("Token refresh failed", exc_info=True, extra={
             'operation': 'refresh_access_token',
             'error_type': type(e).__name__
         })
-        
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -232,12 +232,12 @@ async def logout_current_session(
     """
     Logout current session and revoke refresh token.
     """
-    start_time = datetime.now(timezone.utc)
-    
+    start_time = datetime.now(UTC)
+
     try:
         # Get refresh token from cookie for revocation
         refresh_token = token_service.get_refresh_token_from_request(request)
-        
+
         # Revoke current session
         if refresh_token:
             token_service.revoke_refresh_token(
@@ -252,10 +252,10 @@ async def logout_current_session(
                 session_id=current_user.session_id,
                 reason='user_logout'
             )
-        
+
         # Clear refresh token cookie
         token_service.clear_refresh_cookie(response)
-        
+
         # Log audit event
         audit_log = AuditLog(
             user_id=current_user.user_id,
@@ -269,18 +269,18 @@ async def logout_current_session(
         )
         db.add(audit_log)
         db.commit()
-        
-        elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-        
+
+        elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
         logger.info("User logged out successfully", extra={
             'operation': 'logout_current_session',
             'user_id': current_user.user_id,
             'session_id': str(current_user.session_id),
             'elapsed_ms': elapsed_ms
         })
-        
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-        
+
     except Exception as e:
         db.rollback()
         logger.error("Logout failed", exc_info=True, extra={
@@ -289,7 +289,7 @@ async def logout_current_session(
             'session_id': str(current_user.session_id),
             'error_type': type(e).__name__
         })
-        
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -339,8 +339,8 @@ async def logout_all_sessions(
     """
     Logout all sessions for the current user.
     """
-    start_time = datetime.now(timezone.utc)
-    
+    start_time = datetime.now(UTC)
+
     try:
         # Revoke all refresh tokens for user
         revoked_count = token_service.revoke_all_refresh_tokens(
@@ -348,10 +348,10 @@ async def logout_all_sessions(
             user_id=current_user.user_id,
             reason='user_logout_all'
         )
-        
+
         # Clear refresh token cookie (current session)
         token_service.clear_refresh_cookie(response)
-        
+
         # Log audit event
         audit_log = AuditLog(
             user_id=current_user.user_id,
@@ -365,18 +365,18 @@ async def logout_all_sessions(
         )
         db.add(audit_log)
         db.commit()
-        
-        elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-        
+
+        elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
         logger.info("All user sessions logged out", extra={
             'operation': 'logout_all_sessions',
             'user_id': current_user.user_id,
             'sessions_revoked': revoked_count,
             'elapsed_ms': elapsed_ms
         })
-        
+
         return Response(status_code=status.HTTP_204_NO_CONTENT)
-        
+
     except Exception as e:
         db.rollback()
         logger.error("Logout all failed", exc_info=True, extra={
@@ -384,7 +384,7 @@ async def logout_all_sessions(
             'user_id': current_user.user_id,
             'error_type': type(e).__name__
         })
-        
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
@@ -423,7 +423,7 @@ async def list_active_sessions(
             Session.user_id == current_user.user_id,
             Session.revoked_at.is_(None)
         ).order_by(Session.created_at.desc()).all()
-        
+
         sessions_data = []
         for session in active_sessions:
             session_data = {
@@ -439,26 +439,26 @@ async def list_active_sessions(
                 'expires_in_days': max(0, session.expires_in_seconds // (24 * 3600))
             }
             sessions_data.append(session_data)
-        
+
         logger.info("Active sessions listed", extra={
             'operation': 'list_active_sessions',
             'user_id': current_user.user_id,
             'session_count': len(sessions_data)
         })
-        
+
         return {
             'sessions': sessions_data,
             'total_count': len(sessions_data),
             'current_session_id': str(current_user.session_id)
         }
-        
+
     except Exception as e:
         logger.error("List sessions failed", exc_info=True, extra={
             'operation': 'list_active_sessions',
             'user_id': current_user.user_id,
             'error_type': type(e).__name__
         })
-        
+
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={

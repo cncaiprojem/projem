@@ -1,16 +1,16 @@
 from __future__ import annotations
 
 from datetime import datetime
-from fastapi import APIRouter, Header, HTTPException, status, Depends
+
+from fastapi import APIRouter, Depends, Header, HTTPException
 
 from ..db import db_session
-from ..models import Job
-from ..schemas.design import DesignJobCreate, DesignBrief, DesignAnalysisQuestion, DesignJobResult
-from ..tasks.design import design_orchestrate
-from ..services.job_control import is_queue_paused
-from ..dependencies.auth_dependencies import require_scopes, require_read_access, optional_auth
+from ..dependencies.auth_dependencies import require_scopes
 from ..middleware.jwt_middleware import AuthenticatedUser
-
+from ..models import Job
+from ..schemas.design import DesignAnalysisQuestion, DesignBrief, DesignJobCreate, DesignJobResult
+from ..services.job_control import is_queue_paused
+from ..tasks.design import design_orchestrate
 
 router = APIRouter(prefix="/api/v1/designs", tags=["Tasarım (P2D)"])
 
@@ -52,8 +52,8 @@ def create(
       type='design',
       status='pending',
       metrics={
-        "params": body.model_dump(), 
-        "created_at": datetime.utcnow().isoformat(), 
+        "params": body.model_dump(),
+        "created_at": datetime.utcnow().isoformat(),
         "queue": "cpu",
         "user_id": current_user.user_id,
         "user_role": current_user.role.value

@@ -13,6 +13,7 @@ This file will be removed in the next cleanup cycle.
 import warnings
 from typing import Any
 
+
 def audit(event: str, **fields: Any) -> None:
     """DEPRECATED: Use AuditService.create_audit_entry() instead."""
     warnings.warn(

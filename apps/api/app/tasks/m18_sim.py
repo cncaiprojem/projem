@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-from celery import shared_task
 import time
-from datetime import datetime
 
-from ..db import db_session
-from ..models_project import Setup
-from ..metrics import simulate3d_duration_seconds, m18_holder_collisions_total
+from celery import shared_task
+
 from ..audit import audit
-from ..sim.holder_check import Segment, swept_cylinder_min_clearance
+from ..db import db_session
+from ..metrics import m18_holder_collisions_total, simulate3d_duration_seconds
+from ..models_project import Setup
 from ..repos.m18 import add_collision
+from ..sim.holder_check import Segment, swept_cylinder_min_clearance
 
 
 @shared_task(bind=True, queue="sim")

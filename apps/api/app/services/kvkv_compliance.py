@@ -12,27 +12,26 @@ This service ensures compliance with Turkish Personal Data Protection Law (KVKV)
 - Privacy audit logging
 """
 
-from datetime import datetime, timezone, timedelta
-from typing import Dict, List, Optional, Any
-import json
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from sqlalchemy.orm import Session
 
-from ..models.user import User
+from ..core.logging import get_logger
+from ..models.artefact import Artefact
 from ..models.audit_log import AuditLog
+from ..models.invoice import Invoice
 from ..models.job import Job
 from ..models.model import Model
-from ..models.invoice import Invoice
 from ..models.security_event import SecurityEvent
-from ..models.artefact import Artefact
-from ..core.logging import get_logger
+from ..models.user import User
 
 logger = get_logger(__name__)
 
 
 class KVKVComplianceService:
     """Turkish KVKV compliance service for data protection."""
-    
+
     def __init__(self):
         self.data_retention_days = 2555  # 7 years for financial records
         self.consent_version = "1.0"
@@ -44,15 +43,15 @@ class KVKVComplianceService:
             "analytics": "Hizmet iyileştirme ve analitik",
             "marketing": "Pazarlama ve promosyonel iletişim (isteğe bağlı)"
         }
-    
+
     def record_consent(
         self,
         db: Session,
         user_id: int,
         data_processing_consent: bool,
         marketing_consent: bool,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ) -> bool:
         """
         Record user consent for KVKV compliance.
@@ -75,19 +74,19 @@ class KVKVComplianceService:
                     "user_id": user_id
                 })
                 return False
-            
-            now = datetime.now(timezone.utc)
-            
+
+            now = datetime.now(UTC)
+
             # Update consent status
             user.data_processing_consent = data_processing_consent
             user.data_processing_consent_at = now if data_processing_consent else None
             user.marketing_consent = marketing_consent
             user.marketing_consent_at = now if marketing_consent else None
-            
+
             # Update metadata
             if not user.auth_metadata:
                 user.auth_metadata = {}
-            
+
             user.auth_metadata.update({
                 "kvkv_consent_version": self.consent_version,
                 "consent_recorded_at": now.isoformat(),
@@ -103,24 +102,24 @@ class KVKVComplianceService:
                     ] if consent_given
                 ]
             })
-            
+
             # Create audit log entry
             self._create_consent_audit_log(
                 db, user_id, data_processing_consent, marketing_consent,
                 ip_address, user_agent
             )
-            
+
             db.commit()
-            
+
             logger.info("KVKV consent recorded", extra={
                 "user_id": user_id,
                 "data_processing_consent": data_processing_consent,
                 "marketing_consent": marketing_consent,
                 "consent_version": self.consent_version
             })
-            
+
             return True
-            
+
         except Exception as e:
             db.rollback()
             logger.error("Failed to record KVKV consent", exc_info=True, extra={
@@ -128,14 +127,14 @@ class KVKVComplianceService:
                 "error_type": type(e).__name__
             })
             return False
-    
+
     def withdraw_consent(
         self,
         db: Session,
         user_id: int,
         consent_type: str,  # "data_processing" or "marketing"
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ) -> bool:
         """
         Withdraw user consent and handle data according to KVKV requirements.
@@ -154,9 +153,9 @@ class KVKVComplianceService:
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
                 return False
-            
-            now = datetime.now(timezone.utc)
-            
+
+            now = datetime.now(UTC)
+
             if consent_type == "data_processing":
                 # Withdrawing data processing consent requires account deactivation
                 user.data_processing_consent = False
@@ -164,37 +163,37 @@ class KVKVComplianceService:
                 user.account_status = "deactivated"
                 user.deactivated_at = now
                 user.deactivation_reason = "KVKV data processing consent withdrawn"
-                
+
                 logger.warning("Data processing consent withdrawn - account deactivated", extra={
                     "user_id": user_id
                 })
-                
+
             elif consent_type == "marketing":
                 user.marketing_consent = False
                 user.marketing_consent_at = None
-                
+
                 logger.info("Marketing consent withdrawn", extra={
                     "user_id": user_id
                 })
-            
+
             # Update metadata
             if not user.auth_metadata:
                 user.auth_metadata = {}
-            
+
             user.auth_metadata.update({
                 f"{consent_type}_consent_withdrawn_at": now.isoformat(),
                 f"{consent_type}_consent_withdrawn_ip": ip_address,
                 f"{consent_type}_consent_withdrawn_user_agent": user_agent
             })
-            
+
             # Create audit log entry
             self._create_consent_withdrawal_audit_log(
                 db, user_id, consent_type, ip_address, user_agent
             )
-            
+
             db.commit()
             return True
-            
+
         except Exception as e:
             db.rollback()
             logger.error("Failed to withdraw consent", exc_info=True, extra={
@@ -203,8 +202,8 @@ class KVKVComplianceService:
                 "error_type": type(e).__name__
             })
             return False
-    
-    def get_user_data_summary(self, db: Session, user_id: int) -> Dict[str, Any]:
+
+    def get_user_data_summary(self, db: Session, user_id: int) -> dict[str, Any]:
         """
         Get comprehensive user data summary for KVKV compliance (right to access).
         
@@ -219,7 +218,7 @@ class KVKVComplianceService:
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
                 return {}
-            
+
             # Personal data summary
             data_summary = {
                 "user_information": {
@@ -267,7 +266,7 @@ class KVKVComplianceService:
                     "estimated_deletion_date": self._calculate_deletion_date(user)
                 }
             }
-            
+
             # Get related data counts (for transparency and KVKV "right to access" compliance)
             data_summary["related_data_counts"] = {
                 "jobs": db.query(Job).filter(Job.user_id == user_id).count(),
@@ -277,27 +276,27 @@ class KVKVComplianceService:
                 "artefacts": db.query(Artefact).join(Job).filter(Job.user_id == user_id).count(),
                 "audit_logs": db.query(AuditLog).filter(AuditLog.actor_user_id == user_id).count()
             }
-            
+
             logger.info("User data summary generated for KVKV compliance", extra={
                 "user_id": user_id,
-                "summary_generated_at": datetime.now(timezone.utc).isoformat()
+                "summary_generated_at": datetime.now(UTC).isoformat()
             })
-            
+
             return data_summary
-            
+
         except Exception as e:
             logger.error("Failed to generate user data summary", exc_info=True, extra={
                 "user_id": user_id,
                 "error_type": type(e).__name__
             })
             return {}
-    
+
     def request_data_deletion(
         self,
         db: Session,
         user_id: int,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ) -> bool:
         """
         Process user request for data deletion (right to be forgotten).
@@ -315,9 +314,9 @@ class KVKVComplianceService:
             user = db.query(User).filter(User.id == user_id).first()
             if not user:
                 return False
-            
-            now = datetime.now(timezone.utc)
-            
+
+            now = datetime.now(UTC)
+
             # Check if user can request deletion
             if not self._can_request_deletion(user):
                 logger.warning("Data deletion request denied - active obligations", extra={
@@ -325,37 +324,37 @@ class KVKVComplianceService:
                     "account_status": user.account_status
                 })
                 return False
-            
+
             # Mark for deletion (soft delete approach for compliance)
             user.account_status = "pending_deletion"
             user.deactivated_at = now
             user.deactivation_reason = "KVKV data deletion request"
-            
+
             # Update metadata
             if not user.auth_metadata:
                 user.auth_metadata = {}
-            
+
             user.auth_metadata.update({
                 "deletion_requested_at": now.isoformat(),
                 "deletion_request_ip": ip_address,
                 "deletion_request_user_agent": user_agent,
                 "deletion_scheduled_for": (now + timedelta(days=30)).isoformat()  # 30-day grace period
             })
-            
+
             # Create audit log entry
             self._create_deletion_request_audit_log(
                 db, user_id, ip_address, user_agent
             )
-            
+
             db.commit()
-            
+
             logger.info("Data deletion request processed", extra={
                 "user_id": user_id,
                 "deletion_scheduled_for": (now + timedelta(days=30)).isoformat()
             })
-            
+
             return True
-            
+
         except Exception as e:
             db.rollback()
             logger.error("Failed to process data deletion request", exc_info=True, extra={
@@ -363,8 +362,8 @@ class KVKVComplianceService:
                 "error_type": type(e).__name__
             })
             return False
-    
-    def export_user_data(self, db: Session, user_id: int) -> Dict[str, Any]:
+
+    def export_user_data(self, db: Session, user_id: int) -> dict[str, Any]:
         """
         Export user data in portable format (right to data portability).
         
@@ -377,11 +376,11 @@ class KVKVComplianceService:
         """
         try:
             data_summary = self.get_user_data_summary(db, user_id)
-            
+
             # Add export metadata
             export_data = {
                 "export_metadata": {
-                    "export_timestamp": datetime.now(timezone.utc).isoformat(),
+                    "export_timestamp": datetime.now(UTC).isoformat(),
                     "export_version": "1.0",
                     "kvkv_compliance_version": self.consent_version,
                     "data_controller": "FreeCAD CNC Production Platform",
@@ -389,29 +388,29 @@ class KVKVComplianceService:
                 },
                 "user_data": data_summary
             }
-            
+
             logger.info("User data exported for KVKV compliance", extra={
                 "user_id": user_id,
                 "export_timestamp": export_data["export_metadata"]["export_timestamp"]
             })
-            
+
             return export_data
-            
+
         except Exception as e:
             logger.error("Failed to export user data", exc_info=True, extra={
                 "user_id": user_id,
                 "error_type": type(e).__name__
             })
             return {}
-    
+
     def _create_consent_audit_log(
         self,
         db: Session,
         user_id: int,
         data_processing_consent: bool,
         marketing_consent: bool,
-        ip_address: Optional[str],
-        user_agent: Optional[str]
+        ip_address: str | None,
+        user_agent: str | None
     ) -> None:
         """Create audit log entry for consent recording."""
         try:
@@ -430,16 +429,16 @@ class KVKVComplianceService:
             )
             db.add(audit_entry)
             db.flush()
-        except Exception as e:
+        except Exception:
             logger.error("Failed to create consent audit log", exc_info=True)
-    
+
     def _create_consent_withdrawal_audit_log(
         self,
         db: Session,
         user_id: int,
         consent_type: str,
-        ip_address: Optional[str],
-        user_agent: Optional[str]
+        ip_address: str | None,
+        user_agent: str | None
     ) -> None:
         """Create audit log entry for consent withdrawal."""
         try:
@@ -450,22 +449,22 @@ class KVKVComplianceService:
                 resource_id=str(user_id),
                 details={
                     "consent_type": consent_type,
-                    "withdrawal_timestamp": datetime.now(timezone.utc).isoformat(),
+                    "withdrawal_timestamp": datetime.now(UTC).isoformat(),
                     "ip_address": ip_address,
                     "user_agent": user_agent
                 }
             )
             db.add(audit_entry)
             db.flush()
-        except Exception as e:
+        except Exception:
             logger.error("Failed to create consent withdrawal audit log", exc_info=True)
-    
+
     def _create_deletion_request_audit_log(
         self,
         db: Session,
         user_id: int,
-        ip_address: Optional[str],
-        user_agent: Optional[str]
+        ip_address: str | None,
+        user_agent: str | None
     ) -> None:
         """Create audit log entry for data deletion request."""
         try:
@@ -475,7 +474,7 @@ class KVKVComplianceService:
                 resource_type="User",
                 resource_id=str(user_id),
                 details={
-                    "deletion_requested_at": datetime.now(timezone.utc).isoformat(),
+                    "deletion_requested_at": datetime.now(UTC).isoformat(),
                     "ip_address": ip_address,
                     "user_agent": user_agent,
                     "grace_period_days": 30
@@ -483,49 +482,49 @@ class KVKVComplianceService:
             )
             db.add(audit_entry)
             db.flush()
-        except Exception as e:
+        except Exception:
             logger.error("Failed to create deletion request audit log", exc_info=True)
-    
-    def _get_processing_purposes(self, user: User) -> List[str]:
+
+    def _get_processing_purposes(self, user: User) -> list[str]:
         """Get list of data processing purposes for the user."""
         purposes = []
-        
+
         if user.data_processing_consent:
             purposes.extend([
                 "authentication",
-                "security", 
+                "security",
                 "service_provision",
                 "legal_compliance"
             ])
-        
+
         if user.marketing_consent:
             purposes.append("marketing")
-        
+
         return [self.processing_purposes[purpose] for purpose in purposes]
-    
-    def _calculate_deletion_date(self, user: User) -> Optional[str]:
+
+    def _calculate_deletion_date(self, user: User) -> str | None:
         """Calculate estimated data deletion date."""
         if user.account_status == "deactivated" and user.deactivated_at:
             deletion_date = user.deactivated_at + timedelta(days=self.data_retention_days)
             return deletion_date.isoformat()
         return None
-    
+
     def _can_request_deletion(self, user: User) -> bool:
         """Check if user can request data deletion."""
         # Users with active legal obligations cannot request immediate deletion
         if user.account_status in ["active", "suspended"]:
             return False  # Need to deactivate first
-        
+
         # Check for pending financial obligations, active jobs, etc.
         # This would include business logic checks
-        
+
         return True
-    
-    def _mask_ip_for_export(self, ip_address: Optional[str]) -> Optional[str]:
+
+    def _mask_ip_for_export(self, ip_address: str | None) -> str | None:
         """Mask IP address for data export while maintaining audit trail."""
         if not ip_address:
             return None
-        
+
         # For exports, we mask the IP but indicate it exists
         return f"{ip_address[:8]}***" if len(ip_address) > 8 else "***"
 

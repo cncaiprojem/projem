@@ -10,26 +10,28 @@ This package contains all SQLAlchemy ORM models organized by domain with:
 - Idempotency key validation with enterprise constraints
 """
 
-from .base import Base, TimestampMixin, metadata
-from .user import User
-from .session import Session
-from .license import License
-from .invoice import Invoice
-from .payment import Payment
-from .model import Model
-from .job import Job
-from .cam_run import CamRun
-from .sim_run import SimRun
 from .artefact import Artefact
-from .machine import Machine
-from .material import Material
-from .notification import Notification
-from .erp_mes_sync import ErpMesSync
 from .audit_log import AuditLog
-from .security_event import SecurityEvent
-from .tool import Tool
-from .oidc_account import OIDCAccount
+from .base import Base, TimestampMixin, metadata
+from .cam_run import CamRun
+from .erp_mes_sync import ErpMesSync
+from .idempotency import IdempotencyKey
+from .invoice import Invoice
+from .job import Job
+from .license import License
+from .machine import Machine
 from .magic_link import MagicLink
+from .material import Material
+from .model import Model
+from .notification import Notification
+from .oidc_account import OIDCAccount
+from .payment import Payment
+from .security_event import SecurityEvent
+from .session import Session
+from .sim_run import SimRun
+from .tool import Tool
+from .user import User
+from .webhook_event import WebhookEvent
 
 # All models are now in the models/ package - no additional modules needed
 _additional_models_loaded = False
@@ -39,49 +41,53 @@ __all__ = [
     "Base",
     "TimestampMixin",
     "metadata",
-    
+
     # User & Auth
     "User",
     "Session",
     "License",
     "OIDCAccount",
     "MagicLink",
-    
+
     # Billing
     "Invoice",
     "Payment",
-    
+
     # Core Business
     "Model",
     "Job",
     "CamRun",
     "SimRun",
     "Artefact",
-    
+
     # Reference Data
     "Machine",
     "Material",
     "Tool",
-    
+
     # System
     "Notification",
     "ErpMesSync",
     "AuditLog",
     "SecurityEvent",
+
+    # Concurrency & Deduplication
+    "IdempotencyKey",
+    "WebhookEvent",
 ]
 
 # All Task Master ERD models are now included in the main __all__ list above
 
 # Import and setup ultra enterprise validators
 from .validators import (
-    IdempotencyKeyValidator,
-    EnumValidator, 
-    JSONBValidator,
-    FinancialPrecisionValidator,
     AuditChainValidator,
-    TurkishComplianceValidator,
     EnhancedSecurityValidator,
-    setup_model_validators
+    EnumValidator,
+    FinancialPrecisionValidator,
+    IdempotencyKeyValidator,
+    JSONBValidator,
+    TurkishComplianceValidator,
+    setup_model_validators,
 )
 
 # Automatically setup enterprise validation when models are imported
@@ -90,7 +96,7 @@ setup_model_validators()
 # Add validators to __all__ for external use
 __all__.extend([
     "IdempotencyKeyValidator",
-    "EnumValidator", 
+    "EnumValidator",
     "JSONBValidator",
     "FinancialPrecisionValidator",
     "AuditChainValidator",

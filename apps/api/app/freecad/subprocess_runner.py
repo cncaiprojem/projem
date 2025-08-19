@@ -6,7 +6,6 @@ import signal
 import subprocess
 import time
 from dataclasses import dataclass
-from typing import List, Optional, Dict
 
 
 @dataclass
@@ -29,7 +28,7 @@ def _kill_tree(pid: int) -> None:
             pass
 
 
-def run_subprocess_with_timeout(cmd: List[str], cwd: Optional[str] = None, timeout_seconds: int = 60, env: Optional[Dict[str, str]] = None, pid_file: Optional[str] = None) -> RunResult:
+def run_subprocess_with_timeout(cmd: list[str], cwd: str | None = None, timeout_seconds: int = 60, env: dict[str, str] | None = None, pid_file: str | None = None) -> RunResult:
     system = platform.system().lower()
     start = time.time()
     preexec_fn = os.setsid if system != "windows" else None

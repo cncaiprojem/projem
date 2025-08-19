@@ -10,31 +10,29 @@ Ultra enterprise admin-only endpoints for user management with:
 - Banking-level security with comprehensive audit logging
 """
 
-from typing import Optional, List, Dict, Any
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, status, Query, Request
-from sqlalchemy.orm import Session as DBSession
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import desc, func
+from sqlalchemy.orm import Session as DBSession
 
-from ..models.user import User
-from ..models.security_event import SecurityEvent
-from ..models.enums import UserRole
-from ..schemas.rbac_schemas import (
-    UserPermissionSummary,
-    SecurityEventResponse,
-    SystemPermissionsResponse,
-    RoleUpdateRequest,
-    RoleUpdateResponse,
-    PermissionCheckRequest,
-    PermissionCheckResponse
-)
-from ..schemas.auth import UserOut
-from ..dependencies.auth_dependencies import require_admin, require_scopes
-from ..middleware.jwt_middleware import AuthenticatedUser
-from ..services.rbac_service import rbac_business_service
 from ..core.logging import get_logger
 from ..db import get_db
+from ..dependencies.auth_dependencies import require_admin, require_scopes
+from ..middleware.jwt_middleware import AuthenticatedUser
+from ..models.enums import UserRole
+from ..models.user import User
+from ..schemas.auth import UserOut
+from ..schemas.rbac_schemas import (
+    PermissionCheckRequest,
+    PermissionCheckResponse,
+    RoleUpdateRequest,
+    RoleUpdateResponse,
+    SecurityEventResponse,
+    SystemPermissionsResponse,
+    UserPermissionSummary,
+)
+from ..services.rbac_service import rbac_business_service
 
 logger = get_logger(__name__)
 
@@ -51,49 +49,49 @@ router = APIRouter(
 )
 
 
-@router.get("/users", response_model=List[UserOut])
+@router.get("/users", response_model=list[UserOut])
 def list_users(
     request: Request,
     db: DBSession = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_scopes("admin:users")),
     skip: int = Query(0, ge=0, description="Atlanacak kayıt sayısı"),
     limit: int = Query(100, ge=1, le=1000, description="Maksimum kayıt sayısı"),
-    role: Optional[UserRole] = Query(None, description="Role göre filtrele"),
-    is_active: Optional[bool] = Query(None, description="Aktiflik durumuna göre filtrele"),
-    search: Optional[str] = Query(None, min_length=2, max_length=100, description="Email veya isim araması")
+    role: UserRole | None = Query(None, description="Role göre filtrele"),
+    is_active: bool | None = Query(None, description="Aktiflik durumuna göre filtrele"),
+    search: str | None = Query(None, min_length=2, max_length=100, description="Email veya isim araması")
 ):
     """
     List all users in the system (admin only).
     
     Requires admin:users scope.
     """
-    start_time = datetime.now(timezone.utc)
-    
+    start_time = datetime.now(UTC)
+
     # Build query
     query = db.query(User)
-    
+
     # Apply filters
     if role:
         query = query.filter(User.role == role)
-    
+
     if is_active is not None:
         query = query.filter(User.is_active == is_active)
-    
+
     if search:
         search_pattern = f"%{search.lower()}%"
         query = query.filter(
             func.lower(User.email).like(search_pattern) |
             func.lower(User.full_name).like(search_pattern)
         )
-    
+
     # Order by creation date (newest first)
     query = query.order_by(desc(User.created_at))
-    
+
     # Apply pagination
     users = query.offset(skip).limit(limit).all()
-    
-    elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-    
+
+    elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
     # Log admin action
     logger.info("Admin listed users", extra={
         'operation': 'admin_list_users',
@@ -109,7 +107,7 @@ def list_users(
         'elapsed_ms': elapsed_ms,
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return users
 
 
@@ -129,7 +127,7 @@ def get_user(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Kullanıcı bulunamadı"
         )
-    
+
     # Log admin action
     logger.info("Admin viewed user details", extra={
         'operation': 'admin_get_user',
@@ -137,7 +135,7 @@ def get_user(
         'target_user_id': user_id,
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return user
 
 
@@ -157,7 +155,7 @@ def get_user_permissions(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Kullanıcı bulunamadı"
         )
-    
+
     # Log admin action
     logger.info("Admin viewed user permissions", extra={
         'operation': 'admin_get_user_permissions',
@@ -165,7 +163,7 @@ def get_user_permissions(
         'target_user_id': user_id,
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return permissions
 
 
@@ -188,7 +186,7 @@ def update_user_role(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="URL'deki user_id ile request body'deki user_id eşleşmiyor"
         )
-    
+
     # Check if target user exists
     target_user = db.query(User).filter(User.id == user_id).first()
     if not target_user:
@@ -196,14 +194,14 @@ def update_user_role(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Kullanıcı bulunamadı"
         )
-    
+
     # Prevent admin from changing their own role (safety measure)
     if user_id == current_user.user_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Kendi rolünüzü değiştiremezsiniz"
         )
-    
+
     # Update role
     result = rbac_business_service.update_user_role(
         db=db,
@@ -212,13 +210,13 @@ def update_user_role(
         updated_by_user_id=current_user.user_id,
         reason=role_update.reason
     )
-    
+
     if not result:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Kullanıcı bulunamadı"
         )
-    
+
     # Log admin action
     logger.warning("Admin updated user role", extra={
         'operation': 'admin_update_user_role',
@@ -229,17 +227,17 @@ def update_user_role(
         'reason': role_update.reason,
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return result
 
 
-@router.get("/security-events", response_model=List[SecurityEventResponse])
+@router.get("/security-events", response_model=list[SecurityEventResponse])
 def list_security_events(
     request: Request,
     db: DBSession = Depends(get_db),
     current_user: AuthenticatedUser = Depends(require_scopes("admin:system")),
-    user_id: Optional[int] = Query(None, description="Kullanıcı ID'ye göre filtrele"),
-    event_type: Optional[str] = Query(None, description="Event tipine göre filtrele"),
+    user_id: int | None = Query(None, description="Kullanıcı ID'ye göre filtrele"),
+    event_type: str | None = Query(None, description="Event tipine göre filtrele"),
     hours: int = Query(24, ge=1, le=168, description="Kaç saat geriye bakılacak"),
     skip: int = Query(0, ge=0, description="Atlanacak kayıt sayısı"),
     limit: int = Query(100, ge=1, le=1000, description="Maksimum kayıt sayısı")
@@ -249,10 +247,10 @@ def list_security_events(
     
     Requires admin:system scope.
     """
-    start_date = datetime.now(timezone.utc) - timedelta(hours=hours)
-    
+    start_date = datetime.now(UTC) - timedelta(hours=hours)
+
     event_types = [event_type] if event_type else None
-    
+
     events = rbac_business_service.get_security_events(
         db=db,
         user_id=user_id,
@@ -261,7 +259,7 @@ def list_security_events(
         limit=limit,
         offset=skip
     )
-    
+
     # Log admin action
     logger.info("Admin viewed security events", extra={
         'operation': 'admin_list_security_events',
@@ -274,7 +272,7 @@ def list_security_events(
         'result_count': len(events),
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return events
 
 
@@ -291,7 +289,7 @@ def get_security_events_summary(
     Requires admin:system scope.
     """
     summary = rbac_business_service.get_recent_security_events_summary(db, hours)
-    
+
     # Log admin action
     logger.info("Admin viewed security events summary", extra={
         'operation': 'admin_security_events_summary',
@@ -300,7 +298,7 @@ def get_security_events_summary(
         'total_events': summary.get('total_events', 0),
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return summary
 
 
@@ -316,7 +314,7 @@ def get_system_permissions(
     Requires admin:system scope.
     """
     permissions = rbac_business_service.get_system_permissions(db)
-    
+
     # Log admin action
     logger.info("Admin viewed system permissions", extra={
         'operation': 'admin_get_system_permissions',
@@ -325,7 +323,7 @@ def get_system_permissions(
         'total_scopes': len(permissions.available_scopes),
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return permissions
 
 
@@ -348,7 +346,7 @@ def check_user_permission(
         action=permission_check.action,
         context=permission_check.context
     )
-    
+
     # Log admin action
     logger.info("Admin checked user permission", extra={
         'operation': 'admin_check_permission',
@@ -359,7 +357,7 @@ def check_user_permission(
         'permission_allowed': result.allowed,
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return result
 
 
@@ -375,28 +373,28 @@ def get_user_statistics(
     Requires admin:system scope.
     """
     stats = rbac_business_service.get_role_statistics(db)
-    
+
     # Additional statistics
     total_users = db.query(func.count(User.id)).scalar()
     active_users = db.query(func.count(User.id)).filter(User.is_active == True).scalar()
-    locked_users = db.query(func.count(User.id)).filter(User.account_locked_until > datetime.now(timezone.utc)).scalar()
-    
+    locked_users = db.query(func.count(User.id)).filter(User.account_locked_until > datetime.now(UTC)).scalar()
+
     # Recent login statistics
     recent_logins = (
         db.query(func.count(User.id))
-        .filter(User.last_successful_login_at >= datetime.now(timezone.utc) - timedelta(days=30))
+        .filter(User.last_successful_login_at >= datetime.now(UTC) - timedelta(days=30))
         .scalar()
     )
-    
+
     result = {
         'users_by_role': stats,
         'total_users': total_users,
         'active_users': active_users,
         'locked_users': locked_users,
         'recent_logins_30d': recent_logins,
-        'generated_at': datetime.now(timezone.utc).isoformat()
+        'generated_at': datetime.now(UTC).isoformat()
     }
-    
+
     # Log admin action
     logger.info("Admin viewed user statistics", extra={
         'operation': 'admin_user_statistics',
@@ -405,5 +403,5 @@ def get_user_statistics(
         'active_users': active_users,
         'client_ip': request.client.host if request.client else None
     })
-    
+
     return result

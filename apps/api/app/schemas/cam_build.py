@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
+
 from pydantic import BaseModel, Field
 
 WcsName = Literal["G54", "G55", "G56", "G57", "G58", "G59"]
@@ -15,7 +16,7 @@ class StockSpec(BaseModel):
 
 class CamBuildRequest(BaseModel):
     project_id: int
-    machine_post: Optional[str] = None
+    machine_post: str | None = None
     wcs: WcsName = "G54"
     stock: StockSpec = Field(default_factory=StockSpec)
     strategy: Literal["balanced", "fast", "safe"] = "balanced"
@@ -29,9 +30,9 @@ class CamOpSummary(BaseModel):
 
 
 class CamBuildArtifacts(BaseModel):
-    fcstd_url: Optional[str] = None
-    job_json_url: Optional[str] = None
-    svg_url: Optional[str] = None
+    fcstd_url: str | None = None
+    job_json_url: str | None = None
+    svg_url: str | None = None
 
 
 class CamBuildOut(BaseModel):
@@ -41,7 +42,7 @@ class CamBuildOut(BaseModel):
 
 class CamArtifactsOut(BaseModel):
     artifacts: CamBuildArtifacts
-    ops: List[CamOpSummary] = []
-    job_stats: Dict[str, Any] = {}
+    ops: list[CamOpSummary] = []
+    job_stats: dict[str, Any] = {}
 
 

@@ -6,9 +6,7 @@ Compliant with Task Master ERD requirements.
 from datetime import datetime
 from typing import TYPE_CHECKING, Optional
 
-from sqlalchemy import (
-    BigInteger, DateTime, ForeignKey, Index, String, Text
-)
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Index, String, Text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -24,7 +22,7 @@ class SecurityEvent(Base):
     Records security-related events with minimal overhead for high-frequency
     logging while maintaining audit trail integrity.
     """
-    
+
     __tablename__ = "security_events"
     __table_args__ = (
         # Performance indexes
@@ -32,26 +30,26 @@ class SecurityEvent(Base):
         Index("idx_security_events_type", "type"),
         Index("idx_security_events_created_at", "created_at"),
         Index(
-            "idx_security_events_user_type", 
+            "idx_security_events_user_type",
             "user_id", "type", "created_at"
         ),
         Index(
-            "idx_security_events_correlation_id", 
+            "idx_security_events_correlation_id",
             "correlation_id",
             postgresql_where="correlation_id IS NOT NULL"
         ),
         Index(
-            "idx_security_events_session_id", 
+            "idx_security_events_session_id",
             "session_id",
             postgresql_where="session_id IS NOT NULL"
         ),
         Index(
-            "idx_security_events_ip_masked_created", 
+            "idx_security_events_ip_masked_created",
             "ip_masked", "created_at",
             postgresql_where="ip_masked IS NOT NULL"
         ),
     )
-    
+
     # Primary key
     id: Mapped[int] = mapped_column(
         BigInteger,
@@ -59,15 +57,15 @@ class SecurityEvent(Base):
         autoincrement=True,
         comment="Unique security event identifier"
     )
-    
+
     # User association
-    user_id: Mapped[Optional[int]] = mapped_column(
+    user_id: Mapped[int | None] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=True,
         index=True,
         comment="Associated user (NULL for anonymous/system events)"
     )
-    
+
     # Event classification
     type: Mapped[str] = mapped_column(
         String(100),
@@ -75,42 +73,42 @@ class SecurityEvent(Base):
         index=True,
         comment="Security event type (e.g., 'LOGIN_FAILED', 'ACCESS_DENIED')"
     )
-    
+
     # Request context with correlation tracking
-    session_id: Mapped[Optional[str]] = mapped_column(
+    session_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
         index=True,
         comment="Session ID for user session tracking"
     )
-    correlation_id: Mapped[Optional[str]] = mapped_column(
+    correlation_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
         index=True,
         comment="Request correlation ID for tracing across services"
     )
-    resource: Mapped[Optional[str]] = mapped_column(
+    resource: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
         comment="Resource being accessed or affected"
     )
-    ip_masked: Mapped[Optional[str]] = mapped_column(
+    ip_masked: Mapped[str | None] = mapped_column(
         String(45),  # IPv6 compatible
         nullable=True,
         index=True,
         comment="KVKV-compliant masked IP address (privacy-preserving)"
     )
-    ua_masked: Mapped[Optional[str]] = mapped_column(
+    ua_masked: Mapped[str | None] = mapped_column(
         Text,
         nullable=True,
         comment="KVKV-compliant masked user agent string"
     )
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    metadata: Mapped[dict | None] = mapped_column(
         JSONB,
         nullable=True,
         comment="Additional security event metadata"
     )
-    
+
     # Timestamp
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -119,46 +117,46 @@ class SecurityEvent(Base):
         index=True,
         comment="When the security event occurred (UTC)"
     )
-    
+
     # Relationships
     user: Mapped[Optional["User"]] = relationship(
         "User",
         back_populates="security_events",
         foreign_keys=[user_id]
     )
-    
+
     def __repr__(self) -> str:
         return (
             f"<SecurityEvent(id={self.id}, type='{self.type}', "
             f"user_id={self.user_id}, ip='{self.ip}')>"
         )
-    
+
     @property
     def is_anonymous(self) -> bool:
         """Check if event is from anonymous/unauthenticated source."""
         return self.user_id is None
-    
+
     @property
     def is_authenticated(self) -> bool:
         """Check if event is from authenticated user."""
         return self.user_id is not None
-    
+
     @property
     def has_ip(self) -> bool:
         """Check if event has IP address information."""
         return self.ip is not None
-    
+
     @property
     def has_user_agent(self) -> bool:
         """Check if event has user agent information."""
         return self.ua is not None and self.ua.strip() != ""
-    
+
     @classmethod
     def create_login_failed(
         cls,
-        user_id: Optional[int] = None,
-        ip: Optional[str] = None,
-        ua: Optional[str] = None
+        user_id: int | None = None,
+        ip: str | None = None,
+        ua: str | None = None
     ) -> "SecurityEvent":
         """Create a login failed security event.
         
@@ -176,13 +174,13 @@ class SecurityEvent(Base):
             ip=ip,
             ua=ua
         )
-    
+
     @classmethod
     def create_access_denied(
         cls,
         user_id: int,
-        ip: Optional[str] = None,
-        ua: Optional[str] = None
+        ip: str | None = None,
+        ua: str | None = None
     ) -> "SecurityEvent":
         """Create an access denied security event.
         
@@ -200,14 +198,14 @@ class SecurityEvent(Base):
             ip=ip,
             ua=ua
         )
-    
+
     @classmethod
     def create_suspicious_activity(
         cls,
-        user_id: Optional[int],
+        user_id: int | None,
         activity_type: str,
-        ip: Optional[str] = None,
-        ua: Optional[str] = None
+        ip: str | None = None,
+        ua: str | None = None
     ) -> "SecurityEvent":
         """Create a suspicious activity security event.
         
@@ -226,18 +224,18 @@ class SecurityEvent(Base):
             ip=ip,
             ua=ua
         )
-    
+
     def is_login_related(self) -> bool:
         """Check if event is related to authentication/login."""
         login_types = [
             "LOGIN_FAILED",
-            "LOGIN_SUCCESS", 
+            "LOGIN_SUCCESS",
             "LOGIN_BLOCKED",
             "BRUTE_FORCE_DETECTED",
             "ACCOUNT_LOCKED"
         ]
         return self.type in login_types
-    
+
     def is_access_related(self) -> bool:
         """Check if event is related to authorization/access."""
         access_types = [
@@ -247,7 +245,7 @@ class SecurityEvent(Base):
             "RESOURCE_ACCESS_DENIED"
         ]
         return self.type in access_types
-    
+
     def is_suspicious(self) -> bool:
         """Check if event indicates suspicious activity."""
         return (

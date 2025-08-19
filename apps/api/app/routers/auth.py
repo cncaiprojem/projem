@@ -3,7 +3,6 @@ Main authentication router - redirects to enterprise authentication.
 This maintains compatibility while directing to the new ultra enterprise auth system.
 """
 
-from fastapi import APIRouter
 from .auth_enterprise import router as enterprise_router
 from .auth_legacy import router as legacy_router
 

@@ -10,41 +10,35 @@ This service implements banking-level OAuth2/OIDC authentication with:
 - Integration with existing enterprise authentication system
 """
 
-import secrets
-import hashlib
 import base64
+import hashlib
 import json
-from datetime import datetime, timezone, timedelta
-from typing import Dict, Any, Optional, Tuple
+import secrets
+from datetime import UTC, datetime, timedelta
+from typing import Any
 from urllib.parse import urlencode
 
 import httpx
 import jwt
 from jwt import PyJWKClient
-from authlib.integrations.httpx_client import OAuth2Session
-from authlib.oauth2 import OAuth2Token
-from authlib.oidc.core import CodeIDToken, UserInfo
-from authlib.common.errors import AuthlibBaseError
 from sqlalchemy.orm import Session as DBSession
-from fastapi import HTTPException, status
 
-from ..core.logging import get_logger
-from ..models.user import User
-from ..models.oidc_account import OIDCAccount
-from ..models.audit_log import AuditLog
-from ..models.security_event import SecurityEvent
-from ..services.token_service import token_service, TokenServiceError
-from ..services.auth_service import auth_service, AuthenticationError
 from ..config import settings
-from ..db import get_redis
+from ..core.logging import get_logger
+from ..models.audit_log import AuditLog
+from ..models.oidc_account import OIDCAccount
+from ..models.security_event import SecurityEvent
+from ..models.user import User
+from ..services.auth_service import auth_service
+from ..services.token_service import token_service
 
 logger = get_logger(__name__)
 
 
 class OIDCServiceError(Exception):
     """Base OIDC service error with Turkish localization."""
-    
-    def __init__(self, code: str, message: str, details: Optional[Dict] = None):
+
+    def __init__(self, code: str, message: str, details: dict | None = None):
         self.code = code
         self.message = message
         self.details = details or {}
@@ -53,7 +47,7 @@ class OIDCServiceError(Exception):
 
 class OIDCAuthResult:
     """Result of OIDC authentication operation."""
-    
+
     def __init__(
         self,
         user: User,
@@ -75,33 +69,33 @@ class OIDCAuthResult:
 
 class OIDCService:
     """Ultra enterprise OIDC service with banking-level security."""
-    
+
     def __init__(self):
         # Google OAuth2 configuration
         self.google_client_id = settings.google_client_id
         self.google_client_secret = settings.google_client_secret
         self.google_discovery_url = settings.google_discovery_url
         self.google_scopes = settings.google_oauth_scopes
-        
+
         # Security configuration
         self.state_expire_seconds = settings.oauth_state_expire_minutes * 60
         self.pkce_verifier_expire_seconds = settings.oauth_pkce_verifier_expire_minutes * 60
         self.callback_timeout_seconds = settings.oauth_callback_timeout_seconds
-        
+
         # Redis key prefixes for secure storage
         self.state_prefix = "oidc:state:"
         self.pkce_prefix = "oidc:pkce:"
         self.nonce_prefix = "oidc:nonce:"
-        
+
         # Cache for Google discovery document
         self._google_config_cache = None
         self._google_config_expires = None
-        
+
         # JWKS client for JWT signature verification
         self._jwks_client = None
         self._jwks_client_expires = None
-    
-    async def get_google_config(self) -> Dict[str, Any]:
+
+    async def get_google_config(self) -> dict[str, Any]:
         """
         Get Google OIDC configuration with caching.
         
@@ -111,33 +105,33 @@ class OIDCService:
         Raises:
             OIDCServiceError: If configuration cannot be retrieved
         """
-        now = datetime.now(timezone.utc)
-        
+        now = datetime.now(UTC)
+
         # Check cache
-        if (self._google_config_cache and 
-            self._google_config_expires and 
+        if (self._google_config_cache and
+            self._google_config_expires and
             now < self._google_config_expires):
             return self._google_config_cache
-        
+
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 response = await client.get(self.google_discovery_url)
                 response.raise_for_status()
-                
+
                 config = response.json()
-                
+
                 # Cache for 1 hour
                 self._google_config_cache = config
                 self._google_config_expires = now + timedelta(hours=1)
-                
+
                 logger.debug("Google OIDC configuration retrieved", extra={
                     'operation': 'get_google_config',
                     'issuer': config.get('issuer'),
                     'endpoints_count': len([k for k in config.keys() if k.endswith('_endpoint')])
                 })
-                
+
                 return config
-                
+
         except httpx.RequestError as e:
             logger.error("Failed to retrieve Google OIDC configuration", exc_info=True, extra={
                 'operation': 'get_google_config',
@@ -148,14 +142,14 @@ class OIDCService:
                 'ERR-OIDC-CONFIG-FAILED',
                 'OIDC yapılandırması alınamadı'
             )
-        except Exception as e:
+        except Exception:
             logger.error("Unexpected error retrieving Google OIDC configuration", exc_info=True)
             raise OIDCServiceError(
                 'ERR-OIDC-CONFIG-UNEXPECTED',
                 'OIDC yapılandırması beklenmeyen hata'
             )
-    
-    def generate_pkce_pair(self) -> Tuple[str, str]:
+
+    def generate_pkce_pair(self) -> tuple[str, str]:
         """
         Generate PKCE code verifier and challenge (S256).
         
@@ -166,19 +160,19 @@ class OIDCService:
         code_verifier = base64.urlsafe_b64encode(
             secrets.token_bytes(96)
         ).decode('utf-8').rstrip('=')
-        
+
         # Create S256 challenge
         challenge_bytes = hashlib.sha256(code_verifier.encode('utf-8')).digest()
         code_challenge = base64.urlsafe_b64encode(challenge_bytes).decode('utf-8').rstrip('=')
-        
+
         logger.debug("PKCE pair generated", extra={
             'operation': 'generate_pkce_pair',
             'verifier_length': len(code_verifier),
             'challenge_length': len(code_challenge)
         })
-        
+
         return code_verifier, code_challenge
-    
+
     def generate_secure_state(self) -> str:
         """
         Generate cryptographically secure state parameter.
@@ -187,7 +181,7 @@ class OIDCService:
             URL-safe state string
         """
         return secrets.token_urlsafe(64)  # 512 bits of entropy
-    
+
     def generate_nonce(self) -> str:
         """
         Generate cryptographically secure nonce for OIDC.
@@ -196,7 +190,7 @@ class OIDCService:
             URL-safe nonce string
         """
         return secrets.token_urlsafe(32)  # 256 bits of entropy
-    
+
     async def store_oauth_state(
         self,
         redis_client,
@@ -219,45 +213,45 @@ class OIDCService:
             'pkce_verifier': pkce_verifier,
             'nonce': nonce,
             'redirect_uri': redirect_uri,
-            'created_at': datetime.now(timezone.utc).isoformat(),
+            'created_at': datetime.now(UTC).isoformat(),
             'ip_address': None,  # Will be set by router
             'user_agent': None   # Will be set by router
         }
-        
+
         # Store state data
         await redis_client.setex(
             f"{self.state_prefix}{state}",
             self.state_expire_seconds,
             json.dumps(state_data)
         )
-        
+
         # Also store PKCE verifier separately for additional security
         await redis_client.setex(
             f"{self.pkce_prefix}{state}",
             self.pkce_verifier_expire_seconds,
             pkce_verifier
         )
-        
+
         # Store nonce for validation
         await redis_client.setex(
             f"{self.nonce_prefix}{state}",
             self.state_expire_seconds,
             nonce
         )
-        
+
         logger.debug("OAuth state stored securely", extra={
             'operation': 'store_oauth_state',
             'state_length': len(state),
             'expire_seconds': self.state_expire_seconds
         })
-    
+
     async def retrieve_and_validate_state(
         self,
         redis_client,
         state: str,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
-    ) -> Dict[str, Any]:
+        ip_address: str | None = None,
+        user_agent: str | None = None
+    ) -> dict[str, Any]:
         """
         Retrieve and validate OAuth state data.
         
@@ -281,9 +275,9 @@ class OIDCService:
                     'ERR-OIDC-STATE',
                     'OIDC state doğrulaması başarısız'
                 )
-            
+
             state_data = json.loads(state_json)
-            
+
             # Verify PKCE verifier exists
             pkce_verifier = await redis_client.get(f"{self.pkce_prefix}{state}")
             if not pkce_verifier:
@@ -291,7 +285,7 @@ class OIDCService:
                     'ERR-OIDC-PKCE-MISSING',
                     'OIDC PKCE doğrulayıcısı bulunamadı'
                 )
-            
+
             # Verify nonce exists
             nonce = await redis_client.get(f"{self.nonce_prefix}{state}")
             if not nonce:
@@ -299,26 +293,26 @@ class OIDCService:
                     'ERR-OIDC-NONCE',
                     'OIDC nonce doğrulaması başarısız'
                 )
-            
+
             # Update state data with current verifier and nonce
             state_data['pkce_verifier'] = pkce_verifier.decode('utf-8')
             state_data['nonce'] = nonce.decode('utf-8')
-            
+
             # Clean up used state data
             await redis_client.delete(f"{self.state_prefix}{state}")
             await redis_client.delete(f"{self.pkce_prefix}{state}")
             await redis_client.delete(f"{self.nonce_prefix}{state}")
-            
+
             logger.debug("OAuth state validated and cleaned", extra={
                 'operation': 'retrieve_and_validate_state',
                 'state_age_seconds': (
-                    datetime.now(timezone.utc) - 
+                    datetime.now(UTC) -
                     datetime.fromisoformat(state_data['created_at'])
                 ).total_seconds()
             })
-            
+
             return state_data
-            
+
         except json.JSONDecodeError:
             raise OIDCServiceError(
                 'ERR-OIDC-STATE-CORRUPT',
@@ -333,14 +327,14 @@ class OIDCService:
                 'ERR-OIDC-STATE-VALIDATION-FAILED',
                 'OIDC state doğrulaması başarısız'
             )
-    
+
     async def create_authorization_url(
         self,
         redis_client,
         redirect_uri: str,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
-    ) -> Tuple[str, str]:
+        ip_address: str | None = None,
+        user_agent: str | None = None
+    ) -> tuple[str, str]:
         """
         Create Google OAuth2 authorization URL with PKCE and state.
         
@@ -360,15 +354,15 @@ class OIDCService:
             # Get Google configuration
             google_config = await self.get_google_config()
             authorization_endpoint = google_config['authorization_endpoint']
-            
+
             # Generate security parameters
             state = self.generate_secure_state()
             nonce = self.generate_nonce()
             code_verifier, code_challenge = self.generate_pkce_pair()
-            
+
             # Store state data securely
             await self.store_oauth_state(redis_client, state, code_verifier, nonce, redirect_uri)
-            
+
             # Build authorization URL
             auth_params = {
                 'client_id': self.google_client_id,
@@ -382,9 +376,9 @@ class OIDCService:
                 'access_type': 'offline',  # For refresh tokens
                 'prompt': 'consent'  # Force consent to get refresh token
             }
-            
+
             authorization_url = f"{authorization_endpoint}?{urlencode(auth_params)}"
-            
+
             logger.info("OIDC authorization URL created", extra={
                 'operation': 'create_authorization_url',
                 'provider': 'google',
@@ -393,9 +387,9 @@ class OIDCService:
                 'has_nonce': True,
                 'client_ip': ip_address
             })
-            
+
             return authorization_url, state
-            
+
         except OIDCServiceError:
             raise  # Re-raise our errors
         except Exception as e:
@@ -407,16 +401,16 @@ class OIDCService:
                 'ERR-OIDC-AUTH-URL-FAILED',
                 'OIDC yetkilendirme URL\'si oluşturulamadı'
             )
-    
+
     async def exchange_code_for_tokens(
         self,
         redis_client,
         code: str,
         state: str,
         redirect_uri: str,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
-    ) -> Dict[str, Any]:
+        ip_address: str | None = None,
+        user_agent: str | None = None
+    ) -> dict[str, Any]:
         """
         Exchange authorization code for tokens using PKCE verification.
         
@@ -439,18 +433,18 @@ class OIDCService:
             state_data = await self.retrieve_and_validate_state(
                 redis_client, state, ip_address, user_agent
             )
-            
+
             # Verify redirect URI matches
             if state_data['redirect_uri'] != redirect_uri:
                 raise OIDCServiceError(
                     'ERR-OIDC-REDIRECT-MISMATCH',
                     'OIDC redirect URI uyumsuzluğu'
                 )
-            
+
             # Get Google configuration
             google_config = await self.get_google_config()
             token_endpoint = google_config['token_endpoint']
-            
+
             # Prepare token request
             token_data = {
                 'client_id': self.google_client_id,
@@ -460,7 +454,7 @@ class OIDCService:
                 'redirect_uri': redirect_uri,
                 'code_verifier': state_data['pkce_verifier']
             }
-            
+
             # Exchange code for tokens
             async with httpx.AsyncClient(timeout=self.callback_timeout_seconds) as client:
                 response = await client.post(
@@ -468,7 +462,7 @@ class OIDCService:
                     data=token_data,
                     headers={'Accept': 'application/json'}
                 )
-                
+
                 if response.status_code != 200:
                     logger.warning("Token exchange failed", extra={
                         'operation': 'exchange_code_for_tokens',
@@ -479,9 +473,9 @@ class OIDCService:
                         'ERR-OIDC-TOKEN-EXCHANGE',
                         'OIDC token değişimi başarısız'
                     )
-                
+
                 token_response = response.json()
-            
+
             # Verify and decode ID token
             id_token = token_response.get('id_token')
             if not id_token:
@@ -489,10 +483,10 @@ class OIDCService:
                     'ERR-OIDC-NO-ID-TOKEN',
                     'OIDC ID token bulunamadı'
                 )
-            
+
             # Verify nonce in ID token with proper signature verification
             id_token_claims = await self._verify_id_token(id_token, state_data['nonce'])
-            
+
             logger.info("OIDC token exchange successful", extra={
                 'operation': 'exchange_code_for_tokens',
                 'provider': 'google',
@@ -500,7 +494,7 @@ class OIDCService:
                 'token_type': token_response.get('token_type'),
                 'client_ip': ip_address
             })
-            
+
             return {
                 'access_token': token_response['access_token'],
                 'id_token': id_token,
@@ -509,7 +503,7 @@ class OIDCService:
                 'expires_in': token_response.get('expires_in', 3600),
                 'token_type': token_response.get('token_type', 'Bearer')
             }
-            
+
         except OIDCServiceError:
             raise  # Re-raise our errors
         except Exception as e:
@@ -521,7 +515,7 @@ class OIDCService:
                 'ERR-OIDC-TOKEN-EXCHANGE-FAILED',
                 'OIDC token değişimi başarısız'
             )
-    
+
     async def _get_jwks_client(self) -> PyJWKClient:
         """
         Get or create JWKS client for JWT signature verification.
@@ -532,25 +526,25 @@ class OIDCService:
         Raises:
             OIDCServiceError: If JWKS client creation fails
         """
-        now = datetime.now(timezone.utc)
-        
+        now = datetime.now(UTC)
+
         # Check if client is cached and not expired
-        if (self._jwks_client and 
-            self._jwks_client_expires and 
+        if (self._jwks_client and
+            self._jwks_client_expires and
             now < self._jwks_client_expires):
             return self._jwks_client
-        
+
         try:
             # Get Google configuration for JWKS URI
             google_config = await self.get_google_config()
             jwks_uri = google_config.get('jwks_uri')
-            
+
             if not jwks_uri:
                 raise OIDCServiceError(
                     'ERR-OIDC-NO-JWKS-URI',
                     'OIDC JWKS endpoint bulunamadı'
                 )
-            
+
             # Create JWKS client with proper security settings
             self._jwks_client = PyJWKClient(
                 jwks_uri,
@@ -560,18 +554,18 @@ class OIDCService:
                 jwks_cache_ttl=3600,  # 1 hour cache
                 timeout=10.0
             )
-            
+
             # Cache client for 30 minutes
             self._jwks_client_expires = now + timedelta(minutes=30)
-            
+
             logger.debug("JWKS client created", extra={
                 'operation': '_get_jwks_client',
                 'jwks_uri': jwks_uri,
                 'cache_ttl': 3600
             })
-            
+
             return self._jwks_client
-            
+
         except Exception as e:
             logger.error("Failed to create JWKS client", exc_info=True, extra={
                 'operation': '_get_jwks_client',
@@ -581,8 +575,8 @@ class OIDCService:
                 'ERR-OIDC-JWKS-CLIENT-FAILED',
                 'OIDC JWKS istemcisi oluşturulamadı'
             )
-    
-    async def _verify_id_token(self, id_token: str, expected_nonce: str) -> Dict[str, Any]:
+
+    async def _verify_id_token(self, id_token: str, expected_nonce: str) -> dict[str, Any]:
         """
         Verify ID token signature and claims using Google's JWKS.
         
@@ -599,10 +593,10 @@ class OIDCService:
         try:
             # Get JWKS client for signature verification
             jwks_client = await self._get_jwks_client()
-            
+
             # Get signing key from JWKS
             signing_key = jwks_client.get_signing_key_from_jwt(id_token)
-            
+
             # Verify JWT signature and decode claims
             claims = jwt.decode(
                 id_token,
@@ -619,7 +613,7 @@ class OIDCService:
                     "require": ["aud", "iss", "exp", "iat", "sub"]
                 }
             )
-            
+
             # Additional verification: issuer and audience are already verified by PyJWT
             # But we double-check for security
             if claims.get('iss') != 'https://accounts.google.com':
@@ -627,30 +621,30 @@ class OIDCService:
                     'ERR-OIDC-INVALID-ISSUER',
                     'OIDC issuer geçersiz'
                 )
-            
+
             if claims.get('aud') != self.google_client_id:
                 raise OIDCServiceError(
                     'ERR-OIDC-INVALID-AUDIENCE',
                     'OIDC audience geçersiz'
                 )
-            
+
             # Verify nonce
             if claims.get('nonce') != expected_nonce:
                 raise OIDCServiceError(
                     'ERR-OIDC-NONCE',
                     'OIDC nonce doğrulaması başarısız'
                 )
-            
+
             # Expiration is already verified by PyJWT, but we can add additional checks
             # Verify token was issued recently (not older than 24 hours)
-            now = datetime.now(timezone.utc).timestamp()
+            now = datetime.now(UTC).timestamp()
             iat = claims.get('iat', 0)
             if now - iat > 86400:  # 24 hours
                 raise OIDCServiceError(
                     'ERR-OIDC-TOKEN-TOO-OLD',
                     'OIDC token çok eski'
                 )
-            
+
             logger.info("ID token signature and claims verified successfully", extra={
                 'operation': '_verify_id_token',
                 'subject': claims.get('sub'),
@@ -658,9 +652,9 @@ class OIDCService:
                 'verified_signature': True,
                 'algorithm': 'RS256'
             })
-            
+
             return claims
-            
+
         except jwt.PyJWTError as e:
             logger.error("ID token JWT verification failed", exc_info=True, extra={
                 'operation': '_verify_id_token',
@@ -680,13 +674,13 @@ class OIDCService:
                 'ERR-OIDC-TOKEN-VERIFICATION-FAILED',
                 'OIDC token doğrulaması başarısız'
             )
-    
+
     async def authenticate_or_link_user(
         self,
         db: DBSession,
-        id_token_claims: Dict[str, Any],
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        id_token_claims: dict[str, Any],
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ) -> OIDCAuthResult:
         """
         Authenticate user or link OIDC account to existing user.
@@ -708,38 +702,38 @@ class OIDCService:
         email = id_token_claims.get('email', '').lower()
         email_verified = id_token_claims.get('email_verified', False)
         picture = id_token_claims.get('picture')
-        
+
         is_new_user = False
         is_new_oidc_link = False
-        
+
         try:
             # Check if OIDC account already exists
             oidc_account = OIDCAccount.find_by_provider_sub(db, provider, sub)
-            
+
             if oidc_account:
                 # Existing OIDC account - authenticate
                 user = oidc_account.user
-                
+
                 # Verify account is active
                 if not user.can_attempt_login():
                     raise OIDCServiceError(
                         'ERR-OIDC-ACCOUNT-INACTIVE',
                         'Kullanıcı hesabı aktif değil'
                     )
-                
+
                 # Update OIDC account information
                 oidc_account.email = email
                 oidc_account.email_verified = email_verified
                 oidc_account.picture = picture
                 oidc_account.record_login()
-                
+
             else:
                 # New OIDC account
                 is_new_oidc_link = True
-                
+
                 # Check if user with this email already exists
                 user = db.query(User).filter(User.email == email).first()
-                
+
                 if user:
                     # Link to existing user
                     if not user.can_attempt_login():
@@ -750,13 +744,13 @@ class OIDCService:
                 else:
                     # Create new user
                     is_new_user = True
-                    
+
                     if not email_verified:
                         raise OIDCServiceError(
                             'ERR-OIDC-EMAIL-NOT-VERIFIED',
                             'E-posta adresi doğrulanmamış'
                         )
-                    
+
                     # Create user via auth service
                     user = auth_service.create_oidc_user(
                         db=db,
@@ -766,7 +760,7 @@ class OIDCService:
                         ip_address=ip_address,
                         user_agent=user_agent
                     )
-                
+
                 # Create OIDC account
                 oidc_account = OIDCAccount(
                     user_id=user.id,
@@ -778,13 +772,13 @@ class OIDCService:
                     provider_data=id_token_claims
                 )
                 oidc_account.record_login()
-                
+
                 db.add(oidc_account)
-            
+
             # Update user login metadata
             user.update_login_metadata(ip_address or '', user_agent or '')
             user.reset_failed_login_attempts()
-            
+
             # Create tokens using existing token service
             token_result = token_service.create_refresh_session(
                 db=db,
@@ -793,7 +787,7 @@ class OIDCService:
                 ip_address=ip_address,
                 user_agent=user_agent
             )
-            
+
             # Log successful authentication
             self._log_oidc_audit_event(
                 db, user.id,
@@ -807,9 +801,9 @@ class OIDCService:
                     'email_verified': email_verified
                 }
             )
-            
+
             db.commit()
-            
+
             logger.info("OIDC authentication successful", extra={
                 'operation': 'authenticate_or_link_user',
                 'provider': provider,
@@ -818,7 +812,7 @@ class OIDCService:
                 'is_new_oidc_link': is_new_oidc_link,
                 'client_ip': ip_address
             })
-            
+
             return OIDCAuthResult(
                 user=user,
                 oidc_account=oidc_account,
@@ -828,7 +822,7 @@ class OIDCService:
                 refresh_token=token_result.refresh_token,
                 expires_in=token_result.expires_in
             )
-            
+
         except OIDCServiceError:
             db.rollback()
             raise  # Re-raise our errors
@@ -844,14 +838,14 @@ class OIDCService:
                 'ERR-OIDC-AUTH-FAILED',
                 'OIDC kimlik doğrulama başarısız'
             )
-    
+
     def _log_oidc_audit_event(
         self,
         db: DBSession,
         user_id: int,
         action: str,
         description: str,
-        details: Dict[str, Any]
+        details: dict[str, Any]
     ) -> None:
         """Log OIDC audit event with PII masking."""
         try:
@@ -862,7 +856,7 @@ class OIDCService:
                 if '@' in email:
                     username, domain = email.rsplit('@', 1)
                     masked_details['email'] = f"{username[:2]}***@{domain}"
-            
+
             audit_log = AuditLog(
                 user_id=user_id,
                 action=action,
@@ -871,20 +865,20 @@ class OIDCService:
             )
             db.add(audit_log)
             db.flush()
-        except Exception as e:
+        except Exception:
             logger.error("Failed to log OIDC audit event", exc_info=True, extra={
                 'action': action,
                 'user_id': user_id
             })
-    
+
     def _log_oidc_security_event(
         self,
         db: DBSession,
-        user_id: Optional[int],
+        user_id: int | None,
         event_type: str,
-        ip_address: Optional[str],
-        user_agent: Optional[str],
-        details: Dict[str, Any]
+        ip_address: str | None,
+        user_agent: str | None,
+        details: dict[str, Any]
     ) -> None:
         """Log OIDC security event."""
         try:
@@ -898,7 +892,7 @@ class OIDCService:
             )
             db.add(security_event)
             db.flush()
-        except Exception as e:
+        except Exception:
             logger.error("Failed to log OIDC security event", exc_info=True, extra={
                 'event_type': event_type,
                 'user_id': user_id

@@ -1,20 +1,21 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
+
 from sqlalchemy.orm import Session
 
-from ..models_project import Setup, Fixture, Op3D, Collision
+from ..models_project import Collision, Op3D, Setup
 
 
 def get_setup(s: Session, setup_id: int) -> Setup | None:
     return s.get(Setup, setup_id)
 
 
-def list_ops3d(s: Session, setup_id: int) -> List[Op3D]:
+def list_ops3d(s: Session, setup_id: int) -> list[Op3D]:
     return s.query(Op3D).filter(Op3D.setup_id == setup_id).order_by(Op3D.id.asc()).all()
 
 
-def add_ops3d(s: Session, setup_id: int, ops: List[Dict[str, Any]]) -> int:
+def add_ops3d(s: Session, setup_id: int, ops: list[dict[str, Any]]) -> int:
     count = 0
     for op in ops:
         rec = Op3D(
@@ -30,7 +31,7 @@ def add_ops3d(s: Session, setup_id: int, ops: List[Dict[str, Any]]) -> int:
     return count
 
 
-def add_collision(s: Session, setup_id: int, phase: str, ctype: str, severity: str, details: Dict[str, Any]) -> int:
+def add_collision(s: Session, setup_id: int, phase: str, ctype: str, severity: str, details: dict[str, Any]) -> int:
     rec = Collision(setup_id=setup_id, phase=phase, type=ctype, severity=severity, details_json=details)
     s.add(rec)
     s.commit()

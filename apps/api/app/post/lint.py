@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-from typing import Dict, List
-
-
 SUPPORTED_DIALECTS = {"fanuc", "grbl", "linuxcnc"}
 
 
-def lint_gcode(text: str, dialect: str, tool_plane_enabled: bool) -> Dict:
-    warnings: List[str] = []
-    errors: List[str] = []
+def lint_gcode(text: str, dialect: str, tool_plane_enabled: bool) -> dict:
+    warnings: list[str] = []
+    errors: list[str] = []
     if dialect not in SUPPORTED_DIALECTS:
         warnings.append(f"Bilinmeyen dialect: {dialect}")
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]

@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
 import time
 
-from ..freecad.m18_builder import build_setup_job
-from ..db import db_session
-from ..models_project import Setup
-from ..metrics import cam3d_duration_seconds
 from ..audit import audit
+from ..db import db_session
+from ..freecad.m18_builder import build_setup_job
+from ..metrics import cam3d_duration_seconds
+from ..models_project import Setup
 
 
 def setup_cam_task_run(setup_id: int):

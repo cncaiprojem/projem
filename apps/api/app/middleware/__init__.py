@@ -1,2 +1,2 @@
-from .headers import SecurityHeadersMiddleware, CORSMiddlewareStrict  # re-export
+from .headers import CORSMiddlewareStrict, SecurityHeadersMiddleware  # re-export
 

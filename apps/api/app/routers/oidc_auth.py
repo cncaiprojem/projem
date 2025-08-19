@@ -14,24 +14,26 @@ Banking-level security features:
 - Turkish error messages and KVKV compliance
 """
 
-from datetime import datetime, timezone
-from typing import Dict, Any, Optional
 import ipaddress
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, status, Request, Response, Query
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from ..db import get_db, get_redis
-from ..schemas.oidc_schemas import (
-    OIDCAuthStartResponse, OIDCCallbackRequest, OIDCAuthResponse,
-    OIDCErrorResponse, OIDCStatusResponse, OIDCUserProfile,
-    OIDC_ERROR_CODES, create_oidc_error_response
-)
-from ..services.oidc_service import oidc_service, OIDCServiceError
-from ..services.token_service import token_service
 from ..core.logging import get_logger
+from ..db import get_db, get_redis
 from ..middleware.auth_limiter import limiter
+from ..schemas.oidc_schemas import (
+    OIDCAuthResponse,
+    OIDCAuthStartResponse,
+    OIDCErrorResponse,
+    OIDCStatusResponse,
+    OIDCUserProfile,
+    create_oidc_error_response,
+)
+from ..services.oidc_service import OIDCServiceError, oidc_service
+from ..services.token_service import token_service
 from ..settings import app_settings as settings
 
 logger = get_logger(__name__)
@@ -49,7 +51,7 @@ router = APIRouter(
 )
 
 
-def get_client_info(request: Request) -> Dict[str, Optional[str]]:
+def get_client_info(request: Request) -> dict[str, str | None]:
     """Extract client information from request with enterprise validation."""
     # Get real IP address (handle proxy headers)
     ip_address = None
@@ -60,16 +62,16 @@ def get_client_info(request: Request) -> Dict[str, Optional[str]]:
         ip_address = request.headers["x-real-ip"]
     else:
         ip_address = getattr(request.client, 'host', None)
-    
+
     # Validate IP address
     if ip_address:
         try:
             ipaddress.ip_address(ip_address)
         except ValueError:
             ip_address = None
-    
+
     user_agent = request.headers.get("user-agent")
-    
+
     return {
         "ip_address": ip_address,
         "user_agent": user_agent
@@ -79,7 +81,7 @@ def get_client_info(request: Request) -> Dict[str, Optional[str]]:
 def create_oidc_error_response_json(error: OIDCServiceError) -> JSONResponse:
     """Create standardized OIDC error response."""
     error_response = create_oidc_error_response(error.code, error.details)
-    
+
     return JSONResponse(
         status_code=status.HTTP_400_BAD_REQUEST,
         content=error_response.dict()
@@ -93,7 +95,7 @@ def check_oidc_enabled():
             status_code=status.HTTP_403_FORBIDDEN,
             detail=create_oidc_error_response('ERR-OIDC-DISABLED').dict()
         )
-    
+
     if not settings.google_client_id or not settings.google_client_secret:
         logger.error("Google OAuth configuration incomplete", extra={
             'has_client_id': bool(settings.google_client_id),
@@ -123,17 +125,17 @@ async def get_oidc_status(request: Request) -> OIDCStatusResponse:
     - Redirect URI for current environment
     """
     client_info = get_client_info(request)
-    
+
     # Build redirect URI for current environment
     base_url = str(request.base_url).rstrip('/')
     redirect_uri = f"{base_url}/api/v1/auth/oidc/google/callback"
-    
+
     logger.info("OIDC status requested", extra={
         'operation': 'get_oidc_status',
         'client_ip': client_info["ip_address"],
         'enabled': settings.google_oauth_enabled
     })
-    
+
     return OIDCStatusResponse(
         google_oauth_enabled=settings.google_oauth_enabled,
         client_id=settings.google_client_id if settings.google_oauth_enabled else None,
@@ -153,7 +155,7 @@ async def get_oidc_status(request: Request) -> OIDCStatusResponse:
 @limiter.limit("10/minute")  # Rate limit: 10 authentication starts per minute
 async def start_google_auth(
     request: Request,
-    redirect_to: Optional[str] = Query(
+    redirect_to: str | None = Query(
         None,
         description="Kimlik doğrulama sonrası yönlendirilecek URL",
         max_length=2048
@@ -179,15 +181,15 @@ async def start_google_auth(
     **Rate Limiting:** 10 requests per minute per IP
     """
     client_info = get_client_info(request)
-    
+
     try:
         # Check if OIDC is enabled
         check_oidc_enabled()
-        
+
         # Build redirect URI
         base_url = str(request.base_url).rstrip('/')
         redirect_uri = f"{base_url}/api/v1/auth/oidc/google/callback"
-        
+
         # Create authorization URL with PKCE and state
         authorization_url, state = await oidc_service.create_authorization_url(
             redis_client=redis_client,
@@ -195,7 +197,7 @@ async def start_google_auth(
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"]
         )
-        
+
         logger.info("OIDC authentication started", extra={
             'operation': 'start_google_auth',
             'provider': 'google',
@@ -203,14 +205,14 @@ async def start_google_auth(
             'has_redirect_to': bool(redirect_to),
             'state_length': len(state)
         })
-        
+
         return OIDCAuthStartResponse(
             authorization_url=authorization_url,
             state=state,
             expires_in=settings.oauth_state_expire_minutes * 60,
             message="Google OIDC kimlik doğrulama başlatıldı"
         )
-        
+
     except OIDCServiceError as e:
         logger.warning("OIDC authentication start failed", extra={
             'operation': 'start_google_auth',
@@ -218,7 +220,7 @@ async def start_google_auth(
             'client_ip': client_info["ip_address"]
         })
         return create_oidc_error_response_json(e)
-    
+
     except Exception as e:
         logger.error("Unexpected OIDC start error", exc_info=True, extra={
             'operation': 'start_google_auth',
@@ -244,8 +246,8 @@ async def google_auth_callback(
     response: Response,
     code: str = Query(..., description="Google'dan dönen yetkilendirme kodu"),
     state: str = Query(..., description="OAuth2 state parametresi"),
-    error: Optional[str] = Query(None, description="OAuth2 hata kodu"),
-    error_description: Optional[str] = Query(None, description="OAuth2 hata açıklaması"),
+    error: str | None = Query(None, description="OAuth2 hata kodu"),
+    error_description: str | None = Query(None, description="OAuth2 hata açıklaması"),
     db: Session = Depends(get_db),
     redis_client = Depends(get_redis)
 ) -> OIDCAuthResponse:
@@ -274,12 +276,12 @@ async def google_auth_callback(
     **Rate Limiting:** 20 requests per minute per IP
     """
     client_info = get_client_info(request)
-    start_time = datetime.now(timezone.utc)
-    
+    start_time = datetime.now(UTC)
+
     try:
         # Check if OIDC is enabled
         check_oidc_enabled()
-        
+
         # Check for OAuth2 errors from Google
         if error:
             logger.warning("Google OAuth2 error received", extra={
@@ -288,7 +290,7 @@ async def google_auth_callback(
                 'error_description': error_description,
                 'client_ip': client_info["ip_address"]
             })
-            
+
             # Map common OAuth2 errors to Turkish messages
             error_messages = {
                 'access_denied': 'Kullanıcı erişim izni vermedi',
@@ -297,18 +299,18 @@ async def google_auth_callback(
                 'invalid_grant': 'Geçersiz yetkilendirme kodu',
                 'unsupported_response_type': 'Desteklenmeyen yanıt türü'
             }
-            
+
             message = error_messages.get(error, f'OAuth2 hatası: {error}')
             return create_oidc_error_response_json(OIDCServiceError(
                 'ERR-OIDC-OAUTH-ERROR',
                 message,
                 {'oauth_error': error, 'description': error_description}
             ))
-        
+
         # Build redirect URI (must match the one used in start)
         base_url = str(request.base_url).rstrip('/')
         redirect_uri = f"{base_url}/api/v1/auth/oidc/google/callback"
-        
+
         # Exchange authorization code for tokens
         token_data = await oidc_service.exchange_code_for_tokens(
             redis_client=redis_client,
@@ -318,7 +320,7 @@ async def google_auth_callback(
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"]
         )
-        
+
         # Authenticate or create user
         auth_result = await oidc_service.authenticate_or_link_user(
             db=db,
@@ -326,10 +328,10 @@ async def google_auth_callback(
             ip_address=client_info["ip_address"],
             user_agent=client_info["user_agent"]
         )
-        
+
         # Set refresh token cookie
         token_service.set_refresh_cookie(response, auth_result.refresh_token)
-        
+
         # Build OIDC profile
         claims = token_data['id_token_claims']
         oidc_profile = OIDCUserProfile(
@@ -340,9 +342,9 @@ async def google_auth_callback(
             picture=claims.get('picture'),
             locale=claims.get('locale')
         )
-        
-        elapsed_ms = int((datetime.now(timezone.utc) - start_time).total_seconds() * 1000)
-        
+
+        elapsed_ms = int((datetime.now(UTC) - start_time).total_seconds() * 1000)
+
         logger.info("OIDC authentication successful", extra={
             'operation': 'google_auth_callback',
             'provider': 'google',
@@ -352,7 +354,7 @@ async def google_auth_callback(
             'client_ip': client_info["ip_address"],
             'elapsed_ms': elapsed_ms
         })
-        
+
         return OIDCAuthResponse(
             access_token=auth_result.access_token,
             token_type="bearer",
@@ -366,7 +368,7 @@ async def google_auth_callback(
             profile=oidc_profile,
             message="Google OIDC girişi başarılı"
         )
-        
+
     except OIDCServiceError as e:
         logger.warning("OIDC callback failed", extra={
             'operation': 'google_auth_callback',
@@ -374,7 +376,7 @@ async def google_auth_callback(
             'client_ip': client_info["ip_address"]
         })
         return create_oidc_error_response_json(e)
-    
+
     except Exception as e:
         logger.error("Unexpected OIDC callback error", exc_info=True, extra={
             'operation': 'google_auth_callback',
@@ -400,7 +402,7 @@ async def oidc_logout(
     request: Request,
     response: Response,
     db: Session = Depends(get_db)
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """
     Logout OIDC authenticated user.
     
@@ -415,11 +417,11 @@ async def oidc_logout(
     - Secure cookie clearing
     """
     client_info = get_client_info(request)
-    
+
     try:
         # Get refresh token from cookie
         refresh_token = token_service.get_refresh_token_from_request(request)
-        
+
         if refresh_token:
             # Revoke the refresh token
             token_service.revoke_refresh_token(
@@ -427,18 +429,18 @@ async def oidc_logout(
                 refresh_token=refresh_token,
                 reason='oidc_user_logout'
             )
-        
+
         # Clear refresh token cookie
         token_service.clear_refresh_cookie(response)
-        
+
         logger.info("OIDC logout successful", extra={
             'operation': 'oidc_logout',
             'had_refresh_token': bool(refresh_token),
             'client_ip': client_info["ip_address"]
         })
-        
+
         return {"message": "Oturum başarıyla kapatıldı"}
-        
+
     except Exception as e:
         logger.error("OIDC logout failed", exc_info=True, extra={
             'operation': 'oidc_logout',

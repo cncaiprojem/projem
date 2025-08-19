@@ -10,23 +10,28 @@ This module provides comprehensive test fixtures that demonstrate:
 - Audit chain test scenarios
 """
 
-from datetime import datetime, timezone, timedelta
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
-from typing import Dict, List, Any, Optional
+from typing import Any
 from uuid import uuid4
 
+from app.helpers.canonical_json import AuditChainManager
 from app.models.enums import (
-    UserRole, JobType, JobStatus, InvoiceStatus, PaymentStatus, 
-    Currency, MachineType, MaterialCategory, AuditAction
+    AuditAction,
+    Currency,
+    InvoiceStatus,
+    JobStatus,
+    JobType,
+    PaymentStatus,
+    UserRole,
 )
-from app.helpers.canonical_json import AuditChainManager, TurkishComplianceHelper
 
 
 class EnterpriseTestFixtures:
     """Ultra enterprise test fixtures with demonstration of index usage."""
-    
+
     @staticmethod
-    def create_test_users() -> List[Dict[str, Any]]:
+    def create_test_users() -> list[dict[str, Any]]:
         """
         Create test users demonstrating Turkish compliance and index usage.
         
@@ -36,7 +41,7 @@ class EnterpriseTestFixtures:
         - idx_users_tax_no (partial index WHERE tax_no IS NOT NULL)
         - idx_users_created_at (descending index for recent user queries)
         """
-        
+
         return [
             {
                 # Turkish company user with VKN
@@ -99,9 +104,9 @@ class EnterpriseTestFixtures:
                 }
             }
         ]
-    
+
     @staticmethod
-    def create_test_jobs_with_idempotency() -> List[Dict[str, Any]]:
+    def create_test_jobs_with_idempotency() -> list[dict[str, Any]]:
         """
         Create test jobs demonstrating idempotency key usage and index optimization.
         
@@ -111,9 +116,9 @@ class EnterpriseTestFixtures:
         - idx_jobs_user_id (foreign key index)
         - idx_jobs_created_at (descending index for recent jobs)
         """
-        
-        base_timestamp = datetime.now(timezone.utc)
-        
+
+        base_timestamp = datetime.now(UTC)
+
         return [
             {
                 # CAD generation job with idempotency
@@ -201,9 +206,9 @@ class EnterpriseTestFixtures:
                 "created_at": base_timestamp - timedelta(hours=2, minutes=10)
             }
         ]
-    
+
     @staticmethod
-    def create_test_invoices_financial_precision() -> List[Dict[str, Any]]:
+    def create_test_invoices_financial_precision() -> list[dict[str, Any]]:
         """
         Create test invoices demonstrating financial precision and Turkish compliance.
         
@@ -213,9 +218,9 @@ class EnterpriseTestFixtures:
         - idx_invoices_status (partial index for unpaid invoices)
         - idx_invoices_due_at (partial index for overdue invoice queries)
         """
-        
-        base_date = datetime.now(timezone.utc).date()
-        
+
+        base_date = datetime.now(UTC).date()
+
         return [
             {
                 # Turkish invoice with KDV (VAT)
@@ -224,8 +229,8 @@ class EnterpriseTestFixtures:
                 "amount_cents": 120000,  # 1,200.00 TRY (including 20% KDV)
                 "currency": Currency.TRY,
                 "status": InvoiceStatus.SENT,
-                "issued_at": datetime.now(timezone.utc),
-                "due_at": datetime.now(timezone.utc) + timedelta(days=30),
+                "issued_at": datetime.now(UTC),
+                "due_at": datetime.now(UTC) + timedelta(days=30),
                 "meta": {
                     "line_items": [
                         {
@@ -267,8 +272,8 @@ class EnterpriseTestFixtures:
                 "amount_cents": 150000,  # 1,500.00 EUR
                 "currency": Currency.EUR,
                 "status": InvoiceStatus.PAID,
-                "issued_at": datetime.now(timezone.utc) - timedelta(days=15),
-                "due_at": datetime.now(timezone.utc) - timedelta(days=15) + timedelta(days=30),
+                "issued_at": datetime.now(UTC) - timedelta(days=15),
+                "due_at": datetime.now(UTC) - timedelta(days=15) + timedelta(days=30),
                 "meta": {
                     "line_items": [
                         {
@@ -298,9 +303,9 @@ class EnterpriseTestFixtures:
                 }
             }
         ]
-    
+
     @staticmethod
-    def create_test_payments_precision() -> List[Dict[str, Any]]:
+    def create_test_payments_precision() -> list[dict[str, Any]]:
         """
         Create test payments demonstrating financial precision validation.
         
@@ -310,7 +315,7 @@ class EnterpriseTestFixtures:
         - idx_payments_provider_ref (unique index for provider transaction IDs)
         - idx_payments_status (partial index for pending payments)
         """
-        
+
         return [
             {
                 # Turkish bank transfer payment
@@ -323,7 +328,7 @@ class EnterpriseTestFixtures:
                 "amount_cents": 120000,  # Exact invoice amount
                 "fee_cents": 500,        # 5.00 TRY bank fee
                 "status": PaymentStatus.COMPLETED,
-                "processed_at": datetime.now(timezone.utc) - timedelta(minutes=30),
+                "processed_at": datetime.now(UTC) - timedelta(minutes=30),
                 "meta": {
                     "bank_details": {
                         "iban": "TR330006100519786457841326",
@@ -354,7 +359,7 @@ class EnterpriseTestFixtures:
                 "amount_cents": 150000,  # 1,500.00 EUR
                 "fee_cents": 4500,       # 45.00 EUR Stripe fee (3%)
                 "status": PaymentStatus.COMPLETED,
-                "processed_at": datetime.now(timezone.utc) - timedelta(days=5),
+                "processed_at": datetime.now(UTC) - timedelta(days=5),
                 "meta": {
                     "card_details": {
                         "brand": "visa",
@@ -377,9 +382,9 @@ class EnterpriseTestFixtures:
                 }
             }
         ]
-    
+
     @staticmethod
-    def create_test_audit_logs_chain() -> List[Dict[str, Any]]:
+    def create_test_audit_logs_chain() -> list[dict[str, Any]]:
         """
         Create test audit logs demonstrating hash chain integrity.
         
@@ -390,18 +395,18 @@ class EnterpriseTestFixtures:
         - idx_audit_logs_created_at (descending index for recent activity)
         - idx_audit_logs_chain_hash (unique index for hash integrity)
         """
-        
-        base_timestamp = datetime.now(timezone.utc)
-        
+
+        base_timestamp = datetime.now(UTC)
+
         # Create genesis record
         genesis_record = {
             "action": "system_init",
             "entity_type": "system",
             "timestamp": base_timestamp.isoformat().replace('+00:00', 'Z')
         }
-        
+
         genesis_hash = AuditChainManager.compute_hash_chain(genesis_record, None)
-        
+
         # Create chain of audit records
         audit_records = [
             {
@@ -419,7 +424,7 @@ class EnterpriseTestFixtures:
                 "created_at": base_timestamp
             }
         ]
-        
+
         # User creation audit
         user_create_record = {
             "action": "user_create",
@@ -441,11 +446,11 @@ class EnterpriseTestFixtures:
                 "gdpr_basis": "contract"
             }
         }
-        
+
         user_create_hash = AuditChainManager.compute_hash_chain(
             user_create_record, genesis_hash
         )
-        
+
         audit_records.append({
             "user_id": 1,
             "action": AuditAction.USER_CREATE,
@@ -459,11 +464,11 @@ class EnterpriseTestFixtures:
             "prev_chain_hash": genesis_hash,
             "created_at": base_timestamp + timedelta(minutes=1)
         })
-        
+
         # Invoice creation audit
         invoice_create_record = {
             "action": "invoice_create",
-            "entity_type": "invoice", 
+            "entity_type": "invoice",
             "entity_id": "1",
             "timestamp": (base_timestamp + timedelta(minutes=30)).isoformat().replace('+00:00', 'Z'),
             "user_id": 1,
@@ -480,11 +485,11 @@ class EnterpriseTestFixtures:
                 "electronic_invoice": True
             }
         }
-        
+
         invoice_create_hash = AuditChainManager.compute_hash_chain(
             invoice_create_record, user_create_hash
         )
-        
+
         audit_records.append({
             "user_id": 1,
             "action": AuditAction.CREATE,
@@ -498,18 +503,18 @@ class EnterpriseTestFixtures:
             "prev_chain_hash": user_create_hash,
             "created_at": base_timestamp + timedelta(minutes=30)
         })
-        
+
         return audit_records
-    
+
     @staticmethod
-    def create_query_examples() -> Dict[str, str]:
+    def create_query_examples() -> dict[str, str]:
         """
         Provide SQL query examples demonstrating index usage.
         
         These queries show how to effectively use the database indexes
         for common application patterns.
         """
-        
+
         return {
             "recent_user_registrations": """
                 -- Uses idx_users_created_at (DESC)
@@ -519,7 +524,7 @@ class EnterpriseTestFixtures:
                 ORDER BY created_at DESC
                 LIMIT 20;
             """,
-            
+
             "active_turkish_users_with_tax_numbers": """
                 -- Uses idx_users_tax_no (partial index WHERE tax_no IS NOT NULL)
                 SELECT email, company_name, tax_no
@@ -529,7 +534,7 @@ class EnterpriseTestFixtures:
                   AND locale = 'tr'
                 ORDER BY created_at DESC;
             """,
-            
+
             "pending_jobs_by_priority": """
                 -- Uses idx_jobs_type_status (composite index)
                 SELECT id, type, priority, created_at
@@ -538,7 +543,7 @@ class EnterpriseTestFixtures:
                 ORDER BY priority DESC, created_at ASC
                 LIMIT 50;
             """,
-            
+
             "user_job_history": """
                 -- Uses idx_jobs_user_id
                 SELECT j.id, j.type, j.status, j.created_at, j.finished_at
@@ -547,7 +552,7 @@ class EnterpriseTestFixtures:
                 ORDER BY j.created_at DESC
                 LIMIT 100;
             """,
-            
+
             "idempotent_job_lookup": """
                 -- Uses idx_jobs_idempotency_key (partial index)
                 SELECT id, status, created_at, output_data
@@ -555,7 +560,7 @@ class EnterpriseTestFixtures:
                 WHERE idempotency_key = $1
                 LIMIT 1;
             """,
-            
+
             "overdue_invoices": """
                 -- Uses idx_invoices_due_at (partial index for unpaid invoices)
                 SELECT i.number, i.amount_cents, i.currency, i.due_at, u.email
@@ -565,7 +570,7 @@ class EnterpriseTestFixtures:
                   AND i.status NOT IN ('paid', 'cancelled')
                 ORDER BY i.due_at ASC;
             """,
-            
+
             "payment_reconciliation": """
                 -- Uses idx_payments_invoice_id and idx_payments_status
                 SELECT p.provider_ref, p.amount_cents, p.status, p.processed_at,
@@ -576,7 +581,7 @@ class EnterpriseTestFixtures:
                   AND p.processed_at >= $1
                 ORDER BY p.processed_at DESC;
             """,
-            
+
             "audit_trail_for_entity": """
                 -- Uses idx_audit_logs_entity (composite index)
                 SELECT action, created_at, payload, user_id
@@ -584,7 +589,7 @@ class EnterpriseTestFixtures:
                 WHERE entity_type = $1 AND entity_id = $2
                 ORDER BY created_at ASC;
             """,
-            
+
             "recent_security_events": """
                 -- Uses idx_audit_logs_action and idx_audit_logs_created_at
                 SELECT action, entity_type, ip_address, created_at, payload
@@ -593,7 +598,7 @@ class EnterpriseTestFixtures:
                   AND created_at >= NOW() - INTERVAL '24 hours'
                 ORDER BY created_at DESC;
             """,
-            
+
             "financial_audit_trail": """
                 -- Complex query using multiple indexes
                 SELECT 
@@ -611,13 +616,13 @@ class EnterpriseTestFixtures:
                 ORDER BY al.created_at DESC;
             """
         }
-    
+
     @staticmethod
-    def create_idempotency_examples() -> Dict[str, Any]:
+    def create_idempotency_examples() -> dict[str, Any]:
         """
         Provide examples of idempotent operations and their validation.
         """
-        
+
         return {
             "job_creation_semantics": {
                 "description": "Demonstrates idempotent job creation using idempotency keys",
@@ -631,7 +636,7 @@ class EnterpriseTestFixtures:
                     ]
                 }
             },
-            
+
             "invoice_creation_semantics": {
                 "description": "Demonstrates idempotent invoice creation with financial precision",
                 "example": {
@@ -645,7 +650,7 @@ class EnterpriseTestFixtures:
                     }
                 }
             },
-            
+
             "payment_processing_semantics": {
                 "description": "Demonstrates idempotent payment processing with provider reconciliation",
                 "example": {

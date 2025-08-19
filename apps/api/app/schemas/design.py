@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-from typing import List, Optional
-
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from .cad import ArtefactRef
 
 
 class DesignBrief(BaseModel):
   prompt: str
-  targets: Optional[dict] = None
-  materials: Optional[dict] = None
-  standards: Optional[List[str]] = None
-  constraints: Optional[List[str]] = None
+  targets: dict | None = None
+  materials: dict | None = None
+  standards: list[str] | None = None
+  constraints: list[str] | None = None
 
 
 class DesignAnalysisQuestion(BaseModel):
@@ -23,7 +21,7 @@ class DesignAnalysisQuestion(BaseModel):
 class DesignJobCreate(BaseModel):
   brief: DesignBrief
   auto_clarify: bool = True
-  chain: Optional[dict] = None  # { cam?:bool, sim?:bool }
+  chain: dict | None = None  # { cam?:bool, sim?:bool }
 
 
 class BOMItem(BaseModel):
@@ -35,9 +33,9 @@ class BOMItem(BaseModel):
 
 class DesignJobResult(BaseModel):
   job_id: int
-  artefacts: List[ArtefactRef]
-  bom: Optional[List[BOMItem]] = None
-  params: Optional[dict] = None
-  notes: Optional[str] = None
+  artefacts: list[ArtefactRef]
+  bom: list[BOMItem] | None = None
+  params: dict | None = None
+  notes: str | None = None
 
 

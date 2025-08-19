@@ -7,8 +7,6 @@ import os
 import random
 import string
 import time
-from statistics import median
-from typing import Dict, List
 
 import requests
 
@@ -17,7 +15,7 @@ def rand_key(prefix: str, n: int = 10) -> str:
     return f"{prefix}-" + ''.join(random.choices(string.ascii_lowercase + string.digits, k=n))
 
 
-def p50p95(values: List[float]) -> Dict[str, float]:
+def p50p95(values: list[float]) -> dict[str, float]:
     if not values:
         return {"p50": 0.0, "p95": 0.0, "p99": 0.0}
     s = sorted(values)
@@ -28,7 +26,7 @@ def p50p95(values: List[float]) -> Dict[str, float]:
     return {"p50": perc(0.5), "p95": perc(0.95), "p99": perc(0.99)}
 
 
-def do_chain(base_url: str, prefix: str, timeout: int) -> Dict:
+def do_chain(base_url: str, prefix: str, timeout: int) -> dict:
     t0 = time.time()
     headers = {"Idempotency-Key": rand_key(prefix)}
     asm_body = {
@@ -89,7 +87,7 @@ def main():
     ap.add_argument("--base-url", type=str, default="http://api:8000")
     args = ap.parse_args()
 
-    results: List[Dict] = []
+    results: list[dict] = []
     t0 = time.time()
     with cf.ThreadPoolExecutor(max_workers=args.n) as ex:
         futs = [ex.submit(do_chain, args.base_url, args.idprefix, args.timeout) for _ in range(args.n)]

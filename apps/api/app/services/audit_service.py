@@ -13,54 +13,46 @@ Features:
 
 from __future__ import annotations
 
-import hashlib
 import json
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Union
+from datetime import UTC, datetime
+from typing import Any
 
-from sqlalchemy import and_, desc, func, or_
+from sqlalchemy import desc
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from ..core.database import get_db
 from ..core.logging import get_logger
-from ..helpers.audit_chain import AuditChainHelper, AuditChainJSONHelper
+from ..helpers.audit_chain import AuditChainHelper
 from ..middleware.correlation_middleware import get_correlation_id, get_session_id
 from ..models.audit_log import AuditLog
-from ..models.user import User
-from ..services.pii_masking_service import (
-    DataClassification, 
-    MaskingLevel, 
-    pii_masking_service
-)
-
+from ..services.pii_masking_service import DataClassification, MaskingLevel, pii_masking_service
 
 logger = get_logger(__name__)
 
 
 class AuditService:
     """Ultra-enterprise audit service with hash-chain integrity and KVKV compliance."""
-    
+
     def __init__(self):
         """Initialize audit service with configuration."""
         self.enable_masking = True
         self.default_classification = DataClassification.PERSONAL
         self.max_payload_size = 10 * 1024  # 10KB max payload
-        
+
     async def create_audit_entry(
         self,
         db: Session,
         event_type: str,
-        user_id: Optional[int] = None,
+        user_id: int | None = None,
         scope_type: str = "system",
-        scope_id: Optional[int] = None,
-        resource: Optional[str] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None,
-        payload: Optional[Dict[str, Any]] = None,
+        scope_id: int | None = None,
+        resource: str | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None,
+        payload: dict[str, Any] | None = None,
         classification: DataClassification = DataClassification.PERSONAL,
-        correlation_id: Optional[str] = None,
-        session_id: Optional[str] = None
+        correlation_id: str | None = None,
+        session_id: str | None = None
     ) -> AuditLog:
         """Create comprehensive audit log entry with hash-chain integrity.
         
@@ -89,7 +81,7 @@ class AuditService:
             # Use correlation context if not provided
             correlation_id = correlation_id or get_correlation_id()
             session_id = session_id or get_session_id()
-            
+
             # Validate and prepare payload
             if payload and len(json.dumps(payload)) > self.max_payload_size:
                 # Truncate large payloads but preserve metadata
@@ -99,40 +91,40 @@ class AuditService:
                     "metadata": payload.get("metadata", {}),
                     "summary": str(payload)[:500] + "..." if len(str(payload)) > 500 else str(payload)
                 }
-            
+
             # Apply PII masking to sensitive data
             masked_ip = None
             masked_ua = None
             masked_payload = payload
-            
+
             if self.enable_masking:
                 if ip_address:
                     masked_ip = pii_masking_service.mask_ip_address(
-                        ip_address, 
+                        ip_address,
                         MaskingLevel.MEDIUM
                     )
-                
+
                 if user_agent:
                     masked_ua = pii_masking_service.mask_user_agent(
                         user_agent,
                         MaskingLevel.LIGHT
                     )
-                
+
                 if payload:
                     masked_payload = pii_masking_service.create_masked_metadata(
                         payload,
                         classification,
                         preserve_keys=["timestamp", "event_id", "version"]
                     )
-            
+
             # Get previous audit entry for hash chain
             prev_entry = db.query(AuditLog).order_by(desc(AuditLog.id)).first()
             prev_hash = prev_entry.chain_hash if prev_entry else AuditLog.get_genesis_hash()
-            
+
             # Prepare canonical payload for hash calculation
             canonical_payload = {
                 "event_type": event_type,
-                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "timestamp": datetime.now(UTC).isoformat(),
                 "scope_type": scope_type,
                 "scope_id": scope_id,
                 "user_id": user_id,
@@ -141,13 +133,13 @@ class AuditService:
                 "resource": resource,
                 "data": masked_payload
             }
-            
+
             # Remove None values for canonical representation
             canonical_payload = {k: v for k, v in canonical_payload.items() if v is not None}
-            
+
             # Compute hash chain
             chain_hash = AuditLog.compute_chain_hash(prev_hash, canonical_payload)
-            
+
             # Create audit log entry
             audit_entry = AuditLog(
                 event_type=event_type,
@@ -162,13 +154,13 @@ class AuditService:
                 payload=canonical_payload,
                 prev_chain_hash=prev_hash,
                 chain_hash=chain_hash,
-                created_at=datetime.now(timezone.utc)
+                created_at=datetime.now(UTC)
             )
-            
+
             # Add to database
             db.add(audit_entry)
             db.flush()  # Get ID without committing
-            
+
             # Log audit creation for monitoring
             self._log_audit_creation(
                 audit_entry.id,
@@ -176,9 +168,9 @@ class AuditService:
                 classification,
                 correlation_id
             )
-            
+
             return audit_entry
-            
+
         except SQLAlchemyError as e:
             logger.error(
                 "audit_creation_failed",
@@ -197,19 +189,19 @@ class AuditService:
                 correlation_id=correlation_id
             )
             raise ValueError(f"Failed to create audit entry: {str(e)}")
-    
+
     async def get_audit_logs(
         self,
         db: Session,
-        correlation_id: Optional[str] = None,
-        user_id: Optional[int] = None,
-        event_type: Optional[str] = None,
-        scope_type: Optional[str] = None,
-        start_date: Optional[datetime] = None,
-        end_date: Optional[datetime] = None,
+        correlation_id: str | None = None,
+        user_id: int | None = None,
+        event_type: str | None = None,
+        scope_type: str | None = None,
+        start_date: datetime | None = None,
+        end_date: datetime | None = None,
         limit: int = 100,
         offset: int = 0
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Retrieve audit logs with filtering and pagination.
         
         Args:
@@ -229,29 +221,29 @@ class AuditService:
         try:
             # Build query
             query = db.query(AuditLog)
-            
+
             # Apply filters
             if correlation_id:
                 query = query.filter(AuditLog.correlation_id == correlation_id)
-            
+
             if user_id:
                 query = query.filter(AuditLog.actor_user_id == user_id)
-            
+
             if event_type:
                 query = query.filter(AuditLog.event_type.ilike(f"%{event_type}%"))
-            
+
             if scope_type:
                 query = query.filter(AuditLog.scope_type == scope_type)
-            
+
             if start_date:
                 query = query.filter(AuditLog.created_at >= start_date)
-            
+
             if end_date:
                 query = query.filter(AuditLog.created_at <= end_date)
-            
+
             # Get total count for pagination
             total_count = query.count()
-            
+
             # Apply ordering and pagination
             audit_logs = (
                 query.order_by(desc(AuditLog.created_at))
@@ -259,7 +251,7 @@ class AuditService:
                 .offset(offset)
                 .all()
             )
-            
+
             # Format results
             formatted_logs = []
             for log in audit_logs:
@@ -280,7 +272,7 @@ class AuditService:
                     "is_system_action": log.is_system_action
                 }
                 formatted_logs.append(formatted_log)
-            
+
             return {
                 "logs": formatted_logs,
                 "pagination": {
@@ -300,7 +292,7 @@ class AuditService:
                     }
                 }
             }
-            
+
         except SQLAlchemyError as e:
             logger.error(
                 "audit_retrieval_failed",
@@ -308,14 +300,14 @@ class AuditService:
                 correlation_id=correlation_id
             )
             raise
-    
+
     async def verify_audit_chain_integrity(
         self,
         db: Session,
-        start_id: Optional[int] = None,
-        end_id: Optional[int] = None,
+        start_id: int | None = None,
+        end_id: int | None = None,
         limit: int = 1000
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Verify audit chain integrity for a range of entries.
         
         Args:
@@ -331,7 +323,7 @@ class AuditService:
             verification_result = AuditChainHelper.verify_chain_integrity(
                 db, start_id, end_id, limit
             )
-            
+
             # Log verification result
             logger.info(
                 "audit_chain_verification",
@@ -341,9 +333,9 @@ class AuditService:
                 violations_count=len(verification_result["integrity_violations"]),
                 breaks_count=len(verification_result["chain_breaks"])
             )
-            
+
             return verification_result
-            
+
         except Exception as e:
             logger.error(
                 "audit_verification_failed",
@@ -352,17 +344,17 @@ class AuditService:
                 end_id=end_id
             )
             raise
-    
+
     async def audit_user_action(
         self,
         db: Session,
         action: str,
         user_id: int,
-        resource: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
+        resource: str | None = None,
+        details: dict[str, Any] | None = None,
         classification: DataClassification = DataClassification.PERSONAL,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ) -> AuditLog:
         """Convenience method for auditing user actions.
         
@@ -391,16 +383,16 @@ class AuditService:
             payload=details,
             classification=classification
         )
-    
+
     async def audit_security_event(
         self,
         db: Session,
         event_type: str,
         severity: str,
-        user_id: Optional[int] = None,
-        details: Optional[Dict[str, Any]] = None,
-        ip_address: Optional[str] = None,
-        user_agent: Optional[str] = None
+        user_id: int | None = None,
+        details: dict[str, Any] | None = None,
+        ip_address: str | None = None,
+        user_agent: str | None = None
     ) -> AuditLog:
         """Convenience method for auditing security events.
         
@@ -421,7 +413,7 @@ class AuditService:
             "event_details": details or {},
             "security_classification": "SENSITIVE"
         }
-        
+
         return await self.create_audit_entry(
             db=db,
             event_type=f"security_{event_type}",
@@ -434,7 +426,7 @@ class AuditService:
             payload=security_payload,
             classification=DataClassification.SENSITIVE
         )
-    
+
     async def audit_financial_transaction(
         self,
         db: Session,
@@ -442,9 +434,9 @@ class AuditService:
         user_id: int,
         amount_cents: int,
         currency: str = "TRY",
-        invoice_id: Optional[int] = None,
-        payment_id: Optional[int] = None,
-        details: Optional[Dict[str, Any]] = None
+        invoice_id: int | None = None,
+        payment_id: int | None = None,
+        details: dict[str, Any] | None = None
     ) -> AuditLog:
         """Convenience method for auditing financial transactions.
         
@@ -462,7 +454,7 @@ class AuditService:
             Created audit log entry
         """
         from decimal import Decimal
-        
+
         financial_payload = {
             "amount_cents": amount_cents,
             "amount_decimal": str(Decimal(amount_cents) / Decimal('100')),
@@ -473,7 +465,7 @@ class AuditService:
             "compliance": "KVKV_GDPR",
             "financial_regulation": "Turkish_Banking_Law"
         }
-        
+
         return await self.create_audit_entry(
             db=db,
             event_type=f"financial_{action}",
@@ -484,13 +476,13 @@ class AuditService:
             payload=financial_payload,
             classification=DataClassification.RESTRICTED
         )
-    
+
     def _log_audit_creation(
         self,
         audit_id: int,
         event_type: str,
         classification: DataClassification,
-        correlation_id: Optional[str]
+        correlation_id: str | None
     ) -> None:
         """Log audit entry creation for monitoring.
         

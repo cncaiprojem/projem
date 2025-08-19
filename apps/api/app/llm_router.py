@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from functools import lru_cache
-from typing import Any, Dict, List, Tuple
+from typing import Any
 
 from openai import OpenAI
-import os
 
 from .config import settings
 
@@ -27,7 +27,7 @@ def _has_responses_api() -> bool:
     return False
 
 
-_health_cache: Dict[str, Tuple[float, bool]] = {}
+_health_cache: dict[str, tuple[float, bool]] = {}
 
 
 def health_check(model: str) -> bool:
@@ -44,7 +44,7 @@ def health_check(model: str) -> bool:
   return ok
 
 
-def choose_model(brief: Dict[str, Any], policy: str | None = None) -> Tuple[str, str]:
+def choose_model(brief: dict[str, Any], policy: str | None = None) -> tuple[str, str]:
   policy = policy or settings.model_policy
   default = settings.default_model
   fallback = settings.fallback_model
@@ -53,7 +53,7 @@ def choose_model(brief: Dict[str, Any], policy: str | None = None) -> Tuple[str,
   return default, fallback
 
 
-def generate_structured(brief: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+def generate_structured(brief: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
   primary, fallback = choose_model(brief)
   schema = {
     "type":"object",
@@ -68,7 +68,7 @@ def generate_structured(brief: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str
     "required":["script"],
     "additionalProperties":False
   }
-  models_tried: List[str] = []
+  models_tried: list[str] = []
   escalated = False
   for mdl in (primary, fallback):
     models_tried.append(mdl)
@@ -126,7 +126,7 @@ PLAN_SCHEMA = {
   "additionalProperties": False
 }
 
-def _ensure_plan_shape(data: Dict[str, Any]) -> Dict[str, Any]:
+def _ensure_plan_shape(data: dict[str, Any]) -> dict[str, Any]:
   plan_in = data if isinstance(data, dict) else {}
   plan = plan_in.get("plan") if isinstance(plan_in.get("plan"), dict) else {}
   cad = plan.get("cad") if isinstance(plan.get("cad"), dict) else {}
@@ -149,7 +149,7 @@ def _ensure_plan_shape(data: Dict[str, Any]) -> Dict[str, Any]:
     is_cnc_related = True
   return {"is_cnc_related": is_cnc_related, "kind": kind, "missing": missing, "plan": plan}
 
-def analyze_and_plan(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
+def analyze_and_plan(prompt: str, context: dict[str, Any]) -> dict[str, Any]:
   if not (os.getenv("OPENAI_API_KEY") or settings.openai_api_key):
     raise RuntimeError("LLM servisi yapılandırılmamış: OPENAI_API_KEY eksik.")
   sys = (
@@ -184,7 +184,7 @@ def analyze_and_plan(prompt: str, context: Dict[str, Any]) -> Dict[str, Any]:
   content = cmpl.choices[0].message.content or "{}"
   return _ensure_plan_shape(json.loads(content))
 
-def refine_plan(current: Dict[str, Any], answers: Dict[str, Any]) -> Dict[str, Any]:
+def refine_plan(current: dict[str, Any], answers: dict[str, Any]) -> dict[str, Any]:
   missing = [m for m in current.get("missing", []) if m not in answers]
   plan = current.get("plan", {})
   plan.setdefault("answers", {}).update(answers)
