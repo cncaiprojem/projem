@@ -636,7 +636,7 @@
               "4.2"
             ],
             "details": "Behavior:\n- On detecting expiry in licenseGuard or a background watcher: update jobs set cancel_requested=true where user_id=? and status IN ('running','pending'); enqueue lightweight cancellation signal.\n- Workers: periodically check cancel_requested and stop after safe checkpoint; mark job as 'canceled' with reason 'license_expired'.\n- Persist audit events: 'license_expired_jobs_cancel_requested' with affected job IDs.\n- Provide admin endpoint GET /licenses/:id/impacted-jobs to review state.\nAcceptance criteria:\n- When a license expires, active jobs transition to canceling -> canceled without abrupt termination; audit lists impacted jobs; new job submissions are blocked by licenseGuard.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-19T17:49:41.364Z",
+      "updated": "2025-08-19T18:45:39.728Z",
       "description": "Tasks for master context"
     }
   }
