@@ -12,6 +12,9 @@ from ..models.notification_template import NotificationTemplate
 from ..models.enums import NotificationChannel, NotificationTemplateType
 from ..core.database import get_db
 
+# SMS Configuration Constants
+SMS_MAX_LENGTH = 160
+
 
 class TemplateService:
     """Service for managing and rendering notification templates.
@@ -281,8 +284,8 @@ class TemplateService:
         if channel == NotificationChannel.SMS:
             if subject_template is not None:
                 raise ValueError("SMS templates cannot have subjects")
-            if max_length != 160:
-                max_length = 160
+            if max_length != SMS_MAX_LENGTH:
+                max_length = SMS_MAX_LENGTH
         
         if channel == NotificationChannel.EMAIL:
             if subject_template is None:

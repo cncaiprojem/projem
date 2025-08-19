@@ -24,7 +24,7 @@ branch_labels = None
 depends_on = None
 
 
-# ENUMs for notification service
+# ENUMs for notification service - create_type=False because we explicitly call create()
 notification_channel_enum = ENUM(
     'email', 'sms',
     name='notification_channel_enum',
@@ -94,7 +94,7 @@ def upgrade() -> None:
         # Constraints
         sa.CheckConstraint("(channel = 'sms' AND subject_template IS NULL) OR channel = 'email'", 
                            name='ck_notification_templates_sms_no_subject'),
-        sa.CheckConstraint("(channel = 'sms' AND max_length = 160) OR (channel = 'email' AND max_length IS NULL)", 
+        sa.CheckConstraint("(channel = 'sms' AND max_length <= 160) OR (channel = 'email' AND max_length IS NULL)", 
                            name='ck_notification_templates_sms_max_length'),
         sa.CheckConstraint("length(name) >= 3", name='ck_notification_templates_name_length'),
         sa.CheckConstraint("version >= 1", name='ck_notification_templates_version_positive'),

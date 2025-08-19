@@ -5,7 +5,7 @@ Ultra-enterprise audit system for tracking all notification delivery attempts.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import (
@@ -297,7 +297,7 @@ class NotificationAttempt(Base):
         """
         from sqlalchemy import and_, func
         
-        since = datetime.now(timezone.utc) - datetime.timedelta(hours=hours)
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
         
         # Get overall stats
         total_attempts = db_session.query(func.count(cls.id)).filter(
