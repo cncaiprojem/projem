@@ -302,6 +302,13 @@ class User(Base, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan"
     )
+    
+    # File uploads relationship (Task 5.3)
+    uploaded_files: Mapped[List["FileMetadata"]] = relationship(
+        "FileMetadata",
+        back_populates="user",
+        lazy="select"
+    )
     mfa_backup_codes: Mapped[List["MFABackupCode"]] = relationship(
         "MFABackupCode",
         back_populates="user",
