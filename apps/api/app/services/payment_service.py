@@ -1,8 +1,13 @@
-"""Payment service for Task 4.6 - Payment provider abstraction with webhook handling."""
+"""
+Payment service for Task 4.6 - Payment provider abstraction with webhook handling.
+
+Enhanced for Task 4.10: Comprehensive observability with metrics, tracing, and audit integration
+"""
 
 from __future__ import annotations
 
 import logging
+import time
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Optional
@@ -11,14 +16,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..core.environment import environment
+from ..core.logging import get_logger
+from ..core.telemetry import create_financial_span, create_span
+from ..middleware.correlation_middleware import get_correlation_id, get_session_id, get_user_id
 from ..models.enums import Currency, PaidStatus, PaymentStatus
 from ..models.invoice import Invoice
 from ..models.payment import Payment, PaymentAuditLog, PaymentWebhookEvent
 from .payment_providers import PaymentProviderFactory
+from .. import metrics
 
-# Ultra-enterprise banking-grade logger for payment transactions
-logger = logging.getLogger("payment_service.ultra_enterprise")
-logger.setLevel(logging.DEBUG)
+# Ultra-enterprise banking-grade logger for payment transactions with observability
+logger = get_logger("payment_service.ultra_enterprise")
 
 
 class PaymentService:
@@ -140,7 +148,13 @@ class PaymentService:
         invoice_id: int,
         provider_name: str = "mock"
     ) -> tuple[Payment, dict]:
-        """Create a payment intent for an invoice.
+        """Create a payment intent for an invoice with comprehensive observability.
+
+        Enhanced Task 4.10: Observability integration:
+        - OpenTelemetry financial tracing with banking context  
+        - Prometheus metrics for payment operations
+        - Comprehensive audit logging with correlation IDs
+        - Performance monitoring and error tracking
 
         Args:
             invoice_id: ID of the invoice to create payment for
@@ -153,56 +167,151 @@ class PaymentService:
             ValueError: If invoice not found or invalid
             RuntimeError: If payment creation fails
         """
-        # Get invoice
+        
+        # Get correlation context for observability
+        correlation_id = get_correlation_id()
+        session_id = get_session_id()
+        current_user_id = get_user_id()
+        start_time = time.time()
+        
+        # Get invoice first for context
         invoice = self.db.query(Invoice).filter(Invoice.id == invoice_id).first()
         if not invoice:
+            # Track validation failure metric
+            metrics.payments_total.labels(
+                provider=provider_name,
+                method="unknown",
+                status="validation_failed",
+                currency="TRY"
+            ).inc()
+            
+            logger.warning(
+                "payment_intent_validation_failed",
+                invoice_id=invoice_id,
+                provider=provider_name,
+                reason="invoice_not_found",
+                correlation_id=correlation_id,
+                session_id=session_id
+            )
+            
             raise ValueError(f"Invoice {invoice_id} not found")
 
         if invoice.paid_status == PaidStatus.PAID:
+            # Track already paid metric
+            metrics.payments_total.labels(
+                provider=provider_name,
+                method="unknown", 
+                status="already_paid",
+                currency="TRY"
+            ).inc()
+            
+            logger.warning(
+                "payment_intent_already_paid",
+                invoice_id=invoice_id,
+                user_id=invoice.user_id,
+                provider=provider_name,
+                correlation_id=correlation_id,
+                session_id=session_id
+            )
+            
             raise ValueError(f"Invoice {invoice_id} is already paid")
-
-        # Create payment provider
-        provider = PaymentProviderFactory.create_provider(provider_name)
 
         # Calculate amount in cents using Decimal for banking-grade precision
         amount_cents = int(Decimal(str(invoice.total)) * Decimal('100'))
-
-        # Create payment intent with provider
-        result = await provider.create_intent(
+        
+        # Create financial span for payment intent creation
+        with create_financial_span(
+            "ödeme_niyeti_oluşturma",
+            user_id=invoice.user_id,
             amount_cents=amount_cents,
-            currency=Currency.TRY,
-            metadata={
-                "invoice_id": str(invoice_id),
-                "user_id": str(invoice.user_id),
-                "license_id": str(invoice.license_id)
-            }
-        )
-
-        if not result.success:
-            raise RuntimeError(f"Failed to create payment intent: {result.error_message}")
-
-        # Create payment record
-        payment = Payment(
+            currency="TRY",
             invoice_id=invoice_id,
-            provider=provider_name,
-            provider_payment_id=result.payment_intent.provider_payment_id,
-            amount_cents=amount_cents,
-            currency=Currency.TRY,
-            status=result.payment_intent.status,
-            # Store the actual provider data for traceability
-            provider_data={
-                "metadata": {
-                    "invoice_id": str(invoice_id),
-                    "user_id": str(invoice.user_id),
-                    "license_id": str(invoice.license_id)
-                }
-            },
-            raw_response=result.raw_response
-        )
+            correlation_id=correlation_id
+        ) as span:
+            
+            try:
+                # Add span attributes
+                span.set_attribute("payment.provider", provider_name)
+                span.set_attribute("payment.method", "card")  # Default assumption
+                span.set_attribute("invoice.license_id", str(invoice.license_id))
+                
+                # Create payment provider
+                provider = PaymentProviderFactory.create_provider(provider_name)
 
-        self.db.add(payment)
-        self.db.flush()
-        self.db.refresh(payment)
+                # Create payment intent with provider
+                provider_start_time = time.time()
+                result = await provider.create_intent(
+                    amount_cents=amount_cents,
+                    currency=Currency.TRY,
+                    metadata={
+                        "invoice_id": str(invoice_id),
+                        "user_id": str(invoice.user_id),
+                        "license_id": str(invoice.license_id),
+                        "correlation_id": correlation_id
+                    }
+                )
+                provider_duration = time.time() - provider_start_time
+                
+                # Track provider call metrics
+                metrics.payment_processing_duration_seconds.labels(
+                    provider=provider_name,
+                    method="create_intent",
+                    status="success" if result.success else "error"
+                ).observe(provider_duration)
+
+                if not result.success:
+                    error_msg = f"Failed to create payment intent: {result.error_message}"
+                    
+                    # Track provider failure
+                    metrics.payments_failed_total.labels(
+                        provider=provider_name,
+                        method="card",
+                        failure_reason="provider_error",
+                        retry_eligible="true"
+                    ).inc()
+                    
+                    logger.error(
+                        "payment_intent_provider_error",
+                        invoice_id=invoice_id,
+                        user_id=invoice.user_id,
+                        provider=provider_name,
+                        error_message=result.error_message,
+                        provider_duration_seconds=round(provider_duration, 3),
+                        correlation_id=correlation_id,
+                        session_id=session_id,
+                        event_type="payment_provider_error"
+                    )
+                    
+                    raise RuntimeError(error_msg)
+
+                # Create payment record
+                payment = Payment(
+                    invoice_id=invoice_id,
+                    provider=provider_name,
+                    provider_payment_id=result.payment_intent.provider_payment_id,
+                    amount_cents=amount_cents,
+                    currency=Currency.TRY,
+                    status=result.payment_intent.status,
+                    # Store the actual provider data for traceability
+                    provider_data={
+                        "metadata": {
+                            "invoice_id": str(invoice_id),
+                            "user_id": str(invoice.user_id),
+                            "license_id": str(invoice.license_id),
+                            "correlation_id": correlation_id
+                        },
+                        "provider_duration_seconds": round(provider_duration, 3)
+                    },
+                    raw_response=result.raw_response
+                )
+
+                self.db.add(payment)
+                self.db.flush()
+                self.db.refresh(payment)
+                
+                # Add payment ID to span
+                span.set_attribute("payment.id", str(payment.id))
+                span.set_attribute("payment.provider_payment_id", result.payment_intent.provider_payment_id)
 
         # Create audit log
         PaymentAuditLog.log_payment_event(

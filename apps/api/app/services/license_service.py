@@ -1,6 +1,8 @@
 """
 License service for Task 4.1: State transitions and business logic.
 Ultra-enterprise implementation with audit trail and validation.
+
+Enhanced for Task 4.10: Comprehensive observability with metrics and correlation IDs
 """
 
 from datetime import datetime, timedelta, timezone
@@ -8,6 +10,7 @@ from typing import Optional, Dict, Any
 from dateutil.relativedelta import relativedelta
 import hashlib
 import json
+import time
 
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
@@ -17,6 +20,11 @@ from ..models.license import License
 from ..models.license_audit import LicenseAudit
 from ..models.user import User
 from ..core.logging import get_logger
+from ..core.telemetry import create_span, create_financial_span
+from ..middleware.correlation_middleware import get_correlation_id, get_session_id, get_user_id
+from ..services.audit_service import audit_service
+from ..config import settings
+from .. import metrics
 
 logger = get_logger(__name__)
 
@@ -100,12 +108,18 @@ class LicenseService:
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None
     ) -> License:
-        """Assign a new license to a user.
+        """Assign a new license to a user with comprehensive observability.
         
         Task 4.1 'assign' transition:
         - Create active license with ends_at = starts_at + duration
         - Audit event 'license_assigned'
         - Enforce one active license per user constraint
+        
+        Enhanced Task 4.10: Observability integration:
+        - OpenTelemetry tracing with business context
+        - Prometheus metrics for license operations
+        - Comprehensive audit logging with correlation IDs
+        - Performance monitoring and error tracking
         
         Args:
             db: Database session
@@ -125,83 +139,238 @@ class LicenseService:
             ValueError: If invalid license type
         """
         
-        # Validate license type
-        if license_type not in ['3m', '6m', '12m']:
-            raise ValueError(f"Invalid license type: {license_type}")
+        # Get correlation context for observability
+        correlation_id = get_correlation_id()
+        session_id = get_session_id()
+        current_user_id = get_user_id()
+        start_time = time.time()
         
-        # Check for existing active license
-        existing_active = db.query(License).filter(
-            and_(
-                License.user_id == user_id,
-                License.status == 'active',
-                License.ends_at > datetime.now(timezone.utc)
-            )
-        ).first()
-        
-        if existing_active:
-            raise LicenseStateError(
-                f"User {user_id} already has an active license (ID: {existing_active.id}). "
-                "Cannot assign another active license."
-            )
-        
-        # Calculate duration
-        duration_map = {'3m': 3, '6m': 6, '12m': 12}
-        months = duration_map[license_type]
-        
-        # Create new license
-        now = datetime.now(timezone.utc)
-        # Calculate end date using relativedelta for accurate month calculation
-        ends_at = now + relativedelta(months=months)
-        
-        license = License(
+        # Create business span for license assignment
+        with create_span(
+            "lisans_atama",
+            operation_type="business",
             user_id=user_id,
-            type=license_type,
-            scope=scope,
-            status='active',
-            starts_at=now,
-            ends_at=ends_at
-        )
-        
-        db.add(license)
-        db.flush()  # Get the ID
-        
-        # Create audit log
-        audit = LicenseService._create_audit_log(
-            db=db,
-            license=license,
-            event_type='license_assigned',
-            old_state=None,
-            new_state={
-                'status': 'active',
-                'type': license_type,
-                'starts_at': now.isoformat(),
-                'ends_at': ends_at.isoformat(),
-                'scope': scope
-            },
-            delta={
-                'action': 'assign',
-                'duration_months': months
-            },
-            user_id=user_id,
-            actor_type=actor_type,
-            actor_id=actor_id,
-            ip_address=ip_address,
-            user_agent=user_agent
-        )
-        
-        db.add(audit)
-        
-        logger.info(
-            f"License assigned to user {user_id}",
-            extra={
-                'license_id': license.id,
-                'license_type': license_type,
-                'duration_months': months,
-                'audit_id': audit.id
+            correlation_id=correlation_id,
+            attributes={
+                "license.type": license_type,
+                "license.scope": json.dumps(scope),
+                "actor.type": actor_type,
+                "actor.id": actor_id or "unknown"
             }
-        )
-        
-        return license
+        ) as span:
+            
+            try:
+                # Validate license type
+                if license_type not in ['3m', '6m', '12m']:
+                    error_msg = f"Invalid license type: {license_type}"
+                    
+                    # Track validation failure metric
+                    metrics.license_operations_total.labels(
+                        operation="assign",
+                        license_type=license_type,
+                        status="validation_failed",
+                        user_type=actor_type
+                    ).inc()
+                    
+                    # Log validation failure
+                    logger.warning(
+                        "license_assignment_validation_failed",
+                        user_id=user_id,
+                        license_type=license_type,
+                        reason="invalid_license_type",
+                        correlation_id=correlation_id,
+                        session_id=session_id
+                    )
+                    
+                    raise ValueError(error_msg)
+                
+                # Check for existing active license
+                existing_active = db.query(License).filter(
+                    and_(
+                        License.user_id == user_id,
+                        License.status == 'active',
+                        License.ends_at > datetime.now(timezone.utc)
+                    )
+                ).first()
+                
+                if existing_active:
+                    error_msg = (
+                        f"User {user_id} already has an active license (ID: {existing_active.id}). "
+                        "Cannot assign another active license."
+                    )
+                    
+                    # Track conflict metric
+                    metrics.license_operations_total.labels(
+                        operation="assign",
+                        license_type=license_type,
+                        status="conflict_active_license",
+                        user_type=actor_type
+                    ).inc()
+                    
+                    # Log license conflict
+                    logger.warning(
+                        "license_assignment_conflict",
+                        user_id=user_id,
+                        existing_license_id=existing_active.id,
+                        existing_license_type=existing_active.type,
+                        new_license_type=license_type,
+                        correlation_id=correlation_id,
+                        session_id=session_id,
+                        event_type="license_conflict"
+                    )
+                    
+                    raise LicenseStateError(error_msg)
+                
+                # Calculate duration
+                duration_map = {'3m': 3, '6m': 6, '12m': 12}
+                months = duration_map[license_type]
+                
+                # Create new license
+                now = datetime.now(timezone.utc)
+                # Calculate end date using relativedelta for accurate month calculation
+                ends_at = now + relativedelta(months=months)
+                
+                license = License(
+                    user_id=user_id,
+                    type=license_type,
+                    scope=scope,
+                    status='active',
+                    starts_at=now,
+                    ends_at=ends_at
+                )
+                
+                db.add(license)
+                db.flush()  # Get the ID
+                
+                # Add span attributes for successful license creation
+                span.set_attribute("license.id", str(license.id))
+                span.set_attribute("license.starts_at", now.isoformat())
+                span.set_attribute("license.ends_at", ends_at.isoformat())
+                span.set_attribute("license.duration_months", str(months))
+                
+                # Create comprehensive audit log entry using structured logging
+                # This provides observability without requiring async context
+                logger.info(
+                    "license_business_audit",
+                    event_type="license_assigned",
+                    scope_type="license",
+                    scope_id=license.id,
+                    user_id=current_user_id or user_id,
+                    target_user_id=user_id,
+                    license_type=license_type,
+                    duration_months=months,
+                    scope=scope,
+                    actor_type=actor_type,
+                    actor_id=actor_id,
+                    starts_at=now.isoformat(),
+                    ends_at=ends_at.isoformat(),
+                    business_operation="license_assignment",
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    classification="business_audit",
+                    compliance="KVKV_GDPR"
+                )
+                
+                # Create legacy audit log for backwards compatibility
+                audit = LicenseService._create_audit_log(
+                    db=db,
+                    license=license,
+                    event_type='license_assigned',
+                    old_state=None,
+                    new_state={
+                        'status': 'active',
+                        'type': license_type,
+                        'starts_at': now.isoformat(),
+                        'ends_at': ends_at.isoformat(),
+                        'scope': scope
+                    },
+                    delta={
+                        'action': 'assign',
+                        'duration_months': months
+                    },
+                    user_id=user_id,
+                    actor_type=actor_type,
+                    actor_id=actor_id,
+                    ip_address=ip_address,
+                    user_agent=user_agent
+                )
+                
+                db.add(audit)
+                
+                # Calculate operation duration for metrics
+                operation_duration = time.time() - start_time
+                
+                # Track successful license assignment metrics
+                metrics.license_operations_total.labels(
+                    operation="assign",
+                    license_type=license_type,
+                    status="success",
+                    user_type=actor_type
+                ).inc()
+                
+                metrics.license_assignment_duration_seconds.labels(
+                    license_type=license_type,
+                    status="success"
+                ).observe(operation_duration)
+                
+                metrics.licenses_active_total.labels(
+                    license_type=license_type,
+                    environment=getattr(settings, 'env', 'development')
+                ).inc()
+                
+                # Log successful license assignment with Turkish compliance
+                logger.info(
+                    "lisans_atama_başarılı",
+                    license_id=license.id,
+                    user_id=user_id,
+                    license_type=license_type,
+                    duration_months=months,
+                    audit_id=audit.id,
+                    operation_duration_seconds=round(operation_duration, 3),
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    actor_type=actor_type,
+                    event_type="license_assigned",
+                    compliance="KVKV_GDPR"
+                )
+                
+                return license
+                
+            except Exception as e:
+                # Calculate error duration
+                operation_duration = time.time() - start_time
+                
+                # Track failure metrics
+                metrics.license_operations_total.labels(
+                    operation="assign",
+                    license_type=license_type,
+                    status="error",
+                    user_type=actor_type
+                ).inc()
+                
+                metrics.license_assignment_duration_seconds.labels(
+                    license_type=license_type,
+                    status="error"
+                ).observe(operation_duration)
+                
+                # Log error with full context
+                logger.error(
+                    "lisans_atama_hatası",
+                    user_id=user_id,
+                    license_type=license_type,
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                    operation_duration_seconds=round(operation_duration, 3),
+                    correlation_id=correlation_id,
+                    session_id=session_id,
+                    actor_type=actor_type,
+                    event_type="license_assignment_error",
+                    compliance="KVKV_GDPR",
+                    exc_info=True
+                )
+                
+                # Re-raise the exception
+                raise
     
     @staticmethod
     def extend_license(
