@@ -5,7 +5,7 @@ It establishes the enterprise-grade migration framework with PostgreSQL 17.6 opt
 comprehensive naming conventions, and proper audit trail foundation.
 
 Revision ID: base_revision
-Revises: 0011_complete_schema
+Revises: None (Initial migration)
 Create Date: 2025-08-17 12:00:00.000000
 
 """
@@ -30,7 +30,7 @@ from migration_helpers import (
 
 # revision identifiers, used by Alembic.
 revision = 'base_revision'
-down_revision = '0011_complete_schema'
+down_revision = None
 branch_labels = None
 depends_on = None
 
@@ -64,9 +64,7 @@ def upgrade() -> None:
             sa.Column('ip_address', sa.String(45), nullable=True),
             sa.Column('user_agent', sa.Text(), nullable=True),
             sa.Column('transaction_id', sa.String(255), nullable=True, index=True),
-            sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            # PostgreSQL 17.6 specific optimizations
-            postgresql_partition_by='RANGE (created_at)',  # Partition by month for performance
+            sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False)
         )
         print("✅ Created enterprise_audit_log table")
     except Exception as e:
@@ -123,7 +121,7 @@ def upgrade() -> None:
             sa.Column('duration_seconds', sa.Integer(), nullable=True),
             sa.Column('success', sa.Boolean(), default=False, nullable=False),
             sa.Column('error_message', sa.Text(), nullable=True),
-            sa.Column('postgresql_version', sa.String(50), nullable=True),
+            sa.Column('postgresql_version', sa.String(255), nullable=True),
             sa.Column('alembic_version', sa.String(50), nullable=True),
             sa.Column('environment', sa.String(50), nullable=True),
             sa.Column('applied_by', sa.String(255), nullable=True),
@@ -153,7 +151,7 @@ def upgrade() -> None:
             sa.Column('baseline_value', sa.Numeric(20, 6), nullable=False),
             sa.Column('measurement_unit', sa.String(50), nullable=False),
             sa.Column('measurement_date', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column('postgresql_version', sa.String(50), nullable=False),
+            sa.Column('postgresql_version', sa.String(255), nullable=False),
             sa.Column('notes', sa.Text(), nullable=True),
         )
         print("✅ Created enterprise_performance_baseline table")
@@ -232,14 +230,14 @@ def upgrade() -> None:
     # 6. Insert initial configuration
     try:
         op.execute(sa.text("""
-            INSERT INTO enterprise_config (config_key, config_value, config_type, description, environment)
+            INSERT INTO enterprise_config (config_key, config_value, config_type, description, is_sensitive, environment)
             VALUES 
-            ('audit.enabled', 'true', 'boolean', 'Enable comprehensive audit logging', 'production'),
-            ('audit.retention_days', '2555', 'integer', 'Audit log retention period in days (7 years)', 'production'),
-            ('performance.monitoring_enabled', 'true', 'boolean', 'Enable performance monitoring', 'production'),
-            ('migration.backup_required', 'true', 'boolean', 'Require backup before major migrations', 'production'),
-            ('postgresql.version_target', '17.6', 'string', 'Target PostgreSQL version', 'production'),
-            ('naming_convention.enforced', 'true', 'boolean', 'Enforce enterprise naming conventions', 'production')
+            ('audit.enabled', 'true', 'boolean', 'Enable comprehensive audit logging', false, 'production'),
+            ('audit.retention_days', '2555', 'integer', 'Audit log retention period in days (7 years)', false, 'production'),
+            ('performance.monitoring_enabled', 'true', 'boolean', 'Enable performance monitoring', false, 'production'),
+            ('migration.backup_required', 'true', 'boolean', 'Require backup before major migrations', false, 'production'),
+            ('postgresql.version_target', '17.6', 'string', 'Target PostgreSQL version', false, 'production'),
+            ('naming_convention.enforced', 'true', 'boolean', 'Enforce enterprise naming conventions', false, 'production')
         """))
         print("✅ Inserted initial configuration")
     except Exception as e:

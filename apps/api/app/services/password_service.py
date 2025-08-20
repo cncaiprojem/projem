@@ -104,13 +104,20 @@ class PasswordService:
         salt_bytes = bytes.fromhex(salt)
         
         try:
-            # Use low-level API for full control over salt
-            raw_hash = self.hasher._hash(
-                peppered_password.encode('utf-8'),
-                salt_bytes,
-                **ARGON2_CONFIG
+            # Use low-level API for full control over salt - preserve salt
+            from argon2.low_level import hash_secret, Type
+            
+            raw_hash_bytes = hash_secret(
+                secret=peppered_password.encode('utf-8'),
+                salt=salt_bytes,
+                time_cost=ARGON2_CONFIG['time_cost'],
+                memory_cost=ARGON2_CONFIG['memory_cost'],
+                parallelism=ARGON2_CONFIG['parallelism'],
+                hash_len=ARGON2_CONFIG['hash_len'],
+                type=Type.ID  # Argon2id
             )
-            return raw_hash.decode('ascii')
+            # Return just the hash part (without salt/params)
+            return raw_hash_bytes.decode('ascii')
         except Exception as e:
             logger.error("Failed to compute Argon2 hash", exc_info=True, extra={
                 'error_type': type(e).__name__,
