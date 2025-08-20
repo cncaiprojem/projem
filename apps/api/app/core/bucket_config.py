@@ -196,8 +196,26 @@ class BucketPolicy:
                     f"arn:aws:s3:::{self.bucket_name}/*"
                 ],
                 "Condition": {
-                    "IpAddress": {
+                    "NotIpAddress": {
                         "aws:SourceIp": self.allowed_source_ips
+                    }
+                }
+            })
+        
+        # Deny specific IPs if configured
+        if self.denied_source_ips:
+            statements.append({
+                "Sid": "DenySpecifiedIPs",
+                "Effect": "Deny",
+                "Principal": "*",
+                "Action": "s3:*",
+                "Resource": [
+                    f"arn:aws:s3:::{self.bucket_name}",
+                    f"arn:aws:s3:::{self.bucket_name}/*"
+                ],
+                "Condition": {
+                    "IpAddress": {
+                        "aws:SourceIp": self.denied_source_ips
                     }
                 }
             })
