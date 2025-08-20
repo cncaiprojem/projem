@@ -11,7 +11,7 @@ SQLAlchemy model for tracking file uploads and metadata:
 from __future__ import annotations
 
 import enum
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional, Dict, Any
 from uuid import uuid4
 
@@ -397,7 +397,6 @@ class UploadSession(Base):
     @property
     def is_expired(self) -> bool:
         """Check if session has expired."""
-        from datetime import timezone
         # Use timezone-aware comparison
         now_utc = datetime.now(timezone.utc)
         expires_utc = self.expires_at if self.expires_at.tzinfo else self.expires_at.replace(tzinfo=timezone.utc)

@@ -34,6 +34,7 @@ from starlette.status import (
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.minio_config import get_minio_client
 from app.models.user import User
 from app.schemas.file_upload import (
     UploadInitRequest,
@@ -93,7 +94,7 @@ download_rate_limiter = RateLimiter(
         429: {"description": "Rate limited", "model": UploadError},
     },
 )
-async def init_upload(
+def init_upload(
     request: UploadInitRequest,
     req: Request,
     db: Session = Depends(get_db),
@@ -229,7 +230,7 @@ async def init_upload(
         503: {"description": "Service unavailable", "model": UploadError},
     },
 )
-async def finalize_upload(
+def finalize_upload(
     request: UploadFinalizeRequest,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -337,7 +338,7 @@ async def finalize_upload(
         429: {"description": "Rate limited", "model": UploadError},
     },
 )
-async def get_download_url(
+def get_download_url(
     file_id: str = Path(
         ...,
         description="File ID (UUID) or object key",
@@ -469,7 +470,7 @@ async def get_download_url(
     description="Check if file service is operational",
     include_in_schema=False,
 )
-async def health_check() -> Dict[str, Any]:
+def health_check() -> Dict[str, Any]:
     """
     Health check endpoint for file service.
     
@@ -478,7 +479,6 @@ async def health_check() -> Dict[str, Any]:
     """
     try:
         # Try to get MinIO client
-        from app.core.minio_config import get_minio_client
         client = get_minio_client()
         
         # Check if we can list buckets (basic connectivity test)

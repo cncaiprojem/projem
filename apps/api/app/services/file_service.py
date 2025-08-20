@@ -396,14 +396,7 @@ class FileService:
                 )
             
             # Step 5: Verify SHA256 hash by downloading and computing actual hash
-            if not session:
-                raise FileServiceError(
-                    code=UploadErrorCode.INVALID_INPUT,
-                    message="Upload session required for SHA256 verification",
-                    turkish_message="SHA256 doğrulaması için yükleme oturumu gerekli",
-                    status_code=400,
-                )
-            
+            # Session was already verified at line 327
             # Download the file and compute its actual SHA256 hash for verification
             logger.info(
                 "Starting SHA256 verification",

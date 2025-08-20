@@ -25,9 +25,10 @@ logger = structlog.get_logger(__name__)
 
 class RateLimiter:
     """
-    Rate limiter using token bucket algorithm.
+    Rate limiter using sliding window log algorithm for Redis and fixed window for in-memory.
     
     Supports both Redis (production) and in-memory (development) backends.
+    Note: In-memory implementation uses fixed window which may allow 2x requests at boundary.
     """
     
     def __init__(
@@ -124,37 +125,52 @@ class RateLimiter:
     # Redis-based implementation
     
     def _check_redis(self, key: str) -> bool:
-        """Check rate limit using Redis."""
+        """Check rate limit using Redis with atomic operations."""
         try:
             full_key = f"{self.key_prefix}:{key}"
             current_time = time.time()
-            
-            # Use Redis pipeline for atomic operations
-            pipe = self.redis_client.pipeline()
-            
-            # Remove old entries outside the window
             min_time = current_time - self.window_seconds
-            pipe.zremrangebyscore(full_key, 0, min_time)
             
-            # Count current requests in window
-            pipe.zcard(full_key)
+            # Use Lua script for atomic rate limiting
+            lua_script = """
+            local key = KEYS[1]
+            local min_time = tonumber(ARGV[1])
+            local current_time = tonumber(ARGV[2])
+            local max_requests = tonumber(ARGV[3])
+            local window_seconds = tonumber(ARGV[4])
             
-            # Execute pipeline
-            results = pipe.execute()
-            current_count = results[1]
+            -- Remove old entries
+            redis.call('zremrangebyscore', key, 0, min_time)
             
-            # Check if under limit
-            if current_count < self.max_requests:
-                # Add new request
-                pipe = self.redis_client.pipeline()
-                pipe.zadd(full_key, {str(current_time): current_time})
-                pipe.expire(full_key, self.window_seconds + 1)
-                pipe.execute()
-                
+            -- Count current requests
+            local current_count = redis.call('zcard', key)
+            
+            -- Check if under limit
+            if current_count < max_requests then
+                -- Add new request
+                redis.call('zadd', key, current_time, tostring(current_time))
+                redis.call('expire', key, window_seconds + 1)
+                return 1
+            else
+                return 0
+            end
+            """
+            
+            # Execute Lua script atomically
+            allowed = self.redis_client.eval(
+                lua_script,
+                1,  # Number of keys
+                full_key,
+                min_time,
+                current_time,
+                self.max_requests,
+                self.window_seconds
+            )
+            
+            if allowed:
                 logger.debug(
                     "Rate limit check passed (Redis)",
                     key=key,
-                    current=current_count + 1,
                     max=self.max_requests,
                 )
                 return True
@@ -162,7 +178,6 @@ class RateLimiter:
                 logger.warning(
                     "Rate limit exceeded (Redis)",
                     key=key,
-                    current=current_count,
                     max=self.max_requests,
                 )
                 return False

@@ -11,6 +11,7 @@ Provides comprehensive validation schemas for:
 from __future__ import annotations
 
 import hashlib
+import os
 import re
 from datetime import datetime
 from enum import Enum
@@ -148,7 +149,6 @@ class UploadInitRequest(BaseModel):
             return v
         
         # Remove path components
-        import os
         v = os.path.basename(v)
         
         # Remove dangerous characters
