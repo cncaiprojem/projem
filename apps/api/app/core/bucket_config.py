@@ -30,6 +30,8 @@ from minio.lifecycleconfig import (
     Transition,
     Expiration,
     AbortIncompleteMultipartUpload,
+    NoncurrentVersionTransition,
+    NoncurrentVersionExpiration,
 )
 from minio.objectlockconfig import ObjectLockConfig
 from minio.versioningconfig import VersioningConfig, ENABLED as VERSIONING_ENABLED
@@ -194,7 +196,7 @@ class BucketPolicy:
                     f"arn:aws:s3:::{self.bucket_name}/*"
                 ],
                 "Condition": {
-                    "IpAddressIfExists": {
+                    "IpAddress": {
                         "aws:SourceIp": self.allowed_source_ips
                     }
                 }
@@ -254,7 +256,6 @@ class BucketConfiguration:
         if not self.lifecycle_policies:
             return None
         
-        from minio.lifecycleconfig import NoncurrentVersionTransition, NoncurrentVersionExpiration
         
         rules = []
         for policy in self.lifecycle_policies:
