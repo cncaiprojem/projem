@@ -11,6 +11,7 @@ Implements rate limiting with:
 from __future__ import annotations
 
 import time
+import threading
 from collections import defaultdict
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple
@@ -54,6 +55,9 @@ class RateLimiter:
         self._memory_storage: Dict[str, Tuple[int, float]] = defaultdict(
             lambda: (0, time.time())
         )
+        
+        # Thread lock for in-memory storage operations
+        self._memory_lock = threading.Lock()
         
         # Try to get Redis client from environment if not provided
         if not self.redis_client:
@@ -214,59 +218,62 @@ class RateLimiter:
     
     def _check_memory(self, key: str) -> bool:
         """Check rate limit using in-memory storage."""
-        current_time = time.time()
-        count, window_start = self._memory_storage[key]
-        
-        # Check if window has expired
-        if current_time - window_start >= self.window_seconds:
-            # Reset window
-            self._memory_storage[key] = (1, current_time)
-            logger.debug(
-                "Rate limit check passed (Memory, new window)",
-                key=key,
-                current=1,
-                max=self.max_requests,
-            )
-            return True
-        
-        # Check if under limit
-        if count < self.max_requests:
-            self._memory_storage[key] = (count + 1, window_start)
-            logger.debug(
-                "Rate limit check passed (Memory)",
-                key=key,
-                current=count + 1,
-                max=self.max_requests,
-            )
-            return True
-        else:
-            logger.warning(
-                "Rate limit exceeded (Memory)",
-                key=key,
-                current=count,
-                max=self.max_requests,
-            )
-            return False
+        with self._memory_lock:
+            current_time = time.time()
+            count, window_start = self._memory_storage[key]
+            
+            # Check if window has expired
+            if current_time - window_start >= self.window_seconds:
+                # Reset window
+                self._memory_storage[key] = (1, current_time)
+                logger.debug(
+                    "Rate limit check passed (Memory, new window)",
+                    key=key,
+                    current=1,
+                    max=self.max_requests,
+                )
+                return True
+            
+            # Check if under limit
+            if count < self.max_requests:
+                self._memory_storage[key] = (count + 1, window_start)
+                logger.debug(
+                    "Rate limit check passed (Memory)",
+                    key=key,
+                    current=count + 1,
+                    max=self.max_requests,
+                )
+                return True
+            else:
+                logger.warning(
+                    "Rate limit exceeded (Memory)",
+                    key=key,
+                    current=count,
+                    max=self.max_requests,
+                )
+                return False
     
     def _get_remaining_memory(self, key: str) -> Tuple[int, int]:
         """Get remaining requests from memory."""
-        current_time = time.time()
-        count, window_start = self._memory_storage[key]
-        
-        # Check if window has expired
-        if current_time - window_start >= self.window_seconds:
-            return self.max_requests, 0
-        
-        remaining = max(0, self.max_requests - count)
-        reset_time = int(window_start + self.window_seconds - current_time)
-        
-        return remaining, max(0, reset_time)
+        with self._memory_lock:
+            current_time = time.time()
+            count, window_start = self._memory_storage[key]
+            
+            # Check if window has expired
+            if current_time - window_start >= self.window_seconds:
+                return self.max_requests, 0
+            
+            remaining = max(0, self.max_requests - count)
+            reset_time = int(window_start + self.window_seconds - current_time)
+            
+            return remaining, max(0, reset_time)
     
     def _reset_memory(self, key: str) -> None:
         """Reset rate limit in memory."""
-        if key in self._memory_storage:
-            del self._memory_storage[key]
-            logger.info("Rate limit reset (Memory)", key=key)
+        with self._memory_lock:
+            if key in self._memory_storage:
+                del self._memory_storage[key]
+                logger.info("Rate limit reset (Memory)", key=key)
 
 
 # Global rate limiters for common use cases

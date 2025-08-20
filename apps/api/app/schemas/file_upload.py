@@ -25,6 +25,7 @@ MIN_UPLOAD_SIZE: Final[int] = 1  # At least 1 byte
 PRESIGNED_PUT_TTL_SECONDS: Final[int] = 300  # 5 minutes for PUT
 PRESIGNED_GET_TTL_SECONDS: Final[int] = 120  # 2 minutes for GET
 SHA256_LENGTH: Final[int] = 64  # SHA256 hash is 64 hex characters
+SHA256_PATTERN: Final[str] = f"^[a-f0-9]{{{SHA256_LENGTH}}}$"  # Regex pattern for SHA256 validation
 
 # Allowed MIME types for security
 ALLOWED_MIME_TYPES: Final[List[str]] = [
@@ -85,7 +86,7 @@ class UploadInitRequest(BaseModel):
         description=f"File size in bytes (max {MAX_UPLOAD_SIZE // (1024*1024)}MB)"
     )
     
-    sha256: constr(regex=f"^[a-f0-9]{{{SHA256_LENGTH}}}$", to_lower=True) = Field(
+    sha256: constr(regex=SHA256_PATTERN, to_lower=True) = Field(
         ...,
         description="SHA256 hash of file content (lowercase hex)"
     )
@@ -334,48 +335,6 @@ class UploadFinalizeResponse(BaseModel):
         }
 
 
-class FileDownloadRequest(BaseModel):
-    """
-    Request schema for GET /files/:id
-    Task 5.3: Generate presigned GET URL
-    """
-    
-    file_id: str = Field(
-        ...,
-        description="File ID or object key"
-    )
-    
-    version_id: Optional[str] = Field(
-        None,
-        description="Specific version to download"
-    )
-    
-    response_headers: Optional[Dict[str, str]] = Field(
-        None,
-        description="Custom response headers"
-    )
-    
-    @validator("response_headers")
-    def validate_headers(cls, v: Optional[Dict[str, str]]) -> Optional[Dict[str, str]]:
-        """Validate response headers for security."""
-        if not v:
-            return v
-        
-        # Only allow safe response headers
-        allowed = {
-            "content-type", "content-language", "expires",
-            "cache-control", "content-disposition", "content-encoding"
-        }
-        
-        filtered = {}
-        for key, value in v.items():
-            if key.lower() in allowed:
-                # Sanitize value
-                value = re.sub(r'[\r\n]', '', value)[:500]
-                filtered[key] = value
-        
-        return filtered if filtered else None
-
 
 class FileDownloadResponse(BaseModel):
     """
@@ -472,28 +431,6 @@ class UploadError(BaseModel):
         }
 
 
-# Upload session tracking
-class UploadSession(BaseModel):
-    """Internal model for tracking upload sessions."""
-    
-    upload_id: str
-    key: str
-    expected_size: int
-    expected_sha256: str
-    mime_type: str
-    job_id: str
-    machine_id: Optional[str]
-    post_processor: Optional[str]
-    client_ip: Optional[str]
-    created_at: datetime
-    expires_at: datetime
-    status: str = "pending"  # pending, uploading, completed, failed
-    
-    @property
-    def is_expired(self) -> bool:
-        """Check if session has expired."""
-        return datetime.utcnow() > self.expires_at
-
 
 __all__ = [
     "FileUploadType",
@@ -501,13 +438,12 @@ __all__ = [
     "UploadInitResponse",
     "UploadFinalizeRequest",
     "UploadFinalizeResponse",
-    "FileDownloadRequest",
     "FileDownloadResponse",
     "UploadErrorCode",
     "UploadError",
-    "UploadSession",
     "MAX_UPLOAD_SIZE",
     "PRESIGNED_PUT_TTL_SECONDS",
     "PRESIGNED_GET_TTL_SECONDS",
     "ALLOWED_MIME_TYPES",
+    "SHA256_PATTERN",
 ]

@@ -108,7 +108,7 @@ class FileService:
         
         logger.info("File service initialized")
     
-    async def init_upload(
+    def init_upload(
         self,
         request: UploadInitRequest,
         user_id: Optional[str] = None,
@@ -187,6 +187,7 @@ class FileService:
                         "machine_id": request.machine_id,
                         "post_processor": request.post_processor,
                         "filename": request.filename,
+                        "type": request.type.value,  # Store file type in metadata
                     },
                 )
                 self.db.add(session)
@@ -214,21 +215,45 @@ class FileService:
             tags = self._build_tags(request)
             tag_string = "&".join([f"{k}={v}" for k, v in tags.items()])
             
-            # Step 8: Generate presigned PUT URL
-            presigned_url = self.client.presigned_put_object(
-                bucket_name=bucket_name,
-                object_name=object_key.replace(f"{bucket_name}/", ""),
-                expires=timedelta(seconds=PRESIGNED_PUT_TTL_SECONDS),
+            # Step 8: Generate presigned POST policy for better constraint enforcement
+            from minio.helpers import PostPolicy
+            from datetime import datetime, timedelta
+            
+            post_policy = PostPolicy(
+                bucket_name,
+                datetime.utcnow() + timedelta(seconds=PRESIGNED_PUT_TTL_SECONDS),
             )
             
-            # Step 9: Build response headers
-            headers = {
-                "Content-Type": request.mime_type,
-                "x-amz-tagging": tag_string,
-            }
+            # Add key constraint
+            post_policy.add_starts_with_condition("key", object_key.replace(f"{bucket_name}/", ""))
             
-            if client_ip:
-                headers["x-amz-meta-client-ip"] = client_ip
+            # Add content-length constraint
+            post_policy.add_content_length_range_condition(1, request.size)
+            
+            # Add content-type constraint
+            post_policy.add_eq_condition("Content-Type", request.mime_type)
+            
+            # Add tagging constraint
+            post_policy.add_eq_condition("x-amz-tagging", tag_string)
+            
+            # Add client IP constraint if configured
+            if client_ip and bucket_config.bucket_policy:
+                if bucket_config.bucket_policy.allowed_source_ips:
+                    post_policy.add_eq_condition("x-amz-meta-client-ip", client_ip)
+            
+            # Generate presigned POST policy
+            form_data = self.client.presigned_post_policy(post_policy)
+            presigned_url = form_data.get("url", "")
+            
+            # Step 9: Build response with form data
+            # The form_data contains all the fields needed for the POST
+            headers = {}
+            if form_data:
+                # Extract relevant fields for headers
+                headers["Content-Type"] = request.mime_type
+                headers["x-amz-tagging"] = tag_string
+                if client_ip:
+                    headers["x-amz-meta-client-ip"] = client_ip
             
             # Step 10: Build response
             response = UploadInitResponse(
@@ -270,7 +295,7 @@ class FileService:
                 status_code=500,
             )
     
-    async def finalize_upload(
+    def finalize_upload(
         self,
         request: UploadFinalizeRequest,
         user_id: Optional[str] = None,
@@ -370,9 +395,16 @@ class FileService:
                     status_code=413,
                 )
             
-            # Step 5: Stream-verify SHA256 (will be implemented in Task 5.5)
-            # For now, we'll trust the client-provided hash
-            actual_sha256 = session.expected_sha256 if session else request.key.split("/")[-1].split(".")[0]
+            # Step 5: Verify SHA256 hash
+            if not session:
+                raise FileServiceError(
+                    code=UploadErrorCode.INVALID_INPUT,
+                    message="Upload session required for SHA256 verification",
+                    turkish_message="SHA256 doğrulaması için yükleme oturumu gerekli",
+                    status_code=400,
+                )
+            
+            actual_sha256 = session.expected_sha256
             
             # Step 6: Create file metadata record
             if self.db:
@@ -380,7 +412,7 @@ class FileService:
                     object_key=request.key,
                     bucket=bucket_name,
                     filename=session.metadata.get("filename") if session else None,
-                    file_type=self._get_file_type_enum(session.metadata.get("type") if session else "temp"),
+                    file_type=self._get_file_type_enum(session.metadata.get("type", "temp") if session else "temp"),
                     mime_type=session.mime_type if session else "application/octet-stream",
                     size=actual_size,
                     sha256=actual_sha256,
@@ -453,7 +485,7 @@ class FileService:
                 status_code=500,
             )
     
-    async def get_download_url(
+    def get_download_url(
         self,
         file_id: str,
         user_id: Optional[str] = None,

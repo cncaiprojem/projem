@@ -397,7 +397,11 @@ class UploadSession(Base):
     @property
     def is_expired(self) -> bool:
         """Check if session has expired."""
-        return datetime.utcnow() > self.expires_at.replace(tzinfo=None)
+        from datetime import timezone
+        # Use timezone-aware comparison
+        now_utc = datetime.now(timezone.utc)
+        expires_utc = self.expires_at if self.expires_at.tzinfo else self.expires_at.replace(tzinfo=timezone.utc)
+        return now_utc > expires_utc
     
     @property
     def is_completed(self) -> bool:

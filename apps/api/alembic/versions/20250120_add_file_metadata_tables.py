@@ -14,7 +14,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers
 revision = '20250120_file_metadata'
-down_revision = None  # Set to latest revision ID
+down_revision = '20250819_task_411'  # Latest revision ID
 branch_labels = None
 depends_on = None
 
