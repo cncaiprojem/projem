@@ -12,7 +12,7 @@ Test Categories:
 - Time-Freeze Tests: Scheduler and notification timing
 - Concurrency Tests: Thread-safety and uniqueness constraints
 
-COMPLIANCE: Turkish KVKV, Banking regulations, GDPR, PCI-DSS
+COMPLIANCE: Turkish KVKK, Banking regulations, GDPR, PCI-DSS
 """
 
 import pytest
@@ -21,9 +21,10 @@ import uuid
 import json
 import hashlib
 import threading
+import time
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from unittest.mock import Mock, patch, AsyncMock, MagicMock
+from unittest.mock import Mock, patch, AsyncMock, MagicMock, ANY
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Any
 
@@ -50,11 +51,7 @@ from fastapi.testclient import TestClient
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 
-# Application imports
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
-
+# Application imports - using proper package structure
 from app.models.license import License
 from app.models.invoice import Invoice
 from app.models.payment import Payment, PaymentWebhookEvent, PaymentAuditLog
@@ -1189,29 +1186,29 @@ class TestSchedulerTimeFreezeTests:
             
         with freezegun.freeze_time("2025-08-26 02:00:00", tz_offset=0):
             mock_db = Mock(spec=Session)
-        
-        # Mock license expiring in 1 day (August 27, 2025)
-        mock_license = Mock(spec=License)
-        mock_license.id = 123
-        mock_license.user_id = 456
-        mock_license.status = LicenseStatus.ACTIVE
-        mock_license.ends_at = datetime(2025, 8, 27, 10, 0, 0, tzinfo=timezone.utc)
-        
-        mock_user = Mock(spec=User)
-        mock_user.id = 456
-        mock_user.email = "test@example.com"
-        mock_user.phone = "+905551234567"
-        mock_license.user = mock_user
-        
-        mock_db.query.return_value.filter.return_value.all.return_value = [mock_license]
-        
-        with patch('app.tasks.scheduler_tasks.send_license_reminder.delay') as mock_delay:
-            with patch.object(scheduler_service, '_create_notification_record') as mock_create_notif:
-                result = scheduler_service.scan_and_enqueue_reminders(mock_db)
-                
-                # Verify D-1 notification was enqueued
-                assert result['days_1_count'] == 1
-                mock_delay.assert_called()
+            
+            # Mock license expiring in 1 day (August 27, 2025)
+            mock_license = Mock(spec=License)
+            mock_license.id = 123
+            mock_license.user_id = 456
+            mock_license.status = LicenseStatus.ACTIVE
+            mock_license.ends_at = datetime(2025, 8, 27, 10, 0, 0, tzinfo=timezone.utc)
+            
+            mock_user = Mock(spec=User)
+            mock_user.id = 456
+            mock_user.email = "test@example.com"
+            mock_user.phone = "+905551234567"
+            mock_license.user = mock_user
+            
+            mock_db.query.return_value.filter.return_value.all.return_value = [mock_license]
+            
+            with patch('app.tasks.scheduler_tasks.send_license_reminder.delay') as mock_delay:
+                with patch.object(scheduler_service, '_create_notification_record') as mock_create_notif:
+                    result = scheduler_service.scan_and_enqueue_reminders(mock_db)
+                    
+                    # Verify D-1 notification was enqueued
+                    assert result['days_1_count'] == 1
+                    mock_delay.assert_called()
     
     @pytest.mark.skipif(not HAS_FREEZEGUN, reason="freezegun not available")
     def test_notifications_enqueued_only_once_per_license(self, scheduler_service):
@@ -1302,14 +1299,38 @@ class TestSchedulerTimeFreezeTests:
             assert schedule is not None
             assert schedule['schedule']['hour'] == 2
             assert schedule['schedule']['minute'] == 0
+    
+    def test_celery_app_configuration_verification(self):
+        """Test Celery app has proper configuration for enterprise environment."""
+        from app.tasks.scheduler_tasks import celery_app
+        
+        # Verify broker connection settings
+        assert celery_app.conf.broker_url is not None
+        
+        # Verify result backend is configured
+        assert celery_app.conf.result_backend is not None
+        
+        # Verify task serialization format
+        assert celery_app.conf.task_serializer in ['json', 'pickle']
+        assert celery_app.conf.result_serializer in ['json', 'pickle']
+        
+        # Verify timezone settings
+        assert celery_app.conf.timezone == 'UTC'
+        
+        # Verify task routing configuration
+        assert hasattr(celery_app.conf, 'task_routes')
+        
+        # Verify worker configuration
+        assert celery_app.conf.worker_prefetch_multiplier >= 1
+        assert celery_app.conf.task_acks_late in [True, False]
 
 
 # =============================================================================
 # E2E TESTS - Complete User Journeys
 # =============================================================================
 
-class TestE2ECompleteUserJourneys:
-    """Test complete end-to-end user journeys from license to payment."""
+class TestUserJourneyIntegration:
+    """Test complete user journey integration from license to payment."""
     
     @pytest.fixture
     def test_client(self):
@@ -1757,11 +1778,15 @@ class TestConcurrencyWebhookIdempotency:
             # Generate different event IDs
             event_ids = [f"evt_concurrent_{i}" for i in range(20)]
             
+            # Thread-safe event counter to prevent race conditions
+            event_counter = {"value": 0}
+            event_counter_lock = threading.Lock()
+            
             def mock_parse_event(*args, **kwargs):
-                # Return different event ID each time
-                import threading
-                current_thread_id = threading.get_ident()
-                event_id = f"evt_concurrent_{hash(current_thread_id) % 20}"
+                # Return different event ID each time using thread-safe counter
+                with event_counter_lock:
+                    event_counter["value"] = (event_counter["value"] + 1) % 20
+                    event_id = f"evt_concurrent_{event_counter['value']}"
                 return {
                     "event_id": event_id,
                     "event_type": "payment_intent.succeeded",
@@ -1849,7 +1874,6 @@ class TestConcurrencyAdvisoryLocks:
                 return Mock()
             else:
                 # Simulate work inside critical section
-                import time
                 time.sleep(0.001)  # Small delay to increase chance of race condition
                 mock_result = Mock()
                 mock_result.next_seq = len(lock_order)
