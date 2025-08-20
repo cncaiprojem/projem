@@ -80,8 +80,8 @@ class TelemetryManager:
         
         # Configure sampling based on environment
         if settings.env == "production":
-            # Production: 10% sampling for performance
-            sampler = TraceIdRatioBased(0.1)
+            # Production: Sampling rate configurable via settings
+            sampler = TraceIdRatioBased(getattr(settings, "otel_sampling_rate", 0.1))
         else:
             # Development: Always sample for debugging
             sampler = ALWAYS_ON
@@ -107,7 +107,7 @@ class TelemetryManager:
             "telemetry_initialization_tamamlandı",
             extra={
                 "service": settings.otel_service_name,
-                "sampling_rate": 0.1 if settings.env == "production" else 1.0,
+                "sampling_rate": getattr(settings, "otel_sampling_rate", 0.1) if settings.env == "production" else 1.0,
                 "exporters_configured": True,
                 "compliance_ready": True
             }
@@ -128,7 +128,7 @@ class TelemetryManager:
         if settings.otel_exporter_otlp_endpoint:
             otlp_exporter = OTLPSpanExporter(
                 endpoint=settings.otel_exporter_otlp_endpoint,
-                insecure=True  # Use TLS in production
+                insecure=settings.env != "production"  # Use TLS in production
             )
             otlp_processor = BatchSpanProcessor(otlp_exporter)
             self._tracer_provider.add_span_processor(otlp_processor)

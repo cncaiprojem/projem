@@ -58,8 +58,8 @@ class KVKVCompliantFormatter(logging.Formatter):
         self.include_correlation = include_correlation
         self.redact_pii = redact_pii
         
-        # PII field patterns to redact
-        self.pii_patterns = {
+        # PII field patterns to redact (exact matches and specific patterns)
+        self.pii_exact_matches = {
             'email', 'e_mail', 'eposta', 'mail',
             'phone', 'telefon', 'tel', 'mobile',
             'ssn', 'tc_no', 'kimlik_no', 'identity',
@@ -67,6 +67,17 @@ class KVKVCompliantFormatter(logging.Formatter):
             'password', 'şifre', 'parola', 'secret',
             'token', 'key', 'anahtar', 'private',
             'ip_address', 'ip', 'address', 'adres'
+        }
+        
+        # PII suffix/prefix patterns for field names
+        self.pii_patterns = {
+            '_email', '_mail', '_eposta',
+            '_phone', '_telefon', '_tel',
+            '_password', '_şifre', '_parola',
+            '_token', '_key', '_anahtar',
+            '_secret', '_private', '_gizli',
+            'user_', 'customer_', 'müşteri_',
+            'account_', 'hesap_', 'card_', 'kart_'
         }
         
     def format(self, record: logging.LogRecord) -> str:
@@ -152,13 +163,21 @@ class KVKVCompliantFormatter(logging.Formatter):
         for key, value in fields.items():
             key_lower = key.lower()
             
-            # Check if field contains PII
-            is_pii = any(pattern in key_lower for pattern in self.pii_patterns)
+            # Check if field contains PII using precise matching
+            is_pii = (
+                key_lower in self.pii_exact_matches or  # Exact match
+                any(key_lower.startswith(pattern) or key_lower.endswith(pattern) 
+                    for pattern in self.pii_patterns)  # Pattern-based match
+            )
             
             if is_pii:
-                if isinstance(value, str) and len(value) > 4:
-                    # Partial redaction for strings
-                    redacted[key] = f"{value[:2]}***{value[-1:]}"
+                if isinstance(value, str):
+                    if len(value) > 4:
+                        # Partial redaction for longer strings
+                        redacted[key] = f"{value[:2]}***{value[-1:]}"
+                    else:
+                        # Fully redact short strings
+                        redacted[key] = "***REDACTED***"
                 elif isinstance(value, (int, float)):
                     redacted[key] = "***REDACTED***"
                 else:
@@ -279,8 +298,13 @@ class PerformanceLogFilter(logging.Filter):
                 import os
                 process = psutil.Process(os.getpid())
                 record.memory_mb = int(process.memory_info().rss / 1024 / 1024)
-            except Exception:
-                pass
+            except Exception as e:
+                # Log a warning if psutil fails, but don't break logging.
+                logging.getLogger(__name__).warning(
+                    f"Failed to collect memory usage information: {e}",
+                    extra={"psutil_error": str(e)}
+                )
+                record.memory_mb = None
                 
         return True
 

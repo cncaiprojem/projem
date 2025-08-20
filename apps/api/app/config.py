@@ -46,6 +46,7 @@ class Settings(BaseSettings):
 
     otel_exporter_otlp_endpoint: str | None = None
     otel_service_name: str = "freecad-api"
+    otel_sampling_rate: float = 0.1  # Default 10% sampling for production
     sentry_dsn: str | None = None
 
     freecadcmd_path: str | None = None

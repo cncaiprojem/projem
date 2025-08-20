@@ -182,7 +182,7 @@ class PaymentService:
                 provider=provider_name,
                 method="unknown",
                 status="validation_failed",
-                currency="TRY"
+                currency=Currency.TRY.value
             ).inc()
             
             logger.warning(
@@ -202,7 +202,7 @@ class PaymentService:
                 provider=provider_name,
                 method="unknown", 
                 status="already_paid",
-                currency="TRY"
+                currency=Currency.TRY.value
             ).inc()
             
             logger.warning(
@@ -224,7 +224,7 @@ class PaymentService:
             "ödeme_niyeti_oluşturma",
             user_id=invoice.user_id,
             amount_cents=amount_cents,
-            currency="TRY",
+            currency=Currency.TRY.value,
             invoice_id=invoice_id,
             correlation_id=correlation_id
         ) as span:

@@ -28,6 +28,10 @@ from .. import metrics
 
 logger = get_logger(__name__)
 
+# License type constants for maintainability
+ALLOWED_LICENSE_TYPES = ['3m', '6m', '12m']
+LICENSE_DURATION_MAP = {'3m': 3, '6m': 6, '12m': 12}
+
 
 class LicenseStateError(Exception):
     """Exception raised for invalid license state transitions."""
@@ -161,7 +165,7 @@ class LicenseService:
             
             try:
                 # Validate license type
-                if license_type not in ['3m', '6m', '12m']:
+                if license_type not in ALLOWED_LICENSE_TYPES:
                     error_msg = f"Invalid license type: {license_type}"
                     
                     # Track validation failure metric
@@ -222,8 +226,7 @@ class LicenseService:
                     raise LicenseStateError(error_msg)
                 
                 # Calculate duration
-                duration_map = {'3m': 3, '6m': 6, '12m': 12}
-                months = duration_map[license_type]
+                months = LICENSE_DURATION_MAP[license_type]
                 
                 # Create new license
                 now = datetime.now(timezone.utc)
@@ -409,7 +412,7 @@ class LicenseService:
         """
         
         # Validate extension type
-        if extension_type not in ['3m', '6m', '12m']:
+        if extension_type not in ALLOWED_LICENSE_TYPES:
             raise ValueError(f"Invalid extension type: {extension_type}")
         
         # Get the license
@@ -425,8 +428,7 @@ class LicenseService:
             )
         
         # Calculate extension
-        duration_map = {'3m': 3, '6m': 6, '12m': 12}
-        months = duration_map[extension_type]
+        months = LICENSE_DURATION_MAP[extension_type]
         
         # Store old state for audit
         old_state = {
