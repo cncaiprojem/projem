@@ -199,7 +199,7 @@ class S3Service:
             
             return key if key else "unnamed"
     
-    async def upload_file_stream(
+    def upload_file_stream(
         self,
         file_stream: BinaryIO,
         bucket: str,
@@ -283,7 +283,7 @@ class S3Service:
             )
             
             # Generate presigned URL for download
-            presigned_url = await self.generate_presigned_url(
+            presigned_url = self.generate_presigned_url(
                 bucket=bucket,
                 object_key=object_key,
                 operation="download",
@@ -333,7 +333,7 @@ class S3Service:
                 turkish_message=f"Beklenmeyen hata: {str(e)}",
             )
     
-    async def download_file_stream(
+    def download_file_stream(
         self,
         bucket: str,
         object_key: str,
@@ -404,7 +404,7 @@ class S3Service:
                 turkish_message=f"Beklenmeyen hata: {str(e)}",
             )
     
-    async def generate_presigned_url(
+    def generate_presigned_url(
         self,
         bucket: str,
         object_key: str,
@@ -481,7 +481,7 @@ class S3Service:
                 turkish_message=f"URL oluşturma başarısız: {str(e)}",
             )
     
-    async def list_objects(
+    def list_objects(
         self,
         bucket: str,
         prefix: Optional[str] = None,
@@ -539,7 +539,7 @@ class S3Service:
             )
             return []
     
-    async def delete_object(
+    def delete_object(
         self,
         bucket: str,
         object_key: str,
@@ -578,7 +578,7 @@ class S3Service:
             )
             return False
     
-    async def get_object_info(
+    def get_object_info(
         self,
         bucket: str,
         object_key: str,
@@ -690,6 +690,118 @@ class StreamingResponseWrapper(io.BufferedIOBase):
             self.close()
 
 
+class AsyncS3Service:
+    """
+    Async wrapper for S3Service to use with FastAPI endpoints.
+    
+    Runs blocking I/O operations in thread pool to avoid blocking event loop.
+    """
+    
+    def __init__(self, sync_service: Optional[S3Service] = None):
+        """Initialize with sync S3 service."""
+        self.sync_service = sync_service or S3Service()
+        
+    async def upload_file_stream(
+        self,
+        file_stream: BinaryIO,
+        bucket: str,
+        job_id: Optional[str] = None,
+        filename: Optional[str] = None,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> Tuple[str, PresignedUrlResponse]:
+        """Async wrapper for upload_file_stream."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.upload_file_stream,
+            file_stream,
+            bucket,
+            job_id,
+            filename,
+            content_type,
+            metadata
+        )
+    
+    async def download_file_stream(
+        self,
+        bucket: str,
+        object_key: str,
+    ) -> BinaryIO:
+        """Async wrapper for download_file_stream."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.download_file_stream,
+            bucket,
+            object_key
+        )
+    
+    async def generate_presigned_url(
+        self,
+        bucket: str,
+        object_key: str,
+        operation: str = "download",
+        expires_in: int = 3600,
+        response_headers: Optional[Dict[str, str]] = None,
+    ) -> PresignedUrlResponse:
+        """Async wrapper for generate_presigned_url."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.generate_presigned_url,
+            bucket,
+            object_key,
+            operation,
+            expires_in,
+            response_headers
+        )
+    
+    async def list_objects(
+        self,
+        bucket: str,
+        prefix: Optional[str] = None,
+        max_results: int = 100,
+    ) -> List[FileInfo]:
+        """Async wrapper for list_objects."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.list_objects,
+            bucket,
+            prefix,
+            max_results
+        )
+    
+    async def delete_object(
+        self,
+        bucket: str,
+        object_key: str,
+    ) -> bool:
+        """Async wrapper for delete_object."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.delete_object,
+            bucket,
+            object_key
+        )
+    
+    async def get_object_info(
+        self,
+        bucket: str,
+        object_key: str,
+    ) -> Optional[FileInfo]:
+        """Async wrapper for get_object_info."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.get_object_info,
+            bucket,
+            object_key
+        )
+
+
 class StorageError(Exception):
     """Custom exception for storage operations."""
     
@@ -707,9 +819,20 @@ class StorageError(Exception):
         super().__init__(self.message)
 
 
+# Async wrapper for FastAPI endpoints
+def get_async_s3_service() -> AsyncS3Service:
+    """
+    Get async S3 service for FastAPI endpoints.
+    
+    Returns:
+        AsyncS3Service: Async wrapper around S3Service
+    """
+    return AsyncS3Service()
+
+
 # Dependency injection function
 @asynccontextmanager
-async def get_s3_service_async() -> AsyncIterator[S3Service]:
+async def get_s3_service_async() -> AsyncIterator[AsyncS3Service]:
     """
     Async context manager for S3 service with cleanup.
     
@@ -718,9 +841,9 @@ async def get_s3_service_async() -> AsyncIterator[S3Service]:
             await s3.upload_file_stream(...)
     
     Yields:
-        S3Service: Configured S3 service instance
+        AsyncS3Service: Configured async S3 service instance
     """
-    service = S3Service()
+    service = AsyncS3Service()
     try:
         yield service
     finally:
@@ -740,8 +863,10 @@ def get_s3_service() -> S3Service:
 
 __all__ = [
     "S3Service",
+    "AsyncS3Service",
     "StorageError",
     "StreamingResponseWrapper",
     "get_s3_service",
+    "get_async_s3_service",
     "get_s3_service_async",
 ]

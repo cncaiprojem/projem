@@ -642,15 +642,14 @@ class MinIOClientFactory:
                 jitter = random.uniform(0, base_wait * 0.1)
                 wait_time = min(base_wait + jitter, 30.0)  # Cap at 30 seconds
                 
-                # Sleep with jitter
-                time.sleep(wait_time)
-                
                 logger.info(
                     "Retrying MinIO connection",
                     attempt=attempt,
                     max_attempts=max_attempts,
                     wait_time=wait_time
                 )
+                
+                # Sleep with jitter
                 time.sleep(wait_time)
         
         # All attempts failed
