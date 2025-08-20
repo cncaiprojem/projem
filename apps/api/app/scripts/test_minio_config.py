@@ -12,7 +12,6 @@ Tests:
 6. Presigned URL generation
 """
 
-import asyncio
 import io
 import os
 import sys
@@ -61,38 +60,38 @@ class MinIOConfigTester:
         self.s3_service = None
         self.test_results = []
     
-    async def run_all_tests(self):
+    def run_all_tests(self):
         """Run all MinIO configuration tests."""
         logger.info("Starting MinIO configuration tests...")
         
         # Test 1: Connection with service credentials
-        await self.test_connection()
+        self.test_connection()
         
         # Test 2: List buckets
-        await self.test_list_buckets()
+        self.test_list_buckets()
         
         # Test 3: Stream upload
-        await self.test_stream_upload()
+        self.test_stream_upload()
         
         # Test 4: Stream download
-        await self.test_stream_download()
+        self.test_stream_download()
         
         # Test 5: Presigned URLs
-        await self.test_presigned_urls()
+        self.test_presigned_urls()
         
         # Test 6: Object listing
-        await self.test_object_listing()
+        self.test_object_listing()
         
         # Test 7: Object deletion
-        await self.test_object_deletion()
+        self.test_object_deletion()
         
         # Test 8: Error handling
-        await self.test_error_handling()
+        self.test_error_handling()
         
         # Print results
         self.print_results()
     
-    async def test_connection(self):
+    def test_connection(self):
         """Test 1: Connection to MinIO with service credentials."""
         test_name = "Connection Test"
         try:
@@ -124,7 +123,7 @@ class MinIOConfigTester:
             logger.error(f"{test_name} FAILED", error=str(e))
             raise  # Stop tests if connection fails
     
-    async def test_list_buckets(self):
+    def test_list_buckets(self):
         """Test 2: List and verify required buckets."""
         test_name = "List Buckets Test"
         try:
@@ -165,7 +164,7 @@ class MinIOConfigTester:
             })
             logger.error(f"{test_name} FAILED", error=str(e))
     
-    async def test_stream_upload(self):
+    def test_stream_upload(self):
         """Test 3: Upload file via stream (no disk writes)."""
         test_name = "Stream Upload Test"
         try:
@@ -176,7 +175,7 @@ class MinIOConfigTester:
             test_stream = io.BytesIO(test_content)
             
             # Upload via stream
-            object_key, presigned_url = await self.s3_service.upload_file_stream(
+            object_key, presigned_url = self.s3_service.upload_file_stream(
                 file_stream=test_stream,
                 bucket=BucketType.TEMP.value,
                 job_id="test_job_123",
@@ -207,7 +206,7 @@ class MinIOConfigTester:
             })
             logger.error(f"{test_name} FAILED", error=str(e))
     
-    async def test_stream_download(self):
+    def test_stream_download(self):
         """Test 4: Download file via stream (no disk writes)."""
         test_name = "Stream Download Test"
         try:
@@ -217,7 +216,7 @@ class MinIOConfigTester:
                 raise ValueError("No test object to download (upload test may have failed)")
             
             # Download via stream
-            download_stream = await self.s3_service.download_file_stream(
+            download_stream = self.s3_service.download_file_stream(
                 bucket=BucketType.TEMP.value,
                 object_key=self.test_object_key,
             )
@@ -250,14 +249,14 @@ class MinIOConfigTester:
             })
             logger.error(f"{test_name} FAILED", error=str(e))
     
-    async def test_presigned_urls(self):
+    def test_presigned_urls(self):
         """Test 5: Generate presigned URLs for upload and download."""
         test_name = "Presigned URL Test"
         try:
             logger.info(f"Running {test_name}...")
             
             # Generate upload URL
-            upload_url = await self.s3_service.generate_presigned_url(
+            upload_url = self.s3_service.generate_presigned_url(
                 bucket=BucketType.TEMP.value,
                 object_key="test_upload.txt",
                 operation="upload",
@@ -266,7 +265,7 @@ class MinIOConfigTester:
             
             # Generate download URL (for existing object)
             if hasattr(self, "test_object_key"):
-                download_url = await self.s3_service.generate_presigned_url(
+                download_url = self.s3_service.generate_presigned_url(
                     bucket=BucketType.TEMP.value,
                     object_key=self.test_object_key,
                     operation="download",
@@ -300,14 +299,14 @@ class MinIOConfigTester:
             })
             logger.error(f"{test_name} FAILED", error=str(e))
     
-    async def test_object_listing(self):
+    def test_object_listing(self):
         """Test 6: List objects in bucket."""
         test_name = "Object Listing Test"
         try:
             logger.info(f"Running {test_name}...")
             
             # List objects in temp bucket
-            objects = await self.s3_service.list_objects(
+            objects = self.s3_service.list_objects(
                 bucket=BucketType.TEMP.value,
                 prefix="test_",
                 max_results=10,
@@ -329,7 +328,7 @@ class MinIOConfigTester:
             })
             logger.error(f"{test_name} FAILED", error=str(e))
     
-    async def test_object_deletion(self):
+    def test_object_deletion(self):
         """Test 7: Delete test object."""
         test_name = "Object Deletion Test"
         try:
@@ -339,7 +338,7 @@ class MinIOConfigTester:
                 raise ValueError("No test object to delete")
             
             # Delete test object
-            success = await self.s3_service.delete_object(
+            success = self.s3_service.delete_object(
                 bucket=BucketType.TEMP.value,
                 object_key=self.test_object_key,
             )
@@ -367,7 +366,7 @@ class MinIOConfigTester:
             })
             logger.error(f"{test_name} FAILED", error=str(e))
     
-    async def test_error_handling(self):
+    def test_error_handling(self):
         """Test 8: Error handling for various failure scenarios."""
         test_name = "Error Handling Test"
         try:
@@ -377,7 +376,7 @@ class MinIOConfigTester:
             
             # Test 1: Non-existent object
             try:
-                await self.s3_service.download_file_stream(
+                self.s3_service.download_file_stream(
                     bucket=BucketType.TEMP.value,
                     object_key="non_existent_file.txt",
                 )
@@ -388,7 +387,7 @@ class MinIOConfigTester:
             
             # Test 2: Invalid bucket (if permissions allow)
             try:
-                await self.s3_service.upload_file_stream(
+                self.s3_service.upload_file_stream(
                     file_stream=io.BytesIO(b"test"),
                     bucket="invalid_bucket_name_12345",
                     filename="test.txt",
@@ -465,12 +464,12 @@ class MinIOConfigTester:
         print("=" * 100)
 
 
-async def main():
+def main():
     """Main entry point."""
     tester = MinIOConfigTester()
     
     try:
-        await tester.run_all_tests()
+        tester.run_all_tests()
         
         # Return exit code based on results
         failed_count = sum(1 for r in tester.test_results if r["status"] == "FAILED")
@@ -482,4 +481,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

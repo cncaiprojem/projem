@@ -276,19 +276,13 @@ class MinIOConfig:
     @classmethod
     def _validate_endpoint_format(cls, endpoint: str) -> bool:
         """Validate endpoint format."""
-        if not endpoint or ":" not in endpoint:
+        if not endpoint:
             return False
         
+        # Basic check to ensure it's not just a port or empty parts
         parts = endpoint.split(":")
-        if len(parts) != 2:
-            return False
-            
-        host, port = parts
+        host = parts[0]
         if not host:
-            return False
-            
-        # Check if port is numeric (unless it's a domain like s3.amazonaws.com)
-        if port and not port.isdigit() and "." not in host:
             return False
             
         return True
@@ -322,7 +316,9 @@ class MinIOConfig:
                 )
             
             # Check for complexity
-            if secret_key.lower() == secret_key or secret_key.upper() == secret_key:
+            if (secret_key.lower() == secret_key or
+                    secret_key.upper() == secret_key or
+                    not any(c.isdigit() for c in secret_key)):
                 logger.warning(
                     "Gizli anahtar karmaşıklığı düşük",
                     env_type=env_type,

@@ -683,11 +683,6 @@ class StreamingResponseWrapper(io.BufferedIOBase):
     def __exit__(self, exc_type, exc_val, exc_tb):
         """Context manager exit with cleanup."""
         self.close()
-    
-    def __del__(self):
-        """Ensure cleanup on garbage collection."""
-        if not self._closed:
-            self.close()
 
 
 class AsyncS3Service:

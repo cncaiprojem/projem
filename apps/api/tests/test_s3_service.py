@@ -18,6 +18,7 @@ from pathlib import Path
 
 from app.services.s3_service import (
     S3Service,
+    AsyncS3Service,
     StorageError,
     StreamingResponseWrapper,
     get_s3_service,
@@ -441,9 +442,9 @@ class TestAsyncContextManager:
     async def test_get_s3_service_async(self):
         """Test async context manager."""
         async with get_s3_service_async() as service:
-            assert isinstance(service, S3Service)
-            assert service.client is not None
-            assert service.config is not None
+            assert isinstance(service, AsyncS3Service)
+            assert service.sync_service.client is not None
+            assert service.sync_service.config is not None
     
     async def test_get_s3_service_async_cleanup(self):
         """Test cleanup in async context manager."""
