@@ -23,7 +23,7 @@ class LicenseAssignRequest(BaseModel):
     type: str = Field(
         ..., 
         description="License duration type",
-        regex="^(3m|6m|12m)$"
+        pattern="^(3m|6m|12m)$"
     )
     scope: Dict[str, Any] = Field(
         ...,
@@ -76,7 +76,7 @@ class LicenseExtendRequest(BaseModel):
     type: str = Field(
         ...,
         description="Extension duration type",
-        regex="^(3m|6m|12m)$"
+        pattern="^(3m|6m|12m)$"
     )
 
 

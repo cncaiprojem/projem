@@ -29,7 +29,7 @@ from ..schemas.rbac_schemas import (
     PermissionCheckRequest,
     PermissionCheckResponse
 )
-from ..schemas.auth import UserOut
+from ..schemas.auth import UserProfileResponse
 from ..dependencies.auth_dependencies import require_admin, require_scopes
 from ..middleware.jwt_middleware import AuthenticatedUser
 from ..services.rbac_service import rbac_business_service
@@ -51,7 +51,7 @@ router = APIRouter(
 )
 
 
-@router.get("/users", response_model=List[UserOut])
+@router.get("/users", response_model=List[UserProfileResponse])
 def list_users(
     request: Request,
     db: DBSession = Depends(get_db),
@@ -113,7 +113,7 @@ def list_users(
     return users
 
 
-@router.get("/users/{user_id}", response_model=UserOut)
+@router.get("/users/{user_id}", response_model=UserProfileResponse)
 def get_user(
     user_id: int,
     request: Request,

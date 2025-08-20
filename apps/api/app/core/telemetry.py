@@ -19,12 +19,12 @@ from typing import Any, Dict, Optional
 
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
-from opentelemetry.instrumentation.celery import CeleryInstrumentor
+# from opentelemetry.instrumentation.celery import CeleryInstrumentor  # TODO: Add to requirements
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor
-from opentelemetry.instrumentation.redis import RedisInstrumentor
+# from opentelemetry.instrumentation.psycopg2 import Psycopg2Instrumentor  # TODO: Add to requirements
+# from opentelemetry.instrumentation.redis import RedisInstrumentor  # TODO: Add to requirements
 from opentelemetry.instrumentation.requests import RequestsInstrumentor
-from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
+# from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor  # TODO: Add to requirements
 from opentelemetry.propagate import extract, inject
 from opentelemetry.sdk.resources import Resource, SERVICE_NAME, SERVICE_VERSION
 from opentelemetry.sdk.trace import TracerProvider
@@ -152,21 +152,21 @@ class TelemetryManager:
             )
             
             # Database instrumentation
-            SQLAlchemyInstrumentor().instrument()
-            Psycopg2Instrumentor().instrument()
+            # SQLAlchemyInstrumentor().instrument()  # TODO: Add to requirements
+            # Psycopg2Instrumentor().instrument()  # TODO: Add to requirements
             
             # Cache instrumentation
-            RedisInstrumentor().instrument()
+            # RedisInstrumentor().instrument()  # TODO: Add to requirements
             
             # External requests instrumentation
             RequestsInstrumentor().instrument()
             
             # Celery task instrumentation
-            try:
-                CeleryInstrumentor().instrument()
-                logger.info("celery_instrumentation_aktif")
-            except Exception as e:
-                logger.warning("celery_instrumentation_failed", error=str(e))
+            # try:
+            #     CeleryInstrumentor().instrument()  # TODO: Add to requirements
+            #     logger.info("celery_instrumentation_aktif")
+            # except Exception as e:
+            #     logger.warning("celery_instrumentation_failed", error=str(e))
             
             logger.info(
                 "service_instrumentations_tamamlandı",

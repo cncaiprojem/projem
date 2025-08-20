@@ -32,7 +32,7 @@ from ..models.mfa_backup_code import MFABackupCode
 from ..models.audit_log import AuditLog
 from ..models.security_event import SecurityEvent
 from ..core.logging import get_logger
-from ..settings import app_settings as settings
+from ..config import settings
 
 logger = get_logger(__name__)
 
@@ -76,7 +76,7 @@ class TOTPService:
             salt=b'mfa_secret_salt_v1',  # Static salt for key derivation
             iterations=100000,
         )
-        return kdf.derive(settings.SECRET_KEY.encode())
+        return kdf.derive((settings.jwt_secret_key or settings.secret_key).encode())
     
     def _encrypt_secret(self, secret: str) -> str:
         """Encrypt TOTP secret using AES-256-GCM."""

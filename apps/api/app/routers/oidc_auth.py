@@ -31,7 +31,7 @@ from ..schemas.oidc_schemas import (
 from ..services.oidc_service import oidc_service, OIDCServiceError
 from ..services.token_service import token_service
 from ..core.logging import get_logger
-from ..middleware.auth_limiter import limiter
+from ..middleware.auth_limiter import limit
 from ..settings import app_settings as settings
 
 logger = get_logger(__name__)
@@ -150,7 +150,7 @@ async def get_oidc_status(request: Request) -> OIDCStatusResponse:
     description="Google OAuth2/OIDC kimlik doğrulama sürecini PKCE ve state ile başlatır.",
     response_description="Google yetkilendirme URL'si ve state parametresi"
 )
-@limiter.limit("10/minute")  # Rate limit: 10 authentication starts per minute
+@limit("10/minute")  # Rate limit: 10 authentication starts per minute
 async def start_google_auth(
     request: Request,
     redirect_to: Optional[str] = Query(
@@ -238,7 +238,7 @@ async def start_google_auth(
     description="Google OAuth2 callback'ini işler ve kullanıcı kimlik doğrulaması yapar.",
     response_description="Başarılı kimlik doğrulama sonucu ve JWT token"
 )
-@limiter.limit("20/minute")  # Rate limit: 20 callback attempts per minute
+@limit("20/minute")  # Rate limit: 20 callback attempts per minute
 async def google_auth_callback(
     request: Request,
     response: Response,
@@ -395,7 +395,7 @@ async def google_auth_callback(
     description="OIDC kullanıcısının oturumunu kapatır ve refresh token'ları iptal eder.",
     response_description="Oturum kapatma sonucu"
 )
-@limiter.limit("30/minute")  # Rate limit: 30 logout attempts per minute
+@limit("30/minute")  # Rate limit: 30 logout attempts per minute
 async def oidc_logout(
     request: Request,
     response: Response,

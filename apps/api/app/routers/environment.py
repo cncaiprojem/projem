@@ -16,7 +16,8 @@ from fastapi.responses import JSONResponse
 from ..core.environment import environment
 from ..services.environment_service import environment_service
 from ..core.logging import get_logger
-from ..middleware.rbac_middleware import require_role, RoleRequirement
+from ..dependencies.auth_dependencies import require_role
+from ..models.enums import UserRole
 
 logger = get_logger(__name__)
 
@@ -30,7 +31,7 @@ health_router = APIRouter(
 router = APIRouter(
     prefix="/api/v1/environment",
     tags=["environment"],
-    dependencies=[Depends(require_role([RoleRequirement.ADMIN, RoleRequirement.SYSTEM_OPERATOR]))]
+    dependencies=[Depends(require_role(UserRole.ADMIN))]
 )
 
 
