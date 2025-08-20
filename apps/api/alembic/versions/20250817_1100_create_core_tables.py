@@ -12,6 +12,10 @@ from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 from typing import Union
+import logging
+
+# Configure logger
+logger = logging.getLogger(__name__)
 
 # revision identifiers
 revision: str = '20250817_1100_core_tables'
@@ -35,19 +39,19 @@ def upgrade() -> None:
                 {"name": enum_name}
             )
             if result.fetchone():
-                print(f"ℹ️ Enum type {enum_name} already exists, skipping")
+                logger.info(f"ℹ️ Enum type {enum_name} already exists, skipping")
                 return
             
             # Create the enum in a separate transaction
             connection.execute(sa.text(f"CREATE TYPE {enum_name} AS ENUM ({values})"))
-            print(f"✅ Created enum type: {enum_name}")
+            logger.info(f"✅ Created enum type: {enum_name}")
         except Exception as e:
             # More specific error handling
             error_msg = str(e).lower()
             if 'already exists' in error_msg or 'duplicate type' in error_msg:
-                print(f"ℹ️ Enum type {enum_name} already exists, skipping")
+                logger.info(f"ℹ️ Enum type {enum_name} already exists, skipping")
             else:
-                print(f"❌ Failed to create enum {enum_name}: {e}")
+                logger.error(f"❌ Failed to create enum {enum_name}: {e}")
                 raise
     
     create_enum_safe('user_role', "'admin', 'engineer', 'operator', 'viewer'")
@@ -262,7 +266,7 @@ def upgrade() -> None:
     op.create_index('ix_licenses_status', 'licenses', ['status'])
     op.create_index('ix_licenses_expires_at', 'licenses', ['expires_at'])
     
-    print("✅ Created all core tables successfully")
+    logger.info("✅ Created all core tables successfully")
     
     # Record migration
     try:
@@ -273,9 +277,9 @@ def upgrade() -> None:
             ('20250817_1100_core_tables', 'Created core application tables', NOW(), true, 
              (SELECT version()), 'alembic-1.13.2', COALESCE(current_setting('app.environment', true), 'unknown'))
         """))
-        print("✅ Recorded migration in history")
+        logger.info("✅ Recorded migration in history")
     except Exception as e:
-        print(f"⚠️ Failed to record migration history: {e}")
+        logger.warning(f"⚠️ Failed to record migration history: {e}")
 
 
 def downgrade() -> None:
@@ -298,4 +302,4 @@ def downgrade() -> None:
     op.execute("DROP TYPE IF EXISTS user_status CASCADE")
     op.execute("DROP TYPE IF EXISTS user_role CASCADE")
     
-    print("✅ Dropped all core tables successfully")
+    logger.info("✅ Dropped all core tables successfully")

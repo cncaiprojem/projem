@@ -15,12 +15,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Ensure UTF-8 encoding
-import codecs
-if hasattr(sys.stdout, 'buffer'):
-    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
-if hasattr(sys.stderr, 'buffer'):
-    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+# Ensure UTF-8 encoding using shared utility
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'app'))
+from utils.encoding import setup_utf8_encoding
+setup_utf8_encoding()
 
 def analyze_migrations() -> Tuple[List[Tuple[str, str, Optional[str]]], List[Tuple[str, str, str]]]:
     versions_dir = Path('apps/api/alembic/versions')

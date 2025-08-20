@@ -18,6 +18,8 @@ import re
 
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import VerifyMismatchError, InvalidHash
+from argon2.low_level import hash_secret
+from argon2 import Type as ArgonType
 
 from ..core.logging import get_logger
 from ..settings import app_settings as settings
@@ -105,9 +107,6 @@ class PasswordService:
         
         try:
             # Use low-level API for full control over salt - preserve salt
-            from argon2.low_level import hash_secret
-            from argon2 import Type as ArgonType
-            
             raw_hash_bytes = hash_secret(
                 secret=peppered_password.encode('utf-8'),
                 salt=salt_bytes,
