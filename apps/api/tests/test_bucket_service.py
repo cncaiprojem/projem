@@ -152,7 +152,7 @@ class TestBucketPolicy:
             deny_delete_objects=True
         )
         
-        policy_json = policy.generate_policy_json()
+        policy_json = policy.generate_policy_json("arn:aws:iam:::user/service")
         policy_dict = json.loads(policy_json)
         
         # Find delete deny statement
@@ -506,7 +506,7 @@ class TestBucketService:
         mock_client.bucket_exists.return_value = True
         mock_client.get_bucket_versioning.return_value = Mock(status="Enabled")
         mock_client.get_bucket_lifecycle.return_value = Mock(rules=[Mock(), Mock()])
-        mock_client.get_object_lock_config.return_value = Mock(mode="COMPLIANCE", duration=7)
+        mock_client.get_object_lock_config.return_value = {"mode": "COMPLIANCE", "duration": 7}
         mock_client.get_bucket_policy.return_value = "{}"
         
         with patch('app.services.bucket_service.get_minio_client', return_value=mock_client), \

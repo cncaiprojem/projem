@@ -387,7 +387,7 @@ class BucketService:
         """Apply bucket security policies."""
         try:
             if bucket_config.bucket_policy:
-                policy_json = bucket_config.bucket_policy.generate_policy_json()
+                policy_json = bucket_config.bucket_policy.generate_policy_json(bucket_config.service_account_arn)
                 
                 # Validate policy JSON
                 try:
@@ -459,7 +459,7 @@ class BucketService:
             )
             return False, f"Doğrulama hatası: {str(e)}"
     
-    def create_presigned_post_policy(
+    def create_presigned_put_url(
         self,
         bucket_name: str,
         object_key: str,
@@ -599,8 +599,8 @@ class BucketService:
                 if object_lock_config:
                     status["object_lock"] = {
                         "enabled": True,
-                        "mode": object_lock_config.mode,
-                        "retention_years": object_lock_config.duration
+                        "mode": object_lock_config["mode"],
+                        "retention_years": object_lock_config["duration"]
                     }
             except S3Error as e:
                 if e.code != "ObjectLockConfigurationNotFoundError":

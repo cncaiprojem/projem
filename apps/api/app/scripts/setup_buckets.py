@@ -14,7 +14,6 @@ Usage:
     python -m app.scripts.setup_buckets [--force] [--bucket BUCKET_NAME] [--validate-only]
 """
 
-import asyncio
 import argparse
 import sys
 import os

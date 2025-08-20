@@ -137,7 +137,7 @@ class BucketPolicy:
     allowed_source_ips: List[str] = field(default_factory=list)
     denied_source_ips: List[str] = field(default_factory=list)
     
-    def generate_policy_json(self, service_account_arn: str = "*") -> str:
+    def generate_policy_json(self, service_account_arn: str) -> str:
         """Generate bucket policy JSON."""
         statements = []
         
@@ -255,6 +255,9 @@ class BucketConfiguration:
     max_presigned_size_mb: int = MAX_PRESIGNED_URL_SIZE // (1024 * 1024)
     presigned_expiry_hours: int = PRESIGNED_URL_EXPIRY_HOURS
     
+    # Service account ARN for bucket policies
+    service_account_arn: str = ""
+    
     def get_versioning_config(self) -> VersioningConfig:
         """Get versioning configuration for this bucket."""
         if self.versioning_enabled:
@@ -280,16 +283,17 @@ class BucketConfiguration:
             if not policy.enabled:
                 continue
             
-            # Create rule filter
-            rule_filter = None
+            # Create rule filter (use empty prefix if no specific prefix)
             if policy.prefix:
                 rule_filter = LifecycleFilter(prefix=policy.prefix)
+            else:
+                rule_filter = LifecycleFilter(prefix="")
             
             # Create transitions for non-current versions
             noncurrent_transition = None
             if policy.transition_to_cold_days:
                 noncurrent_transition = NoncurrentVersionTransition(
-                    days=policy.transition_to_cold_days,
+                    noncurrent_days=policy.transition_to_cold_days,
                     storage_class=policy.transition_storage_class.value
                 )
             
@@ -363,7 +367,8 @@ class BucketConfigFactory:
                 )
             ],
             bucket_policy=artefacts_policy,
-            allowed_content_types=ALLOWED_CONTENT_TYPES["artefacts"]
+            allowed_content_types=ALLOWED_CONTENT_TYPES["artefacts"],
+            service_account_arn=service_account_arn
         )
         
         # Logs bucket - versioned, automatic cleanup after retention period
@@ -387,7 +392,8 @@ class BucketConfigFactory:
                 )
             ],
             bucket_policy=logs_policy,
-            allowed_content_types=ALLOWED_CONTENT_TYPES["logs"]
+            allowed_content_types=ALLOWED_CONTENT_TYPES["logs"],
+            service_account_arn=service_account_arn
         )
         
         # Reports bucket - versioned, retention after period
@@ -411,7 +417,8 @@ class BucketConfigFactory:
                 )
             ],
             bucket_policy=reports_policy,
-            allowed_content_types=ALLOWED_CONTENT_TYPES["reports"]
+            allowed_content_types=ALLOWED_CONTENT_TYPES["reports"],
+            service_account_arn=service_account_arn
         )
         
         # Invoices bucket - versioned, object lock for compliance, no deletion
@@ -437,7 +444,8 @@ class BucketConfigFactory:
                 )
             ],
             bucket_policy=invoices_policy,
-            allowed_content_types=ALLOWED_CONTENT_TYPES["invoices"]
+            allowed_content_types=ALLOWED_CONTENT_TYPES["invoices"],
+            service_account_arn=service_account_arn
         )
         
         # Temp bucket - versioned, short-term retention
@@ -460,7 +468,8 @@ class BucketConfigFactory:
                 )
             ],
             bucket_policy=temp_policy,
-            allowed_content_types=ALLOWED_CONTENT_TYPES["temp"]
+            allowed_content_types=ALLOWED_CONTENT_TYPES["temp"],
+            service_account_arn=service_account_arn
         )
         
         logger.info(
@@ -508,12 +517,8 @@ class BucketConfigFactory:
             if content_type not in allowed_types:
                 # Check for wildcard matches (e.g., image/*, application/*)
                 type_match = False
-                base_type = content_type.split('/')[0]
                 for allowed in allowed_types:
                     if allowed.endswith('*') and content_type.startswith(allowed[:-1]):
-                        type_match = True
-                        break
-                    elif allowed == f"{base_type}/*":
                         type_match = True
                         break
                 
