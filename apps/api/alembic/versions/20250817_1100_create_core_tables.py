@@ -32,6 +32,11 @@ def upgrade() -> None:
     
     def create_enum_safe(enum_name: str, values: str) -> None:
         """Create enum type if it doesn't exist with proper transaction handling."""
+        # Validate enum_name to prevent SQL injection
+        import re
+        if not re.match(r'^[a-z_][a-z0-9_]*$', enum_name):
+            raise ValueError(f"Invalid enum name: {enum_name}")
+        
         try:
             # Check if enum exists first
             result = connection.execute(
@@ -42,10 +47,11 @@ def upgrade() -> None:
                 logger.info(f"ℹ️ Enum type {enum_name} already exists, skipping")
                 return
             
-            # Create the enum in a separate transaction
+            # Create the enum using validated enum_name (safe from SQL injection)
+            # Note: enum_name is validated above, values should contain only quoted strings
             connection.execute(sa.text(f"CREATE TYPE {enum_name} AS ENUM ({values})"))
             logger.info(f"✅ Created enum type: {enum_name}")
-        except Exception as e:
+        except sa.exc.ProgrammingError as e:
             # More specific error handling
             error_msg = str(e).lower()
             if 'already exists' in error_msg or 'duplicate type' in error_msg:
@@ -255,7 +261,7 @@ def upgrade() -> None:
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), 
                   onupdate=sa.func.now(), nullable=False),
-        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='RESTRICT'),
         sa.PrimaryKeyConstraint('id'),
         sa.UniqueConstraint('license_key')
     )

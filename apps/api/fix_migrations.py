@@ -49,20 +49,20 @@ def analyze_and_fix_migrations():
         ('20250819_task_411_concurrency_uniqueness_guards.py', '20250819_task_411', '20250819_1245_task_49'),
     ]
     
-    print("=" * 100)
-    print("MIGRATION CHAIN VALIDATION AND FIX REPORT")
-    print("=" * 100)
+    logger.info("=" * 100)
+    logger.info("MIGRATION CHAIN VALIDATION AND FIX REPORT")
+    logger.info("=" * 100)
     
     # Check existing files
     existing_files = sorted([f.name for f in versions_dir.glob('*.py') if f.name != '__init__.py'])
     
-    print(f"\nFound {len(existing_files)} migration files")
-    print(f"Expected {len(expected_chain)} migration files")
+    logger.info(f"\nFound {len(existing_files)} migration files")
+    logger.info(f"Expected {len(expected_chain)} migration files")
     
     # Verify each expected migration
-    print("\n" + "=" * 100)
-    print("CHECKING MIGRATION CHAIN INTEGRITY")
-    print("=" * 100)
+    logger.info("\n" + "=" * 100)
+    logger.info("CHECKING MIGRATION CHAIN INTEGRITY")
+    logger.info("=" * 100)
     
     issues_found = []
     fixes_needed = []
@@ -107,49 +107,49 @@ def analyze_and_fix_migrations():
             fixes_needed.append((expected_file, 'fix_down_revision', expected_rev, expected_down))
             
         if actual_rev == expected_rev and actual_down == expected_down:
-            print(f"✅ OK: {expected_file[:50]:50} Rev: {expected_rev[:25]:25}")
+            logger.info(f"✅ OK: {expected_file[:50]:50} Rev: {expected_rev[:25]:25}")
     
     # Check for extra files
     expected_files = {f for f, _, _ in expected_chain}
     extra_files = set(existing_files) - expected_files
     
     if extra_files:
-        print("\n" + "=" * 100)
-        print("EXTRA FILES FOUND (will be removed)")
-        print("=" * 100)
+        logger.info("\n" + "=" * 100)
+        logger.info("EXTRA FILES FOUND (will be removed)")
+        logger.info("=" * 100)
         for f in extra_files:
             issues_found.append(f"⚠️  EXTRA FILE: {f}")
             fixes_needed.append((f, 'remove', None, None))
     
     # Report issues
     if issues_found:
-        print("\n" + "=" * 100)
-        print("ISSUES FOUND")
-        print("=" * 100)
+        logger.info("\n" + "=" * 100)
+        logger.info("ISSUES FOUND")
+        logger.info("=" * 100)
         for issue in issues_found:
-            print(issue)
+            logger.info(issue)
     
     # Apply fixes
     if fixes_needed:
-        print("\n" + "=" * 100)
-        print("APPLYING FIXES")
-        print("=" * 100)
+        logger.info("\n" + "=" * 100)
+        logger.info("APPLYING FIXES")
+        logger.info("=" * 100)
         
         for filename, action, expected_rev, expected_down in fixes_needed:
             file_path = versions_dir / filename
             
             if action == 'remove':
-                print(f"Removing extra file: {filename}")
+                logger.info(f"Removing extra file: {filename}")
                 if file_path.exists():
                     file_path.unlink()
                     
             elif action in ['fix_revision', 'fix_down_revision', 'add_revision']:
-                print(f"Fixing {filename}: {action}")
+                logger.info(f"Fixing {filename}: {action}")
                 
                 if action == 'add_revision':
                     # For files missing revision info, we need to add it
                     # This is complex and requires understanding the file structure
-                    print(f"  ⚠️  Manual fix needed for {filename} - missing revision info")
+                    logger.info(f"  ⚠️  Manual fix needed for {filename} - missing revision info")
                 else:
                     # Read file
                     with open(file_path, 'r') as f:
@@ -182,19 +182,19 @@ def analyze_and_fix_migrations():
                     with open(file_path, 'w') as f:
                         f.write(content)
                     
-                    print(f"  ✅ Fixed: {filename}")
+                    logger.info(f"  ✅ Fixed: {filename}")
     
     # Final validation
-    print("\n" + "=" * 100)
-    print("FINAL VALIDATION")
-    print("=" * 100)
+    logger.info("\n" + "=" * 100)
+    logger.info("FINAL VALIDATION")
+    logger.info("=" * 100)
     
     all_valid = True
     for expected_file, expected_rev, expected_down in expected_chain:
         file_path = versions_dir / expected_file
         
         if not file_path.exists():
-            print(f"❌ Still missing: {expected_file}")
+            logger.info(f"❌ Still missing: {expected_file}")
             all_valid = False
             continue
             
@@ -212,20 +212,20 @@ def analyze_and_fix_migrations():
                 actual_down = None
                 
             if actual_rev == expected_rev and actual_down == expected_down:
-                print(f"✅ Valid: {expected_file[:50]:50}")
+                logger.info(f"✅ Valid: {expected_file[:50]:50}")
             else:
-                print(f"❌ Invalid: {expected_file}")
+                logger.info(f"❌ Invalid: {expected_file}")
                 all_valid = False
     
     if all_valid:
-        print("\n" + "=" * 100)
-        print("✅ MIGRATION CHAIN IS NOW VALID AND READY FOR DEPLOYMENT")
-        print("=" * 100)
-        print("\nYou can now run: docker exec fc_api_dev alembic upgrade head")
+        logger.info("\n" + "=" * 100)
+        logger.info("✅ MIGRATION CHAIN IS NOW VALID AND READY FOR DEPLOYMENT")
+        logger.info("=" * 100)
+        logger.info("\nYou can now run: docker exec fc_api_dev alembic upgrade head")
     else:
-        print("\n" + "=" * 100)
-        print("❌ SOME ISSUES REMAIN - MANUAL INTERVENTION NEEDED")
-        print("=" * 100)
+        logger.info("\n" + "=" * 100)
+        logger.info("❌ SOME ISSUES REMAIN - MANUAL INTERVENTION NEEDED")
+        logger.info("=" * 100)
     
     return all_valid
 
