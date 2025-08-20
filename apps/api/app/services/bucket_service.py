@@ -17,6 +17,7 @@ import json
 import time
 from typing import Dict, List, Optional, Tuple
 from datetime import datetime, timedelta
+from dataclasses import asdict
 
 import structlog
 from minio import Minio
@@ -187,6 +188,73 @@ class BucketService:
         )
         
         return results
+    
+    def ensure_bucket_configured(self, bucket_name: str) -> bool:
+        """
+        Ensure a single bucket is properly configured with all enterprise features.
+        
+        Args:
+            bucket_name: Name of the bucket to configure
+            
+        Returns:
+            bool: True if bucket was configured successfully
+            
+        Raises:
+            BucketServiceError: If bucket configuration fails
+        """
+        if bucket_name not in self.bucket_configs:
+            raise BucketServiceError(
+                code=StorageErrorCode.STORAGE_INVALID_INPUT,
+                message=f"Unknown bucket: {bucket_name}",
+                turkish_message=f"Bilinmeyen depolama alanı: {bucket_name}",
+                details={"available_buckets": list(self.bucket_configs.keys())}
+            )
+        
+        bucket_config = self.bucket_configs[bucket_name]
+        
+        try:
+            # Step 1: Create bucket if needed
+            self._ensure_bucket_exists(bucket_name, bucket_config)
+            
+            # Step 2: Configure versioning
+            self._configure_bucket_versioning(bucket_name, bucket_config)
+            
+            # Step 3: Configure lifecycle policies
+            self._configure_bucket_lifecycle(bucket_name, bucket_config)
+            
+            # Step 4: Configure object lock (if enabled)
+            if bucket_config.object_lock_enabled:
+                self._configure_object_lock(bucket_name, bucket_config)
+            
+            # Step 5: Apply bucket policies
+            self._apply_bucket_policy(bucket_name, bucket_config)
+            
+            logger.info(
+                "Bucket configured successfully",
+                bucket_name=bucket_name,
+                versioning=bucket_config.versioning_enabled,
+                object_lock=bucket_config.object_lock_enabled,
+                lifecycle_policies=len(bucket_config.lifecycle_policies)
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(
+                "Bucket configuration failed",
+                bucket_name=bucket_name,
+                error=str(e),
+                exc_info=True
+            )
+            
+            if isinstance(e, BucketServiceError):
+                raise
+            
+            raise BucketServiceError(
+                code=StorageErrorCode.STORAGE_OPERATION_FAILED,
+                message=f"Failed to configure bucket {bucket_name}: {str(e)}",
+                turkish_message=f"Depolama alanı yapılandırılamadı {bucket_name}: {str(e)}"
+            )
     
     def _ensure_bucket_exists(self, bucket_name: str, bucket_config: BucketConfiguration) -> None:
         """Ensure bucket exists, create if not."""
@@ -494,7 +562,7 @@ class BucketService:
                 "lifecycle": {"configured": False, "rules_count": 0},
                 "object_lock": {"enabled": False, "mode": None, "retention_years": None},
                 "policy": {"configured": False, "error": None},
-                "configuration": self.bucket_configs[bucket_name].__dict__
+                "configuration": asdict(self.bucket_configs[bucket_name])
             }
             
             # Check if bucket exists

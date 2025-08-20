@@ -125,19 +125,19 @@ def setup_single_bucket(bucket_service: BucketService, bucket_name: str, force: 
             return True
         
         # Configure the bucket
-        results = bucket_service.ensure_all_buckets_configured()
-        
-        if results.get(bucket_name):
+        success = bucket_service.ensure_bucket_configured(bucket_name)
+
+        if success:
             logger.info(f"Bucket {bucket_name} configured successfully")
-            
+
             # Get and log final status
             final_status = bucket_service.get_bucket_status(bucket_name)
             logger.info(
                 "Bucket configuration complete",
                 bucket_name=bucket_name,
-                final_status=final_status
+                final_status=final_status,
             )
-            
+
             return True
         else:
             logger.error(f"Failed to configure bucket {bucket_name}")
@@ -202,7 +202,7 @@ def setup_all_buckets(force: bool = False) -> bool:
             error_code=e.code,
             error_message=e.message,
             turkish_message=e.turkish_message,
-            details=e.details
+            details=getattr(e, "details", None)
         )
         return False
     except Exception as e:

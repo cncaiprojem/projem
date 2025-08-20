@@ -709,7 +709,7 @@
             "description": "Set up secure MinIO client, environment config, credentials rotation, and connection hardening.",
             "dependencies": [],
             "details": "- Env vars: MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_REGION (optional), MINIO_SECURE=true, MINIO_BUCKET_ARTEFACTS, MINIO_BUCKET_LOGS, MINIO_BUCKET_REPORTS, MINIO_BUCKET_INVOICES.\n- Client: MinIO Python SDK (minio==7.2.7); timeouts (connect/read 10s/60s), retries w/ backoff (3 attempts), HTTP/HTTPS support, certificate pinning or CA bundle configurable.\n- Credentials: dedicated service user(s) with least-privilege policies; document rotation procedure; disallow root credentials in non-local envs.\n- Key naming strategy: artefacts/{job_id}/{uuid}.{ext}, logs/{date}/{uuid}.log, reports/{date}/{uuid}.pdf, invoices/{year}/{invoice_no}.pdf.\n- Security: never persist raw files to local disk; stream I/O only; sanitize key components; enforce URL signing exclusively for client access.\n- Acceptance tests:\n  - Can connect to MinIO and list buckets using service credentials.\n  - Network failures retry and surface clear 503 STORAGE_UNAVAILABLE.\n  - TLS misconfig results in 502 STORAGE_TLS_ERROR with safe message.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -720,7 +720,7 @@
               "5.1"
             ],
             "details": "- Buckets: artefacts, logs, reports, invoices.\n- Enable versioning on all buckets.\n- Lifecycle: transition non-current versions to cold storage after 30 days (env-configurable), expire incomplete multipart uploads after 7 days; delete logs after 90 days (configurable); reports after 365 days; artefacts retain per policy; invoices retain indefinitely.\n- Object Lock: Enable on invoices bucket (COMPLIANCE mode) with retention period via env (e.g., INVOICE_RETENTION_YEARS=7); legal hold supported via admin tools.\n- Policies: deny ListBucket to public; service account(s) restricted to specific prefixes; only PUT/GET/HEAD allowed for artefact paths; deny DeleteObject on invoices bucket.\n- Presign constraints (enforced via conditions where supported): content-length-range ≤ 200MB; content-type must match allowed mime; optional x-amz-tagging for job_id/machine/post.\n- Object tags standard: job_id, machine, post.\n- Acceptance tests:\n  - Versioning enabled and new object gets version ID.\n  - Lifecycle rules exist and are validated via MinIO client.\n  - Invoices cannot be deleted due to object lock (expect 403/AccessDenied).\n  - Upload >200MB rejected at presign or PUT stage.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-20T06:05:33.061Z",
+      "updated": "2025-08-20T18:27:29.077Z",
       "description": "Tasks for master context"
     }
   }

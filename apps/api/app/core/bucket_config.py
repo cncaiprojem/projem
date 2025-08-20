@@ -254,6 +254,8 @@ class BucketConfiguration:
         if not self.lifecycle_policies:
             return None
         
+        from minio.lifecycleconfig import NoncurrentVersionTransition, NoncurrentVersionExpiration
+        
         rules = []
         for policy in self.lifecycle_policies:
             if not policy.enabled:
@@ -264,28 +266,30 @@ class BucketConfiguration:
             if policy.prefix:
                 rule_filter = LifecycleFilter(prefix=policy.prefix)
             
-            # Create transitions
-            transitions = []
+            # Create transitions for non-current versions
+            noncurrent_transition = None
             if policy.transition_to_cold_days:
-                transitions.append(
-                    Transition(
-                        days=policy.transition_to_cold_days,
-                        storage_class=policy.transition_storage_class.value
-                    )
+                noncurrent_transition = NoncurrentVersionTransition(
+                    days=policy.transition_to_cold_days,
+                    storage_class=policy.transition_storage_class.value
                 )
             
-            # Create expiration
+            # Create expiration for current versions
             expiration = None
             if policy.current_version_expiry_days:
                 expiration = Expiration(days=policy.current_version_expiry_days)
+            
+            # Create expiration for non-current versions
+            noncurrent_expiration = None
+            if policy.noncurrent_version_expiry_days:
+                noncurrent_expiration = NoncurrentVersionExpiration(
+                    noncurrent_days=policy.noncurrent_version_expiry_days
+                )
             
             # Create multipart upload expiration
             multipart_expiration = AbortIncompleteMultipartUpload(
                 days_after_initiation=policy.multipart_upload_expiry_days
             )
-            
-            # Create rule with optional transition
-            transition = transitions[0] if transitions else None
             
             rule = LifecycleRule(
                 status="Enabled",
@@ -293,7 +297,8 @@ class BucketConfiguration:
                 rule_id=policy.name,
                 expiration=expiration,
                 abort_incomplete_multipart_upload=multipart_expiration,
-                transition=transition
+                noncurrent_version_transition=noncurrent_transition,
+                noncurrent_version_expiration=noncurrent_expiration
             )
             
             rules.append(rule)
