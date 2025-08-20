@@ -104,27 +104,20 @@ class PasswordService:
         salt_bytes = bytes.fromhex(salt)
         
         try:
-            # Create custom hasher with explicit parameters and salt
-            custom_hasher = PasswordHasher(
+            # Use low-level API for full control over salt - preserve salt
+            from argon2.low_level import hash_secret, Type
+            
+            raw_hash_bytes = hash_secret(
+                secret=peppered_password.encode('utf-8'),
+                salt=salt_bytes,
                 time_cost=ARGON2_CONFIG['time_cost'],
                 memory_cost=ARGON2_CONFIG['memory_cost'],
                 parallelism=ARGON2_CONFIG['parallelism'],
                 hash_len=ARGON2_CONFIG['hash_len'],
-                salt_len=len(salt_bytes),
                 type=Type.ID  # Argon2id
             )
-            
-            # Generate hash with the custom salt
-            # Note: We need to format it as Argon2 expects
-            full_hash = custom_hasher.hash(peppered_password)
-            
-            # Extract just the hash part (without the salt and parameters)
-            # Argon2 format: $argon2id$v=19$m=65536,t=3,p=4$salt$hash
-            parts = full_hash.split('$')
-            if len(parts) >= 6:
-                return parts[-1]  # Return just the hash part
-            return full_hash
-            
+            # Return just the hash part (without salt/params)
+            return raw_hash_bytes.decode('ascii')
         except Exception as e:
             logger.error("Failed to compute Argon2 hash", exc_info=True, extra={
                 'error_type': type(e).__name__,
