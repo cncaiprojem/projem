@@ -612,7 +612,7 @@
               "4.2"
             ],
             "details": "Providers:\n- Email: primary SMTP (e.g., Postmark via SMTP_URL), fallback SMTP or API client.\n- SMS: primary (Twilio) via SMS_API_KEY, fallback (Vonage).\nTemplating:\n- Templates for D-7, D-3, D-1 with variables: {user_name, days_remaining, ends_at, renewal_link}. SMS within 160 chars; Email HTML + plain text.\nPersistence:\n- notifications table: id, user_id, license_id, channel ENUM('email','sms'), template_id, days_out INT, status ENUM('queued','sent','failed'), provider, provider_id, error_text, created_at, sent_at.\nFallback:\n- On provider failure, try fallback provider once, record both attempts.\nConfig:\n- ENV: SMTP_URL, EMAIL_SENDER, SMS_API_KEY, SMS_SENDER.\nAcceptance criteria:\n- Sending works with primary provider; on simulated failure, fallback is used; notifications rows capture success/failure, provider_id, and timing; templates render with correct substitutions.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -624,7 +624,7 @@
               "4.7"
             ],
             "details": "Scheduling:\n- Celery Beat job daily 02:00 UTC: scan_licenses().\nLogic:\n- Query licenses where status='active' and (DATE(ends_at) - DATE(now())) IN (7,3,1).\n- For each, enqueue send_email_sms(user, license, days_out) task; insert notifications row with status='queued'. Prevent duplicates per (license_id, days_out, date) via unique key.\nIdempotency:\n- Use transaction + ON CONFLICT DO NOTHING to avoid duplicate enqueues.\nObservability:\n- Log counts by days_out; metrics for queued/sent/failed.\nAcceptance criteria:\n- With time frozen to D-7/3/1, notifications are enqueued once per license; reruns do not duplicate; notifications persisted with correct days_out.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -636,7 +636,7 @@
               "4.2"
             ],
             "details": "Behavior:\n- On detecting expiry in licenseGuard or a background watcher: update jobs set cancel_requested=true where user_id=? and status IN ('running','pending'); enqueue lightweight cancellation signal.\n- Workers: periodically check cancel_requested and stop after safe checkpoint; mark job as 'canceled' with reason 'license_expired'.\n- Persist audit events: 'license_expired_jobs_cancel_requested' with affected job IDs.\n- Provide admin endpoint GET /licenses/:id/impacted-jobs to review state.\nAcceptance criteria:\n- When a license expires, active jobs transition to canceling -> canceled without abrupt termination; audit lists impacted jobs; new job submissions are blocked by licenseGuard.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -651,7 +651,7 @@
               "4.8"
             ],
             "details": "Observability:\n- OpenTelemetry tracing on API endpoints, Celery tasks, webhook handler; propagate X-Request-ID / trace-id.\n- Metrics: counters/gauges for licenses_active, license_expired_events, invoices_created, payments_succeeded/failed, notifications_sent/failed.\nAudit:\n- audit_log table: id, actor_id, subject_type, subject_id, action, before JSONB, after JSONB, request_id, created_at.\n- Actions captured: license_assigned/extended/canceled/expired, sessions_revoked, invoice_created/pdf_generated, payment_intent_created/succeeded/failed, notification_sent/failed.\nRetention:\n- Configure log retention and PII redaction for sensitive fields.\nAcceptance criteria:\n- Each state change produces an audit record with subject and action; traces span HTTP->DB->queue; metrics visible in test run; correlation IDs consistent across related events.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -663,7 +663,7 @@
               "4.6"
             ],
             "details": "Invoice numbering:\n- Use DB sequence per month or a (period, seq) allocator with advisory locks. Compose number = YYYYMM + '-' + LPAD(seq,5,'0') + '-CNCAI'. Unique index on number.\n- Retry on conflict with bounded backoff.\nAPI idempotency:\n- Respect Idempotency-Key for /license/assign and /license/extend: store request hash keyed by (user_id, key) with response snapshot; return same result on retry.\nWebhooks:\n- Deduplicate via unique event_id table; process-once semantics.\nOther guards:\n- Unique active license per user enforced by partial unique index.\nAcceptance criteria:\n- Under concurrent 100x invoice creations in same month, zero duplicate numbers; repeated Idempotency-Key returns same response without side effects; duplicate webhook deliveries are no-ops.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-19T10:33:20.636Z",
+      "updated": "2025-08-20T04:19:04.103Z",
       "description": "Tasks for master context"
     }
   }
