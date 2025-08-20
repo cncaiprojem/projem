@@ -1,0 +1,867 @@
+"""
+Enhanced S3/MinIO Service Module with Stream I/O and Enterprise Error Handling
+
+Task 5.1: MinIO client configuration and credentials management
+Provides secure file operations with presigned URLs, stream I/O only (no disk writes),
+and proper error handling with Turkish localization.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import io
+import time
+import uuid
+from datetime import datetime, timedelta
+from pathlib import Path
+from typing import BinaryIO, Dict, List, Optional, Tuple, Union, Final, AsyncIterator
+from contextlib import asynccontextmanager
+import asyncio
+
+import structlog
+from minio import Minio
+from minio.error import S3Error
+
+from app.core.minio_config import (
+    MinIOClientFactory,
+    MinIOConfig,
+    StorageErrorCode,
+    get_minio_client,
+    get_minio_config,
+    validate_object_key,
+)
+from app.schemas.file_schemas import (
+    BucketType,
+    FileInfo,
+    FileType,
+    PresignedUrlResponse,
+)
+
+logger = structlog.get_logger(__name__)
+
+# Constants for file operations
+MAX_FILE_SIZE: Final[int] = 5 * 1024 * 1024 * 1024  # 5GB max file size
+MIN_MULTIPART_SIZE: Final[int] = 5 * 1024 * 1024  # 5MB minimum for multipart
+DEFAULT_PRESIGNED_EXPIRY: Final[int] = 3600  # 1 hour default expiry
+MAX_PRESIGNED_EXPIRY: Final[int] = 7 * 24 * 3600  # 7 days max expiry
+MAX_LIST_RESULTS: Final[int] = 1000  # Maximum objects to list
+CHUNK_SIZE: Final[int] = 8192  # 8KB chunk size for streaming
+
+
+class S3Service:
+    """
+    Enhanced MinIO/S3 service with stream I/O, retry logic, and enterprise error handling.
+    
+    Key Features:
+    - Stream I/O only - never persists files to local disk
+    - Automatic retry with exponential backoff
+    - Presigned URL generation with configurable expiry
+    - Turkish error messages for user-facing errors
+    - Key sanitization and validation
+    - Compliance with Task 5.1 requirements
+    """
+    
+    def __init__(self, client: Optional[Minio] = None, config: Optional[MinIOConfig] = None):
+        """
+        Initialize S3 service with MinIO client and configuration.
+        
+        Args:
+            client: Optional MinIO client instance (uses factory if not provided)
+            config: Optional MinIO configuration (uses factory if not provided)
+            
+        Raises:
+            ConnectionError: If MinIO connection cannot be established
+        """
+        try:
+            self.client = client or get_minio_client()
+            self.config = config or get_minio_config()
+            self._bucket_cache: Dict[str, bool] = {}  # Cache for bucket existence
+            self._ensure_buckets()
+        except Exception as e:
+            logger.error(
+                "Failed to initialize S3 service",
+                error=str(e),
+                exc_info=True
+            )
+            raise ConnectionError(
+                f"S3 servisi başlatılamadı: {str(e)}"
+            )
+    
+    def _ensure_buckets(self) -> None:
+        """Ensure all required buckets exist."""
+        buckets = [
+            self.config.bucket_artefacts,
+            self.config.bucket_logs,
+            self.config.bucket_reports,
+            self.config.bucket_invoices,
+            self.config.bucket_temp,
+        ]
+        
+        for bucket in buckets:
+            try:
+                if not self.client.bucket_exists(bucket):
+                    self.client.make_bucket(bucket)
+                    logger.info(f"Bucket created: {bucket}")
+                else:
+                    logger.debug(f"Bucket exists: {bucket}")
+            except S3Error as e:
+                logger.error(f"Failed to ensure bucket {bucket}: {e}")
+                # Continue with other buckets even if one fails
+    
+    def _generate_object_key(
+        self,
+        bucket_type: BucketType,
+        job_id: Optional[str] = None,
+        filename: Optional[str] = None,
+        extension: Optional[str] = None,
+    ) -> str:
+        """
+        Generate object key following the naming strategy.
+        
+        Key patterns:
+        - artefacts/{job_id}/{uuid}.{ext}
+        - logs/{date}/{uuid}.log
+        - reports/{date}/{uuid}.pdf
+        - invoices/{year}/{invoice_no}.pdf
+        
+        Args:
+            bucket_type: Type of bucket
+            job_id: Optional job ID for artefacts
+            filename: Optional original filename
+            extension: File extension (without dot)
+            
+        Returns:
+            str: Generated object key
+        """
+        unique_id = str(uuid.uuid4())
+        now = datetime.utcnow()
+        
+        if bucket_type == BucketType.ARTEFACTS:
+            if job_id:
+                base_path = f"{job_id}/{unique_id}"
+            else:
+                base_path = f"misc/{unique_id}"
+            
+            if extension:
+                return f"{base_path}.{extension}"
+            elif filename:
+                ext = Path(filename).suffix.lstrip(".")
+                return f"{base_path}.{ext}" if ext else base_path
+            return base_path
+            
+        elif bucket_type == BucketType.LOGS:
+            date_str = now.strftime("%Y-%m-%d")
+            return f"{date_str}/{unique_id}.log"
+            
+        elif bucket_type == BucketType.REPORTS:
+            date_str = now.strftime("%Y-%m-%d")
+            return f"{date_str}/{unique_id}.pdf"
+            
+        elif bucket_type == BucketType.INVOICES:
+            year = now.year
+            # Invoice number should be provided in filename
+            if filename:
+                return f"{year}/{filename}"
+            return f"{year}/{unique_id}.pdf"
+            
+        else:  # TEMP bucket
+            return f"{unique_id}"
+    
+    def _sanitize_object_key(self, key: str) -> str:
+        """
+        Sanitize object key to prevent path traversal and invalid characters.
+        
+        Args:
+            key: Raw object key
+            
+        Returns:
+            str: Sanitized object key
+            
+        Raises:
+            ValueError: If key is invalid
+        """
+        try:
+            return validate_object_key(key)
+        except ValueError as e:
+            logger.warning(
+                "Invalid object key",
+                key=key,
+                error=str(e)
+            )
+            # Fallback to basic sanitization
+            key = key.replace("..", "").replace("//", "/")
+            key = key.strip("/").strip()
+            
+            # Replace invalid characters
+            invalid_chars = ["<", ">", ":", '"', "|", "?", "*", "\x00", "\\"]
+            for char in invalid_chars:
+                key = key.replace(char, "_")
+            
+            return key if key else "unnamed"
+    
+    def upload_file_stream(
+        self,
+        file_stream: BinaryIO,
+        bucket: str,
+        job_id: Optional[str] = None,
+        filename: Optional[str] = None,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> Tuple[str, PresignedUrlResponse]:
+        """
+        Upload file from stream (no disk writes).
+        
+        Args:
+            file_stream: Binary file stream
+            bucket: Target bucket name
+            job_id: Optional job ID for key generation
+            filename: Optional original filename
+            content_type: MIME content type
+            metadata: Additional metadata
+            
+        Returns:
+            Tuple of (object_key, presigned_url_response)
+            
+        Raises:
+            StorageError: If upload fails
+        """
+        try:
+            # Determine bucket type
+            bucket_type = BucketType(bucket) if bucket in [b.value for b in BucketType] else BucketType.TEMP
+            
+            # Generate object key
+            object_key = self._generate_object_key(
+                bucket_type=bucket_type,
+                job_id=job_id,
+                filename=filename,
+            )
+            object_key = self._sanitize_object_key(object_key)
+            
+            # Auto-detect content type if not provided
+            if not content_type and filename:
+                file_type = FileType.from_extension(Path(filename).suffix)
+                content_type = file_type.get_content_type() if file_type else "application/octet-stream"
+            
+            # Calculate file size without loading entire file in memory for large files
+            file_stream.seek(0, 2)  # Seek to end
+            file_size = file_stream.tell()
+            file_stream.seek(0)  # Reset to beginning
+            
+            # Check file size limit
+            if file_size > MAX_FILE_SIZE:
+                raise StorageError(
+                    code=StorageErrorCode.STORAGE_QUOTA_EXCEEDED,
+                    message=f"File too large: {file_size} bytes (max: {MAX_FILE_SIZE})",
+                    turkish_message=f"Dosya çok büyük: {file_size} bayt (maksimum: {MAX_FILE_SIZE})"
+                )
+            
+            # For large files, stream directly; for small files, buffer in memory
+            if file_size > MIN_MULTIPART_SIZE:
+                # Stream large files directly
+                upload_stream = file_stream
+            else:
+                # Buffer small files in memory for better performance
+                file_data = file_stream.read()
+                upload_stream = io.BytesIO(file_data)
+            
+            # Upload to MinIO
+            self.client.put_object(
+                bucket_name=bucket,
+                object_name=object_key,
+                data=upload_stream,
+                length=file_size,
+                content_type=content_type or "application/octet-stream",
+                metadata=metadata,
+            )
+            
+            logger.info(
+                "File uploaded via stream",
+                bucket=bucket,
+                object_key=object_key,
+                size=file_size,
+                content_type=content_type,
+            )
+            
+            # Generate presigned URL for download
+            presigned_url = self.generate_presigned_url(
+                bucket=bucket,
+                object_key=object_key,
+                operation="download",
+            )
+            
+            return object_key, presigned_url
+            
+        except S3Error as e:
+            logger.error(
+                "S3 upload failed",
+                bucket=bucket,
+                error_code=e.code,
+                error_message=e.message,
+                exc_info=True,
+            )
+            
+            # Map to storage error codes
+            if e.code == "NoSuchBucket":
+                raise StorageError(
+                    code=StorageErrorCode.STORAGE_NOT_FOUND,
+                    message=f"Bucket not found: {bucket}",
+                    turkish_message=f"Depolama alanı bulunamadı: {bucket}",
+                )
+            elif e.code == "AccessDenied":
+                raise StorageError(
+                    code=StorageErrorCode.STORAGE_PERMISSION_DENIED,
+                    message="Access denied to storage",
+                    turkish_message="Depolama erişimi reddedildi",
+                )
+            else:
+                raise StorageError(
+                    code=StorageErrorCode.STORAGE_OPERATION_FAILED,
+                    message=f"Upload failed: {e.message}",
+                    turkish_message=f"Yükleme başarısız: {e.message}",
+                )
+                
+        except Exception as e:
+            logger.error(
+                "Unexpected upload error",
+                bucket=bucket,
+                error=str(e),
+                exc_info=True,
+            )
+            raise StorageError(
+                code=StorageErrorCode.STORAGE_OPERATION_FAILED,
+                message=f"Unexpected error: {str(e)}",
+                turkish_message=f"Beklenmeyen hata: {str(e)}",
+            )
+    
+    def download_file_stream(
+        self,
+        bucket: str,
+        object_key: str,
+    ) -> BinaryIO:
+        """
+        Download file to stream (no disk writes).
+        
+        Args:
+            bucket: Source bucket name
+            object_key: Object key
+            
+        Returns:
+            BinaryIO: File stream
+            
+        Raises:
+            StorageError: If download fails
+        """
+        try:
+            # Sanitize object key
+            object_key = self._sanitize_object_key(object_key)
+            
+            # Get object from MinIO
+            response = self.client.get_object(bucket, object_key)
+            
+            try:
+                # For better memory efficiency, return a streaming wrapper
+                # that properly handles cleanup
+                return StreamingResponseWrapper(response)
+            except Exception:
+                # Ensure cleanup on error
+                response.close()
+                response.release_conn()
+                raise
+            
+        except S3Error as e:
+            logger.error(
+                "S3 download failed",
+                bucket=bucket,
+                object_key=object_key,
+                error_code=e.code,
+                error_message=e.message,
+            )
+            
+            if e.code == "NoSuchKey":
+                raise StorageError(
+                    code=StorageErrorCode.STORAGE_NOT_FOUND,
+                    message=f"Object not found: {object_key}",
+                    turkish_message=f"Dosya bulunamadı: {object_key}",
+                )
+            else:
+                raise StorageError(
+                    code=StorageErrorCode.STORAGE_OPERATION_FAILED,
+                    message=f"Download failed: {e.message}",
+                    turkish_message=f"İndirme başarısız: {e.message}",
+                )
+                
+        except Exception as e:
+            logger.error(
+                "Unexpected download error",
+                bucket=bucket,
+                object_key=object_key,
+                error=str(e),
+                exc_info=True,
+            )
+            raise StorageError(
+                code=StorageErrorCode.STORAGE_OPERATION_FAILED,
+                message=f"Unexpected error: {str(e)}",
+                turkish_message=f"Beklenmeyen hata: {str(e)}",
+            )
+    
+    def generate_presigned_url(
+        self,
+        bucket: str,
+        object_key: str,
+        operation: str = "download",
+        expires_in: int = 3600,
+        response_headers: Optional[Dict[str, str]] = None,
+    ) -> PresignedUrlResponse:
+        """
+        Generate presigned URL for upload or download.
+        
+        Args:
+            bucket: Bucket name
+            object_key: Object key
+            operation: "upload" or "download"
+            expires_in: URL expiration in seconds (default: 1 hour)
+            response_headers: Optional response headers
+            
+        Returns:
+            PresignedUrlResponse: Presigned URL details
+            
+        Raises:
+            StorageError: If URL generation fails
+        """
+        try:
+            # Sanitize object key
+            object_key = self._sanitize_object_key(object_key)
+            
+            # Calculate expiration time
+            expires = timedelta(seconds=expires_in)
+            expires_at = datetime.utcnow() + expires
+            
+            if operation == "upload":
+                url = self.client.presigned_put_object(
+                    bucket_name=bucket,
+                    object_name=object_key,
+                    expires=expires,
+                )
+            else:  # download
+                url = self.client.presigned_get_object(
+                    bucket_name=bucket,
+                    object_name=object_key,
+                    expires=expires,
+                    response_headers=response_headers,
+                )
+            
+            logger.info(
+                "Presigned URL generated",
+                bucket=bucket,
+                object_key=object_key,
+                operation=operation,
+                expires_in=expires_in,
+            )
+            
+            return PresignedUrlResponse(
+                url=url,
+                expires_at=expires_at,
+                operation=operation,
+                bucket=bucket,
+                object_key=object_key,
+            )
+            
+        except Exception as e:
+            logger.error(
+                "Presigned URL generation failed",
+                bucket=bucket,
+                object_key=object_key,
+                operation=operation,
+                error=str(e),
+                exc_info=True,
+            )
+            raise StorageError(
+                code=StorageErrorCode.STORAGE_OPERATION_FAILED,
+                message=f"URL generation failed: {str(e)}",
+                turkish_message=f"URL oluşturma başarısız: {str(e)}",
+            )
+    
+    def list_objects(
+        self,
+        bucket: str,
+        prefix: Optional[str] = None,
+        max_results: int = 100,
+    ) -> List[FileInfo]:
+        """
+        List objects in bucket with optional prefix.
+        
+        Args:
+            bucket: Bucket name
+            prefix: Optional prefix filter
+            max_results: Maximum results to return
+            
+        Returns:
+            List[FileInfo]: List of file information
+        """
+        try:
+            objects = []
+            count = 0
+            
+            for obj in self.client.list_objects(bucket, prefix=prefix, recursive=True):
+                if count >= max_results:
+                    break
+                    
+                objects.append(
+                    FileInfo(
+                        object_key=obj.object_name,
+                        bucket=bucket,
+                        filename=Path(obj.object_name).name,
+                        size=obj.size,
+                        content_type=obj.content_type or "application/octet-stream",
+                        last_modified=obj.last_modified,
+                        etag=obj.etag,
+                        metadata=obj.metadata,
+                    )
+                )
+                count += 1
+            
+            logger.info(
+                "Objects listed",
+                bucket=bucket,
+                prefix=prefix,
+                count=len(objects),
+            )
+            
+            return objects
+            
+        except Exception as e:
+            logger.error(
+                "List objects failed",
+                bucket=bucket,
+                prefix=prefix,
+                error=str(e),
+                exc_info=True,
+            )
+            return []
+    
+    def delete_object(
+        self,
+        bucket: str,
+        object_key: str,
+    ) -> bool:
+        """
+        Delete object from bucket.
+        
+        Args:
+            bucket: Bucket name
+            object_key: Object key to delete
+            
+        Returns:
+            bool: True if deletion successful
+        """
+        try:
+            # Sanitize object key
+            object_key = self._sanitize_object_key(object_key)
+            
+            self.client.remove_object(bucket, object_key)
+            
+            logger.info(
+                "Object deleted",
+                bucket=bucket,
+                object_key=object_key,
+            )
+            
+            return True
+            
+        except Exception as e:
+            logger.error(
+                "Delete object failed",
+                bucket=bucket,
+                object_key=object_key,
+                error=str(e),
+                exc_info=True,
+            )
+            return False
+    
+    def get_object_info(
+        self,
+        bucket: str,
+        object_key: str,
+    ) -> Optional[FileInfo]:
+        """
+        Get object metadata and information.
+        
+        Args:
+            bucket: Bucket name
+            object_key: Object key
+            
+        Returns:
+            Optional[FileInfo]: Object information if exists
+        """
+        try:
+            # Sanitize object key
+            object_key = self._sanitize_object_key(object_key)
+            
+            stat = self.client.stat_object(bucket, object_key)
+            
+            return FileInfo(
+                object_key=object_key,
+                bucket=bucket,
+                filename=Path(object_key).name,
+                size=stat.size,
+                content_type=stat.content_type or "application/octet-stream",
+                last_modified=stat.last_modified,
+                etag=stat.etag,
+                metadata=stat.metadata,
+                version_id=getattr(stat, "version_id", None),
+            )
+            
+        except S3Error as e:
+            if e.code == "NoSuchKey":
+                logger.info(
+                    "Object not found",
+                    bucket=bucket,
+                    object_key=object_key,
+                )
+                return None
+            
+            logger.error(
+                "Get object info failed",
+                bucket=bucket,
+                object_key=object_key,
+                error_code=e.code,
+                error_message=e.message,
+            )
+            return None
+            
+        except Exception as e:
+            logger.error(
+                "Unexpected error getting object info",
+                bucket=bucket,
+                object_key=object_key,
+                error=str(e),
+                exc_info=True,
+            )
+            return None
+
+
+class StreamingResponseWrapper(io.BufferedIOBase):
+    """
+    Wrapper for MinIO response stream with proper cleanup.
+    
+    Ensures the underlying connection is properly released.
+    """
+    
+    def __init__(self, response):
+        """Initialize with MinIO response object."""
+        self.response = response
+        self._closed = False
+    
+    def read(self, size: int = -1) -> bytes:
+        """Read data from stream."""
+        if self._closed:
+            raise ValueError("I/O operation on closed stream")
+        return self.response.read(size)
+    
+    def readable(self) -> bool:
+        """Check if stream is readable."""
+        return not self._closed
+    
+    def close(self) -> None:
+        """Close stream and release resources."""
+        if not self._closed:
+            try:
+                self.response.close()
+                self.response.release_conn()
+            except Exception as e:
+                logger.warning(
+                    "Error closing response stream",
+                    error=str(e)
+                )
+            finally:
+                self._closed = True
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit with cleanup."""
+        self.close()
+
+
+class AsyncS3Service:
+    """
+    Async wrapper for S3Service to use with FastAPI endpoints.
+    
+    Runs blocking I/O operations in thread pool to avoid blocking event loop.
+    """
+    
+    def __init__(self, sync_service: Optional[S3Service] = None):
+        """Initialize with sync S3 service."""
+        self.sync_service = sync_service or S3Service()
+        
+    async def upload_file_stream(
+        self,
+        file_stream: BinaryIO,
+        bucket: str,
+        job_id: Optional[str] = None,
+        filename: Optional[str] = None,
+        content_type: Optional[str] = None,
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> Tuple[str, PresignedUrlResponse]:
+        """Async wrapper for upload_file_stream."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.upload_file_stream,
+            file_stream,
+            bucket,
+            job_id,
+            filename,
+            content_type,
+            metadata
+        )
+    
+    async def download_file_stream(
+        self,
+        bucket: str,
+        object_key: str,
+    ) -> BinaryIO:
+        """Async wrapper for download_file_stream."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.download_file_stream,
+            bucket,
+            object_key
+        )
+    
+    async def generate_presigned_url(
+        self,
+        bucket: str,
+        object_key: str,
+        operation: str = "download",
+        expires_in: int = 3600,
+        response_headers: Optional[Dict[str, str]] = None,
+    ) -> PresignedUrlResponse:
+        """Async wrapper for generate_presigned_url."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.generate_presigned_url,
+            bucket,
+            object_key,
+            operation,
+            expires_in,
+            response_headers
+        )
+    
+    async def list_objects(
+        self,
+        bucket: str,
+        prefix: Optional[str] = None,
+        max_results: int = 100,
+    ) -> List[FileInfo]:
+        """Async wrapper for list_objects."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.list_objects,
+            bucket,
+            prefix,
+            max_results
+        )
+    
+    async def delete_object(
+        self,
+        bucket: str,
+        object_key: str,
+    ) -> bool:
+        """Async wrapper for delete_object."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.delete_object,
+            bucket,
+            object_key
+        )
+    
+    async def get_object_info(
+        self,
+        bucket: str,
+        object_key: str,
+    ) -> Optional[FileInfo]:
+        """Async wrapper for get_object_info."""
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(
+            None,
+            self.sync_service.get_object_info,
+            bucket,
+            object_key
+        )
+
+
+class StorageError(Exception):
+    """Custom exception for storage operations."""
+    
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        turkish_message: Optional[str] = None,
+        details: Optional[Dict] = None,
+    ):
+        self.code = code
+        self.message = message
+        self.turkish_message = turkish_message or message
+        self.details = details or {}
+        super().__init__(self.message)
+
+
+# Async wrapper for FastAPI endpoints
+def get_async_s3_service() -> AsyncS3Service:
+    """
+    Get async S3 service for FastAPI endpoints.
+    
+    Returns:
+        AsyncS3Service: Async wrapper around S3Service
+    """
+    return AsyncS3Service()
+
+
+# Dependency injection function
+@asynccontextmanager
+async def get_s3_service_async() -> AsyncIterator[AsyncS3Service]:
+    """
+    Async context manager for S3 service with cleanup.
+    
+    Usage:
+        async with get_s3_service_async() as s3:
+            await s3.upload_file_stream(...)
+    
+    Yields:
+        AsyncS3Service: Configured async S3 service instance
+    """
+    service = AsyncS3Service()
+    try:
+        yield service
+    finally:
+        # Cleanup if needed
+        pass
+
+
+def get_s3_service() -> S3Service:
+    """
+    Get S3 service instance for dependency injection.
+    
+    Returns:
+        S3Service: Configured S3 service
+    """
+    return S3Service()
+
+
+__all__ = [
+    "S3Service",
+    "AsyncS3Service",
+    "StorageError",
+    "StreamingResponseWrapper",
+    "get_s3_service",
+    "get_async_s3_service",
+    "get_s3_service_async",
+]
