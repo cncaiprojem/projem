@@ -14,7 +14,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
-from ..models.idempotency import IdempotencyRecord
+from ..models.idempotency import IdempotencyKey as IdempotencyRecord
 from ..core.logging import get_logger
 
 logger = get_logger(__name__)

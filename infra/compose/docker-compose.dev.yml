@@ -385,8 +385,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
+      # rabbitmq:
+      #   condition: service_healthy
       minio:
         condition: service_started
       minio-bootstrap:
@@ -419,6 +419,8 @@ services:
       # Development settings
       WATCHDOG_ENABLED: "true"
       DEV_AUTH_BYPASS: "true"
+      # Security settings
+      SECRET_KEY: "supersecretdevkey-ultra-secure-development-key-32chars"
       # OpenTelemetry development
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       OTEL_RESOURCE_ATTRIBUTES: service.name=freecad-api-dev,service.version=dev
@@ -444,16 +446,7 @@ services:
       start_period: 40s
     
     # Development command with hot reload
-    command: >
-      /bin/sh -c "
-      echo 'Starting API in development mode...' && 
-      uvicorn app.main:app 
-        --host 0.0.0.0 
-        --port 8000 
-        --reload 
-        --reload-dir /app 
-        --log-level debug
-      "
+    command: /bin/sh -c "echo 'Starting API in development mode...' && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app --log-level debug"
     
     # Network assignment
     networks:

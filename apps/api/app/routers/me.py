@@ -18,8 +18,8 @@ from pydantic import BaseModel, Field
 
 from ..models.user import User
 from ..models.audit_log import AuditLog
-from ..models.enums import AuditAction
-from ..schemas.auth import UserOut
+from ..models.enums import AuditAction, UserRole
+from ..schemas.auth import UserProfileResponse
 from ..schemas.rbac_schemas import UserPermissionSummary
 from ..dependencies.auth_dependencies import require_auth, require_scopes
 from ..middleware.jwt_middleware import AuthenticatedUser
@@ -75,7 +75,7 @@ class AccountDeactivationRequest(BaseModel):
         }
 
 
-@router.get("", response_model=UserOut)
+@router.get("", response_model=UserProfileResponse)
 def get_current_user_profile(
     request: Request,
     current_user: AuthenticatedUser = Depends(require_auth()),
@@ -98,7 +98,7 @@ def get_current_user_profile(
     return current_user.user
 
 
-@router.put("", response_model=UserOut)
+@router.put("", response_model=UserProfileResponse)
 def update_current_user_profile(
     profile_update: UserProfileUpdate,
     request: Request,

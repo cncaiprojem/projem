@@ -21,7 +21,7 @@ from ..models.license_audit import LicenseAudit
 from ..models.user import User
 from ..core.logging import get_logger
 from ..core.telemetry import create_span, create_financial_span
-from ..middleware.correlation_middleware import get_correlation_id, get_session_id, get_user_id
+from ..middleware.correlation_middleware import get_correlation_id, get_session_id
 from ..services.audit_service import audit_service
 from ..config import settings
 from .. import metrics
@@ -146,7 +146,7 @@ class LicenseService:
         # Get correlation context for observability
         correlation_id = get_correlation_id()
         session_id = get_session_id()
-        current_user_id = get_user_id()
+        current_user_id = actor_id  # Use actor_id as the current user
         start_time = time.time()
         
         # Create business span for license assignment

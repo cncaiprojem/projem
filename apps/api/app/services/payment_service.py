@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from ..core.environment import environment
 from ..core.logging import get_logger
 from ..core.telemetry import create_financial_span, create_span
-from ..middleware.correlation_middleware import get_correlation_id, get_session_id, get_user_id
+from ..middleware.correlation_middleware import get_correlation_id, get_session_id
 from ..models.enums import Currency, PaidStatus, PaymentStatus
 from ..models.invoice import Invoice
 from ..models.payment import Payment, PaymentAuditLog, PaymentWebhookEvent
@@ -171,7 +171,6 @@ class PaymentService:
         # Get correlation context for observability
         correlation_id = get_correlation_id()
         session_id = get_session_id()
-        current_user_id = get_user_id()
         start_time = time.time()
         
         # Get invoice first for context
@@ -312,6 +311,18 @@ class PaymentService:
                 # Add payment ID to span
                 span.set_attribute("payment.id", str(payment.id))
                 span.set_attribute("payment.provider_payment_id", result.payment_intent.provider_payment_id)
+            
+            except Exception as e:
+                # Log the exception and re-raise
+                logger.error(
+                    "payment_intent_creation_error",
+                    invoice_id=invoice_id,
+                    provider=provider_name,
+                    error=str(e),
+                    correlation_id=correlation_id,
+                    session_id=session_id
+                )
+                raise
 
         # Create audit log
         PaymentAuditLog.log_payment_event(

@@ -21,9 +21,9 @@ from urllib.parse import urlencode
 import httpx
 import jwt
 from jwt import PyJWKClient
-from authlib.integrations.httpx_client import OAuth2Session
-from authlib.oauth2 import OAuth2Token
-from authlib.oidc.core import CodeIDToken, UserInfo
+from authlib.integrations.httpx_client import AsyncOAuth2Client as OAuth2Session
+# from authlib.oauth2 import OAuth2Token  # Not used/available in current authlib version
+# from authlib.oidc.core import CodeIDToken, UserInfo  # Not used
 from authlib.common.errors import AuthlibBaseError
 from sqlalchemy.orm import Session as DBSession
 from fastapi import HTTPException, status
@@ -35,7 +35,7 @@ from ..models.audit_log import AuditLog
 from ..models.security_event import SecurityEvent
 from ..services.token_service import token_service, TokenServiceError
 from ..services.auth_service import auth_service, AuthenticationError
-from ..config import settings
+from ..settings import app_settings as settings
 from ..db import get_redis
 
 logger = get_logger(__name__)
@@ -77,16 +77,18 @@ class OIDCService:
     """Ultra enterprise OIDC service with banking-level security."""
     
     def __init__(self):
-        # Google OAuth2 configuration
-        self.google_client_id = settings.google_client_id
-        self.google_client_secret = settings.google_client_secret
-        self.google_discovery_url = settings.google_discovery_url
-        self.google_scopes = settings.google_oauth_scopes
+        # Google OAuth2 configuration (optional - will be None if not configured)
+        self.google_client_id = getattr(settings, 'google_client_id', None)
+        self.google_client_secret = getattr(settings, 'google_client_secret', None)
+        self.google_discovery_url = getattr(settings, 'google_discovery_url', 
+                                           'https://accounts.google.com/.well-known/openid-configuration')
+        self.google_scopes = getattr(settings, 'google_oauth_scopes', 
+                                     ['openid', 'email', 'profile'])
         
-        # Security configuration
-        self.state_expire_seconds = settings.oauth_state_expire_minutes * 60
-        self.pkce_verifier_expire_seconds = settings.oauth_pkce_verifier_expire_minutes * 60
-        self.callback_timeout_seconds = settings.oauth_callback_timeout_seconds
+        # Security configuration with defaults
+        self.state_expire_seconds = getattr(settings, 'oauth_state_expire_minutes', 10) * 60
+        self.pkce_verifier_expire_seconds = getattr(settings, 'oauth_pkce_verifier_expire_minutes', 10) * 60
+        self.callback_timeout_seconds = getattr(settings, 'oauth_callback_timeout_seconds', 30)
         
         # Redis key prefixes for secure storage
         self.state_prefix = "oidc:state:"

@@ -13,7 +13,7 @@ Features:
 
 import os
 import redis
-import aioredis
+import redis.asyncio as aioredis
 from typing import Optional
 from redis.connection import ConnectionPool
 from structlog import get_logger

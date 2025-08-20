@@ -94,7 +94,7 @@ class AuthService:
             # Validate email uniqueness
             existing_user = db.query(User).filter(User.email == email.lower()).first()
             if existing_user:
-                await await self._log_security_event(
+                await self._log_security_event(
                     db, None, 'REGISTRATION_DUPLICATE_EMAIL', 
                     ip_address, user_agent, {'email': self._mask_email(email)}
                 )
@@ -110,7 +110,7 @@ class AuthService:
             )
             
             if not strength_result.ok:
-                await await self._log_security_event(
+                await self._log_security_event(
                     db, None, 'REGISTRATION_WEAK_PASSWORD',
                     ip_address, user_agent, {
                         'email': self._mask_email(email),

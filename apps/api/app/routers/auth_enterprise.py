@@ -36,7 +36,7 @@ from ..services.jwt_service import jwt_service
 from ..schemas import UserOut
 from ..middleware.jwt_middleware import get_current_user, get_current_user_optional, AuthenticatedUser
 from ..core.logging import get_logger
-from ..middleware.auth_limiter import limiter
+from ..middleware.auth_limiter import limit
 from ..middleware.enterprise_rate_limiter import (
     login_rate_limit, 
     registration_rate_limit, 
@@ -265,7 +265,7 @@ async def login_user(
     description="Şifre gücünü ve politika uyumluluğunu kontrol eder.",
     response_description="Şifre gücü analiz sonucu"
 )
-@limiter.limit("20/minute")  # Rate limit: 20 checks per minute
+@limit("20/minute")  # Rate limit: 20 checks per minute
 async def check_password_strength(
     request: Request,
     password_data: PasswordStrengthRequest
@@ -482,7 +482,7 @@ async def get_current_user_profile(
     description="Browser istekleri için CSRF double-submit cookie token'ı oluşturur.",
     response_description="CSRF token'ı cookie olarak ayarlanır"
 )
-@limiter.limit("60/minute")  # Rate limit: 60 tokens per minute per IP
+@limit("60/minute")  # Rate limit: 60 tokens per minute per IP
 async def get_csrf_token(
     request: Request,
     response: Response,

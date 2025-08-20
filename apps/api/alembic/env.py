@@ -121,6 +121,8 @@ def configure_postgresql_session(connection: Connection) -> None:
     Args:
         connection: Active database connection
     """
+    # TEMPORARILY DISABLED: Session optimization causing transaction issues
+    return
     try:
         major, minor = get_postgresql_version(connection)
         logging.info(f"Detected PostgreSQL version: {major}.{minor}")
@@ -279,6 +281,7 @@ def run_migrations_online() -> None:
                 transactional_ddl=True,          # PostgreSQL supports DDL in transactions
                 # Version table configuration
                 version_table_schema=None,       # Use default schema
+                version_table_pk=False,          # Let Alembic handle the primary key
             )
 
             # Execute migrations with detailed debugging

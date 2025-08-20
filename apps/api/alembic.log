@@ -408,3 +408,46 @@
 2025-08-17 18:19:56 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
 2025-08-17 18:20:22 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
 2025-08-17 18:20:22 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 07:26:21 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 07:26:21 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 07:27:14 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 07:27:14 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 07:27:59 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 07:27:59 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 08:25:11 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 08:25:11 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 08:25:26 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 08:25:26 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:07:22 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 09:07:22 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:10:46 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 09:10:46 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:10:46 INFO  [alembic.runtime.migration:623] Running upgrade  -> 20250817_1530_init_basic_tables, Initial basic tables for Task 1-2
+2025-08-20 09:10:47 INFO  [alembic.runtime.migration:623] Running upgrade 20250817_1530_init_basic_tables -> 20250817_2030_task_31_enterprise_auth_fields, Task 3.1: Add enterprise authentication fields to users table
+2025-08-20 09:12:44 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 09:12:44 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:12:45 INFO  [alembic.runtime.migration:623] Running upgrade  -> 20250817_1530_init_basic_tables, Initial basic tables for Task 1-2
+2025-08-20 09:12:45 INFO  [alembic.runtime.migration:623] Running upgrade 20250817_1530_init_basic_tables -> 20250817_2030_task_31_enterprise_auth_fields, Task 3.1: Add enterprise authentication fields to users table
+2025-08-20 09:12:45 INFO  [alembic.runtime.migration:623] Running upgrade 20250817_2030_task_31_enterprise_auth_fields -> 20250817_2045_task_32_enterprise_sessions_table, Task 3.2: Create ultra enterprise sessions table with banking-level security
+2025-08-20 09:12:45 INFO  [alembic.runtime.migration:623] Running upgrade 20250817_2045_task_32_enterprise_sessions_table -> 20250817_2100_task_35_oidc_accounts_table, Task 3.5: Add OIDC accounts table for Google OAuth2/OIDC integration
+2025-08-20 09:12:46 INFO  [alembic.runtime.migration:623] Running upgrade 20250817_2100_task_35_oidc_accounts_table -> 20250817_2200_task_36_magic_links_table, Task 3.6: Add magic_links table for ultra enterprise passwordless authentication
+2025-08-20 09:12:46 INFO  [alembic.runtime.migration:623] Running upgrade 20250817_2200_task_36_magic_links_table -> 20250817_2245_task_311_audit_correlation_pii_fields, Task 3.11: Add correlation ID and PII masking fields to audit and security models
+2025-08-20 09:23:53 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 09:23:53 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:25:54 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 09:25:54 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:26:51 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 09:26:51 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:26:52 INFO  [alembic.runtime.migration:623] Running upgrade  -> base_revision, Base revision - enterprise foundation
+2025-08-20 09:27:15 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 09:27:15 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:27:16 INFO  [alembic.runtime.migration:623] Running upgrade  -> base_revision, Base revision - enterprise foundation
+2025-08-20 09:28:05 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 09:28:05 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:28:05 INFO  [alembic.runtime.migration:623] Running upgrade  -> base_revision, Base revision - enterprise foundation
+2025-08-20 09:28:45 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 09:28:45 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:28:45 INFO  [alembic.runtime.migration:623] Running upgrade  -> base_revision, Base revision - enterprise foundation
+2025-08-20 09:29:05 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
+2025-08-20 09:29:05 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
+2025-08-20 09:29:05 INFO  [alembic.runtime.migration:623] Running upgrade  -> base_revision, Base revision - enterprise foundation
