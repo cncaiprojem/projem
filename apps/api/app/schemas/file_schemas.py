@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Dict, List, Optional, Any, Final
+from typing import Dict, List, Optional, Any, Final, Union
 
 import structlog
-from pydantic import BaseModel, Field, HttpUrl, validator, root_validator
+from pydantic import BaseModel, Field, HttpUrl, validator, root_validator, constr
 
 logger = structlog.get_logger(__name__)
 
@@ -170,6 +170,7 @@ class FileUploadRequest(BaseModel):
         """Validate and sanitize filename with security checks."""
         import os
         import re
+        import unicodedata
         
         # Remove path components and sanitize
         filename = os.path.basename(v).strip()
@@ -178,17 +179,25 @@ class FileUploadRequest(BaseModel):
         if not filename:
             raise ValueError("Dosya adı boş olamaz")
         
+        # Normalize Unicode characters (NFC normalization)
+        filename = unicodedata.normalize('NFC', filename)
+        
         # Check for invalid characters
         invalid_chars = ["<", ">", ":", '"', "|", "?", "*", "\x00", "/", "\\"]
         for char in invalid_chars:
             if char in filename:
                 raise ValueError(f"İsimde geçersiz karakter: {char}")
         
+        # Check for control characters
+        for char in filename:
+            if ord(char) < 32:
+                raise ValueError(f"Dosya adında kontrol karakteri: {repr(char)}")
+        
         # Check for reserved names (Windows)
         reserved_names = [
             "CON", "PRN", "AUX", "NUL",
-            "COM1", "COM2", "COM3", "COM4",
-            "LPT1", "LPT2", "LPT3"
+            "COM1", "COM2", "COM3", "COM4", "COM5", "COM6", "COM7", "COM8", "COM9",
+            "LPT1", "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9"
         ]
         name_without_ext = filename.split('.')[0].upper()
         if name_without_ext in reserved_names:
@@ -197,6 +206,15 @@ class FileUploadRequest(BaseModel):
         # Ensure filename has an extension
         if '.' not in filename:
             raise ValueError("Dosya uzantısı gerekli")
+        
+        # Check for double extensions that might bypass security
+        parts = filename.split('.')
+        if len(parts) > 2:
+            # Check for suspicious double extensions like .php.jpg
+            suspicious_extensions = ['php', 'asp', 'aspx', 'jsp', 'cgi', 'exe', 'bat', 'cmd', 'sh']
+            for ext in parts[:-1]:
+                if ext.lower() in suspicious_extensions:
+                    raise ValueError(f"Güvenlik riski: şüpheli çift uzantı {filename}")
         
         return filename
     
@@ -342,16 +360,20 @@ class PresignedUrlRequest(BaseModel):
             "Expires",
             "Cache-Control",
             "Content-Disposition",
-            "Content-Encoding"
+            "Content-Encoding",
+            "X-Content-Type-Options",
+            "X-Frame-Options"
         ]
         
         # Filter and validate headers
         validated = {}
         for key, value in v.items():
-            if key in allowed_headers:
-                # Sanitize header value
-                value = value.replace('\n', '').replace('\r', '')
-                validated[key] = value[:200]  # Limit header value length
+            # Case-insensitive header matching
+            normalized_key = key.replace('_', '-')
+            if any(normalized_key.lower() == allowed.lower() for allowed in allowed_headers):
+                # Sanitize header value - remove newlines and control characters
+                value = ''.join(char for char in value if ord(char) >= 32 or char in '\t')
+                validated[key] = value[:500]  # Increased limit for Content-Disposition
             else:
                 logger.warning(
                     "Disallowed response header",
@@ -487,9 +509,13 @@ class FileListRequest(BaseModel):
         if v:
             # Remove dangerous patterns
             v = v.replace("..", "").replace("//", "/")
-            # Remove leading slash
-            v = v.lstrip("/")
-        return v
+            # Remove leading and trailing slashes
+            v = v.strip("/")
+            # Remove control characters
+            v = ''.join(char for char in v if ord(char) >= 32 or char in '\t\n')
+            # Limit length to prevent abuse
+            v = v[:1024]
+        return v if v else None
     
     class Config:
         schema_extra = {
@@ -578,13 +604,26 @@ class FileDeleteRequest(BaseModel):
     @validator("object_key")
     def validate_object_key(cls, v: str) -> str:
         """Validate object key for safety."""
-        # Prevent deletion of critical system files
-        protected_prefixes = [".system/", ".config/", ".backup/"]
+        # Import validation function from core module
+        from app.core.minio_config import validate_object_key
+        
+        # Validate with core function
+        v = validate_object_key(v)
+        
+        # Additional check: Prevent deletion of critical system files
+        protected_prefixes = [".system/", ".config/", ".backup/", ".minio.sys/"]
         for prefix in protected_prefixes:
             if v.startswith(prefix):
                 raise ValueError(
                     f"Korumalı dosya silinemez: {v}"
                 )
+        
+        # Prevent deletion of versioning markers
+        if v.endswith(".delete-marker") or "/.versions/" in v:
+            raise ValueError(
+                f"Sürüm dosyası doğrudan silinemez: {v}"
+            )
+        
         return v
     
     class Config:
@@ -691,7 +730,25 @@ class BatchFileOperationResponse(BaseModel):
         description="Failed operations with reasons"
     )
     total_processed: int = Field(..., ge=0, description="Total files processed")
-    duration_seconds: Optional[float] = Field(None, description="Operation duration")
+    duration_seconds: Optional[float] = Field(None, ge=0, description="Operation duration")
+    
+    @validator("total_processed", always=True)
+    def calculate_total(cls, v: int, values: dict) -> int:
+        """Calculate total from successful and failed."""
+        successful = values.get('successful', [])
+        failed = values.get('failed', [])
+        calculated = len(successful) + len(failed)
+        if v != calculated and calculated > 0:
+            logger.warning(
+                "Total processed mismatch",
+                provided=v,
+                calculated=calculated
+            )
+        return calculated if calculated > 0 else v
+
+# Type aliases for better type hints
+FileMetadata = Dict[str, str]
+FileList = List[FileInfo]
 
 __all__ = [
     "FileType",
@@ -708,4 +765,6 @@ __all__ = [
     "StorageError",
     "BatchFileOperation",
     "BatchFileOperationResponse",
+    "FileMetadata",
+    "FileList",
 ]

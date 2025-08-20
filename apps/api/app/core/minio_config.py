@@ -20,10 +20,13 @@ import ssl
 import time
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Optional, TYPE_CHECKING, Final
+from typing import Any, Dict, Optional, TYPE_CHECKING, Final, Callable
 
+import asyncio
 import hashlib
+import signal
 import structlog
+import threading
 from contextlib import contextmanager
 from minio import Minio
 from minio.error import S3Error
@@ -345,6 +348,8 @@ class ResilientHTTPClient:
     - Connection pooling for performance
     - TLS/SSL support with certificate validation
     - Graceful error handling
+    - Thread-safe operations
+    - Resource cleanup on cancellation
     """
     
     def __init__(self, config: MinIOConfig):
@@ -358,10 +363,12 @@ class ResilientHTTPClient:
             ValueError: If configuration is invalid
         """
         if not config:
-            raise ValueError("MinIO configuration is required")
+            raise ValueError("MinIO yapılandırması gerekli")
             
         self.config = config
         self.pool_manager: Optional[PoolManager] = None
+        self._lock = threading.Lock()  # Thread safety
+        self._closed = False
         self._setup_retry_strategy()
         self._setup_connection_pool()
     
@@ -432,32 +439,49 @@ class ResilientHTTPClient:
     
     def cleanup(self) -> None:
         """Clean up connection pool resources."""
-        if self.pool_manager:
-            try:
-                self.pool_manager.clear()
-                logger.info("HTTP connection pool cleaned up")
-            except Exception as e:
-                logger.warning(
-                    "Error cleaning up connection pool",
-                    error=str(e)
-                )
+        with self._lock:
+            if self._closed:
+                return
+            
+            if self.pool_manager:
+                try:
+                    self.pool_manager.clear()
+                    self.pool_manager = None
+                    logger.info("HTTP connection pool cleaned up")
+                except Exception as e:
+                    logger.warning(
+                        "Error cleaning up connection pool",
+                        error=str(e)
+                    )
+            self._closed = True
+    
+    def __del__(self):
+        """Ensure cleanup on garbage collection."""
+        if not self._closed:
+            self.cleanup()
 
 
 class MinIOClientFactory:
     """
     Factory for creating configured MinIO client instances.
+    
+    Thread-safe singleton implementation with connection pooling.
     """
     
     _instance: Optional[Minio] = None
     _config: Optional[MinIOConfig] = None
+    _http_client: Optional[ResilientHTTPClient] = None
     _last_connection_check: float = 0
     _connection_check_interval: float = CONNECTION_CHECK_INTERVAL
     _cleanup_registered: bool = False
+    _lock = threading.Lock()  # Thread safety for singleton
     
     @classmethod
     def get_client(cls, force_new: bool = False) -> Minio:
         """
         Get or create MinIO client instance with connection pooling.
+        
+        Thread-safe implementation ensures single instance across threads.
         
         Args:
             force_new: Force creation of new client instance
@@ -468,36 +492,51 @@ class MinIOClientFactory:
         Raises:
             ConnectionError: If connection to MinIO fails after retries
         """
-        current_time = time.time()
-        
-        # Check if we need to recreate the client
-        should_recreate = (
-            force_new or
-            cls._instance is None or
-            cls._config is None or
-            (current_time - cls._last_connection_check) > cls._connection_check_interval
-        )
-        
-        if should_recreate:
-            cls._create_client()
-            cls._verify_connection()
-            cls._last_connection_check = current_time
+        with cls._lock:
+            current_time = time.time()
             
-            # Register cleanup handler if not already done
-            if not cls._cleanup_registered:
-                import atexit
-                atexit.register(cls._cleanup)
-                cls._cleanup_registered = True
-        
-        return cls._instance
+            # Check if we need to recreate the client
+            should_recreate = (
+                force_new or
+                cls._instance is None or
+                cls._config is None or
+                (current_time - cls._last_connection_check) > cls._connection_check_interval
+            )
+            
+            if should_recreate:
+                cls._create_client()
+                cls._verify_connection()
+                cls._last_connection_check = current_time
+                
+                # Register cleanup handlers if not already done
+                if not cls._cleanup_registered:
+                    import atexit
+                    atexit.register(cls._cleanup)
+                    
+                    # Register signal handlers for graceful shutdown
+                    for sig in (signal.SIGTERM, signal.SIGINT):
+                        try:
+                            signal.signal(sig, cls._signal_handler)
+                        except (OSError, ValueError):
+                            # Signal may not be available on Windows or in threads
+                            pass
+                    
+                    cls._cleanup_registered = True
+            
+            return cls._instance
     
     @classmethod
     def _create_client(cls) -> None:
         """Create new MinIO client instance."""
+        # Clean up old HTTP client if exists
+        if cls._http_client:
+            cls._http_client.cleanup()
+            cls._http_client = None
+        
         cls._config = MinIOConfig.from_environment()
         
         # Create HTTP client with custom settings
-        http_client = ResilientHTTPClient(cls._config)
+        cls._http_client = ResilientHTTPClient(cls._config)
         
         try:
             cls._instance = Minio(
@@ -506,7 +545,7 @@ class MinIOClientFactory:
                 secret_key=cls._config.secret_key,
                 secure=cls._config.secure,
                 region=cls._config.region,
-                http_client=http_client.pool_manager
+                http_client=cls._http_client.pool_manager
             )
             
             logger.info(
@@ -603,6 +642,9 @@ class MinIOClientFactory:
                 jitter = random.uniform(0, base_wait * 0.1)
                 wait_time = min(base_wait + jitter, 30.0)  # Cap at 30 seconds
                 
+                # Sleep with jitter
+                time.sleep(wait_time)
+                
                 logger.info(
                     "Retrying MinIO connection",
                     attempt=attempt,
@@ -639,26 +681,44 @@ class MinIOClientFactory:
     @classmethod
     def reset(cls) -> None:
         """Reset client instance and configuration."""
-        cls._cleanup()
-        cls._instance = None
-        cls._config = None
-        cls._last_connection_check = 0
-        logger.info("MinIO client factory reset")
+        with cls._lock:
+            cls._cleanup()
+            cls._instance = None
+            cls._config = None
+            cls._http_client = None
+            cls._last_connection_check = 0
+            logger.info("MinIO client factory reset")
     
     @classmethod
     def _cleanup(cls) -> None:
         """Clean up resources."""
-        if cls._instance:
-            try:
-                # Clean up HTTP client if it has our custom client
-                if hasattr(cls._instance, "_http") and hasattr(cls._instance._http, "cleanup"):
-                    cls._instance._http.cleanup()
-                logger.info("MinIO client resources cleaned up")
-            except Exception as e:
-                logger.warning(
-                    "Error during MinIO client cleanup",
-                    error=str(e)
-                )
+        try:
+            # Clean up HTTP client
+            if cls._http_client:
+                cls._http_client.cleanup()
+                cls._http_client = None
+            
+            # Clear instance
+            cls._instance = None
+            
+            logger.info("MinIO client resources cleaned up")
+        except Exception as e:
+            logger.warning(
+                "Error during MinIO client cleanup",
+                error=str(e)
+            )
+    
+    @classmethod
+    def _signal_handler(cls, signum: int, frame: Any) -> None:
+        """Handle termination signals for graceful shutdown."""
+        logger.info(
+            "Received termination signal, cleaning up",
+            signal=signum
+        )
+        cls._cleanup()
+        # Re-raise the signal for default handling
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
 
 
 @contextmanager
@@ -703,6 +763,52 @@ def get_minio_config() -> MinIOConfig:
     return MinIOClientFactory.get_config()
 
 
+def validate_object_key(key: str, max_length: int = MAX_OBJECT_KEY_LENGTH) -> str:
+    """
+    Validate and sanitize object key for S3/MinIO.
+    
+    Args:
+        key: Object key to validate
+        max_length: Maximum allowed key length
+        
+    Returns:
+        str: Sanitized object key
+        
+    Raises:
+        ValueError: If key is invalid
+    """
+    if not key:
+        raise ValueError("Nesne anahtarı boş olamaz")
+    
+    if len(key) > max_length:
+        raise ValueError(
+            f"Nesne anahtarı çok uzun: {len(key)} karakter (maksimum: {max_length})"
+        )
+    
+    # Remove path traversal attempts
+    key = key.replace("..", "").replace("//", "/")
+    
+    # Remove leading/trailing slashes and spaces
+    key = key.strip("/").strip()
+    
+    # Check for invalid characters
+    invalid_chars = ["<", ">", ":", '"', "|", "?", "*", "\x00", "\\"]
+    for char in invalid_chars:
+        if char in key:
+            raise ValueError(
+                f"Nesne anahtarında geçersiz karakter: {char}"
+            )
+    
+    # Check for control characters
+    for char in key:
+        if ord(char) < 32 and char not in ["\t", "\n", "\r"]:
+            raise ValueError(
+                f"Nesne anahtarında kontrol karakteri: {repr(char)}"
+            )
+    
+    return key
+
+
 # Export error codes for consistent error handling
 class StorageErrorCode:
     """Storage service error codes for consistent error handling."""
@@ -729,5 +835,6 @@ __all__ = [
     "get_minio_client",
     "get_minio_client_context",
     "get_minio_config",
+    "validate_object_key",
     "StorageErrorCode",
 ]

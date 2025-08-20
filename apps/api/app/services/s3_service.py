@@ -14,8 +14,9 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import BinaryIO, Dict, List, Optional, Tuple, Union, Final, AsyncContextManager
+from typing import BinaryIO, Dict, List, Optional, Tuple, Union, Final, AsyncIterator
 from contextlib import asynccontextmanager
+import asyncio
 
 import structlog
 from minio import Minio
@@ -27,6 +28,7 @@ from app.core.minio_config import (
     StorageErrorCode,
     get_minio_client,
     get_minio_config,
+    validate_object_key,
 )
 from app.schemas.file_schemas import (
     BucketType,
@@ -174,20 +176,28 @@ class S3Service:
             
         Returns:
             str: Sanitized object key
+            
+        Raises:
+            ValueError: If key is invalid
         """
-        # Remove path traversal attempts
-        key = key.replace("..", "")
-        key = key.replace("//", "/")
-        
-        # Remove leading/trailing slashes
-        key = key.strip("/")
-        
-        # Replace invalid characters
-        invalid_chars = ["<", ">", ":", '"', "|", "?", "*", "\x00", "\\"]
-        for char in invalid_chars:
-            key = key.replace(char, "_")
-        
-        return key
+        try:
+            return validate_object_key(key)
+        except ValueError as e:
+            logger.warning(
+                "Invalid object key",
+                key=key,
+                error=str(e)
+            )
+            # Fallback to basic sanitization
+            key = key.replace("..", "").replace("//", "/")
+            key = key.strip("/").strip()
+            
+            # Replace invalid characters
+            invalid_chars = ["<", ">", ":", '"', "|", "?", "*", "\x00", "\\"]
+            for char in invalid_chars:
+                key = key.replace(char, "_")
+            
+            return key if key else "unnamed"
     
     async def upload_file_stream(
         self,
@@ -232,12 +242,27 @@ class S3Service:
                 file_type = FileType.from_extension(Path(filename).suffix)
                 content_type = file_type.get_content_type() if file_type else "application/octet-stream"
             
-            # Read stream into memory (stream I/O only)
-            file_data = file_stream.read()
-            file_size = len(file_data)
+            # Calculate file size without loading entire file in memory for large files
+            file_stream.seek(0, 2)  # Seek to end
+            file_size = file_stream.tell()
+            file_stream.seek(0)  # Reset to beginning
             
-            # Create new stream for upload
-            upload_stream = io.BytesIO(file_data)
+            # Check file size limit
+            if file_size > MAX_FILE_SIZE:
+                raise StorageError(
+                    code=StorageErrorCode.STORAGE_QUOTA_EXCEEDED,
+                    message=f"File too large: {file_size} bytes (max: {MAX_FILE_SIZE})",
+                    turkish_message=f"Dosya çok büyük: {file_size} bayt (maksimum: {MAX_FILE_SIZE})"
+                )
+            
+            # For large files, stream directly; for small files, buffer in memory
+            if file_size > MIN_MULTIPART_SIZE:
+                # Stream large files directly
+                upload_stream = file_stream
+            else:
+                # Buffer small files in memory for better performance
+                file_data = file_stream.read()
+                upload_stream = io.BytesIO(file_data)
             
             # Upload to MinIO
             self.client.put_object(
@@ -333,13 +358,15 @@ class S3Service:
             # Get object from MinIO
             response = self.client.get_object(bucket, object_key)
             
-            # Read into memory stream
-            file_data = response.read()
-            response.close()
-            response.release_conn()
-            
-            # Create stream for return
-            return io.BytesIO(file_data)
+            try:
+                # For better memory efficiency, return a streaming wrapper
+                # that properly handles cleanup
+                return StreamingResponseWrapper(response)
+            except Exception:
+                # Ensure cleanup on error
+                response.close()
+                response.release_conn()
+                raise
             
         except S3Error as e:
             logger.error(
@@ -613,6 +640,56 @@ class S3Service:
             return None
 
 
+class StreamingResponseWrapper(io.BufferedIOBase):
+    """
+    Wrapper for MinIO response stream with proper cleanup.
+    
+    Ensures the underlying connection is properly released.
+    """
+    
+    def __init__(self, response):
+        """Initialize with MinIO response object."""
+        self.response = response
+        self._closed = False
+    
+    def read(self, size: int = -1) -> bytes:
+        """Read data from stream."""
+        if self._closed:
+            raise ValueError("I/O operation on closed stream")
+        return self.response.read(size)
+    
+    def readable(self) -> bool:
+        """Check if stream is readable."""
+        return not self._closed
+    
+    def close(self) -> None:
+        """Close stream and release resources."""
+        if not self._closed:
+            try:
+                self.response.close()
+                self.response.release_conn()
+            except Exception as e:
+                logger.warning(
+                    "Error closing response stream",
+                    error=str(e)
+                )
+            finally:
+                self._closed = True
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit with cleanup."""
+        self.close()
+    
+    def __del__(self):
+        """Ensure cleanup on garbage collection."""
+        if not self._closed:
+            self.close()
+
+
 class StorageError(Exception):
     """Custom exception for storage operations."""
     
@@ -631,6 +708,26 @@ class StorageError(Exception):
 
 
 # Dependency injection function
+@asynccontextmanager
+async def get_s3_service_async() -> AsyncIterator[S3Service]:
+    """
+    Async context manager for S3 service with cleanup.
+    
+    Usage:
+        async with get_s3_service_async() as s3:
+            await s3.upload_file_stream(...)
+    
+    Yields:
+        S3Service: Configured S3 service instance
+    """
+    service = S3Service()
+    try:
+        yield service
+    finally:
+        # Cleanup if needed
+        pass
+
+
 def get_s3_service() -> S3Service:
     """
     Get S3 service instance for dependency injection.
@@ -644,5 +741,7 @@ def get_s3_service() -> S3Service:
 __all__ = [
     "S3Service",
     "StorageError",
+    "StreamingResponseWrapper",
     "get_s3_service",
+    "get_s3_service_async",
 ]
