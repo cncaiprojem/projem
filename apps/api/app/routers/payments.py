@@ -13,7 +13,7 @@ from fastapi.security import HTTPBearer
 from sqlalchemy.orm import Session
 
 from ..core.database import get_db
-from ..core.security import get_current_user
+from ..middleware.jwt_middleware import get_current_user
 from ..models.payment import Payment
 from ..models.user import User
 from ..schemas.payment import (
@@ -23,7 +23,7 @@ from ..schemas.payment import (
     WebhookResponse,
 )
 from ..services.payment_service import PaymentService
-from ..services.rate_limiting_service import RateLimitingService
+from ..services.rate_limiting_service import EnterpriseRateLimitingService as RateLimitingService
 from ..services.security_event_service import SecurityEventService
 
 # Initialize router

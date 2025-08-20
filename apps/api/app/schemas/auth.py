@@ -5,7 +5,7 @@ These schemas define the API contracts for authentication endpoints including JW
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any
-from pydantic import BaseModel, EmailStr, Field, validator, root_validator
+from pydantic import BaseModel, EmailStr, Field, validator, model_validator
 
 
 class UserRegisterRequest(BaseModel):
@@ -53,12 +53,12 @@ class UserRegisterRequest(BaseModel):
                 raise ValueError('Tam ad en az 2 karakter olmalıdır')
         return v
     
-    @root_validator
-    def validate_required_consent(cls, values):
+    @model_validator(mode='after')
+    def validate_required_consent(self):
         """Ensure required KVKK consent is given."""
-        if not values.get('data_processing_consent', False):
+        if not self.data_processing_consent:
             raise ValueError('KVKK veri işleme rızası zorunludur')
-        return values
+        return self
 
 
 class UserRegisterResponse(BaseModel):

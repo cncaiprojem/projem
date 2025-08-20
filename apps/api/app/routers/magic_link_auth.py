@@ -30,7 +30,7 @@ from ..schemas.magic_link_schemas import (
 from ..services.magic_link_service import magic_link_service, MagicLinkError
 from ..services.token_service import token_service
 from ..core.logging import get_logger
-from ..middleware.auth_limiter import limiter
+from ..middleware.auth_limiter import limit
 from ..middleware.enterprise_rate_limiter import magic_link_rate_limit
 
 logger = get_logger(__name__)
@@ -174,7 +174,7 @@ async def request_magic_link(
     description="Magic link token'ını kullanarak kimlik doğrulaması yapar ve oturum oluşturur.",
     response_description="Başarılı magic link kullanım sonucu"
 )
-@limiter.limit("10/minute")  # Rate limit: 10 consumption attempts per minute
+@limit("10/minute")  # Rate limit: 10 consumption attempts per minute
 async def consume_magic_link(
     request: Request,
     response: Response,

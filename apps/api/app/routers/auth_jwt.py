@@ -196,7 +196,7 @@ async def refresh_access_token(
 
 @router.post(
     "/logout",
-    response_model=LogoutResponse,
+    status_code=status.HTTP_204_NO_CONTENT,
     summary="Oturum kapatma",
     description="""
     Mevcut oturumu kapatır ve refresh token'ı iptal eder.
@@ -214,8 +214,7 @@ async def refresh_access_token(
     """,
     responses={
         204: {
-            "description": "Logout başarılı",
-            "model": LogoutResponse
+            "description": "Logout başarılı"
         },
         401: {
             "description": "Geçersiz authentication",
@@ -302,7 +301,7 @@ async def logout_current_session(
 
 @router.post(
     "/logout/all",
-    response_model=LogoutAllResponse,
+    status_code=status.HTTP_204_NO_CONTENT,
     summary="Tüm oturumları kapatma",
     description="""
     Kullanıcının tüm aktif oturumlarını kapatır.
@@ -322,8 +321,7 @@ async def logout_current_session(
     """,
     responses={
         204: {
-            "description": "Tüm oturumlar kapatıldı",
-            "model": LogoutAllResponse
+            "description": "Tüm oturumlar kapatıldı"
         },
         401: {
             "description": "Geçersiz authentication",

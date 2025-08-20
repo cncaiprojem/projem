@@ -10,8 +10,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = 'add_idempotency_records'
-down_revision = 'task_44_invoice_model'
+revision = '20250818_idempotency'
+down_revision = '20250818_1100_task_44'
 branch_labels = None
 depends_on = None
 

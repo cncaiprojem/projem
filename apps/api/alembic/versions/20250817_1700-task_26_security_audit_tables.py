@@ -35,7 +35,7 @@ from migration_helpers import (
 
 # revision identifiers, used by Alembic.
 revision = '20250817_1700_task_26'
-down_revision = '20250817_1600-task_25_billing_tables_enterprise_financial_precision'
+down_revision = '20250817_1600_task_25'
 branch_labels = None
 depends_on = None
 

@@ -73,7 +73,7 @@ class PermissionScope(BaseModel):
     scope: str = Field(
         ...,
         description="Permission scope identifier",
-        regex=r"^[a-z]+:[a-z]+$",
+        pattern=r"^[a-z]+:[a-z]+$",
         example="models:create"
     )
     description: str = Field(

@@ -52,7 +52,7 @@ except ImportError:
 
 # revision identifiers, used by Alembic.
 revision = '20250817_1800_task_27'
-down_revision = '20250817_1700-task_26_security_audit_tables'
+down_revision = '20250817_1700_task_26'
 branch_labels = None
 depends_on = None
 

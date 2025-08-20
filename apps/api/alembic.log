@@ -408,8 +408,6 @@
 2025-08-17 18:19:56 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
 2025-08-17 18:20:22 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
 2025-08-17 18:20:22 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
-<<<<<<< Updated upstream
-=======
 2025-08-20 07:26:21 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
 2025-08-20 07:26:21 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
 2025-08-20 07:27:14 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
@@ -453,18 +451,3 @@
 2025-08-20 09:29:05 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
 2025-08-20 09:29:05 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
 2025-08-20 09:29:05 INFO  [alembic.runtime.migration:623] Running upgrade  -> base_revision, Base revision - enterprise foundation
-2025-08-20 10:18:02 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
-2025-08-20 10:18:02 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
-2025-08-20 10:18:11 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
-2025-08-20 10:18:11 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
-2025-08-20 10:18:11 INFO  [alembic.runtime.migration:623] Running upgrade  -> base_revision, Base revision - enterprise foundation
-2025-08-20 10:18:57 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
-2025-08-20 10:18:57 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
-2025-08-20 10:18:57 INFO  [alembic.runtime.migration:623] Running upgrade  -> base_revision, Base revision - enterprise foundation
-2025-08-20 10:19:30 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
-2025-08-20 10:19:30 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
-2025-08-20 10:19:30 INFO  [alembic.runtime.migration:623] Running upgrade  -> base_revision, Base revision - enterprise foundation
-2025-08-20 10:19:31 INFO  [alembic.runtime.migration:623] Running upgrade base_revision -> 20250817_1200_task_23, Task 2.3: Core tables optimization and Task Master ERD compliance
-2025-08-20 10:19:40 INFO  [alembic.runtime.migration:215] Context impl PostgresqlImpl.
-2025-08-20 10:19:40 INFO  [alembic.runtime.migration:218] Will assume transactional DDL.
->>>>>>> Stashed changes

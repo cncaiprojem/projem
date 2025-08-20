@@ -28,7 +28,7 @@ from fastapi_limiter.depends import RateLimiter
 from sqlalchemy.orm import Session
 from structlog import get_logger
 
-from ..core.redis_config import get_redis_client, get_redis_url
+from ..core.redis_config import get_async_redis_client, get_redis_url
 from ..models.security_event import SecurityEvent
 from ..models.user import User
 from ..middleware.jwt_middleware import AuthenticatedUser
@@ -135,17 +135,19 @@ class EnterpriseRateLimitingService:
     }
     
     def __init__(self):
-        self.redis_client = get_redis_client()
+        self.redis_client = None  # Will be initialized in async initialize()
         self._brute_force_threshold = 20  # Suspicious activity threshold
         self._brute_force_window = 300  # 5 minutes
         
     async def initialize(self):
         """Initialize fastapi-limiter with Redis."""
         try:
+            # Get async Redis client
+            self.redis_client = await get_async_redis_client()
+            
             await FastAPILimiter.init(
                 redis=self.redis_client,
-                prefix="rate_limit",
-                default_key=self._default_key_generator
+                prefix="rate_limit"
             )
             
             logger.info("Enterprise rate limiting initialized", extra={

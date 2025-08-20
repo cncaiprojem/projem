@@ -18,8 +18,8 @@ from alembic import op
 import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
-revision = '20250817_2000_add_3d_printer'
-down_revision = '20250817_1900-task_28_seed_data_migration'
+revision = '20250817_2000_3d_printer'
+down_revision = '20250817_1900_task_28'
 branch_labels = None
 depends_on = None
 

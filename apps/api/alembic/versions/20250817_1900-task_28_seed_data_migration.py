@@ -33,7 +33,7 @@ from decimal import Decimal
 
 # revision identifiers, used by Alembic.
 revision = '20250817_1900_task_28'
-down_revision = '20250817_1800-task_27_global_constraints_performance_indexes'
+down_revision = '20250817_1800_task_27'
 branch_labels = None
 depends_on = None
 

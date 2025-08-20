@@ -121,7 +121,7 @@ def upgrade() -> None:
             sa.Column('duration_seconds', sa.Integer(), nullable=True),
             sa.Column('success', sa.Boolean(), default=False, nullable=False),
             sa.Column('error_message', sa.Text(), nullable=True),
-            sa.Column('postgresql_version', sa.String(255), nullable=True),
+            sa.Column('postgresql_version', sa.String(50), nullable=True),
             sa.Column('alembic_version', sa.String(50), nullable=True),
             sa.Column('environment', sa.String(50), nullable=True),
             sa.Column('applied_by', sa.String(255), nullable=True),
@@ -151,7 +151,7 @@ def upgrade() -> None:
             sa.Column('baseline_value', sa.Numeric(20, 6), nullable=False),
             sa.Column('measurement_unit', sa.String(50), nullable=False),
             sa.Column('measurement_date', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
-            sa.Column('postgresql_version', sa.String(255), nullable=False),
+            sa.Column('postgresql_version', sa.String(50), nullable=False),
             sa.Column('notes', sa.Text(), nullable=True),
         )
         print("✅ Created enterprise_performance_baseline table")
@@ -230,14 +230,14 @@ def upgrade() -> None:
     # 6. Insert initial configuration
     try:
         op.execute(sa.text("""
-            INSERT INTO enterprise_config (config_key, config_value, config_type, description, is_sensitive, environment)
+            INSERT INTO enterprise_config (config_key, config_value, config_type, description, environment)
             VALUES 
-            ('audit.enabled', 'true', 'boolean', 'Enable comprehensive audit logging', false, 'production'),
-            ('audit.retention_days', '2555', 'integer', 'Audit log retention period in days (7 years)', false, 'production'),
-            ('performance.monitoring_enabled', 'true', 'boolean', 'Enable performance monitoring', false, 'production'),
-            ('migration.backup_required', 'true', 'boolean', 'Require backup before major migrations', false, 'production'),
-            ('postgresql.version_target', '17.6', 'string', 'Target PostgreSQL version', false, 'production'),
-            ('naming_convention.enforced', 'true', 'boolean', 'Enforce enterprise naming conventions', false, 'production')
+            ('audit.enabled', 'true', 'boolean', 'Enable comprehensive audit logging', 'production'),
+            ('audit.retention_days', '2555', 'integer', 'Audit log retention period in days (7 years)', 'production'),
+            ('performance.monitoring_enabled', 'true', 'boolean', 'Enable performance monitoring', 'production'),
+            ('migration.backup_required', 'true', 'boolean', 'Require backup before major migrations', 'production'),
+            ('postgresql.version_target', '17.6', 'string', 'Target PostgreSQL version', 'production'),
+            ('naming_convention.enforced', 'true', 'boolean', 'Enforce enterprise naming conventions', 'production')
         """))
         print("✅ Inserted initial configuration")
     except Exception as e:

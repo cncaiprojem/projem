@@ -16,8 +16,8 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
-revision = 'task_411_concurrency_guards'
-down_revision = '20250819_1245-task_49_job_cancellation_on_license_expiry'
+revision = '20250819_task_411'
+down_revision = '20250819_1245_task_49'
 branch_labels = None
 depends_on = None
 
