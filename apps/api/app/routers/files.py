@@ -148,8 +148,8 @@ async def init_upload(
         # Initialize file service
         file_service = get_file_service(db=db)
         
-        # Call service method
-        response = await file_service.init_upload(
+        # Call service method - FileService.init_upload is NOT async
+        response = file_service.init_upload(
             request=request,
             user_id=str(current_user.id),
             client_ip=client_ip,
@@ -258,8 +258,8 @@ async def finalize_upload(
         # Initialize file service
         file_service = get_file_service(db=db)
         
-        # Call service method
-        response = await file_service.finalize_upload(
+        # Call service method - FileService.finalize_upload is NOT async
+        response = file_service.finalize_upload(
             request=request,
             user_id=str(current_user.id),
         )
@@ -396,8 +396,8 @@ async def get_download_url(
         # Initialize file service
         file_service = get_file_service(db=db)
         
-        # Call service method
-        response = await file_service.get_download_url(
+        # Call service method - FileService.get_download_url is NOT async
+        response = file_service.get_download_url(
             file_id=file_id,
             user_id=str(current_user.id),
             version_id=version_id,

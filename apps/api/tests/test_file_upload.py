@@ -91,8 +91,7 @@ def mock_auth_user():
 class TestUploadInit:
     """Test upload initialization endpoint."""
     
-    @pytest.mark.asyncio
-    async def test_init_upload_success(self, file_service):
+    def test_init_upload_success(self, file_service):
         """Test successful upload initialization."""
         request = UploadInitRequest(
             type="model",
@@ -104,7 +103,7 @@ class TestUploadInit:
             filename="part.stl"
         )
         
-        response = await file_service.init_upload(
+        response = file_service.init_upload(
             request=request,
             user_id=str(uuid.uuid4()),
             client_ip="192.168.1.100"
@@ -120,8 +119,7 @@ class TestUploadInit:
         assert "x-amz-tagging" in response.headers
         assert "job_id=job-2024-001" in response.headers["x-amz-tagging"]
     
-    @pytest.mark.asyncio
-    async def test_init_upload_size_too_large(self, file_service):
+    def test_init_upload_size_too_large(self, file_service):
         """Test upload initialization with file too large."""
         request = UploadInitRequest(
             type="model",
@@ -134,10 +132,9 @@ class TestUploadInit:
         
         # This should be rejected by Pydantic validation
         with pytest.raises(ValueError):
-            await file_service.init_upload(request=request)
+            file_service.init_upload(request=request)
     
-    @pytest.mark.asyncio
-    async def test_init_upload_invalid_mime_type(self, file_service):
+    def test_init_upload_invalid_mime_type(self, file_service):
         """Test upload initialization with invalid MIME type."""
         with pytest.raises(ValueError):
             request = UploadInitRequest(
@@ -149,8 +146,7 @@ class TestUploadInit:
                 filename="malware.exe"
             )
     
-    @pytest.mark.asyncio
-    async def test_init_upload_with_tags(self, file_service):
+    def test_init_upload_with_tags(self, file_service):
         """Test upload initialization with object tags."""
         request = UploadInitRequest(
             type="gcode",
@@ -163,13 +159,12 @@ class TestUploadInit:
             filename="part.nc"
         )
         
-        response = await file_service.init_upload(request=request)
+        response = file_service.init_upload(request=request)
         
         assert "machine=cnc-02" in response.headers["x-amz-tagging"]
         assert "post=grbl" in response.headers["x-amz-tagging"]
     
-    @pytest.mark.asyncio
-    async def test_init_upload_creates_session(self, file_service, mock_db):
+    def test_init_upload_creates_session(self, file_service, mock_db):
         """Test that upload init creates a session record."""
         request = UploadInitRequest(
             type="report",
@@ -180,7 +175,7 @@ class TestUploadInit:
             filename="analysis.pdf"
         )
         
-        response = await file_service.init_upload(
+        response = file_service.init_upload(
             request=request,
             user_id=str(uuid.uuid4())
         )
@@ -197,8 +192,7 @@ class TestUploadInit:
 class TestUploadFinalize:
     """Test upload finalization endpoint."""
     
-    @pytest.mark.asyncio
-    async def test_finalize_upload_success(self, file_service, mock_db):
+    def test_finalize_upload_success(self, file_service, mock_db):
         """Test successful upload finalization."""
         # Create mock session
         session = UploadSession(
@@ -221,7 +215,7 @@ class TestUploadFinalize:
             upload_id="upload-123"
         )
         
-        response = await file_service.finalize_upload(
+        response = file_service.finalize_upload(
             request=request,
             user_id=str(uuid.uuid4())
         )
@@ -232,8 +226,7 @@ class TestUploadFinalize:
         assert response.size == 5242880
         assert response.sha256 == session.expected_sha256
     
-    @pytest.mark.asyncio
-    async def test_finalize_upload_session_not_found(self, file_service, mock_db):
+    def test_finalize_upload_session_not_found(self, file_service, mock_db):
         """Test finalization with non-existent session."""
         mock_db.query.return_value.filter_by.return_value.first.return_value = None
         
@@ -243,12 +236,11 @@ class TestUploadFinalize:
         )
         
         with pytest.raises(FileServiceError) as exc_info:
-            await file_service.finalize_upload(request=request)
+            file_service.finalize_upload(request=request)
         
         assert exc_info.value.code == UploadErrorCode.NOT_FOUND
     
-    @pytest.mark.asyncio
-    async def test_finalize_upload_session_expired(self, file_service, mock_db):
+    def test_finalize_upload_session_expired(self, file_service, mock_db):
         """Test finalization with expired session."""
         session = UploadSession(
             upload_id="upload-123",
@@ -271,13 +263,12 @@ class TestUploadFinalize:
         )
         
         with pytest.raises(FileServiceError) as exc_info:
-            await file_service.finalize_upload(request=request)
+            file_service.finalize_upload(request=request)
         
         assert exc_info.value.code == UploadErrorCode.UPLOAD_INCOMPLETE
         assert "expired" in exc_info.value.message.lower()
     
-    @pytest.mark.asyncio
-    async def test_finalize_upload_key_mismatch(self, file_service, mock_db):
+    def test_finalize_upload_key_mismatch(self, file_service, mock_db):
         """Test finalization with mismatched object key."""
         session = UploadSession(
             upload_id="upload-123",
@@ -300,16 +291,58 @@ class TestUploadFinalize:
         )
         
         with pytest.raises(FileServiceError) as exc_info:
-            await file_service.finalize_upload(request=request)
+            file_service.finalize_upload(request=request)
         
         assert exc_info.value.code == UploadErrorCode.INVALID_INPUT
+    
+    def test_finalize_upload_sha256_mismatch(self, file_service, mock_db, mock_minio_client):
+        """Test finalization with SHA256 hash mismatch - CRITICAL security test."""
+        # Create a session with expected SHA256
+        expected_sha256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        session = UploadSession(
+            upload_id="upload-123",
+            object_key="artefacts/job-2024-001/test.stl",
+            expected_size=5242880,
+            expected_sha256=expected_sha256,
+            mime_type="application/sla",
+            job_id="job-2024-001",
+            status="pending",
+            created_at=datetime.utcnow(),
+            expires_at=datetime.utcnow() + timedelta(minutes=5),
+            metadata={}
+        )
+        
+        mock_db.query.return_value.filter_by.return_value.first.return_value = session
+        
+        # Mock MinIO client to return file data with different content (wrong hash)
+        mock_data = MagicMock()
+        mock_data.stream.return_value = [b"different content than expected"]
+        mock_data.close = MagicMock()
+        mock_data.release_conn = MagicMock()
+        mock_minio_client.get_object.return_value = mock_data
+        
+        request = UploadFinalizeRequest(
+            key="artefacts/job-2024-001/test.stl",
+            upload_id="upload-123"
+        )
+        
+        # Should raise HASH_MISMATCH error
+        with pytest.raises(FileServiceError) as exc_info:
+            file_service.finalize_upload(request=request)
+        
+        assert exc_info.value.code == UploadErrorCode.HASH_MISMATCH
+        assert expected_sha256 in exc_info.value.message
+        
+        # Verify object was deleted due to hash mismatch
+        mock_minio_client.remove_object.assert_called_once_with(
+            "artefacts", "job-2024-001/test.stl"
+        )
 
 
 class TestDownloadURL:
     """Test download URL generation endpoint."""
     
-    @pytest.mark.asyncio
-    async def test_get_download_url_success(self, file_service, mock_db):
+    def test_get_download_url_success(self, file_service, mock_db):
         """Test successful download URL generation."""
         file_metadata = FileMetadata(
             id=uuid.uuid4(),
@@ -328,7 +361,7 @@ class TestDownloadURL:
         
         mock_db.query.return_value.filter_by.return_value.first.return_value = file_metadata
         
-        response = await file_service.get_download_url(
+        response = file_service.get_download_url(
             file_id=str(file_metadata.id),
             user_id=str(file_metadata.user_id)
         )
@@ -339,21 +372,19 @@ class TestDownloadURL:
         assert response.file_info["key"] == file_metadata.object_key
         assert response.file_info["size"] == file_metadata.size
     
-    @pytest.mark.asyncio
-    async def test_get_download_url_file_not_found(self, file_service, mock_db):
+    def test_get_download_url_file_not_found(self, file_service, mock_db):
         """Test download URL generation for non-existent file."""
         mock_db.query.return_value.filter_by.return_value.first.return_value = None
         
         with pytest.raises(FileServiceError) as exc_info:
-            await file_service.get_download_url(
+            file_service.get_download_url(
                 file_id=str(uuid.uuid4()),
                 user_id=str(uuid.uuid4())
             )
         
         assert exc_info.value.code == UploadErrorCode.NOT_FOUND
     
-    @pytest.mark.asyncio
-    async def test_get_download_url_access_denied(self, file_service, mock_db):
+    def test_get_download_url_access_denied(self, file_service, mock_db):
         """Test download URL generation with access denied."""
         file_metadata = FileMetadata(
             id=uuid.uuid4(),
@@ -374,15 +405,14 @@ class TestDownloadURL:
         
         # For now, this should succeed (basic auth only)
         # Task 5.7 will implement full RBAC
-        response = await file_service.get_download_url(
+        response = file_service.get_download_url(
             file_id=str(file_metadata.id),
             user_id=str(uuid.uuid4())  # Different user
         )
         
         assert isinstance(response, FileDownloadResponse)
     
-    @pytest.mark.asyncio
-    async def test_get_download_url_with_version(self, file_service, mock_db):
+    def test_get_download_url_with_version(self, file_service, mock_db):
         """Test download URL generation with specific version."""
         file_metadata = FileMetadata(
             id=uuid.uuid4(),
@@ -401,7 +431,7 @@ class TestDownloadURL:
         
         mock_db.query.return_value.filter_by.return_value.first.return_value = file_metadata
         
-        response = await file_service.get_download_url(
+        response = file_service.get_download_url(
             file_id=str(file_metadata.id),
             user_id=str(uuid.uuid4()),
             version_id="v1.0.0"

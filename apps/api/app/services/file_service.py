@@ -395,7 +395,7 @@ class FileService:
                     status_code=413,
                 )
             
-            # Step 5: Verify SHA256 hash
+            # Step 5: Verify SHA256 hash by downloading and computing actual hash
             if not session:
                 raise FileServiceError(
                     code=UploadErrorCode.INVALID_INPUT,
@@ -404,7 +404,82 @@ class FileService:
                     status_code=400,
                 )
             
-            actual_sha256 = session.expected_sha256
+            # Download the file and compute its actual SHA256 hash for verification
+            logger.info(
+                "Starting SHA256 verification",
+                bucket=bucket_name,
+                object=object_name,
+            )
+            
+            try:
+                # Stream the object and compute its SHA256 hash
+                data = self.client.get_object(bucket_name, object_name)
+                hasher = hashlib.sha256()
+                
+                # Stream through the file in chunks to compute hash efficiently
+                chunk_size = 32 * 1024  # 32KB chunks
+                for chunk in data.stream(chunk_size):
+                    hasher.update(chunk)
+                
+                # Clean up the connection
+                data.close()
+                data.release_conn()
+                
+                actual_sha256 = hasher.hexdigest()
+                
+                logger.info(
+                    "SHA256 computed",
+                    expected=session.expected_sha256,
+                    actual=actual_sha256,
+                )
+                
+                # Verify the hash matches what was expected
+                if actual_sha256 != session.expected_sha256:
+                    # Delete the object as it failed verification
+                    try:
+                        self.client.remove_object(bucket_name, object_name)
+                        logger.warning(
+                            "Object deleted due to hash mismatch",
+                            bucket=bucket_name,
+                            object=object_name,
+                            expected_sha256=session.expected_sha256,
+                            actual_sha256=actual_sha256,
+                        )
+                    except S3Error as e:
+                        logger.error(
+                            "Failed to delete object after hash mismatch",
+                            error=str(e),
+                            bucket=bucket_name,
+                            object=object_name,
+                        )
+                    
+                    raise FileServiceError(
+                        code=UploadErrorCode.HASH_MISMATCH,
+                        message=f"SHA256 hash mismatch: expected {session.expected_sha256}, got {actual_sha256}",
+                        turkish_message=f"SHA256 özet uyuşmazlığı: beklenen {session.expected_sha256}, alınan {actual_sha256}",
+                        details={
+                            "expected_sha256": session.expected_sha256,
+                            "actual_sha256": actual_sha256,
+                        },
+                        status_code=422,
+                    )
+                
+            except FileServiceError:
+                raise
+            except Exception as e:
+                logger.error(
+                    "Failed to verify SHA256 hash",
+                    error=str(e),
+                    bucket=bucket_name,
+                    object=object_name,
+                    exc_info=True,
+                )
+                raise FileServiceError(
+                    code=UploadErrorCode.STORAGE_ERROR,
+                    message=f"Failed to verify file integrity: {str(e)}",
+                    turkish_message=f"Dosya bütünlüğü doğrulanamadı: {str(e)}",
+                    status_code=500,
+                )
             
             # Step 6: Create file metadata record
             if self.db:
