@@ -24,13 +24,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 import structlog
 from minio.error import S3Error
+import uuid
 
 from app.core.minio_config import (
     MinIOClientFactory,
     MinIOConfig,
     StorageErrorCode,
 )
-from app.services.s3_service import S3Service, get_s3_service
+from app.services.s3_service import S3Service, get_s3_service, StorageError
 from app.schemas.file_schemas import BucketType
 
 # Configure logging
@@ -461,7 +462,7 @@ class MinIOConfigTester:
         else:
             print("❌ Some tests failed. Please check the configuration.")
         
-        print("=" * 80)
+        print("=" * 100)
 
 
 async def main():

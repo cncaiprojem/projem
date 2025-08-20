@@ -8,11 +8,14 @@ and proper error handling with Turkish localization.
 
 from __future__ import annotations
 
+import hashlib
 import io
+import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import BinaryIO, Dict, List, Optional, Tuple, Union
+from typing import BinaryIO, Dict, List, Optional, Tuple, Union, Final, AsyncContextManager
+from contextlib import asynccontextmanager
 
 import structlog
 from minio import Minio
@@ -33,6 +36,14 @@ from app.schemas.file_schemas import (
 )
 
 logger = structlog.get_logger(__name__)
+
+# Constants for file operations
+MAX_FILE_SIZE: Final[int] = 5 * 1024 * 1024 * 1024  # 5GB max file size
+MIN_MULTIPART_SIZE: Final[int] = 5 * 1024 * 1024  # 5MB minimum for multipart
+DEFAULT_PRESIGNED_EXPIRY: Final[int] = 3600  # 1 hour default expiry
+MAX_PRESIGNED_EXPIRY: Final[int] = 7 * 24 * 3600  # 7 days max expiry
+MAX_LIST_RESULTS: Final[int] = 1000  # Maximum objects to list
+CHUNK_SIZE: Final[int] = 8192  # 8KB chunk size for streaming
 
 
 class S3Service:
@@ -55,10 +66,24 @@ class S3Service:
         Args:
             client: Optional MinIO client instance (uses factory if not provided)
             config: Optional MinIO configuration (uses factory if not provided)
+            
+        Raises:
+            ConnectionError: If MinIO connection cannot be established
         """
-        self.client = client or get_minio_client()
-        self.config = config or get_minio_config()
-        self._ensure_buckets()
+        try:
+            self.client = client or get_minio_client()
+            self.config = config or get_minio_config()
+            self._bucket_cache: Dict[str, bool] = {}  # Cache for bucket existence
+            self._ensure_buckets()
+        except Exception as e:
+            logger.error(
+                "Failed to initialize S3 service",
+                error=str(e),
+                exc_info=True
+            )
+            raise ConnectionError(
+                f"S3 servisi başlatılamadı: {str(e)}"
+            )
     
     def _ensure_buckets(self) -> None:
         """Ensure all required buckets exist."""

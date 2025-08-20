@@ -19,20 +19,32 @@ import os
 import ssl
 import time
 from dataclasses import dataclass
-from decimal import Decimal
-from typing import Any, Dict, Optional, TYPE_CHECKING
+from decimal import Decimal, InvalidOperation
+from typing import Any, Dict, Optional, TYPE_CHECKING, Final
 
+import hashlib
 import structlog
+from contextlib import contextmanager
 from minio import Minio
 from minio.error import S3Error
 from urllib3 import HTTPSConnectionPool, PoolManager
-from urllib3.exceptions import MaxRetryError, TimeoutError
+from urllib3.exceptions import MaxRetryError, TimeoutError, HTTPError
 from urllib3.util.retry import Retry
 
 if TYPE_CHECKING:
     from urllib3.response import HTTPResponse
 
 logger = structlog.get_logger(__name__)
+
+# Constants for improved maintainability
+DEFAULT_CONNECT_TIMEOUT: Final[int] = 10
+DEFAULT_READ_TIMEOUT: Final[int] = 60
+DEFAULT_MAX_RETRIES: Final[int] = 3
+DEFAULT_RETRY_BACKOFF: Final[Decimal] = Decimal("0.5")
+DEFAULT_POOL_SIZE: Final[int] = 10
+CONNECTION_CHECK_INTERVAL: Final[float] = 60.0
+MAX_OBJECT_KEY_LENGTH: Final[int] = 1024
+MIN_PASSWORD_LENGTH: Final[int] = 8
 
 
 @dataclass
@@ -63,12 +75,12 @@ class MinIOConfig:
     region: Optional[str] = None
     cert_check: bool = True
     ca_bundle: Optional[str] = None
-    connect_timeout: int = 10
-    read_timeout: int = 60
-    max_retries: int = 3
-    retry_backoff_factor: Decimal = Decimal("0.5")
-    pool_connections: int = 10
-    pool_maxsize: int = 10
+    connect_timeout: int = DEFAULT_CONNECT_TIMEOUT
+    read_timeout: int = DEFAULT_READ_TIMEOUT
+    max_retries: int = DEFAULT_MAX_RETRIES
+    retry_backoff_factor: Decimal = DEFAULT_RETRY_BACKOFF
+    pool_connections: int = DEFAULT_POOL_SIZE
+    pool_maxsize: int = DEFAULT_POOL_SIZE
     
     # Bucket names for different purposes
     bucket_artefacts: str = "artefacts"
@@ -93,31 +105,36 @@ class MinIOConfig:
         access_key = os.getenv("MINIO_ACCESS_KEY")
         secret_key = os.getenv("MINIO_SECRET_KEY")
         
-        # Validate required variables
+        # Validate required variables with enhanced error messages
+        missing_vars = []
         if not endpoint:
-            raise ValueError(
-                "MINIO_ENDPOINT ortam değişkeni tanımlanmamış. "
-                "MinIO sunucu adresi gerekli. (ör: minio:9000)"
-            )
+            missing_vars.append("MINIO_ENDPOINT")
         if not access_key:
-            raise ValueError(
-                "MINIO_ACCESS_KEY ortam değişkeni tanımlanmamış. "
-                "MinIO erişim anahtarı gerekli."
-            )
+            missing_vars.append("MINIO_ACCESS_KEY")
         if not secret_key:
+            missing_vars.append("MINIO_SECRET_KEY")
+        
+        if missing_vars:
             raise ValueError(
-                "MINIO_SECRET_KEY ortam değişkeni tanımlanmamış. "
-                "MinIO gizli anahtarı gerekli."
+                f"Eksik ortam değişkenleri: {', '.join(missing_vars)}. "
+                f"MinIO yapılandırması için gerekli değişkenler tanımlanmalıdır. "
+                f"Lütfen .env dosyanızı kontrol edin."
             )
         
-        # Security check: Prevent root credentials in non-local environments
+        # Validate endpoint format
+        if not cls._validate_endpoint_format(endpoint):
+            raise ValueError(
+                f"Geçersiz MINIO_ENDPOINT formatı: {endpoint}. "
+                f"Format: host:port (örn: minio:9000 veya s3.amazonaws.com)"
+            )
+        
+        # Enhanced security validation
         env_type = os.getenv("ENV", "development")
-        if env_type not in ["development", "local", "test"]:
-            if access_key in ["minioadmin", "admin", "root"]:
-                raise ValueError(
-                    f"Güvenlik İhlali: {env_type} ortamında root kimlik bilgileri kullanılamaz. "
-                    "Lütfen least-privilege service kullanıcısı oluşturun."
-                )
+        cls._validate_credentials_security(
+            access_key=access_key,
+            secret_key=secret_key,
+            env_type=env_type
+        )
         
         # Optional environment variables with defaults
         secure = os.getenv("MINIO_SECURE", "true").lower() == "true"
@@ -125,17 +142,93 @@ class MinIOConfig:
         cert_check = os.getenv("MINIO_CERT_CHECK", "true").lower() == "true"
         ca_bundle = os.getenv("MINIO_CA_BUNDLE")
         
-        # Timeout configurations
-        connect_timeout = int(os.getenv("MINIO_CONNECT_TIMEOUT", "10"))
-        read_timeout = int(os.getenv("MINIO_READ_TIMEOUT", "60"))
+        # Timeout configurations with validation
+        try:
+            connect_timeout = int(os.getenv("MINIO_CONNECT_TIMEOUT", str(DEFAULT_CONNECT_TIMEOUT)))
+            read_timeout = int(os.getenv("MINIO_READ_TIMEOUT", str(DEFAULT_READ_TIMEOUT)))
+            
+            # Validate timeout ranges
+            if connect_timeout < 1 or connect_timeout > 300:
+                logger.warning(
+                    "Connect timeout out of range, using default",
+                    provided=connect_timeout,
+                    default=DEFAULT_CONNECT_TIMEOUT
+                )
+                connect_timeout = DEFAULT_CONNECT_TIMEOUT
+            
+            if read_timeout < 1 or read_timeout > 3600:
+                logger.warning(
+                    "Read timeout out of range, using default",
+                    provided=read_timeout,
+                    default=DEFAULT_READ_TIMEOUT
+                )
+                read_timeout = DEFAULT_READ_TIMEOUT
+                
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                "Invalid timeout configuration, using defaults",
+                error=str(e)
+            )
+            connect_timeout = DEFAULT_CONNECT_TIMEOUT
+            read_timeout = DEFAULT_READ_TIMEOUT
         
-        # Retry configurations
-        max_retries = int(os.getenv("MINIO_MAX_RETRIES", "3"))
-        retry_backoff = Decimal(os.getenv("MINIO_RETRY_BACKOFF", "0.5"))
+        # Retry configurations with validation
+        try:
+            max_retries = int(os.getenv("MINIO_MAX_RETRIES", str(DEFAULT_MAX_RETRIES)))
+            if max_retries < 0 or max_retries > 10:
+                logger.warning(
+                    "Max retries out of range, using default",
+                    provided=max_retries,
+                    default=DEFAULT_MAX_RETRIES
+                )
+                max_retries = DEFAULT_MAX_RETRIES
+                
+            retry_backoff = Decimal(os.getenv("MINIO_RETRY_BACKOFF", str(DEFAULT_RETRY_BACKOFF)))
+            if retry_backoff < Decimal("0.1") or retry_backoff > Decimal("5.0"):
+                logger.warning(
+                    "Retry backoff out of range, using default",
+                    provided=retry_backoff,
+                    default=DEFAULT_RETRY_BACKOFF
+                )
+                retry_backoff = DEFAULT_RETRY_BACKOFF
+                
+        except (ValueError, TypeError, InvalidOperation) as e:
+            logger.warning(
+                "Invalid retry configuration, using defaults",
+                error=str(e)
+            )
+            max_retries = DEFAULT_MAX_RETRIES
+            retry_backoff = DEFAULT_RETRY_BACKOFF
         
-        # Connection pool configurations
-        pool_connections = int(os.getenv("MINIO_POOL_CONNECTIONS", "10"))
-        pool_maxsize = int(os.getenv("MINIO_POOL_MAXSIZE", "10"))
+        # Connection pool configurations with validation
+        try:
+            pool_connections = int(os.getenv("MINIO_POOL_CONNECTIONS", str(DEFAULT_POOL_SIZE)))
+            pool_maxsize = int(os.getenv("MINIO_POOL_MAXSIZE", str(DEFAULT_POOL_SIZE)))
+            
+            # Validate pool sizes
+            if pool_connections < 1 or pool_connections > 100:
+                logger.warning(
+                    "Pool connections out of range, using default",
+                    provided=pool_connections,
+                    default=DEFAULT_POOL_SIZE
+                )
+                pool_connections = DEFAULT_POOL_SIZE
+                
+            if pool_maxsize < pool_connections:
+                logger.warning(
+                    "Pool maxsize less than connections, adjusting",
+                    connections=pool_connections,
+                    maxsize=pool_maxsize
+                )
+                pool_maxsize = pool_connections
+                
+        except (ValueError, TypeError) as e:
+            logger.warning(
+                "Invalid pool configuration, using defaults",
+                error=str(e)
+            )
+            pool_connections = DEFAULT_POOL_SIZE
+            pool_maxsize = DEFAULT_POOL_SIZE
         
         # Bucket names
         bucket_artefacts = os.getenv("MINIO_BUCKET_ARTEFACTS", "artefacts")
@@ -176,11 +269,82 @@ class MinIOConfig:
             bucket_invoices=bucket_invoices,
             bucket_temp=bucket_temp
         )
+    
+    @classmethod
+    def _validate_endpoint_format(cls, endpoint: str) -> bool:
+        """Validate endpoint format."""
+        if not endpoint or ":" not in endpoint:
+            return False
+        
+        parts = endpoint.split(":")
+        if len(parts) != 2:
+            return False
+            
+        host, port = parts
+        if not host:
+            return False
+            
+        # Check if port is numeric (unless it's a domain like s3.amazonaws.com)
+        if port and not port.isdigit() and "." not in host:
+            return False
+            
+        return True
+    
+    @classmethod
+    def _validate_credentials_security(
+        cls,
+        access_key: str,
+        secret_key: str,
+        env_type: str
+    ) -> None:
+        """Validate credentials meet security requirements."""
+        # Check for weak/default credentials
+        weak_credentials = [
+            "minioadmin", "admin", "root", "password",
+            "123456", "test", "demo", "default"
+        ]
+        
+        if env_type not in ["development", "local", "test"]:
+            # Production environment checks
+            if access_key.lower() in weak_credentials:
+                raise ValueError(
+                    f"Güvenlik İhlali: {env_type} ortamında zayıf erişim anahtarı '{access_key}' kullanılamaz. "
+                    f"Lütfen güçlü, rastgele oluşturulmuş kimlik bilgileri kullanın."
+                )
+            
+            if len(secret_key) < MIN_PASSWORD_LENGTH:
+                raise ValueError(
+                    f"Güvenlik İhlali: {env_type} ortamında gizli anahtar en az {MIN_PASSWORD_LENGTH} karakter olmalıdır. "
+                    f"Mevcut uzunluk: {len(secret_key)}"
+                )
+            
+            # Check for complexity
+            if secret_key.lower() == secret_key or secret_key.upper() == secret_key:
+                logger.warning(
+                    "Gizli anahtar karmaşıklığı düşük",
+                    env_type=env_type,
+                    recommendation="Büyük/küçük harf, rakam ve özel karakterler kullanın"
+                )
+        
+        # Log security audit
+        logger.info(
+            "Kimlik bilgileri güvenlik kontrolü tamamlandı",
+            env_type=env_type,
+            access_key_length=len(access_key),
+            secret_key_length=len(secret_key),
+            access_key_hash=hashlib.sha256(access_key.encode()).hexdigest()[:8]
+        )
 
 
 class ResilientHTTPClient:
     """
     HTTP client with retry logic and exponential backoff for MinIO operations.
+    
+    Features:
+    - Automatic retry with exponential backoff
+    - Connection pooling for performance
+    - TLS/SSL support with certificate validation
+    - Graceful error handling
     """
     
     def __init__(self, config: MinIOConfig):
@@ -189,8 +353,15 @@ class ResilientHTTPClient:
         
         Args:
             config: MinIO configuration
+            
+        Raises:
+            ValueError: If configuration is invalid
         """
+        if not config:
+            raise ValueError("MinIO configuration is required")
+            
         self.config = config
+        self.pool_manager: Optional[PoolManager] = None
         self._setup_retry_strategy()
         self._setup_connection_pool()
     
@@ -199,33 +370,77 @@ class ResilientHTTPClient:
         self.retry_strategy = Retry(
             total=self.config.max_retries,
             backoff_factor=float(self.config.retry_backoff_factor),
-            status_forcelist=[408, 429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "PUT", "POST", "DELETE"],
-            raise_on_status=False
+            status_forcelist=[408, 429, 500, 502, 503, 504, 507],  # Added 507 Insufficient Storage
+            allowed_methods=["HEAD", "GET", "PUT", "POST", "DELETE", "OPTIONS"],
+            raise_on_status=False,
+            respect_retry_after_header=True,  # Honor Retry-After headers
+            remove_headers_on_redirect=["Authorization"]  # Security: Remove auth on redirect
         )
     
     def _setup_connection_pool(self) -> None:
         """Configure connection pool with TLS/SSL settings."""
-        # SSL context configuration
-        ssl_context = None
-        if self.config.secure:
-            ssl_context = ssl.create_default_context()
+        try:
+            # SSL context configuration
+            ssl_context = None
+            if self.config.secure:
+                ssl_context = ssl.create_default_context()
+                
+                # Configure SSL/TLS version (use TLS 1.2 minimum)
+                ssl_context.minimum_version = ssl.TLSVersion.TLSv1_2
+                
+                if self.config.ca_bundle:
+                    if not os.path.exists(self.config.ca_bundle):
+                        logger.warning(
+                            "CA bundle file not found, using system defaults",
+                            ca_bundle=self.config.ca_bundle
+                        )
+                    else:
+                        ssl_context.load_verify_locations(self.config.ca_bundle)
+                
+                if not self.config.cert_check:
+                    logger.warning(
+                        "SSL certificate verification disabled - security risk!",
+                        endpoint=self.config.endpoint
+                    )
+                    ssl_context.check_hostname = False
+                    ssl_context.verify_mode = ssl.CERT_NONE
             
-            if self.config.ca_bundle:
-                ssl_context.load_verify_locations(self.config.ca_bundle)
+            # Create pool manager with retry strategy
+            self.pool_manager = PoolManager(
+                num_pools=self.config.pool_connections,
+                maxsize=self.config.pool_maxsize,
+                retries=self.retry_strategy,
+                timeout=self.config.connect_timeout,
+                ssl_context=ssl_context if self.config.secure else None,
+                block=False  # Non-blocking pool
+            )
             
-            if not self.config.cert_check:
-                ssl_context.check_hostname = False
-                ssl_context.verify_mode = ssl.CERT_NONE
-        
-        # Create pool manager with retry strategy
-        self.pool_manager = PoolManager(
-            num_pools=self.config.pool_connections,
-            maxsize=self.config.pool_maxsize,
-            retries=self.retry_strategy,
-            timeout=self.config.connect_timeout,
-            ssl_context=ssl_context if self.config.secure else None
-        )
+            logger.info(
+                "HTTP connection pool configured",
+                secure=self.config.secure,
+                cert_check=self.config.cert_check,
+                pool_size=self.config.pool_maxsize
+            )
+            
+        except Exception as e:
+            logger.error(
+                "Failed to setup connection pool",
+                error=str(e),
+                exc_info=True
+            )
+            raise
+    
+    def cleanup(self) -> None:
+        """Clean up connection pool resources."""
+        if self.pool_manager:
+            try:
+                self.pool_manager.clear()
+                logger.info("HTTP connection pool cleaned up")
+            except Exception as e:
+                logger.warning(
+                    "Error cleaning up connection pool",
+                    error=str(e)
+                )
 
 
 class MinIOClientFactory:
@@ -236,7 +451,8 @@ class MinIOClientFactory:
     _instance: Optional[Minio] = None
     _config: Optional[MinIOConfig] = None
     _last_connection_check: float = 0
-    _connection_check_interval: float = 60.0  # Check connection every 60 seconds
+    _connection_check_interval: float = CONNECTION_CHECK_INTERVAL
+    _cleanup_registered: bool = False
     
     @classmethod
     def get_client(cls, force_new: bool = False) -> Minio:
@@ -266,6 +482,12 @@ class MinIOClientFactory:
             cls._create_client()
             cls._verify_connection()
             cls._last_connection_check = current_time
+            
+            # Register cleanup handler if not already done
+            if not cls._cleanup_registered:
+                import atexit
+                atexit.register(cls._cleanup)
+                cls._cleanup_registered = True
         
         return cls._instance
     
@@ -335,8 +557,14 @@ class MinIOClientFactory:
                 last_error = e
                 if e.code == "AccessDenied":
                     # Access denied means connection works but credentials are wrong
+                    logger.error(
+                        "MinIO access denied",
+                        error_code=e.code,
+                        error_message=e.message,
+                        endpoint=cls._config.endpoint if cls._config else "unknown"
+                    )
                     raise ConnectionError(
-                        f"MinIO erişim reddedildi: Kimlik bilgileri hatalı. "
+                        f"MinIO erişim reddedildi: Kimlik bilgileri hatalı veya yetkisiz. "
                         f"Kod: {e.code}, Mesaj: {e.message}"
                     )
                 
@@ -348,7 +576,7 @@ class MinIOClientFactory:
                     error_message=e.message
                 )
                 
-            except (MaxRetryError, TimeoutError) as e:
+            except (MaxRetryError, TimeoutError, HTTPError) as e:
                 last_error = e
                 logger.warning(
                     "MinIO connection timeout",
@@ -367,10 +595,20 @@ class MinIOClientFactory:
                     exc_info=True
                 )
             
-            # Exponential backoff before retry
+            # Exponential backoff before retry with jitter
             if attempt < max_attempts:
-                wait_time = float(cls._config.retry_backoff_factor) * (2 ** (attempt - 1))
-                logger.info(f"Retrying in {wait_time} seconds...")
+                base_wait = float(cls._config.retry_backoff_factor) * (2 ** (attempt - 1))
+                # Add jitter to prevent thundering herd
+                import random
+                jitter = random.uniform(0, base_wait * 0.1)
+                wait_time = min(base_wait + jitter, 30.0)  # Cap at 30 seconds
+                
+                logger.info(
+                    "Retrying MinIO connection",
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    wait_time=wait_time
+                )
                 time.sleep(wait_time)
         
         # All attempts failed
@@ -401,11 +639,46 @@ class MinIOClientFactory:
     @classmethod
     def reset(cls) -> None:
         """Reset client instance and configuration."""
+        cls._cleanup()
         cls._instance = None
         cls._config = None
         cls._last_connection_check = 0
         logger.info("MinIO client factory reset")
+    
+    @classmethod
+    def _cleanup(cls) -> None:
+        """Clean up resources."""
+        if cls._instance:
+            try:
+                # Clean up HTTP client if it has our custom client
+                if hasattr(cls._instance, "_http") and hasattr(cls._instance._http, "cleanup"):
+                    cls._instance._http.cleanup()
+                logger.info("MinIO client resources cleaned up")
+            except Exception as e:
+                logger.warning(
+                    "Error during MinIO client cleanup",
+                    error=str(e)
+                )
 
+
+@contextmanager
+def get_minio_client_context():
+    """
+    Context manager for MinIO client with automatic cleanup.
+    
+    Yields:
+        Minio: Configured MinIO client
+        
+    Example:
+        with get_minio_client_context() as client:
+            client.list_buckets()
+    """
+    client = MinIOClientFactory.get_client()
+    try:
+        yield client
+    finally:
+        # Cleanup is handled by factory
+        pass
 
 def get_minio_client() -> Minio:
     """
@@ -434,21 +707,27 @@ def get_minio_config() -> MinIOConfig:
 class StorageErrorCode:
     """Storage service error codes for consistent error handling."""
     
-    STORAGE_UNAVAILABLE = "STORAGE_UNAVAILABLE"
-    STORAGE_TLS_ERROR = "STORAGE_TLS_ERROR"
-    STORAGE_AUTH_ERROR = "STORAGE_AUTH_ERROR"
-    STORAGE_TIMEOUT = "STORAGE_TIMEOUT"
-    STORAGE_NOT_FOUND = "STORAGE_NOT_FOUND"
-    STORAGE_PERMISSION_DENIED = "STORAGE_PERMISSION_DENIED"
-    STORAGE_QUOTA_EXCEEDED = "STORAGE_QUOTA_EXCEEDED"
-    STORAGE_INVALID_KEY = "STORAGE_INVALID_KEY"
-    STORAGE_OPERATION_FAILED = "STORAGE_OPERATION_FAILED"
+    STORAGE_UNAVAILABLE: Final[str] = "STORAGE_UNAVAILABLE"
+    STORAGE_TLS_ERROR: Final[str] = "STORAGE_TLS_ERROR"
+    STORAGE_AUTH_ERROR: Final[str] = "STORAGE_AUTH_ERROR"
+    STORAGE_TIMEOUT: Final[str] = "STORAGE_TIMEOUT"
+    STORAGE_NOT_FOUND: Final[str] = "STORAGE_NOT_FOUND"
+    STORAGE_PERMISSION_DENIED: Final[str] = "STORAGE_PERMISSION_DENIED"
+    STORAGE_QUOTA_EXCEEDED: Final[str] = "STORAGE_QUOTA_EXCEEDED"
+    STORAGE_INVALID_KEY: Final[str] = "STORAGE_INVALID_KEY"
+    STORAGE_OPERATION_FAILED: Final[str] = "STORAGE_OPERATION_FAILED"
+    STORAGE_INVALID_CONTENT: Final[str] = "STORAGE_INVALID_CONTENT"
+    STORAGE_CHECKSUM_MISMATCH: Final[str] = "STORAGE_CHECKSUM_MISMATCH"
+    STORAGE_VERSION_CONFLICT: Final[str] = "STORAGE_VERSION_CONFLICT"
+    STORAGE_RATE_LIMITED: Final[str] = "STORAGE_RATE_LIMITED"
 
 
 __all__ = [
     "MinIOConfig",
     "MinIOClientFactory",
+    "ResilientHTTPClient",
     "get_minio_client",
+    "get_minio_client_context",
     "get_minio_config",
     "StorageErrorCode",
 ]
