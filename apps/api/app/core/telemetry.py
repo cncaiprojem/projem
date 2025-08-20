@@ -78,12 +78,12 @@ class TelemetryManager:
             "telemetry.version": "1.20.0"
         })
         
-        # Configure sampling based on environment
-        if settings.env == "production":
-            # Production: 10% sampling for performance
-            sampler = TraceIdRatioBased(0.1)
+        # Configure sampling based on settings
+        if settings.otel_trace_sampler == "ratio_based":
+            # Use configured ratio for sampling
+            sampler = TraceIdRatioBased(settings.otel_trace_sampler_ratio)
         else:
-            # Development: Always sample for debugging
+            # Always sample (default for development)
             sampler = ALWAYS_ON
             
         # Create tracer provider
@@ -107,7 +107,8 @@ class TelemetryManager:
             "telemetry_initialization_tamamlandı",
             extra={
                 "service": settings.otel_service_name,
-                "sampling_rate": 0.1 if settings.env == "production" else 1.0,
+                "sampling_rate": settings.otel_trace_sampler_ratio if settings.otel_trace_sampler == "ratio_based" else 1.0,
+                "sampler_type": settings.otel_trace_sampler,
                 "exporters_configured": True,
                 "compliance_ready": True
             }
@@ -128,7 +129,7 @@ class TelemetryManager:
         if settings.otel_exporter_otlp_endpoint:
             otlp_exporter = OTLPSpanExporter(
                 endpoint=settings.otel_exporter_otlp_endpoint,
-                insecure=True  # Use TLS in production
+                insecure=settings.otel_exporter_insecure  # Configurable TLS setting
             )
             otlp_processor = BatchSpanProcessor(otlp_exporter)
             self._tracer_provider.add_span_processor(otlp_processor)
@@ -137,7 +138,7 @@ class TelemetryManager:
                 "otlp_exporter_yapılandırıldı",
                 extra={
                     "endpoint": settings.otel_exporter_otlp_endpoint,
-                    "security": "tls_ready",
+                    "security": "insecure" if settings.otel_exporter_insecure else "tls_enabled",
                     "compliance": "enterprise_grade"
                 }
             )

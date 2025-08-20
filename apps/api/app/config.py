@@ -46,7 +46,13 @@ class Settings(BaseSettings):
 
     otel_exporter_otlp_endpoint: str | None = None
     otel_service_name: str = "freecad-api"
+    otel_trace_sampler: str = "always_on"  # always_on or ratio_based
+    otel_trace_sampler_ratio: float = 1.0  # Sampling ratio for ratio_based sampler (0.0-1.0)
+    otel_exporter_insecure: bool = True  # Use TLS if False (set to False in production)
     sentry_dsn: str | None = None
+    
+    # Logging configuration
+    pii_redaction_enabled: bool = True  # Enable PII redaction in logs (default to true for security)
 
     freecadcmd_path: str | None = None
     freecad_timeout_seconds: int = 1200
