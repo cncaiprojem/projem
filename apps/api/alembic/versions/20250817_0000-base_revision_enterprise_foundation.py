@@ -29,10 +29,12 @@ from migration_helpers import (
 )
 
 # revision identifiers, used by Alembic.
-revision = 'base_revision'
-down_revision = None
-branch_labels = None
-depends_on = None
+from typing import Union
+
+revision: str = 'base_revision'
+down_revision: Union[str, None] = None
+branch_labels: Union[str, None] = None
+depends_on: Union[str, None] = None
 
 
 def upgrade() -> None:

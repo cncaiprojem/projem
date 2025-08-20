@@ -21,10 +21,12 @@ from sqlalchemy.dialects.postgresql import JSONB
 
 
 # revision identifiers, used by Alembic.
-revision = '20250817_2030_task_31'
+from typing import Union
+
+revision: str = '20250817_2030_task_31'
 down_revision: Union[str, None] = '20250817_2000_3d_printer'
-branch_labels = None
-depends_on = None
+branch_labels: Union[str, None] = None
+depends_on: Union[str, None] = None
 
 
 def upgrade() -> None:

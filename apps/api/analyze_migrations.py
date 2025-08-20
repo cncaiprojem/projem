@@ -1,24 +1,54 @@
 #!/usr/bin/env python3
+"""Analyze migration chain for integrity and provide detailed report."""
+
 import os
 import re
+import sys
+import logging
 from pathlib import Path
+from typing import List, Tuple, Dict, Optional, Set
 
-def analyze_migrations():
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Ensure UTF-8 encoding
+import codecs
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+if hasattr(sys.stderr, 'buffer'):
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
+
+def analyze_migrations() -> Tuple[List[Tuple[str, str, Optional[str]]], List[Tuple[str, str, str]]]:
     versions_dir = Path('apps/api/alembic/versions')
     files = [f for f in versions_dir.glob('*.py') if f.name != '__init__.py']
     migrations = []
     
     for f in sorted(files):
-        with open(f, 'r') as file:
-            content = file.read()
-            revision = re.search(r'^revision = ["\']([^"\']+)["\']', content, re.MULTILINE)
-            down_revision = re.search(r'^down_revision = ([^\n]+)', content, re.MULTILINE)
+        try:
+            with open(f, 'r', encoding='utf-8') as file:
+                content = file.read()
+                
+            # More robust regex patterns for revision extraction
+            revision = re.search(r'^revision[:\s]*(?:str\s*)?=\s*["\']([^"\']+)["\']', content, re.MULTILINE)
+            down_revision = re.search(r'^down_revision[:\s]*(?:Union\[str,\s*None\]\s*)?=\s*([^\n]+)', content, re.MULTILINE)
+            
             if revision:
                 rev = revision.group(1)
-                down = down_revision.group(1).strip().strip('"').strip("'") if down_revision else None
-                if down == 'None':
+                down_raw = down_revision.group(1).strip() if down_revision else 'None'
+                # Handle various formats
+                down = down_raw.strip('"').strip("'")
+                if down in ('None', 'null', 'NULL'):
                     down = None
                 migrations.append((f.name, rev, down))
+            else:
+                logger.warning(f"Could not extract revision from {f.name}")
+        except Exception as e:
+            logger.error(f"Error processing {f.name}: {e}")
+            continue
     
     # Print migration chain
     print('Migration Chain Analysis:')

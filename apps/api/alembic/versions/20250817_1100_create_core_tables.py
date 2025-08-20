@@ -22,17 +22,31 @@ depends_on = None
 def upgrade() -> None:
     """Create core application tables."""
     
-    # Create enum types with error handling
-    from psycopg2 import errors
+    # Use connection for transactional consistency
+    connection = op.get_bind()
     
-    def create_enum_safe(enum_name, values):
+    def create_enum_safe(enum_name: str, values: str) -> None:
+        """Create enum type if it doesn't exist with proper transaction handling."""
         try:
-            op.execute(f"CREATE TYPE {enum_name} AS ENUM ({values})")
+            # Check if enum exists first
+            result = connection.execute(
+                sa.text("SELECT 1 FROM pg_type WHERE typname = :name"),
+                {"name": enum_name}
+            )
+            if result.fetchone():
+                print(f"ℹ️ Enum type {enum_name} already exists, skipping")
+                return
+            
+            # Create the enum in a separate transaction
+            connection.execute(sa.text(f"CREATE TYPE {enum_name} AS ENUM ({values})"))
             print(f"✅ Created enum type: {enum_name}")
         except Exception as e:
-            if 'already exists' in str(e):
+            # More specific error handling
+            error_msg = str(e).lower()
+            if 'already exists' in error_msg or 'duplicate type' in error_msg:
                 print(f"ℹ️ Enum type {enum_name} already exists, skipping")
             else:
+                print(f"❌ Failed to create enum {enum_name}: {e}")
                 raise
     
     create_enum_safe('user_role', "'admin', 'engineer', 'operator', 'viewer'")

@@ -3,7 +3,24 @@
 
 import os
 import re
+import sys
+import logging
 from pathlib import Path
+from typing import List, Tuple, Optional
+
+# Configure logging for better debugging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
+# Set UTF-8 encoding for all platforms
+import codecs
+if hasattr(sys.stdout, 'buffer'):
+    sys.stdout = codecs.getwriter('utf-8')(sys.stdout.buffer, 'strict')
+if hasattr(sys.stderr, 'buffer'):
+    sys.stderr = codecs.getwriter('utf-8')(sys.stderr.buffer, 'strict')
 
 def analyze_and_fix_migrations():
     versions_dir = Path('apps/api/alembic/versions')
