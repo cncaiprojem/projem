@@ -156,9 +156,13 @@ class KVKVCompliantFormatter(logging.Formatter):
             is_pii = any(pattern in key_lower for pattern in self.pii_patterns)
             
             if is_pii:
-                if isinstance(value, str) and len(value) > 4:
-                    # Partial redaction for strings
-                    redacted[key] = f"{value[:2]}***{value[-1:]}"
+                if isinstance(value, str):
+                    if len(value) <= 4:
+                        # Fully redact short strings (4 chars or less)
+                        redacted[key] = "****"
+                    else:
+                        # Partial redaction for longer strings
+                        redacted[key] = f"{value[:2]}***{value[-1:]}"
                 elif isinstance(value, (int, float)):
                     redacted[key] = "***REDACTED***"
                 else:
@@ -317,11 +321,13 @@ def setup_structured_logging(
         root_logger.removeHandler(handler)
         
     # Create KVKV compliant formatter
+    # Use settings for PII redaction if available, otherwise default based on environment
+    pii_redaction_enabled = getattr(settings, 'pii_redaction_enabled', (environment == "production"))
     formatter = KVKVCompliantFormatter(
         service_name=service_name,
         environment=environment,
         include_correlation=True,
-        redact_pii=(environment == "production")
+        redact_pii=pii_redaction_enabled
     )
     
     # Create performance filter
@@ -382,7 +388,7 @@ def setup_structured_logging(
         console_enabled=enable_console,
         file_enabled=enable_file,
         compliance="KVKV_GDPR",
-        pii_redaction_enabled=(environment == "production"),
+        pii_redaction_enabled=pii_redaction_enabled,
         observability_integration=True
     )
 
