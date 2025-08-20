@@ -10,15 +10,13 @@ Provides comprehensive validation schemas for:
 
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 from datetime import datetime
 from enum import Enum
 from typing import Dict, List, Optional, Final
-from uuid import UUID
 
-from pydantic import BaseModel, Field, HttpUrl, validator, root_validator, conint, constr
+from pydantic import BaseModel, Field, HttpUrl, validator, conint, constr
 
 # Constants for validation
 MAX_UPLOAD_SIZE: Final[int] = 200 * 1024 * 1024  # 200MB as per Task 5.3
@@ -195,9 +193,14 @@ class UploadInitResponse(BaseModel):
         description="URL expiry in seconds"
     )
     
-    headers: Dict[str, str] = Field(
+    headers: Optional[Dict[str, str]] = Field(
+        None,
+        description="Optional headers for upload (deprecated, use fields instead)"
+    )
+    
+    fields: Dict[str, str] = Field(
         ...,
-        description="Required headers for upload"
+        description="Form fields required for multipart/form-data POST upload"
     )
     
     upload_id: str = Field(
@@ -216,9 +219,14 @@ class UploadInitResponse(BaseModel):
                 "key": "artefacts/job-2024-001/550e8400-e29b-41d4-a716-446655440000.stl",
                 "upload_url": "https://minio.example.com/artefacts/...",
                 "expires_in": 300,
-                "headers": {
+                "fields": {
+                    "key": "artefacts/job-2024-001/550e8400-e29b-41d4-a716-446655440000.stl",
                     "Content-Type": "application/sla",
-                    "x-amz-tagging": "job_id=job-2024-001&machine=cnc-01"
+                    "x-amz-tagging": "job_id=job-2024-001&machine=cnc-01",
+                    "x-amz-credential": "AKIAIOSFODNN7EXAMPLE/20240115/us-east-1/s3/aws4_request",
+                    "x-amz-algorithm": "AWS4-HMAC-SHA256",
+                    "x-amz-date": "20240115T103000Z",
+                    "x-amz-signature": "abcdef123456"
                 },
                 "upload_id": "upload-550e8400-e29b-41d4",
                 "conditions": {

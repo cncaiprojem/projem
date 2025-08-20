@@ -14,7 +14,6 @@ from typing import Optional, Dict, Any
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, Path, Query
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from starlette.status import (
     HTTP_200_OK,
@@ -50,7 +49,7 @@ from app.services.file_service import (
     FileServiceError,
     get_file_service,
 )
-from app.core.rate_limiter import RateLimiter
+from app.core.rate_limiter import upload_rate_limiter, download_rate_limiter
 
 logger = structlog.get_logger(__name__)
 
@@ -66,17 +65,9 @@ router = APIRouter(
     },
 )
 
-# Rate limiter for upload operations
-upload_rate_limiter = RateLimiter(
-    max_requests=10,  # 10 uploads
-    window_seconds=60,  # per minute
-)
-
-# Rate limiter for download operations
-download_rate_limiter = RateLimiter(
-    max_requests=60,  # 60 downloads
-    window_seconds=60,  # per minute
-)
+# Rate limiters are imported globally from app.core.rate_limiter
+# upload_rate_limiter: 10 requests per minute
+# download_rate_limiter: 60 requests per minute
 
 
 @router.post(

@@ -16,7 +16,7 @@ from typing import Optional, Dict, Any
 from uuid import uuid4
 
 from sqlalchemy import (
-    Column, String, Integer, BigInteger, DateTime, Boolean,
+    String, BigInteger, DateTime,
     Text, JSON, Enum as SQLEnum, Index, CheckConstraint,
     ForeignKey, UniqueConstraint
 )

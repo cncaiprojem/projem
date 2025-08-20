@@ -12,18 +12,15 @@ from __future__ import annotations
 
 import hashlib
 import io
-import json
 import uuid
 from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple, Any, List
-from urllib.parse import urlparse
 
 import structlog
 from minio import Minio
 from minio.commonconfig import Tags
 from minio.error import S3Error
 from sqlalchemy.orm import Session
-from sqlalchemy.exc import IntegrityError
 
 from app.core.minio_config import (
     MinIOConfig,
@@ -245,22 +242,28 @@ class FileService:
             form_data = self.client.presigned_post_policy(post_policy)
             presigned_url = form_data.get("url", "")
             
-            # Step 9: Build response with form data
-            # The form_data contains all the fields needed for the POST
-            headers = {}
-            if form_data:
-                # Extract relevant fields for headers
-                headers["Content-Type"] = request.mime_type
-                headers["x-amz-tagging"] = tag_string
+            # Step 9: Extract all form fields from presigned POST policy
+            # These fields MUST be included in multipart/form-data upload
+            fields = {}
+            if form_data and "fields" in form_data:
+                fields = form_data["fields"]
+            else:
+                # Fallback if fields not properly returned
+                fields = {
+                    "key": object_key.replace(f"{bucket_name}/", ""),
+                    "Content-Type": request.mime_type,
+                    "x-amz-tagging": tag_string,
+                }
                 if client_ip:
-                    headers["x-amz-meta-client-ip"] = client_ip
+                    fields["x-amz-meta-client-ip"] = client_ip
             
             # Step 10: Build response
             response = UploadInitResponse(
                 key=object_key,
                 upload_url=presigned_url,
                 expires_in=PRESIGNED_PUT_TTL_SECONDS,
-                headers=headers,
+                fields=fields,  # CRITICAL: Client must send these as form fields
+                headers=None,  # Deprecated - use fields instead
                 upload_id=upload_id,
                 conditions={
                     "content-length-range": [1, request.size],
@@ -315,38 +318,45 @@ class FileService:
             FileServiceError: On verification failure
         """
         try:
-            # Step 1: Look up upload session
-            session = None
-            if self.db and request.upload_id:
-                session = (
-                    self.db.query(UploadSession)
-                    .filter_by(upload_id=request.upload_id)
-                    .first()
+            # Step 1: Look up upload session - REQUIRED for security validation
+            if not self.db or not request.upload_id:
+                # CRITICAL SECURITY: Upload session is required for validation
+                raise FileServiceError(
+                    code=UploadErrorCode.INVALID_INPUT,
+                    message="Upload session ID is required for finalization",
+                    turkish_message="Tamamlama için yükleme oturum kimliği gereklidir",
+                    status_code=400,
                 )
-                
-                if not session:
-                    raise FileServiceError(
-                        code=UploadErrorCode.NOT_FOUND,
-                        message=f"Upload session not found: {request.upload_id}",
-                        turkish_message=f"Yükleme oturumu bulunamadı: {request.upload_id}",
-                        status_code=404,
-                    )
-                
-                if session.is_expired:
-                    raise FileServiceError(
-                        code=UploadErrorCode.UPLOAD_INCOMPLETE,
-                        message="Upload session expired",
-                        turkish_message="Yükleme oturumu süresi doldu",
-                        status_code=409,
-                    )
-                
-                if session.object_key != request.key:
-                    raise FileServiceError(
-                        code=UploadErrorCode.INVALID_INPUT,
-                        message="Object key mismatch",
-                        turkish_message="Nesne anahtarı uyuşmazlığı",
-                        status_code=400,
-                    )
+            
+            session = (
+                self.db.query(UploadSession)
+                .filter_by(upload_id=request.upload_id)
+                .first()
+            )
+            
+            if not session:
+                raise FileServiceError(
+                    code=UploadErrorCode.NOT_FOUND,
+                    message=f"Upload session not found: {request.upload_id}",
+                    turkish_message=f"Yükleme oturumu bulunamadı: {request.upload_id}",
+                    status_code=404,
+                )
+            
+            if session.is_expired:
+                raise FileServiceError(
+                    code=UploadErrorCode.UPLOAD_INCOMPLETE,
+                    message="Upload session expired",
+                    turkish_message="Yükleme oturumu süresi doldu",
+                    status_code=409,
+                )
+            
+            if session.object_key != request.key:
+                raise FileServiceError(
+                    code=UploadErrorCode.INVALID_INPUT,
+                    message="Object key mismatch",
+                    turkish_message="Nesne anahtarı uyuşmazlığı",
+                    status_code=400,
+                )
             
             # Step 2: Parse bucket and object from key
             parts = request.key.split("/", 1)
@@ -386,8 +396,8 @@ class FileService:
                     )
                 raise
             
-            # Step 4: Verify size
-            if session and actual_size != session.expected_size:
+            # Step 4: Verify size (session is guaranteed to exist after validation)
+            if actual_size != session.expected_size:
                 raise FileServiceError(
                     code=UploadErrorCode.UPLOAD_INCOMPLETE,
                     message=f"Size mismatch: expected {session.expected_size}, got {actual_size}",
@@ -479,20 +489,20 @@ class FileService:
                 file_metadata = FileMetadata(
                     object_key=request.key,
                     bucket=bucket_name,
-                    filename=session.metadata.get("filename") if session else None,
-                    file_type=self._get_file_type_enum(session.metadata.get("type", "temp") if session else "temp"),
-                    mime_type=session.mime_type if session else "application/octet-stream",
+                    filename=session.metadata.get("filename"),
+                    file_type=self._get_file_type_enum(session.metadata.get("type", "temp")),
+                    mime_type=session.mime_type,
                     size=actual_size,
                     sha256=actual_sha256,
                     etag=etag,
                     version_id=version_id,
                     status=FileStatus.COMPLETED,
-                    job_id=session.job_id if session else request.key.split("/")[1],
+                    job_id=session.job_id,
                     user_id=uuid.UUID(user_id) if user_id else None,
-                    machine_id=session.metadata.get("machine_id") if session else None,
-                    post_processor=session.metadata.get("post_processor") if session else None,
+                    machine_id=session.metadata.get("machine_id"),
+                    post_processor=session.metadata.get("post_processor"),
                     tags=self._get_object_tags(bucket_name, object_name),
-                    client_ip=session.client_ip if session else None,
+                    client_ip=session.client_ip,
                     created_at=datetime.utcnow(),
                     updated_at=datetime.utcnow(),
                     verified_at=datetime.utcnow(),
@@ -500,10 +510,9 @@ class FileService:
                 
                 self.db.add(file_metadata)
                 
-                # Update session status
-                if session:
-                    session.status = "completed"
-                    session.completed_at = datetime.utcnow()
+                # Update session status (session is guaranteed to exist)
+                session.status = "completed"
+                session.completed_at = datetime.utcnow()
                 
                 self.db.commit()
                 

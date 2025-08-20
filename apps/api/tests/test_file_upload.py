@@ -10,14 +10,12 @@ Tests:
 """
 
 import hashlib
-import json
 import uuid
 from datetime import datetime, timedelta
 from unittest.mock import Mock, patch, MagicMock
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
@@ -119,25 +117,26 @@ class TestUploadInit:
         assert "x-amz-tagging" in response.headers
         assert "job_id=job-2024-001" in response.headers["x-amz-tagging"]
     
-    def test_init_upload_size_too_large(self, file_service):
-        """Test upload initialization with file too large."""
-        request = UploadInitRequest(
-            type="model",
-            size=MAX_UPLOAD_SIZE + 1,  # Over limit
-            sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            mime_type="application/sla",
-            job_id="job-2024-001",
-            filename="huge.stl"
-        )
-        
-        # This should be rejected by Pydantic validation
-        with pytest.raises(ValueError):
-            file_service.init_upload(request=request)
+    def test_init_upload_size_too_large(self):
+        """Test Pydantic validation rejects file size over limit."""
+        # This should be rejected by Pydantic validation directly
+        with pytest.raises(ValueError) as exc_info:
+            UploadInitRequest(
+                type="model",
+                size=MAX_UPLOAD_SIZE + 1,  # Over limit
+                sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+                mime_type="application/sla",
+                job_id="job-2024-001",
+                filename="huge.stl"
+            )
+        # Verify the error is about size constraint
+        assert "less than or equal to" in str(exc_info.value).lower()
     
-    def test_init_upload_invalid_mime_type(self, file_service):
-        """Test upload initialization with invalid MIME type."""
-        with pytest.raises(ValueError):
-            request = UploadInitRequest(
+    def test_init_upload_invalid_mime_type(self):
+        """Test Pydantic validation rejects invalid MIME type."""
+        # This should be rejected by Pydantic validation directly
+        with pytest.raises(ValueError) as exc_info:
+            UploadInitRequest(
                 type="model",
                 size=5242880,
                 sha256="e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -145,6 +144,8 @@ class TestUploadInit:
                 job_id="job-2024-001",
                 filename="malware.exe"
             )
+        # Verify the error is about unsupported file type
+        assert "desteklenmeyen" in str(exc_info.value).lower() or "unsupported" in str(exc_info.value).lower()
     
     def test_init_upload_with_tags(self, file_service):
         """Test upload initialization with object tags."""

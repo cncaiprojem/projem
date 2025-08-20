@@ -10,10 +10,10 @@ Implements rate limiting with:
 
 from __future__ import annotations
 
+import os
 import time
 import threading
 from collections import defaultdict
-from datetime import datetime, timedelta
 from typing import Dict, Optional, Tuple
 
 import structlog
@@ -63,7 +63,6 @@ class RateLimiter:
         # Try to get Redis client from environment if not provided
         if not self.redis_client:
             try:
-                import os
                 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379/0")
                 self.redis_client = redis.from_url(redis_url, decode_responses=True)
                 # Test connection
