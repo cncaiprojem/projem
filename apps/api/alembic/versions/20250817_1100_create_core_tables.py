@@ -11,12 +11,13 @@ Create Date: 2025-08-17 11:00:00.000000
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+from typing import Union
 
 # revision identifiers
-revision = '20250817_1100_core_tables'
-down_revision = 'base_revision'
-branch_labels = None
-depends_on = None
+revision: str = '20250817_1100_core_tables'
+down_revision: Union[str, None] = 'base_revision'
+branch_labels: Union[str, None] = None
+depends_on: Union[str, None] = None
 
 
 def upgrade() -> None:
@@ -76,7 +77,7 @@ def upgrade() -> None:
         sa.Column('locked_until', sa.DateTime(timezone=True), nullable=True),
         sa.Column('password_changed_at', sa.DateTime(timezone=True), nullable=True),
         sa.Column('preferences', postgresql.JSONB(), server_default='{}', nullable=False),
-        sa.Column('metadata_', postgresql.JSONB(), server_default='{}', nullable=False),
+        sa.Column('metadata', postgresql.JSONB(), server_default='{}', nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), 
                   onupdate=sa.func.now(), nullable=False),
@@ -152,7 +153,7 @@ def upgrade() -> None:
         sa.Column('file_hash', sa.String(64), nullable=True),
         sa.Column('mime_type', sa.String(100), nullable=True),
         sa.Column('params', postgresql.JSONB(), server_default='{}', nullable=False),
-        sa.Column('metadata_', postgresql.JSONB(), server_default='{}', nullable=False),
+        sa.Column('metadata', postgresql.JSONB(), server_default='{}', nullable=False),
         sa.Column('properties', postgresql.JSONB(), server_default='{}', nullable=False),
         sa.Column('tags', postgresql.ARRAY(sa.String()), server_default='{}', nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
@@ -192,7 +193,7 @@ def upgrade() -> None:
         sa.Column('file_hash', sa.String(64), nullable=True),
         sa.Column('mime_type', sa.String(100), nullable=True),
         sa.Column('version', sa.Integer(), server_default='1', nullable=False),
-        sa.Column('metadata_', postgresql.JSONB(), server_default='{}', nullable=False),
+        sa.Column('metadata', postgresql.JSONB(), server_default='{}', nullable=False),
         sa.Column('properties', postgresql.JSONB(), server_default='{}', nullable=False),
         sa.Column('tags', postgresql.ARRAY(sa.String()), server_default='{}', nullable=False),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=True),
@@ -246,7 +247,7 @@ def upgrade() -> None:
         sa.Column('starts_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
         sa.Column('scope', postgresql.JSONB(), server_default='{}', nullable=False),
-        sa.Column('metadata_', postgresql.JSONB(), server_default='{}', nullable=False),
+        sa.Column('metadata', postgresql.JSONB(), server_default='{}', nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.func.now(), 
                   onupdate=sa.func.now(), nullable=False),

@@ -37,7 +37,7 @@ from migration_helpers import (
 from typing import Union
 
 revision: str = '20250817_1200_task_23'
-down_revision: Union[str, None] = '20250817_1100_core_tables'
+down_revision: Union[str, None] = 'base_revision'
 branch_labels: Union[str, None] = None
 depends_on: Union[str, None] = None
 
