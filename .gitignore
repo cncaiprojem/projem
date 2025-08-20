@@ -139,5 +139,15 @@ security-*.log
 # Pre-commit cache
 .pre-commit-cache/
 
+# =================================================================================
+# DATA FILES - Not tracked in version control
+# =================================================================================
+# Docker compose data directories
+infra/compose/data/
+infra/compose/data/**
+
+# Alembic logs
+apps/api/alembic.log
+
 
 

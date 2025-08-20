@@ -18,6 +18,8 @@ import re
 
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import VerifyMismatchError, InvalidHash
+from argon2.low_level import hash_secret
+from argon2 import Type as ArgonType
 
 from ..core.logging import get_logger
 from ..settings import app_settings as settings
@@ -105,8 +107,6 @@ class PasswordService:
         
         try:
             # Use low-level API for full control over salt - preserve salt
-            from argon2.low_level import hash_secret, Type
-            
             raw_hash_bytes = hash_secret(
                 secret=peppered_password.encode('utf-8'),
                 salt=salt_bytes,
@@ -114,10 +114,13 @@ class PasswordService:
                 memory_cost=ARGON2_CONFIG['memory_cost'],
                 parallelism=ARGON2_CONFIG['parallelism'],
                 hash_len=ARGON2_CONFIG['hash_len'],
-                type=Type.ID  # Argon2id
+                type=ArgonType.ID  # Argon2id - using proper import
             )
             # Return just the hash part (without salt/params)
             return raw_hash_bytes.decode('ascii')
+        except ImportError as e:
+            logger.error("Failed to import Argon2 module - ensure argon2-cffi is installed", exc_info=True)
+            raise
         except Exception as e:
             logger.error("Failed to compute Argon2 hash", exc_info=True, extra={
                 'error_type': type(e).__name__,
