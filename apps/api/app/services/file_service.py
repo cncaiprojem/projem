@@ -61,6 +61,8 @@ from app.services.clamav_service import (
     ClamAVService,
     get_clamav_service,
 )
+from app.services.artefact_service import ArtefactService
+from app.schemas.artefact import ArtefactCreate, ArtefactType
 
 logger = structlog.get_logger(__name__)
 
@@ -859,6 +861,67 @@ class FileService:
                     object_key=request.key,
                     status=FileStatus.COMPLETED.value,
                 )
+                
+                # Task 5.7: Create artefact record with S3 tagging
+                try:
+                    # Determine artefact type from file type
+                    artefact_type = self._map_file_type_to_artefact_type(
+                        session.metadata.get("type", "temp")
+                    )
+                    
+                    # Create artefact service
+                    artefact_service = ArtefactService(self.db)
+                    
+                    # Prepare artefact data
+                    artefact_data = ArtefactCreate(
+                        job_id=session.job_id,
+                        type=artefact_type,
+                        s3_bucket=bucket_name,
+                        s3_key=object_name,
+                        size_bytes=actual_size,
+                        sha256=actual_sha256,
+                        mime_type=session.mime_type,
+                        created_by=int(str(session.user_id)) if session.user_id else 1,  # Default to system user
+                        machine_id=session.metadata.get("machine_id"),
+                        post_processor=session.metadata.get("post_processor"),
+                        version_id=version_id,
+                        meta={
+                            "filename": session.metadata.get("filename"),
+                            "upload_id": request.upload_id,
+                            "etag": etag,
+                            "clamav_clean": True,  # File passed malware scan
+                            "finalized_at": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                    
+                    # Create artefact with S3 tagging and audit logging
+                    artefact = asyncio.run(
+                        artefact_service.create_artefact(
+                            artefact_data=artefact_data,
+                            user_id=int(str(session.user_id)) if session.user_id else 1,
+                            ip_address=session.client_ip,
+                            user_agent=None,  # Not available in session
+                        )
+                    )
+                    
+                    logger.info(
+                        "Artefact created successfully",
+                        artefact_id=artefact.id,
+                        job_id=artefact.job_id,
+                        type=artefact.type,
+                        s3_location=artefact.s3_full_path,
+                    )
+                    
+                except Exception as e:
+                    # Log error but don't fail the upload
+                    # Artefact creation is supplementary to file upload
+                    logger.error(
+                        "Failed to create artefact record",
+                        error=str(e),
+                        object_key=request.key,
+                        job_id=session.job_id,
+                        exc_info=True,
+                    )
 
             # Step 8: Get object metadata for response
             metadata = self._get_object_metadata(bucket_name, object_name)
@@ -1196,6 +1259,32 @@ class FileService:
         # TODO: Add role-based access control in Task 5.7
         # For now, allow access to all authenticated users
         return True
+    
+    def _map_file_type_to_artefact_type(self, file_type: str) -> ArtefactType:
+        """
+        Map file service file type to artefact type.
+        
+        Args:
+            file_type: File type string from upload
+            
+        Returns:
+            ArtefactType enum value
+        """
+        # Map common file types to artefact types
+        type_mapping = {
+            "model": ArtefactType.MODEL,
+            "gcode": ArtefactType.GCODE,
+            "report": ArtefactType.REPORT,
+            "invoice": ArtefactType.INVOICE,
+            "log": ArtefactType.LOG,
+            "simulation": ArtefactType.SIMULATION,
+            "analysis": ArtefactType.ANALYSIS,
+            "drawing": ArtefactType.DRAWING,
+            "toolpath": ArtefactType.TOOLPATH,
+            "temp": ArtefactType.OTHER,
+        }
+        
+        return type_mapping.get(file_type.lower(), ArtefactType.OTHER)
 
 
 def get_file_service(db: Session | None = None) -> FileService:

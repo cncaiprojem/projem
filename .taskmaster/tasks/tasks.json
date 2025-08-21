@@ -780,7 +780,7 @@
               "5.6"
             ],
             "details": "- DB insert into artefacts: job_id (FK), s3_bucket, s3_key, size, sha256, mime, type, created_by, machine?, post?, version_id; unique on s3_key.\n- S3 object tags: set/merge job_id, machine, post after successful finalize; retry on tag failures; ensure least-privilege.\n- Invoices: when type=invoice, set object retention (if supported at object level) and verify lock active.\n- Audit logs: write events for upload_init, upload_finalize_success/failure, download_url_issued with user_id, job_id, ip, user_agent, hash chain link.\n- Security: do not expose direct S3 keys publicly; enforce authz checks on GET /files/:id by job ownership/role; log every presign issuance.\n- Acceptance tests:\n  - Finalize persists artefact row with correct size and sha256; tags present on object.\n  - Download presign issues audit entry; unauthorized access denied with 403.\n  - Invoice artefact shows retention/lock metadata.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-21T10:27:24.713Z",
+      "updated": "2025-08-21T17:10:15.791Z",
       "description": "Tasks for master context"
     }
   }
