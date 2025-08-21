@@ -372,22 +372,10 @@ class ArtefactService:
         Raises:
             ArtefactServiceError: On creation failure
         """
-        import asyncio
-        import inspect
-        
-        # Check if we're already in an async context
-        try:
-            loop = asyncio.get_running_loop()
-            # We're in an async context, create a task
-            return asyncio.create_task(
-                self.create_artefact(artefact_data, user_id, ip_address, user_agent)
-            )
-        except RuntimeError:
-            # No running loop, we're in sync context
-            # Create a new event loop for this operation
-            return asyncio.run(
-                self.create_artefact(artefact_data, user_id, ip_address, user_agent)
-            )
+        # Always run the coroutine in a new event loop to ensure synchronous execution
+        return asyncio.run(
+            self.create_artefact(artefact_data, user_id, ip_address, user_agent)
+        )
     
     async def get_artefact(
         self,
@@ -420,16 +408,20 @@ class ArtefactService:
             )
         
         if check_access:
-            # Check if user has access through job ownership
-            job = artefact.job
-            if job.user_id != user_id and artefact.created_by != user_id:
-                # Could add role-based access check here
-                raise ArtefactServiceError(
-                    code="UNAUTHORIZED",
-                    message="You don't have access to this artefact",
-                    turkish_message="Bu artefact'a erişim yetkiniz yok",
-                    status_code=403,
-                )
+            # Check if user has access through job ownership or admin role
+            user = self.db.query(User).filter_by(id=user_id).first()
+            is_admin = user and user.role == "admin"
+            
+            # Admin users can access any artefact
+            if not is_admin:
+                job = artefact.job
+                if job.user_id != user_id and artefact.created_by != user_id:
+                    raise ArtefactServiceError(
+                        code="UNAUTHORIZED",
+                        message="You don't have access to this artefact",
+                        turkish_message="Bu artefact'a erişim yetkiniz yok",
+                        status_code=403,
+                    )
         
         return artefact
     
@@ -576,13 +568,21 @@ class ArtefactService:
         if params.created_before is not None:
             query = query.filter(Artefact.created_at <= params.created_before)
         
-        # Filter by user access (through job ownership)
-        query = query.join(Job).filter(
-            or_(
-                Job.user_id == user_id,
-                Artefact.created_by == user_id,
+        # Filter by user access (through job ownership or admin role)
+        user = self.db.query(User).filter_by(id=user_id).first()
+        is_admin = user and user.role == "admin"
+        
+        if not is_admin:
+            # Non-admin users can only see their own artefacts
+            query = query.join(Job).filter(
+                or_(
+                    Job.user_id == user_id,
+                    Artefact.created_by == user_id,
+                )
             )
-        )
+        else:
+            # Admin users can see all artefacts - just join for consistency
+            query = query.join(Job)
         
         # Get total count
         total_count = query.count()
@@ -615,13 +615,18 @@ class ArtefactService:
         """
         query = self.db.query(Artefact).join(Job)
         
-        # Filter by user access
-        query = query.filter(
-            or_(
-                Job.user_id == user_id,
-                Artefact.created_by == user_id,
+        # Filter by user access (admin users can see all)
+        user = self.db.query(User).filter_by(id=user_id).first()
+        is_admin = user and user.role == "admin"
+        
+        if not is_admin:
+            # Non-admin users can only see their own stats
+            query = query.filter(
+                or_(
+                    Job.user_id == user_id,
+                    Artefact.created_by == user_id,
+                )
             )
-        )
         
         if job_id:
             query = query.filter(Artefact.job_id == job_id)

@@ -149,6 +149,15 @@ class FileService:
             FileServiceError: On validation or generation failure
         """
         try:
+            # Convert user_id safely to int
+            user_id_int = None
+            if user_id:
+                try:
+                    user_id_int = int(user_id)
+                except (ValueError, TypeError):
+                    logger.warning("Invalid user_id format", user_id=user_id)
+                    user_id_int = None
+            
             # Step 1: Validate inputs with comprehensive security checks
             self._validate_upload_request(request)
 
@@ -235,7 +244,7 @@ class FileService:
                     expected_sha256=request.sha256,
                     mime_type=request.mime_type,
                     job_id=request.job_id,
-                    user_id=int(user_id) if user_id else None,  # Convert user_id string to int
+                    user_id=user_id_int,  # Safely converted user_id
                     client_ip=client_ip,
                     status="pending",
                     expires_at=expires_at,
@@ -379,6 +388,15 @@ class FileService:
             FileServiceError: On verification failure
         """
         try:
+            # Convert user_id safely to int
+            user_id_int = None
+            if user_id:
+                try:
+                    user_id_int = int(user_id)
+                except (ValueError, TypeError):
+                    logger.warning("Invalid user_id format in finalize", user_id=user_id)
+                    user_id_int = None
+            
             # Step 1: Look up upload session - REQUIRED for security validation
             if (
                 not self.db
@@ -837,7 +855,7 @@ class FileService:
                     version_id=version_id,
                     status=FileStatus.COMPLETED,
                     job_id=session.job_id,
-                    user_id=int(user_id) if user_id else None,  # Convert user_id string to int
+                    user_id=user_id_int,  # Safely converted user_id
                     machine_id=session.metadata.get("machine_id"),
                     post_processor=session.metadata.get("post_processor"),
                     tags=self._get_object_tags(bucket_name, object_name),

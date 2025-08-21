@@ -14,6 +14,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm.attributes import flag_modified
 
 from .base import Base, TimestampMixin
 
@@ -237,6 +238,8 @@ class Artefact(Base, TimestampMixin):
         if self.meta is None:
             self.meta = {}
         self.meta[key] = value
+        # Mark JSONB field as modified for SQLAlchemy tracking
+        flag_modified(self, "meta")
     
     def add_processing_info(
         self, 
@@ -304,7 +307,8 @@ class Artefact(Base, TimestampMixin):
         value = str(value)
         
         # Replace invalid characters with underscore
-        sanitized = re.sub(r'[^a-zA-Z0-9\s+\-=._:/]', '_', value)
+        # S3 tag allowed characters: Letters, numbers, spaces, and +-=._:/@
+        sanitized = re.sub(r'[^a-zA-Z0-9\s+\-=._:/@]', '_', value)
         
         # Truncate to max length (256 characters for values)
         return sanitized[:256]
