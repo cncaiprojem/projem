@@ -55,6 +55,19 @@ def mock_minio_client():
     client.bucket_exists.return_value = True
     client.presigned_put_object.return_value = "https://minio.example.com/upload-url"
     client.presigned_get_object.return_value = "https://minio.example.com/download-url"
+    client.presigned_post_policy.return_value = {
+        "url": "https://minio.example.com/upload-url",
+        "fields": {
+            "key": "artefacts/job-2024-001/test.stl",
+            "Content-Type": "application/sla",
+            "x-amz-tagging": "job_id=job-2024-001&machine_id=cnc-001&post_processor=fanuc",
+            "policy": "base64_encoded_policy",
+            "x-amz-algorithm": "AWS4-HMAC-SHA256",
+            "x-amz-credential": "credential",
+            "x-amz-date": "20240120T120000Z",
+            "x-amz-signature": "signature"
+        }
+    }
     client.stat_object.return_value = MagicMock(
         size=5242880,
         etag="abc123",
@@ -112,10 +125,10 @@ class TestUploadInit:
         assert response.key.endswith(".stl")
         assert response.upload_url.startswith("https://")
         assert response.expires_in == PRESIGNED_PUT_TTL_SECONDS
-        assert "Content-Type" in response.headers
-        assert response.headers["Content-Type"] == "application/sla"
-        assert "x-amz-tagging" in response.headers
-        assert "job_id=job-2024-001" in response.headers["x-amz-tagging"]
+        assert "Content-Type" in response.fields
+        assert response.fields["Content-Type"] == "application/sla"
+        assert "x-amz-tagging" in response.fields
+        assert "job_id=job-2024-001" in response.fields["x-amz-tagging"]
     
     def test_init_upload_size_too_large(self):
         """Test Pydantic validation rejects file size over limit."""
@@ -193,7 +206,7 @@ class TestUploadInit:
 class TestUploadFinalize:
     """Test upload finalization endpoint."""
     
-    def test_finalize_upload_success(self, file_service, mock_db):
+    def test_finalize_upload_success(self, file_service, mock_db, mock_minio_client):
         """Test successful upload finalization."""
         # Create mock session
         session = UploadSession(
@@ -210,6 +223,19 @@ class TestUploadFinalize:
         )
         
         mock_db.query.return_value.filter_by.return_value.first.return_value = session
+        
+        # Mock MinIO client to return file data matching expected SHA256
+        # The content needs to hash to "abc123" * 10 + "abcd" when SHA256 is computed
+        import hashlib
+        test_content = b"test content"
+        # Calculate what the expected content should be to match the hash
+        expected_hash = "abc123" * 10 + "abcd"
+        
+        mock_data = MagicMock()
+        mock_data.stream.return_value = [test_content]
+        mock_data.close = MagicMock()
+        mock_data.release_conn = MagicMock()
+        mock_minio_client.get_object.return_value = mock_data
         
         request = UploadFinalizeRequest(
             key="artefacts/job-2024-001/test.stl",

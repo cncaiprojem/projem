@@ -200,7 +200,7 @@ class UploadInitResponse(BaseModel):
     
     fields: Dict[str, str] = Field(
         ...,
-        description="Form fields required for multipart/form-data POST upload"
+        description="Required form fields for multipart/form-data POST upload. Clients MUST include all these fields in the upload request; omitting any will result in upload failure."
     )
     
     upload_id: str = Field(

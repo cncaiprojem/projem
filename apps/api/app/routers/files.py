@@ -339,7 +339,6 @@ def get_download_url(
         None,
         description="Specific version to download",
     ),
-    req: Request = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> FileDownloadResponse:

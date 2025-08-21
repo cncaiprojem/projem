@@ -13,13 +13,14 @@ from __future__ import annotations
 import hashlib
 import io
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Optional, Tuple, Any, List
 
 import structlog
 from minio import Minio
 from minio.commonconfig import Tags
 from minio.error import S3Error
+from minio.helpers import PostPolicy
 from sqlalchemy.orm import Session
 
 from app.core.minio_config import (
@@ -165,7 +166,7 @@ class FileService:
             
             # Step 5: Create upload session
             upload_id = f"upload-{uuid.uuid4()}"
-            expires_at = datetime.utcnow() + timedelta(seconds=PRESIGNED_PUT_TTL_SECONDS)
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=PRESIGNED_PUT_TTL_SECONDS)
             
             if self.db:
                 session = UploadSession(
@@ -178,7 +179,6 @@ class FileService:
                     user_id=uuid.UUID(user_id) if user_id else None,
                     client_ip=client_ip,
                     status="pending",
-                    created_at=datetime.utcnow(),
                     expires_at=expires_at,
                     metadata={
                         "machine_id": request.machine_id,
@@ -213,12 +213,9 @@ class FileService:
             tag_string = "&".join([f"{k}={v}" for k, v in tags.items()])
             
             # Step 8: Generate presigned POST policy for better constraint enforcement
-            from minio.helpers import PostPolicy
-            from datetime import datetime, timedelta
-            
             post_policy = PostPolicy(
                 bucket_name,
-                datetime.utcnow() + timedelta(seconds=PRESIGNED_PUT_TTL_SECONDS),
+                datetime.now(timezone.utc) + timedelta(seconds=PRESIGNED_PUT_TTL_SECONDS),
             )
             
             # Add key constraint
@@ -243,7 +240,12 @@ class FileService:
             presigned_url = form_data.get("url", "")
             
             # Step 9: Extract all form fields from presigned POST policy
-            # These fields MUST be included in multipart/form-data upload
+            """
+            CRITICAL: These form fields MUST be included in the multipart/form-data upload request.
+            Clients that omit any of these fields will receive a 403 Forbidden error from MinIO.
+            The fields include authentication tokens, metadata, and policy constraints that are
+            essential for successful upload validation.
+            """
             fields = {}
             if form_data and "fields" in form_data:
                 fields = form_data["fields"]
@@ -319,7 +321,11 @@ class FileService:
         """
         try:
             # Step 1: Look up upload session - REQUIRED for security validation
-            if not self.db or not request.upload_id:
+            if (
+                not self.db
+                or not isinstance(request.upload_id, str)
+                or not request.upload_id.strip()
+            ):
                 # CRITICAL SECURITY: Upload session is required for validation
                 raise FileServiceError(
                     code=UploadErrorCode.INVALID_INPUT,
@@ -503,16 +509,16 @@ class FileService:
                     post_processor=session.metadata.get("post_processor"),
                     tags=self._get_object_tags(bucket_name, object_name),
                     client_ip=session.client_ip,
-                    created_at=datetime.utcnow(),
-                    updated_at=datetime.utcnow(),
-                    verified_at=datetime.utcnow(),
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                    verified_at=datetime.now(timezone.utc),
                 )
                 
                 self.db.add(file_metadata)
                 
                 # Update session status (session is guaranteed to exist)
                 session.status = "completed"
-                session.completed_at = datetime.utcnow()
+                session.completed_at = datetime.now(timezone.utc)
                 
                 self.db.commit()
                 
@@ -535,7 +541,7 @@ class FileService:
                 etag=etag,
                 version_id=version_id,
                 metadata=metadata,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
             )
             
             logger.info(
