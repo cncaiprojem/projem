@@ -373,9 +373,9 @@ class UltraEnterpriseEnvironment(BaseSettings):
         description="Maximum concurrent ClamAV scans to protect resources"
     )
     
-    CLAMAV_SCAN_ENABLED: bool = Field(
+    CLAMAV_FAIL_CLOSED: bool = Field(
         default=True,
-        description="Whether ClamAV scanning is enabled (fail closed if true and daemon unreachable)"
+        description="Fail-closed security policy: block uploads if ClamAV daemon is unreachable"
     )
     
     # ===================================================================

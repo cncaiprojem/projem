@@ -201,6 +201,7 @@ class ClamAVService:
         timeout_scan: float = 60.0,
         max_concurrent_scans: int = 3,
         scan_enabled: bool = True,
+        fail_closed: bool = True,
         db: Session | None = None,
         minio_client: Minio | None = None,
     ):
@@ -215,6 +216,7 @@ class ClamAVService:
             timeout_scan: Scan timeout in seconds
             max_concurrent_scans: Maximum concurrent scans
             scan_enabled: Whether scanning is enabled
+            fail_closed: Fail-closed security policy (block uploads if daemon unreachable)
             db: Database session for audit logging
             minio_client: MinIO client for streaming
         """
@@ -224,6 +226,7 @@ class ClamAVService:
         self.timeout_connect = timeout_connect
         self.timeout_scan = timeout_scan
         self.scan_enabled = scan_enabled
+        self.fail_closed = fail_closed
         self.db = db
         self.minio_client = minio_client
         
@@ -241,6 +244,7 @@ class ClamAVService:
             timeout_connect=self.timeout_connect,
             timeout_scan=self.timeout_scan,
             scan_enabled=self.scan_enabled,
+            fail_closed=self.fail_closed,
             max_concurrent_scans=max_concurrent_scans,
         )
 
@@ -450,11 +454,11 @@ class ClamAVService:
                 scan_metadata={"scan_skipped": True, "reason": "policy"},
             )
 
-        # Fail closed if scanning is enabled but daemon is unreachable
-        if self.scan_enabled and not self.ping():
+        # Fail closed if fail_closed policy is enabled but daemon is unreachable
+        if self.fail_closed and not self.ping():
             self._log_security_event(
                 event_type=SecurityEventType.MALWARE_SCAN_FAILURE,
-                description="ClamAV daemon unavailable but scan_enabled=true",
+                description="ClamAV daemon unavailable but fail_closed=true",
                 details={
                     "object_key": object_key,
                     "host": self.host,
@@ -765,6 +769,7 @@ class ClamAVService:
         
         return {
             "scan_enabled": self.scan_enabled,
+            "fail_closed": self.fail_closed,
             "connection": {
                 "host": self.host,
                 "port": self.port,
@@ -787,6 +792,7 @@ def get_clamav_service(
     timeout_scan: float | None = None,
     max_concurrent_scans: int | None = None,
     scan_enabled: bool | None = None,
+    fail_closed: bool | None = None,
     db: Session | None = None,
     minio_client: Minio | None = None,
 ) -> ClamAVService:
@@ -801,6 +807,7 @@ def get_clamav_service(
         timeout_scan: Scan timeout (overrides env var)
         max_concurrent_scans: Max concurrent scans (overrides env var)
         scan_enabled: Whether scanning is enabled (overrides env var)
+        fail_closed: Fail-closed security policy (overrides env var)
         db: Database session
         minio_client: MinIO client for streaming
         
@@ -818,7 +825,8 @@ def get_clamav_service(
         timeout_connect=timeout_connect or environment.CLAMAV_TIMEOUT_CONNECT,
         timeout_scan=timeout_scan or environment.CLAMAV_TIMEOUT_SCAN,
         max_concurrent_scans=max_concurrent_scans or environment.CLAMAV_MAX_CONCURRENT_SCANS,
-        scan_enabled=scan_enabled if scan_enabled is not None else environment.CLAMAV_SCAN_ENABLED,
+        scan_enabled=scan_enabled if scan_enabled is not None else environment.CLAMAV_ENABLED,
+        fail_closed=fail_closed if fail_closed is not None else environment.CLAMAV_FAIL_CLOSED,
         db=db,
         minio_client=minio_client,
     )

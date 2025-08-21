@@ -942,7 +942,7 @@ services:
     ports:
       - "3310:3310"  # ClamAV daemon TCP port
     networks:
-      - freecad_network
+      - backend
     
     # Resource limits for daemon operation
     deploy:
