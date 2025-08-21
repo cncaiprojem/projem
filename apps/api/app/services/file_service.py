@@ -10,51 +10,50 @@ Implements secure file upload/download with:
 
 from __future__ import annotations
 
-import hashlib
-import io
 import uuid
-from datetime import datetime, timedelta, timezone
-from typing import Dict, Optional, Tuple, Any, List
+from datetime import UTC, datetime, timedelta
 
 import structlog
 from minio import Minio
-from minio.commonconfig import Tags
 from minio.error import S3Error
 from minio.helpers import PostPolicy
 from sqlalchemy.orm import Session
 
+from app.core.bucket_config import (
+    BucketConfigFactory,
+)
 from app.core.minio_config import (
     MinIOConfig,
     get_minio_client,
     get_minio_config,
     validate_object_key,
-    StorageErrorCode,
-)
-from app.core.bucket_config import (
-    BucketConfiguration,
-    BucketConfigFactory,
-    STANDARD_OBJECT_TAGS,
 )
 from app.models.file import (
     FileMetadata,
-    UploadSession,
     FileStatus,
+    UploadSession,
+)
+from app.models.file import (
     FileType as FileTypeEnum,
 )
 from app.schemas.file_upload import (
-    UploadInitRequest,
-    UploadInitResponse,
-    UploadFinalizeRequest,
-    UploadFinalizeResponse,
+    PRESIGNED_GET_TTL_SECONDS,
+    PRESIGNED_PUT_TTL_SECONDS,
     FileDownloadResponse,
     UploadErrorCode,
-    PRESIGNED_PUT_TTL_SECONDS,
-    PRESIGNED_GET_TTL_SECONDS,
+    UploadFinalizeRequest,
+    UploadFinalizeResponse,
+    UploadInitRequest,
+    UploadInitResponse,
 )
 from app.services.file_validation import (
     FileValidationService,
-    ValidationStatus,
     get_file_validation_service,
+)
+from app.services.sha256_service import (
+    SHA256StreamingError,
+    SHA256StreamingService,
+    get_sha256_streaming_service,
 )
 
 logger = structlog.get_logger(__name__)
@@ -62,13 +61,13 @@ logger = structlog.get_logger(__name__)
 
 class FileServiceError(Exception):
     """Custom exception for file service operations."""
-    
+
     def __init__(
         self,
         code: str,
         message: str,
-        turkish_message: Optional[str] = None,
-        details: Optional[Dict] = None,
+        turkish_message: str | None = None,
+        details: dict | None = None,
         status_code: int = 400,
     ):
         self.code = code
@@ -89,13 +88,14 @@ class FileService:
     - Download with presigned URLs
     - Security validation and rate limiting
     """
-    
+
     def __init__(
         self,
-        client: Optional[Minio] = None,
-        config: Optional[MinIOConfig] = None,
-        db: Optional[Session] = None,
-        validation_service: Optional[FileValidationService] = None,
+        client: Minio | None = None,
+        config: MinIOConfig | None = None,
+        db: Session | None = None,
+        validation_service: FileValidationService | None = None,
+        sha256_service: SHA256StreamingService | None = None,
     ):
         """
         Initialize file service.
@@ -105,20 +105,22 @@ class FileService:
             config: MinIO configuration
             db: Database session
             validation_service: File validation service
+            sha256_service: SHA256 streaming service
         """
         self.client = client or get_minio_client()
         self.config = config or get_minio_config()
         self.bucket_configs = BucketConfigFactory.from_environment()
         self.db = db
         self.validation_service = validation_service or get_file_validation_service()
-        
-        logger.info("File service initialized with validation")
-    
+        self.sha256_service = sha256_service or get_sha256_streaming_service(self.client)
+
+        logger.info("File service initialized with validation and SHA256 streaming")
+
     def init_upload(
         self,
         request: UploadInitRequest,
-        user_id: Optional[str] = None,
-        client_ip: Optional[str] = None,
+        user_id: str | None = None,
+        client_ip: str | None = None,
     ) -> UploadInitResponse:
         """
         Initialize file upload with presigned URL.
@@ -138,7 +140,7 @@ class FileService:
         try:
             # Step 1: Validate inputs with comprehensive security checks
             self._validate_upload_request(request)
-            
+
             # Step 1.5: Perform Task 5.4 validation
             validation_result = self.validation_service.validate_upload_init(
                 filename=request.filename or f"upload.{request.type.value}",
@@ -146,12 +148,12 @@ class FileService:
                 mime_type=request.mime_type,
                 content=None,  # No content available at init stage
             )
-            
+
             if not validation_result.is_valid:
                 # Build error message from validation errors
                 error_msgs = [err.get("message", "") for err in validation_result.errors]
                 turkish_msgs = [err.get("turkish_message", "") for err in validation_result.errors]
-                
+
                 raise FileServiceError(
                     code=UploadErrorCode.UNSUPPORTED_MEDIA_TYPE if validation_result.error_code == 415
                          else UploadErrorCode.PAYLOAD_TOO_LARGE if validation_result.error_code == 413
@@ -161,7 +163,7 @@ class FileService:
                     details={"validation_errors": validation_result.errors},
                     status_code=validation_result.error_code,
                 )
-            
+
             # Log warnings if any
             if validation_result.warnings:
                 logger.warning(
@@ -169,11 +171,11 @@ class FileService:
                     warnings=validation_result.warnings,
                     filename=request.filename,
                 )
-            
+
             # Step 2: Determine bucket based on file type
             bucket_name = self._get_bucket_for_type(request.type)
             bucket_config = self.bucket_configs.get(bucket_name)
-            
+
             if not bucket_config:
                 raise FileServiceError(
                     code=UploadErrorCode.INVALID_INPUT,
@@ -181,7 +183,7 @@ class FileService:
                     turkish_message=f"Geçersiz depolama yapılandırması: {request.type}",
                     status_code=400,
                 )
-            
+
             # Step 3: Validate against bucket constraints
             is_valid, error_msg = BucketConfigFactory.validate_presigned_constraints(
                 content_length=request.size,
@@ -189,7 +191,7 @@ class FileService:
                 bucket_config=bucket_config,
                 tags=self._build_tags(request),
             )
-            
+
             if not is_valid:
                 raise FileServiceError(
                     code=UploadErrorCode.INVALID_INPUT,
@@ -197,7 +199,7 @@ class FileService:
                     turkish_message=error_msg,
                     status_code=400,
                 )
-            
+
             # Step 4: Generate server-side key using sanitized filename
             # Use the sanitized filename from validation service for security
             if validation_result.sanitized_filename:
@@ -206,14 +208,14 @@ class FileService:
                 # Fallback to generating safe filename
                 file_ext = self._get_file_extension(request.filename, request.mime_type)
                 safe_filename = f"{uuid.uuid4()}.{file_ext}"
-            
+
             object_key = f"{bucket_name}/{request.job_id}/{safe_filename}"
             object_key = validate_object_key(object_key)
-            
+
             # Step 5: Create upload session
             upload_id = f"upload-{uuid.uuid4()}"
-            expires_at = datetime.now(timezone.utc) + timedelta(seconds=PRESIGNED_PUT_TTL_SECONDS)
-            
+            expires_at = datetime.now(UTC) + timedelta(seconds=PRESIGNED_PUT_TTL_SECONDS)
+
             if self.db:
                 session = UploadSession(
                     upload_id=upload_id,
@@ -235,56 +237,56 @@ class FileService:
                 )
                 self.db.add(session)
                 self.db.commit()
-                
+
                 logger.info(
                     "Upload session created",
                     upload_id=upload_id,
                     object_key=object_key,
                     expires_at=expires_at.isoformat(),
                 )
-            
+
             # Step 6: Build conditions for presigned URL
             conditions = [
                 ["content-length-range", 1, request.size],
                 ["eq", "$Content-Type", request.mime_type],
             ]
-            
+
             # Add IP binding if configured
             if client_ip and bucket_config.bucket_policy:
                 if bucket_config.bucket_policy.allowed_source_ips:
                     conditions.append(["eq", "$x-amz-meta-client-ip", client_ip])
-            
+
             # Step 7: Build object tags
             tags = self._build_tags(request)
             tag_string = "&".join([f"{k}={v}" for k, v in tags.items()])
-            
+
             # Step 8: Generate presigned POST policy for better constraint enforcement
             post_policy = PostPolicy(
                 bucket_name,
-                datetime.now(timezone.utc) + timedelta(seconds=PRESIGNED_PUT_TTL_SECONDS),
+                datetime.now(UTC) + timedelta(seconds=PRESIGNED_PUT_TTL_SECONDS),
             )
-            
+
             # Add key constraint
             post_policy.add_starts_with_condition("key", object_key.replace(f"{bucket_name}/", ""))
-            
+
             # Add content-length constraint
             post_policy.add_content_length_range_condition(1, request.size)
-            
+
             # Add content-type constraint
             post_policy.add_eq_condition("Content-Type", request.mime_type)
-            
+
             # Add tagging constraint
             post_policy.add_eq_condition("x-amz-tagging", tag_string)
-            
+
             # Add client IP constraint if configured
             if client_ip and bucket_config.bucket_policy:
                 if bucket_config.bucket_policy.allowed_source_ips:
                     post_policy.add_eq_condition("x-amz-meta-client-ip", client_ip)
-            
+
             # Generate presigned POST policy
             form_data = self.client.presigned_post_policy(post_policy)
             presigned_url = form_data.get("url", "")
-            
+
             # Step 9: Extract all form fields from presigned POST policy
             """
             CRITICAL: These form fields MUST be included in the multipart/form-data upload request.
@@ -304,7 +306,7 @@ class FileService:
                 }
                 if client_ip:
                     fields["x-amz-meta-client-ip"] = client_ip
-            
+
             # Step 10: Build response
             response = UploadInitResponse(
                 key=object_key,
@@ -319,7 +321,7 @@ class FileService:
                     "tags": tags,
                 },
             )
-            
+
             logger.info(
                 "Upload initialized successfully",
                 upload_id=upload_id,
@@ -328,9 +330,9 @@ class FileService:
                 size=request.size,
                 mime_type=request.mime_type,
             )
-            
+
             return response
-            
+
         except FileServiceError:
             raise
         except Exception as e:
@@ -345,11 +347,11 @@ class FileService:
                 turkish_message=f"Yükleme başlatılamadı: {str(e)}",
                 status_code=500,
             )
-    
+
     def finalize_upload(
         self,
         request: UploadFinalizeRequest,
-        user_id: Optional[str] = None,
+        user_id: str | None = None,
     ) -> UploadFinalizeResponse:
         """
         Finalize file upload and verify integrity.
@@ -379,13 +381,13 @@ class FileService:
                     turkish_message="Tamamlama için yükleme oturum kimliği gereklidir",
                     status_code=400,
                 )
-            
+
             session = (
                 self.db.query(UploadSession)
                 .filter_by(upload_id=request.upload_id)
                 .first()
             )
-            
+
             if not session:
                 raise FileServiceError(
                     code=UploadErrorCode.NOT_FOUND,
@@ -393,7 +395,54 @@ class FileService:
                     turkish_message=f"Yükleme oturumu bulunamadı: {request.upload_id}",
                     status_code=404,
                 )
-            
+
+            # Task 5.5: Check if already finalized (idempotent operation)
+            if session.status == "completed":
+                # Already finalized - return success idempotently
+                logger.info(
+                    "Upload already finalized, returning cached result",
+                    upload_id=request.upload_id,
+                    object_key=session.object_key,
+                )
+
+                # Get the existing file metadata
+                if self.db:
+                    file_metadata = (
+                        self.db.query(FileMetadata)
+                        .filter_by(object_key=session.object_key)
+                        .first()
+                    )
+
+                    if file_metadata:
+                        # Return success with existing metadata
+                        return UploadFinalizeResponse(
+                            success=True,
+                            object_key=session.object_key,
+                            size=file_metadata.size,
+                            sha256=file_metadata.sha256,
+                            etag=file_metadata.etag,
+                            version_id=file_metadata.version_id,
+                            metadata={
+                                "filename": file_metadata.filename,
+                                "content_type": file_metadata.mime_type,
+                                "idempotent_response": True,
+                            },
+                            created_at=file_metadata.created_at,
+                        )
+
+                # Fallback if no metadata found - this indicates an inconsistent state
+                logger.critical(
+                    "Inconsistent state: Upload session is completed but no file metadata found",
+                    upload_id=session.upload_id,
+                    object_key=session.object_key,
+                )
+                raise FileServiceError(
+                    code=UploadErrorCode.STORAGE_ERROR,
+                    message="Inconsistent upload state. Please contact support.",
+                    turkish_message="Tutarsız yükleme durumu. Lütfen destek ile iletişime geçin.",
+                    status_code=500,
+                )
+
             if session.is_expired:
                 raise FileServiceError(
                     code=UploadErrorCode.UPLOAD_INCOMPLETE,
@@ -401,7 +450,7 @@ class FileService:
                     turkish_message="Yükleme oturumu süresi doldu",
                     status_code=409,
                 )
-            
+
             if session.object_key != request.key:
                 raise FileServiceError(
                     code=UploadErrorCode.INVALID_INPUT,
@@ -409,7 +458,7 @@ class FileService:
                     turkish_message="Nesne anahtarı uyuşmazlığı",
                     status_code=400,
                 )
-            
+
             # Step 2: Parse bucket and object from key
             parts = request.key.split("/", 1)
             if len(parts) != 2:
@@ -419,17 +468,17 @@ class FileService:
                     turkish_message=f"Geçersiz nesne anahtarı formatı: {request.key}",
                     status_code=400,
                 )
-            
+
             bucket_name = parts[0]
             object_name = parts[1]
-            
+
             # Step 3: Check if object exists
             try:
                 stat = self.client.stat_object(bucket_name, object_name)
                 actual_size = stat.size
                 etag = stat.etag
                 version_id = stat.version_id
-                
+
                 logger.info(
                     "Object found in storage",
                     bucket=bucket_name,
@@ -437,7 +486,7 @@ class FileService:
                     size=actual_size,
                     etag=etag,
                 )
-                
+
             except S3Error as e:
                 if e.code == "NoSuchKey":
                     raise FileServiceError(
@@ -447,7 +496,7 @@ class FileService:
                         status_code=404,
                     )
                 raise
-            
+
             # Step 4: Verify size (session is guaranteed to exist after validation)
             if actual_size != session.expected_size:
                 raise FileServiceError(
@@ -456,7 +505,7 @@ class FileService:
                     turkish_message=f"Boyut uyuşmazlığı: beklenen {session.expected_size}, alınan {actual_size}",
                     status_code=413,
                 )
-            
+
             # Step 4.5: Task 5.4 - Validate at finalization stage
             finalize_validation = self.validation_service.validate_upload_finalize(
                 object_key=request.key,
@@ -464,7 +513,7 @@ class FileService:
                 expected_size=session.expected_size,
                 content_sample=None,  # Will get content sample later for deep validation
             )
-            
+
             if not finalize_validation.is_valid:
                 # Delete the object as it failed validation
                 try:
@@ -482,11 +531,11 @@ class FileService:
                         bucket=bucket_name,
                         object=object_name,
                     )
-                
+
                 # Build error message
                 error_msgs = [err.get("message", "") for err in finalize_validation.errors]
                 turkish_msgs = [err.get("turkish_message", "") for err in finalize_validation.errors]
-                
+
                 raise FileServiceError(
                     code=UploadErrorCode.UNSUPPORTED_MEDIA_TYPE if finalize_validation.error_code == 415
                          else UploadErrorCode.PAYLOAD_TOO_LARGE if finalize_validation.error_code == 413
@@ -496,37 +545,37 @@ class FileService:
                     details={"validation_errors": finalize_validation.errors},
                     status_code=finalize_validation.error_code,
                 )
-            
-            # Step 5: Verify SHA256 hash by downloading and computing actual hash
-            # Session was already verified at line 327
-            # Download the file and compute its actual SHA256 hash for verification
+
+            # Step 5: Task 5.5 - Verify SHA256 hash using streaming service
+            # This implements memory-efficient streaming with 8MB chunks
             logger.info(
-                "Starting SHA256 verification",
+                "Starting SHA256 streaming verification",
                 bucket=bucket_name,
                 object=object_name,
+                upload_id=request.upload_id,
             )
-            
+
             try:
-                # Stream the object and compute its SHA256 hash
-                data = self.client.get_object(bucket_name, object_name)
-                hasher = hashlib.sha256()
-                
-                # Stream through the file in chunks to compute hash efficiently
-                chunk_size = 32 * 1024  # 32KB chunks
-                first_chunk = None
-                for i, chunk in enumerate(data.stream(chunk_size)):
-                    hasher.update(chunk)
-                    # Store first chunk for magic bytes validation
-                    if i == 0:
-                        first_chunk = chunk
-                
-                # Clean up the connection
-                data.close()
-                data.release_conn()
-                
-                actual_sha256 = hasher.hexdigest()
-                
-                # Task 5.4: Validate magic bytes with actual content
+                # Use SHA256 streaming service for memory-efficient verification
+                is_hash_valid, actual_sha256, hash_metadata, first_chunk = self.sha256_service.verify_object_hash(
+                    bucket_name=bucket_name,
+                    object_name=object_name,
+                    expected_sha256=session.expected_sha256,
+                    expected_size=session.expected_size,
+                )
+
+                # Log the verification metadata
+                logger.info(
+                    "SHA256 verification completed",
+                    is_valid=is_hash_valid,
+                    expected=session.expected_sha256,
+                    actual=actual_sha256,
+                    bytes_processed=hash_metadata.get("bytes_processed"),
+                    chunks_processed=hash_metadata.get("chunks_processed"),
+                )
+
+                # Task 5.4: Validate magic bytes with first chunk if available
+                # Note: first_chunk is now returned directly from verify_object_hash to avoid redundant network call
                 if first_chunk:
                     # Extract extension from object key for magic bytes validation
                     extension = self._extract_extension_from_key(object_name)
@@ -535,9 +584,9 @@ class FileService:
                             object_key=request.key,
                             actual_size=actual_size,
                             expected_size=session.expected_size,
-                            content_sample=first_chunk,  # Now with actual content
+                            content_sample=first_chunk,  # First chunk for magic bytes
                         )
-                        
+
                         if not content_validation.is_valid:
                             # Critical: Content doesn't match declared type
                             logger.error(
@@ -545,18 +594,19 @@ class FileService:
                                 object_key=request.key,
                                 errors=content_validation.errors,
                             )
-                            
-                            # Delete the malicious/invalid file
-                            try:
-                                self.client.remove_object(bucket_name, object_name)
-                                logger.warning(
-                                    "Object deleted due to content validation failure",
-                                    bucket=bucket_name,
-                                    object=object_name,
-                                )
-                            except S3Error:
-                                pass
-                            
+
+                            # Delete the malicious/invalid file with audit
+                            self.sha256_service.delete_object_with_audit(
+                                bucket_name=bucket_name,
+                                object_name=object_name,
+                                reason="Content validation failure - magic bytes mismatch",
+                                details={
+                                    "object_key": request.key,
+                                    "validation_errors": content_validation.errors,
+                                    "upload_id": request.upload_id,
+                                },
+                            )
+
                             raise FileServiceError(
                                 code=UploadErrorCode.UNSUPPORTED_MEDIA_TYPE,
                                 message="File content does not match declared type",
@@ -564,33 +614,23 @@ class FileService:
                                 details={"content_errors": content_validation.errors},
                                 status_code=415,
                             )
-                
-                logger.info(
-                    "SHA256 computed",
-                    expected=session.expected_sha256,
-                    actual=actual_sha256,
-                )
-                
-                # Verify the hash matches what was expected
-                if actual_sha256 != session.expected_sha256:
-                    # Delete the object as it failed verification
-                    try:
-                        self.client.remove_object(bucket_name, object_name)
-                        logger.warning(
-                            "Object deleted due to hash mismatch",
-                            bucket=bucket_name,
-                            object=object_name,
-                            expected_sha256=session.expected_sha256,
-                            actual_sha256=actual_sha256,
-                        )
-                    except S3Error as e:
-                        logger.error(
-                            "Failed to delete object after hash mismatch",
-                            error=str(e),
-                            bucket=bucket_name,
-                            object=object_name,
-                        )
-                    
+
+                # Handle hash mismatch (Task 5.5 requirement)
+                if not is_hash_valid:
+                    # Delete the object with comprehensive audit logging
+                    self.sha256_service.delete_object_with_audit(
+                        bucket_name=bucket_name,
+                        object_name=object_name,
+                        reason="SHA256 hash mismatch",
+                        details={
+                            "expected_sha256": session.expected_sha256,
+                            "actual_sha256": actual_sha256,
+                            "upload_id": request.upload_id,
+                            "size": actual_size,
+                            **hash_metadata,
+                        },
+                    )
+
                     raise FileServiceError(
                         code=UploadErrorCode.HASH_MISMATCH,
                         message=f"SHA256 hash mismatch: expected {session.expected_sha256}, got {actual_sha256}",
@@ -598,15 +638,53 @@ class FileService:
                         details={
                             "expected_sha256": session.expected_sha256,
                             "actual_sha256": actual_sha256,
+                            "upload_id": request.upload_id,
+                            **hash_metadata,
                         },
                         status_code=422,
                     )
-                
+
+            except SHA256StreamingError as e:
+                # Handle specific streaming errors
+                logger.error(
+                    "SHA256 streaming verification failed",
+                    error=e.message,
+                    code=e.code,
+                    details=e.details,
+                    bucket=bucket_name,
+                    object=object_name,
+                )
+
+                # Map streaming errors to appropriate upload errors
+                if e.code == "NOT_FOUND":
+                    raise FileServiceError(
+                        code=UploadErrorCode.NOT_FOUND,
+                        message=e.message,
+                        turkish_message="Dosya bulunamadı",
+                        details=e.details,
+                        status_code=404,
+                    )
+                elif e.code == "TIMEOUT":
+                    raise FileServiceError(
+                        code=UploadErrorCode.UPLOAD_INCOMPLETE,
+                        message="Verification timeout - possible slowloris attack",
+                        turkish_message="Doğrulama zaman aşımı - olası güvenlik tehdidi",
+                        details=e.details,
+                        status_code=408,
+                    )
+                else:
+                    raise FileServiceError(
+                        code=UploadErrorCode.STORAGE_ERROR,
+                        message=f"Failed to verify file integrity: {e.message}",
+                        turkish_message=f"Dosya bütünlüğü doğrulanamadı: {e.message}",
+                        details=e.details,
+                        status_code=500,
+                    )
             except FileServiceError:
                 raise
             except Exception as e:
                 logger.error(
-                    "Failed to verify SHA256 hash",
+                    "Unexpected error during SHA256 verification",
                     error=str(e),
                     bucket=bucket_name,
                     object=object_name,
@@ -618,7 +696,7 @@ class FileService:
                     turkish_message=f"Dosya bütünlüğü doğrulanamadı: {str(e)}",
                     status_code=500,
                 )
-            
+
             # Step 6: Create file metadata record
             if self.db:
                 file_metadata = FileMetadata(
@@ -638,29 +716,29 @@ class FileService:
                     post_processor=session.metadata.get("post_processor"),
                     tags=self._get_object_tags(bucket_name, object_name),
                     client_ip=session.client_ip,
-                    created_at=datetime.now(timezone.utc),
-                    updated_at=datetime.now(timezone.utc),
-                    verified_at=datetime.now(timezone.utc),
+                    created_at=datetime.now(UTC),
+                    updated_at=datetime.now(UTC),
+                    verified_at=datetime.now(UTC),
                 )
-                
+
                 self.db.add(file_metadata)
-                
+
                 # Update session status (session is guaranteed to exist)
                 session.status = "completed"
-                session.completed_at = datetime.now(timezone.utc)
-                
+                session.completed_at = datetime.now(UTC)
+
                 self.db.commit()
-                
+
                 logger.info(
                     "File metadata created",
                     file_id=str(file_metadata.id),
                     object_key=request.key,
                     status=FileStatus.COMPLETED.value,
                 )
-            
+
             # Step 7: Get object metadata for response
             metadata = self._get_object_metadata(bucket_name, object_name)
-            
+
             # Step 8: Build response
             response = UploadFinalizeResponse(
                 success=True,
@@ -670,18 +748,18 @@ class FileService:
                 etag=etag,
                 version_id=version_id,
                 metadata=metadata,
-                created_at=datetime.now(timezone.utc),
+                created_at=datetime.now(UTC),
             )
-            
+
             logger.info(
                 "Upload finalized successfully",
                 object_key=request.key,
                 size=actual_size,
                 sha256=actual_sha256,
             )
-            
+
             return response
-            
+
         except FileServiceError:
             raise
         except Exception as e:
@@ -696,12 +774,12 @@ class FileService:
                 turkish_message=f"Yükleme tamamlanamadı: {str(e)}",
                 status_code=500,
             )
-    
+
     def get_download_url(
         self,
         file_id: str,
-        user_id: Optional[str] = None,
-        version_id: Optional[str] = None,
+        user_id: str | None = None,
+        version_id: str | None = None,
     ) -> FileDownloadResponse:
         """
         Generate presigned GET URL for file download.
@@ -737,7 +815,7 @@ class FileService:
                         .filter_by(object_key=file_id)
                         .first()
                     )
-                
+
                 if not file_metadata:
                     raise FileServiceError(
                         code=UploadErrorCode.NOT_FOUND,
@@ -745,7 +823,7 @@ class FileService:
                         turkish_message=f"Dosya bulunamadı: {file_id}",
                         status_code=404,
                     )
-                
+
                 # Step 2: Authorize access
                 if not self._authorize_file_access(file_metadata, user_id):
                     raise FileServiceError(
@@ -754,10 +832,10 @@ class FileService:
                         turkish_message="Dosyaya erişim reddedildi",
                         status_code=403,
                     )
-                
+
                 object_key = file_metadata.object_key
                 bucket_name = file_metadata.bucket
-                
+
             else:
                 # No DB, use file_id as object key
                 object_key = file_id
@@ -770,14 +848,14 @@ class FileService:
                         status_code=400,
                     )
                 bucket_name = parts[0]
-            
+
             # Step 3: Parse object name from key
             object_name = object_key.replace(f"{bucket_name}/", "")
-            
+
             # Step 4: Check if object exists
             try:
                 stat = self.client.stat_object(bucket_name, object_name, version_id=version_id)
-                
+
             except S3Error as e:
                 if e.code == "NoSuchKey":
                     raise FileServiceError(
@@ -787,7 +865,7 @@ class FileService:
                         status_code=404,
                     )
                 raise
-            
+
             # Step 5: Special handling for invoices (respect object lock)
             if bucket_name == "invoices":
                 # Check if object has legal hold or retention
@@ -801,7 +879,7 @@ class FileService:
                         )
                 except S3Error:
                     pass  # No retention
-            
+
             # Step 6: Generate presigned GET URL
             presigned_url = self.client.presigned_get_object(
                 bucket_name=bucket_name,
@@ -809,7 +887,7 @@ class FileService:
                 expires=timedelta(seconds=PRESIGNED_GET_TTL_SECONDS),
                 version_id=version_id,
             )
-            
+
             # Step 7: Log audit trail
             logger.info(
                 "Download URL generated",
@@ -817,7 +895,7 @@ class FileService:
                 user_id=user_id,
                 expires_in=PRESIGNED_GET_TTL_SECONDS,
             )
-            
+
             # Step 8: Build file info
             file_info = {
                 "key": object_key,
@@ -827,7 +905,7 @@ class FileService:
                 "etag": stat.etag,
                 "version_id": version_id or stat.version_id,
             }
-            
+
             if file_metadata:
                 file_info.update({
                     "filename": file_metadata.filename,
@@ -835,16 +913,16 @@ class FileService:
                     "job_id": file_metadata.job_id,
                     "tags": file_metadata.tags or {},
                 })
-            
+
             # Step 9: Build response
             response = FileDownloadResponse(
                 download_url=presigned_url,
                 expires_in=PRESIGNED_GET_TTL_SECONDS,
                 file_info=file_info,
             )
-            
+
             return response
-            
+
         except FileServiceError:
             raise
         except Exception as e:
@@ -859,16 +937,16 @@ class FileService:
                 turkish_message=f"İndirme URL'si oluşturulamadı: {str(e)}",
                 status_code=500,
             )
-    
+
     # Helper methods
-    
+
     def _validate_upload_request(self, request: UploadInitRequest) -> None:
         """Validate upload request against security constraints."""
         # Size validation is handled by Pydantic
         # MIME type validation is handled by Pydantic
         # SHA256 format validation is handled by Pydantic
         pass
-    
+
     def _get_bucket_for_type(self, file_type: str) -> str:
         """Map file type to bucket name."""
         mapping = {
@@ -880,19 +958,19 @@ class FileService:
             "temp": "temp",
         }
         return mapping.get(file_type, "temp")
-    
+
     def _get_file_type_enum(self, type_str: str) -> FileTypeEnum:
         """Convert string to FileType enum."""
         try:
             return FileTypeEnum(type_str)
         except ValueError:
             return FileTypeEnum.TEMP
-    
-    def _get_file_extension(self, filename: Optional[str], mime_type: str) -> str:
+
+    def _get_file_extension(self, filename: str | None, mime_type: str) -> str:
         """Extract or determine file extension."""
         if filename and "." in filename:
             return filename.split(".")[-1].lower()
-        
+
         # Fallback based on MIME type
         mime_extensions = {
             "application/sla": "stl",
@@ -910,24 +988,24 @@ class FileService:
             "application/zip": "zip",
             "application/gzip": "gz",
         }
-        
+
         return mime_extensions.get(mime_type, "bin")
-    
-    def _build_tags(self, request: UploadInitRequest) -> Dict[str, str]:
+
+    def _build_tags(self, request: UploadInitRequest) -> dict[str, str]:
         """Build object tags for audit trail."""
         tags = {
             "job_id": request.job_id,
         }
-        
+
         if request.machine_id:
             tags["machine"] = request.machine_id
-        
+
         if request.post_processor:
             tags["post"] = request.post_processor
-        
+
         return tags
-    
-    def _get_object_tags(self, bucket: str, object_name: str) -> Dict[str, str]:
+
+    def _get_object_tags(self, bucket: str, object_name: str) -> dict[str, str]:
         """Get tags from S3 object."""
         try:
             tags_obj = self.client.get_object_tags(bucket, object_name)
@@ -936,13 +1014,13 @@ class FileService:
         except S3Error:
             pass
         return {}
-    
-    def _get_object_metadata(self, bucket: str, object_name: str) -> Dict[str, str]:
+
+    def _get_object_metadata(self, bucket: str, object_name: str) -> dict[str, str]:
         """Get metadata from S3 object."""
         try:
             response = self.client.stat_object(bucket, object_name)
             metadata = dict(response.metadata) if response.metadata else {}
-            
+
             # Add standard metadata
             metadata.update({
                 "content_type": response.content_type,
@@ -950,34 +1028,34 @@ class FileService:
                 "etag": response.etag,
                 "last_modified": response.last_modified.isoformat(),
             })
-            
+
             # Add tags
             tags = self._get_object_tags(bucket, object_name)
             if tags:
                 metadata.update(tags)
-            
+
             return metadata
-            
+
         except S3Error:
             return {}
-    
-    def _extract_extension_from_key(self, object_name: str) -> Optional[str]:
+
+    def _extract_extension_from_key(self, object_name: str) -> str | None:
         """Extract file extension from object key."""
         if not object_name:
             return None
-        
+
         # Get the base filename
         if "/" in object_name:
             object_name = object_name.split("/")[-1]
-        
+
         # Extract extension
         if "." in object_name:
             ext = object_name.rsplit(".", 1)[-1]
             return f".{ext.lower()}"
-        
+
         return None
-    
-    def _authorize_file_access(self, file_metadata: FileMetadata, user_id: Optional[str]) -> bool:
+
+    def _authorize_file_access(self, file_metadata: FileMetadata, user_id: str | None) -> bool:
         """
         Authorize user access to file.
         
@@ -986,17 +1064,17 @@ class FileService:
         """
         if not user_id:
             return False
-        
+
         # Owner can always access
         if file_metadata.user_id and str(file_metadata.user_id) == user_id:
             return True
-        
+
         # TODO: Add role-based access control in Task 5.7
         # For now, allow access to all authenticated users
         return True
 
 
-def get_file_service(db: Optional[Session] = None) -> FileService:
+def get_file_service(db: Session | None = None) -> FileService:
     """
     Get file service instance for dependency injection.
     
