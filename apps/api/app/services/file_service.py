@@ -51,6 +51,11 @@ from app.schemas.file_upload import (
     PRESIGNED_PUT_TTL_SECONDS,
     PRESIGNED_GET_TTL_SECONDS,
 )
+from app.services.file_validation import (
+    FileValidationService,
+    ValidationStatus,
+    get_file_validation_service,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -90,6 +95,7 @@ class FileService:
         client: Optional[Minio] = None,
         config: Optional[MinIOConfig] = None,
         db: Optional[Session] = None,
+        validation_service: Optional[FileValidationService] = None,
     ):
         """
         Initialize file service.
@@ -98,13 +104,15 @@ class FileService:
             client: MinIO client instance
             config: MinIO configuration
             db: Database session
+            validation_service: File validation service
         """
         self.client = client or get_minio_client()
         self.config = config or get_minio_config()
         self.bucket_configs = BucketConfigFactory.from_environment()
         self.db = db
+        self.validation_service = validation_service or get_file_validation_service()
         
-        logger.info("File service initialized")
+        logger.info("File service initialized with validation")
     
     def init_upload(
         self,
@@ -128,8 +136,39 @@ class FileService:
             FileServiceError: On validation or generation failure
         """
         try:
-            # Step 1: Validate inputs
+            # Step 1: Validate inputs with comprehensive security checks
             self._validate_upload_request(request)
+            
+            # Step 1.5: Perform Task 5.4 validation
+            validation_result = self.validation_service.validate_upload_init(
+                filename=request.filename or f"upload.{request.type.value}",
+                size=request.size,
+                mime_type=request.mime_type,
+                content=None,  # No content available at init stage
+            )
+            
+            if not validation_result.is_valid:
+                # Build error message from validation errors
+                error_msgs = [err.get("message", "") for err in validation_result.errors]
+                turkish_msgs = [err.get("turkish_message", "") for err in validation_result.errors]
+                
+                raise FileServiceError(
+                    code=UploadErrorCode.UNSUPPORTED_MEDIA_TYPE if validation_result.error_code == 415
+                         else UploadErrorCode.PAYLOAD_TOO_LARGE if validation_result.error_code == 413
+                         else UploadErrorCode.INVALID_INPUT,
+                    message="; ".join(error_msgs),
+                    turkish_message="; ".join(turkish_msgs),
+                    details={"validation_errors": validation_result.errors},
+                    status_code=validation_result.error_code,
+                )
+            
+            # Log warnings if any
+            if validation_result.warnings:
+                logger.warning(
+                    "Upload validation warnings",
+                    warnings=validation_result.warnings,
+                    filename=request.filename,
+                )
             
             # Step 2: Determine bucket based on file type
             bucket_name = self._get_bucket_for_type(request.type)
@@ -159,9 +198,16 @@ class FileService:
                     status_code=400,
                 )
             
-            # Step 4: Generate server-side key
-            file_ext = self._get_file_extension(request.filename, request.mime_type)
-            object_key = f"{bucket_name}/{request.job_id}/{uuid.uuid4()}.{file_ext}"
+            # Step 4: Generate server-side key using sanitized filename
+            # Use the sanitized filename from validation service for security
+            if validation_result.sanitized_filename:
+                safe_filename = validation_result.sanitized_filename
+            else:
+                # Fallback to generating safe filename
+                file_ext = self._get_file_extension(request.filename, request.mime_type)
+                safe_filename = f"{uuid.uuid4()}.{file_ext}"
+            
+            object_key = f"{bucket_name}/{request.job_id}/{safe_filename}"
             object_key = validate_object_key(object_key)
             
             # Step 5: Create upload session
@@ -411,6 +457,46 @@ class FileService:
                     status_code=413,
                 )
             
+            # Step 4.5: Task 5.4 - Validate at finalization stage
+            finalize_validation = self.validation_service.validate_upload_finalize(
+                object_key=request.key,
+                actual_size=actual_size,
+                expected_size=session.expected_size,
+                content_sample=None,  # Will get content sample later for deep validation
+            )
+            
+            if not finalize_validation.is_valid:
+                # Delete the object as it failed validation
+                try:
+                    self.client.remove_object(bucket_name, object_name)
+                    logger.warning(
+                        "Object deleted due to validation failure",
+                        bucket=bucket_name,
+                        object=object_name,
+                        errors=finalize_validation.errors,
+                    )
+                except S3Error as e:
+                    logger.error(
+                        "Failed to delete object after validation failure",
+                        error=str(e),
+                        bucket=bucket_name,
+                        object=object_name,
+                    )
+                
+                # Build error message
+                error_msgs = [err.get("message", "") for err in finalize_validation.errors]
+                turkish_msgs = [err.get("turkish_message", "") for err in finalize_validation.errors]
+                
+                raise FileServiceError(
+                    code=UploadErrorCode.UNSUPPORTED_MEDIA_TYPE if finalize_validation.error_code == 415
+                         else UploadErrorCode.PAYLOAD_TOO_LARGE if finalize_validation.error_code == 413
+                         else UploadErrorCode.INVALID_INPUT,
+                    message="; ".join(error_msgs),
+                    turkish_message="; ".join(turkish_msgs),
+                    details={"validation_errors": finalize_validation.errors},
+                    status_code=finalize_validation.error_code,
+                )
+            
             # Step 5: Verify SHA256 hash by downloading and computing actual hash
             # Session was already verified at line 327
             # Download the file and compute its actual SHA256 hash for verification
@@ -427,14 +513,57 @@ class FileService:
                 
                 # Stream through the file in chunks to compute hash efficiently
                 chunk_size = 32 * 1024  # 32KB chunks
-                for chunk in data.stream(chunk_size):
+                first_chunk = None
+                for i, chunk in enumerate(data.stream(chunk_size)):
                     hasher.update(chunk)
+                    # Store first chunk for magic bytes validation
+                    if i == 0:
+                        first_chunk = chunk
                 
                 # Clean up the connection
                 data.close()
                 data.release_conn()
                 
                 actual_sha256 = hasher.hexdigest()
+                
+                # Task 5.4: Validate magic bytes with actual content
+                if first_chunk:
+                    # Extract extension from object key for magic bytes validation
+                    extension = self._extract_extension_from_key(object_name)
+                    if extension:
+                        content_validation = self.validation_service.validate_upload_finalize(
+                            object_key=request.key,
+                            actual_size=actual_size,
+                            expected_size=session.expected_size,
+                            content_sample=first_chunk,  # Now with actual content
+                        )
+                        
+                        if not content_validation.is_valid:
+                            # Critical: Content doesn't match declared type
+                            logger.error(
+                                "Content validation failed after upload",
+                                object_key=request.key,
+                                errors=content_validation.errors,
+                            )
+                            
+                            # Delete the malicious/invalid file
+                            try:
+                                self.client.remove_object(bucket_name, object_name)
+                                logger.warning(
+                                    "Object deleted due to content validation failure",
+                                    bucket=bucket_name,
+                                    object=object_name,
+                                )
+                            except S3Error:
+                                pass
+                            
+                            raise FileServiceError(
+                                code=UploadErrorCode.UNSUPPORTED_MEDIA_TYPE,
+                                message="File content does not match declared type",
+                                turkish_message="Dosya içeriği beyan edilen türle uyuşmuyor",
+                                details={"content_errors": content_validation.errors},
+                                status_code=415,
+                            )
                 
                 logger.info(
                     "SHA256 computed",
@@ -831,6 +960,22 @@ class FileService:
             
         except S3Error:
             return {}
+    
+    def _extract_extension_from_key(self, object_name: str) -> Optional[str]:
+        """Extract file extension from object key."""
+        if not object_name:
+            return None
+        
+        # Get the base filename
+        if "/" in object_name:
+            object_name = object_name.split("/")[-1]
+        
+        # Extract extension
+        if "." in object_name:
+            ext = object_name.rsplit(".", 1)[-1]
+            return f".{ext.lower()}"
+        
+        return None
     
     def _authorize_file_access(self, file_metadata: FileMetadata, user_id: Optional[str]) -> bool:
         """
