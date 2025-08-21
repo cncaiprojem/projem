@@ -10,7 +10,6 @@ Implements secure file upload/download with:
 
 from __future__ import annotations
 
-import hashlib
 import io
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -56,6 +55,11 @@ from app.services.file_validation import (
     ValidationStatus,
     get_file_validation_service,
 )
+from app.services.sha256_service import (
+    SHA256StreamingService,
+    SHA256StreamingError,
+    get_sha256_streaming_service,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -96,6 +100,7 @@ class FileService:
         config: Optional[MinIOConfig] = None,
         db: Optional[Session] = None,
         validation_service: Optional[FileValidationService] = None,
+        sha256_service: Optional[SHA256StreamingService] = None,
     ):
         """
         Initialize file service.
@@ -105,14 +110,16 @@ class FileService:
             config: MinIO configuration
             db: Database session
             validation_service: File validation service
+            sha256_service: SHA256 streaming service
         """
         self.client = client or get_minio_client()
         self.config = config or get_minio_config()
         self.bucket_configs = BucketConfigFactory.from_environment()
         self.db = db
         self.validation_service = validation_service or get_file_validation_service()
+        self.sha256_service = sha256_service or get_sha256_streaming_service(self.client)
         
-        logger.info("File service initialized with validation")
+        logger.info("File service initialized with validation and SHA256 streaming")
     
     def init_upload(
         self,
@@ -394,6 +401,52 @@ class FileService:
                     status_code=404,
                 )
             
+            # Task 5.5: Check if already finalized (idempotent operation)
+            if session.status == "completed":
+                # Already finalized - return success idempotently
+                logger.info(
+                    "Upload already finalized, returning cached result",
+                    upload_id=request.upload_id,
+                    object_key=session.object_key,
+                )
+                
+                # Get the existing file metadata
+                if self.db:
+                    file_metadata = (
+                        self.db.query(FileMetadata)
+                        .filter_by(object_key=session.object_key)
+                        .first()
+                    )
+                    
+                    if file_metadata:
+                        # Return success with existing metadata
+                        return UploadFinalizeResponse(
+                            success=True,
+                            object_key=session.object_key,
+                            size=file_metadata.size,
+                            sha256=file_metadata.sha256,
+                            etag=file_metadata.etag,
+                            version_id=file_metadata.version_id,
+                            metadata={
+                                "filename": file_metadata.filename,
+                                "content_type": file_metadata.mime_type,
+                                "idempotent_response": True,
+                            },
+                            created_at=file_metadata.created_at,
+                        )
+                
+                # Fallback if no metadata found
+                return UploadFinalizeResponse(
+                    success=True,
+                    object_key=session.object_key,
+                    size=session.expected_size,
+                    sha256=session.expected_sha256,
+                    etag=None,
+                    version_id=None,
+                    metadata={"idempotent_response": True},
+                    created_at=session.completed_at or datetime.now(timezone.utc),
+                )
+            
             if session.is_expired:
                 raise FileServiceError(
                     code=UploadErrorCode.UPLOAD_INCOMPLETE,
@@ -497,36 +550,36 @@ class FileService:
                     status_code=finalize_validation.error_code,
                 )
             
-            # Step 5: Verify SHA256 hash by downloading and computing actual hash
-            # Session was already verified at line 327
-            # Download the file and compute its actual SHA256 hash for verification
+            # Step 5: Task 5.5 - Verify SHA256 hash using streaming service
+            # This implements memory-efficient streaming with 8MB chunks
             logger.info(
-                "Starting SHA256 verification",
+                "Starting SHA256 streaming verification",
                 bucket=bucket_name,
                 object=object_name,
+                upload_id=request.upload_id,
             )
             
             try:
-                # Stream the object and compute its SHA256 hash
-                data = self.client.get_object(bucket_name, object_name)
-                hasher = hashlib.sha256()
+                # Use SHA256 streaming service for memory-efficient verification
+                is_hash_valid, actual_sha256, hash_metadata = self.sha256_service.verify_object_hash(
+                    bucket_name=bucket_name,
+                    object_name=object_name,
+                    expected_sha256=session.expected_sha256,
+                    expected_size=session.expected_size,
+                )
                 
-                # Stream through the file in chunks to compute hash efficiently
-                chunk_size = 32 * 1024  # 32KB chunks
-                first_chunk = None
-                for i, chunk in enumerate(data.stream(chunk_size)):
-                    hasher.update(chunk)
-                    # Store first chunk for magic bytes validation
-                    if i == 0:
-                        first_chunk = chunk
+                # Log the verification metadata
+                logger.info(
+                    "SHA256 verification completed",
+                    is_valid=is_hash_valid,
+                    expected=session.expected_sha256,
+                    actual=actual_sha256,
+                    bytes_processed=hash_metadata.get("bytes_processed"),
+                    chunks_processed=hash_metadata.get("chunks_processed"),
+                )
                 
-                # Clean up the connection
-                data.close()
-                data.release_conn()
-                
-                actual_sha256 = hasher.hexdigest()
-                
-                # Task 5.4: Validate magic bytes with actual content
+                # Task 5.4: Validate magic bytes with first chunk if available
+                first_chunk = self.sha256_service.get_first_chunk(bucket_name, object_name)
                 if first_chunk:
                     # Extract extension from object key for magic bytes validation
                     extension = self._extract_extension_from_key(object_name)
@@ -535,7 +588,7 @@ class FileService:
                             object_key=request.key,
                             actual_size=actual_size,
                             expected_size=session.expected_size,
-                            content_sample=first_chunk,  # Now with actual content
+                            content_sample=first_chunk,  # First chunk for magic bytes
                         )
                         
                         if not content_validation.is_valid:
@@ -546,16 +599,17 @@ class FileService:
                                 errors=content_validation.errors,
                             )
                             
-                            # Delete the malicious/invalid file
-                            try:
-                                self.client.remove_object(bucket_name, object_name)
-                                logger.warning(
-                                    "Object deleted due to content validation failure",
-                                    bucket=bucket_name,
-                                    object=object_name,
-                                )
-                            except S3Error:
-                                pass
+                            # Delete the malicious/invalid file with audit
+                            self.sha256_service.delete_object_with_audit(
+                                bucket_name=bucket_name,
+                                object_name=object_name,
+                                reason="Content validation failure - magic bytes mismatch",
+                                details={
+                                    "object_key": request.key,
+                                    "validation_errors": content_validation.errors,
+                                    "upload_id": request.upload_id,
+                                },
+                            )
                             
                             raise FileServiceError(
                                 code=UploadErrorCode.UNSUPPORTED_MEDIA_TYPE,
@@ -565,31 +619,21 @@ class FileService:
                                 status_code=415,
                             )
                 
-                logger.info(
-                    "SHA256 computed",
-                    expected=session.expected_sha256,
-                    actual=actual_sha256,
-                )
-                
-                # Verify the hash matches what was expected
-                if actual_sha256 != session.expected_sha256:
-                    # Delete the object as it failed verification
-                    try:
-                        self.client.remove_object(bucket_name, object_name)
-                        logger.warning(
-                            "Object deleted due to hash mismatch",
-                            bucket=bucket_name,
-                            object=object_name,
-                            expected_sha256=session.expected_sha256,
-                            actual_sha256=actual_sha256,
-                        )
-                    except S3Error as e:
-                        logger.error(
-                            "Failed to delete object after hash mismatch",
-                            error=str(e),
-                            bucket=bucket_name,
-                            object=object_name,
-                        )
+                # Handle hash mismatch (Task 5.5 requirement)
+                if not is_hash_valid:
+                    # Delete the object with comprehensive audit logging
+                    self.sha256_service.delete_object_with_audit(
+                        bucket_name=bucket_name,
+                        object_name=object_name,
+                        reason="SHA256 hash mismatch",
+                        details={
+                            "expected_sha256": session.expected_sha256,
+                            "actual_sha256": actual_sha256,
+                            "upload_id": request.upload_id,
+                            "size": actual_size,
+                            **hash_metadata,
+                        },
+                    )
                     
                     raise FileServiceError(
                         code=UploadErrorCode.HASH_MISMATCH,
@@ -598,15 +642,53 @@ class FileService:
                         details={
                             "expected_sha256": session.expected_sha256,
                             "actual_sha256": actual_sha256,
+                            "upload_id": request.upload_id,
+                            **hash_metadata,
                         },
                         status_code=422,
                     )
                 
+            except SHA256StreamingError as e:
+                # Handle specific streaming errors
+                logger.error(
+                    "SHA256 streaming verification failed",
+                    error=e.message,
+                    code=e.code,
+                    details=e.details,
+                    bucket=bucket_name,
+                    object=object_name,
+                )
+                
+                # Map streaming errors to appropriate upload errors
+                if e.code == "NOT_FOUND":
+                    raise FileServiceError(
+                        code=UploadErrorCode.NOT_FOUND,
+                        message=e.message,
+                        turkish_message="Dosya bulunamadı",
+                        details=e.details,
+                        status_code=404,
+                    )
+                elif e.code == "TIMEOUT":
+                    raise FileServiceError(
+                        code=UploadErrorCode.UPLOAD_INCOMPLETE,
+                        message="Verification timeout - possible slowloris attack",
+                        turkish_message="Doğrulama zaman aşımı - olası güvenlik tehdidi",
+                        details=e.details,
+                        status_code=408,
+                    )
+                else:
+                    raise FileServiceError(
+                        code=UploadErrorCode.STORAGE_ERROR,
+                        message=f"Failed to verify file integrity: {e.message}",
+                        turkish_message=f"Dosya bütünlüğü doğrulanamadı: {e.message}",
+                        details=e.details,
+                        status_code=500,
+                    )
             except FileServiceError:
                 raise
             except Exception as e:
                 logger.error(
-                    "Failed to verify SHA256 hash",
+                    "Unexpected error during SHA256 verification",
                     error=str(e),
                     bucket=bucket_name,
                     object=object_name,
