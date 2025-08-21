@@ -743,7 +743,7 @@
               "5.3"
             ],
             "details": "- Allowed extensions: .step .stl .fcstd .glb .nc .tap .gcode .mp4 .gif.\n- Allowed MIME (examples): model/step, model/stl, application/vnd.freecad, model/gltf-binary, text/plain (G-code), video/mp4, image/gif. Map per extension; reject mismatches.\n- Size limit: ≤ 200MB enforced at init and finalize; use content-length-range condition on presign and recheck via stat.\n- Double-extension guard: reject filenames where the last extension is allowed but the penultimate extension exists and is not identical or is in blacklist [exe, js, sh, bat, cmd, com, dll, zip, rar, 7z].\n- Filename sanitization: normalize to server-generated UUID; ignore client-provided names to avoid traversal and UTF-8 tricks.\n- Error codes: 415 for unsupported type/MIME, 413 for oversize, 400 for malformed input.\n- Acceptance tests:\n  - .exe or .stl.exe rejected with 415.\n  - MIME mismatch (e.g., .stl with video/mp4) rejected with 415.\n  - >200MB rejected at init (413) and finalize (413).",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-20T19:50:48.028Z",
+      "updated": "2025-08-21T06:59:32.316Z",
       "description": "Tasks for master context"
     }
   }

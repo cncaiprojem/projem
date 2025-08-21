@@ -26,36 +26,39 @@ PRESIGNED_GET_TTL_SECONDS: Final[int] = 120  # 2 minutes for GET
 SHA256_LENGTH: Final[int] = 64  # SHA256 hash is 64 hex characters
 SHA256_PATTERN: Final[str] = f"^[a-f0-9]{{{SHA256_LENGTH}}}$"  # Regex pattern for SHA256 validation
 
-# Allowed MIME types for security
+# Allowed MIME types for security - Task 5.4 spec
 ALLOWED_MIME_TYPES: Final[List[str]] = [
-    # 3D Model formats
-    "application/sla",  # STL
-    "application/step",  # STEP
+    # CAD/CAM Model formats (.step, .stl, .fcstd, .glb)
+    "model/step",  # STEP files
+    "application/step",  # STEP alternate
+    "application/x-step",  # STEP alternate
+    "model/stl",  # STL files
+    "application/sla",  # STL alternate (stereolithography)
+    "application/vnd.ms-pki.stl",  # STL Microsoft variant
+    "application/x-freecad",  # FreeCAD native
+    "application/vnd.freecad",  # FreeCAD alternate
+    "model/gltf-binary",  # GLB (GLTF binary)
+    "application/octet-stream",  # Binary formats (GLB, FCSTD)
+    
+    # G-code and CNC formats (.nc, .tap, .gcode)
+    "text/plain",  # G-code, NC, TAP files
+    "application/x-gcode",  # G-code specific
+    "text/x-gcode",  # G-code alternate
+    
+    # Media formats (.mp4, .gif)
+    "video/mp4",  # MP4 video
+    "image/gif",  # GIF images
+    
+    # Legacy formats kept for compatibility
     "model/iges",  # IGES
     "model/obj",  # OBJ
-    "model/gltf+json",  # GLTF
-    "model/gltf-binary",  # GLB
-    
-    # CAM/CNC formats
-    "text/plain",  # G-code, NC files
-    "application/x-gcode",
-    
-    # Documents
-    "application/pdf",
-    "application/json",
-    "text/csv",
-    "application/xml",
-    "text/xml",
-    
-    # Images
-    "image/png",
-    "image/jpeg",
-    "image/svg+xml",
-    
-    # Archives
-    "application/zip",
-    "application/x-tar",
-    "application/gzip",
+    "application/pdf",  # Reports
+    "application/json",  # Data exchange
+    "text/csv",  # Data export
+    "application/xml",  # Config files
+    "text/xml",  # XML alternate
+    "image/png",  # Screenshots
+    "image/jpeg",  # Photos
 ]
 
 
