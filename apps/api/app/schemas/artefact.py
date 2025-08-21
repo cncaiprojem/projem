@@ -82,25 +82,25 @@ class ArtefactResponse(ArtefactBase):
     @property
     def size_mb(self) -> float:
         """Compute size in MB from bytes."""
-        return self.size_bytes / (1024.0 * 1024.0) if hasattr(self, 'size_bytes') else 0.0
+        return self.size_bytes / (1024.0 * 1024.0)
     
     @computed_field
     @property
     def s3_full_path(self) -> str:
         """Full S3 path (bucket/key)."""
-        return f"{self.s3_bucket}/{self.s3_key}" if hasattr(self, 's3_bucket') and hasattr(self, 's3_key') else ""
+        return f"{self.s3_bucket}/{self.s3_key}"
     
     @computed_field
     @property
     def is_invoice(self) -> bool:
         """Whether artefact is an invoice."""
-        return self.type == ArtefactType.INVOICE if hasattr(self, 'type') else False
+        return self.type == ArtefactType.INVOICE
     
     @computed_field
     @property
     def is_versioned(self) -> bool:
         """Whether artefact has version ID."""
-        return bool(self.version_id) if hasattr(self, 'version_id') else False
+        return bool(self.version_id)
 
 
 class ArtefactListResponse(BaseModel):

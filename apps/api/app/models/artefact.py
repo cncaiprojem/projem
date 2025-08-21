@@ -5,6 +5,7 @@ Task 5.7: Complete artefact persistence with S3 tagging and audit logging.
 """
 
 from datetime import datetime, timezone
+import re
 from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import (
@@ -284,7 +285,6 @@ class Artefact(Base, TimestampMixin):
         value = str(value)
         
         # Replace invalid characters with underscore
-        import re
         sanitized = re.sub(r'[^a-zA-Z0-9\s+\-=._:/]', '_', value)
         
         # Truncate to max length (256 characters for values)

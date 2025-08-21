@@ -873,8 +873,9 @@ class FileService:
                     artefact_service = ArtefactService(self.db)
                     
                     # Prepare artefact data
-                    # Note: session.user_id should be an integer, not UUID
-                    # If it's stored as UUID due to a schema mismatch, handle it appropriately
+                    # Get the appropriate user ID - use session user_id if available, otherwise system user
+                    effective_user_id = session.user_id if session.user_id else self._get_system_user_id()
+                    
                     artefact_data = ArtefactCreate(
                         job_id=session.job_id,
                         type=artefact_type,
@@ -883,7 +884,7 @@ class FileService:
                         size_bytes=actual_size,
                         sha256=actual_sha256,
                         mime_type=session.mime_type,
-                        created_by=session.user_id if session.user_id else 1,  # session.user_id should be int
+                        created_by=effective_user_id,
                         machine_id=session.metadata.get("machine_id"),
                         post_processor=session.metadata.get("post_processor"),
                         version_id=version_id,
@@ -900,7 +901,7 @@ class FileService:
                     artefact = asyncio.run(
                         artefact_service.create_artefact(
                             artefact_data=artefact_data,
-                            user_id=session.user_id if session.user_id else 1,  # session.user_id should be int
+                            user_id=effective_user_id,
                             ip_address=session.client_ip,
                             user_agent=None,  # Not available in session
                         )
@@ -1261,6 +1262,51 @@ class FileService:
         # TODO: Add role-based access control in Task 5.7
         # For now, allow access to all authenticated users
         return True
+    
+    def _get_system_user_id(self) -> int:
+        """
+        Get the system user ID from the database.
+        
+        Returns:
+            int: System user ID
+            
+        Raises:
+            FileServiceError: If system user not found
+        """
+        if not self.db:
+            raise FileServiceError(
+                code="NO_DB_SESSION",
+                message="Database session not available",
+                turkish_message="Veritabanı oturumu mevcut değil",
+                status_code=500,
+            )
+        
+        from app.models.user import User
+        
+        # Try to get system user by known email
+        system_user = self.db.query(User).filter(
+            User.email == "system@localhost"
+        ).first()
+        
+        if not system_user:
+            # Fallback: try to get the first admin user
+            system_user = self.db.query(User).filter(
+                User.role == "admin"
+            ).first()
+        
+        if not system_user:
+            # Last resort: get any user (should not happen in production)
+            system_user = self.db.query(User).first()
+        
+        if not system_user:
+            raise FileServiceError(
+                code="SYSTEM_USER_NOT_FOUND",
+                message="System user not found in database",
+                turkish_message="Sistem kullanıcısı veritabanında bulunamadı",
+                status_code=500,
+            )
+        
+        return system_user.id
     
     def _map_file_type_to_artefact_type(self, file_type: str) -> ArtefactType:
         """
