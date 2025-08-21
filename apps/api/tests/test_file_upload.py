@@ -11,7 +11,7 @@ Tests:
 
 import hashlib
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import Mock, patch, MagicMock
 from urllib.parse import urlparse
 
@@ -73,7 +73,7 @@ def mock_minio_client():
         etag="abc123",
         version_id="v1",
         content_type="application/sla",
-        last_modified=datetime.utcnow(),
+        last_modified=datetime.now(timezone.utc),
         metadata={}
     )
     return client
@@ -175,8 +175,8 @@ class TestUploadInit:
         
         response = file_service.init_upload(request=request)
         
-        assert "machine=cnc-02" in response.headers["x-amz-tagging"]
-        assert "post=grbl" in response.headers["x-amz-tagging"]
+        assert "machine=cnc-02" in response.fields["x-amz-tagging"]
+        assert "post=grbl" in response.fields["x-amz-tagging"]
     
     def test_init_upload_creates_session(self, file_service, mock_db):
         """Test that upload init creates a session record."""
@@ -217,8 +217,8 @@ class TestUploadFinalize:
             mime_type="application/sla",
             job_id="job-2024-001",
             status="pending",
-            created_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(minutes=5),
+            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
             metadata={"filename": "test.stl"}
         )
         
@@ -277,8 +277,8 @@ class TestUploadFinalize:
             mime_type="application/sla",
             job_id="job-2024-001",
             status="pending",
-            created_at=datetime.utcnow() - timedelta(minutes=10),
-            expires_at=datetime.utcnow() - timedelta(minutes=5),  # Expired
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+            expires_at=datetime.now(timezone.utc) - timedelta(minutes=5),  # Expired
             metadata={}
         )
         
@@ -305,8 +305,8 @@ class TestUploadFinalize:
             mime_type="application/sla",
             job_id="job-2024-001",
             status="pending",
-            created_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(minutes=5),
+            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
             metadata={}
         )
         
@@ -334,8 +334,8 @@ class TestUploadFinalize:
             mime_type="application/sla",
             job_id="job-2024-001",
             status="pending",
-            created_at=datetime.utcnow(),
-            expires_at=datetime.utcnow() + timedelta(minutes=5),
+            created_at=datetime.now(timezone.utc),
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5),
             metadata={}
         )
         
@@ -383,7 +383,7 @@ class TestDownloadURL:
             status=FileStatus.COMPLETED,
             job_id="job-2024-001",
             user_id=uuid.uuid4(),
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         
         mock_db.query.return_value.filter_by.return_value.first.return_value = file_metadata
@@ -425,7 +425,7 @@ class TestDownloadURL:
             status=FileStatus.COMPLETED,
             job_id="job-2024-001",
             user_id=uuid.uuid4(),  # Different user
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         
         mock_db.query.return_value.filter_by.return_value.first.return_value = file_metadata
@@ -453,7 +453,7 @@ class TestDownloadURL:
             status=FileStatus.COMPLETED,
             job_id="job-2024-001",
             version_id="v1.0.0",
-            created_at=datetime.utcnow()
+            created_at=datetime.now(timezone.utc)
         )
         
         mock_db.query.return_value.filter_by.return_value.first.return_value = file_metadata

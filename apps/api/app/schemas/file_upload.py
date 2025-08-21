@@ -250,8 +250,9 @@ class UploadFinalizeRequest(BaseModel):
         description="Object key from upload init"
     )
     
-    upload_id: Optional[str] = Field(
-        None,
+    upload_id: str = Field(
+        ...,
+        min_length=1,
         description="Upload session ID for validation"
     )
     
