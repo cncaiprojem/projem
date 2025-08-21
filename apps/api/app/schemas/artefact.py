@@ -35,7 +35,7 @@ class ArtefactBase(BaseModel):
     s3_bucket: str = Field(..., max_length=255, description="S3 bucket name")
     s3_key: str = Field(..., max_length=1024, description="S3 object key")
     size_bytes: int = Field(..., gt=0, description="File size in bytes")
-    sha256: str = Field(..., regex="^[a-fA-F0-9]{64}$", description="SHA256 hash")
+    sha256: str = Field(..., pattern="^[a-fA-F0-9]{64}$", description="SHA256 hash")
     mime_type: str = Field(..., max_length=100, description="MIME type")
     machine_id: Optional[int] = Field(None, description="Optional machine ID")
     post_processor: Optional[str] = Field(None, max_length=100, description="Post-processor name")

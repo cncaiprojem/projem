@@ -19,10 +19,8 @@ from app.schemas.artefact import (
     ArtefactDownloadResponse,
     ArtefactListResponse,
     ArtefactResponse,
-    ArtefactS3TagsResponse,
     ArtefactSearchParams,
     ArtefactStats,
-    ArtefactTagRequest,
     ArtefactType,
     ArtefactUpdate,
 )
@@ -66,13 +64,11 @@ async def create_artefact(
     try:
         service = ArtefactService(db)
         
-        # Override created_by with current user
-        artefact_data.created_by = current_user.id
-        
-        # Get client info for audit
+        # Get client info for audit (moved logic extraction to service)
         client_ip = request.client.host if request.client else None
         user_agent = request.headers.get("User-Agent")
         
+        # Let service handle created_by override internally
         artefact = await service.create_artefact(
             artefact_data=artefact_data,
             user_id=current_user.id,

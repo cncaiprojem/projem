@@ -110,6 +110,10 @@ class ArtefactService:
             ArtefactServiceError: On creation failure
         """
         try:
+            # Override created_by with the authenticated user
+            # This ensures the user creating the artefact is properly tracked
+            artefact_data.created_by = user_id
+            
             # Step 1: Verify job exists and user has access
             job = self.db.query(Job).filter_by(id=artefact_data.job_id).first()
             if not job:
@@ -121,8 +125,12 @@ class ArtefactService:
                 )
             
             # Check if user has access to the job
-            if job.user_id != user_id:
-                # Could add role-based access check here
+            # Admin users can access any job
+            user = self.db.query(User).filter_by(id=user_id).first()
+            is_admin = user and user.role == "admin"
+            
+            if not is_admin and job.user_id != user_id:
+                # Non-admin users can only access their own jobs
                 raise ArtefactServiceError(
                     code="UNAUTHORIZED",
                     message="You don't have access to this job",
@@ -191,10 +199,9 @@ class ArtefactService:
                     artefact.set_meta('retention_years', 10)
                     artefact.set_meta('compliance', 'Turkish_Tax_Law')
             
-            # Step 6: Commit to database
-            self.db.commit()
-            
-            # Step 7: Create audit log for artefact creation
+            # Step 6: Create audit log for artefact creation BEFORE commit
+            # CRITICAL: Audit log must be created in the same transaction
+            # to ensure it's persisted even if later operations fail
             await audit_service.create_audit_entry(
                 db=self.db,
                 event_type="artefact_created",
@@ -214,6 +221,9 @@ class ArtefactService:
                     "tags_applied": tags_applied,
                 },
             )
+            
+            # Step 7: Commit to database - this persists both artefact and audit log
+            self.db.commit()
             
             logger.info(
                 "Artefact created successfully",
@@ -336,6 +346,48 @@ class ArtefactService:
                 error=str(e),
             )
             return False
+    
+    def create_artefact_sync(
+        self,
+        artefact_data: ArtefactCreate,
+        user_id: int,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> Artefact:
+        """
+        Synchronous wrapper for create_artefact.
+        
+        This method is used when called from synchronous contexts
+        to avoid blocking the event loop with asyncio.run().
+        
+        Args:
+            artefact_data: Artefact creation data
+            user_id: ID of user creating the artefact
+            ip_address: Client IP address for audit
+            user_agent: Client user agent for audit
+            
+        Returns:
+            Created artefact instance
+            
+        Raises:
+            ArtefactServiceError: On creation failure
+        """
+        import asyncio
+        import inspect
+        
+        # Check if we're already in an async context
+        try:
+            loop = asyncio.get_running_loop()
+            # We're in an async context, create a task
+            return asyncio.create_task(
+                self.create_artefact(artefact_data, user_id, ip_address, user_agent)
+            )
+        except RuntimeError:
+            # No running loop, we're in sync context
+            # Create a new event loop for this operation
+            return asyncio.run(
+                self.create_artefact(artefact_data, user_id, ip_address, user_agent)
+            )
     
     async def get_artefact(
         self,

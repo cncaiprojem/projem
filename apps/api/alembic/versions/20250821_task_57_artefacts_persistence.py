@@ -218,19 +218,22 @@ def downgrade() -> None:
     # Remove foreign key constraints
     try:
         op.drop_constraint('fk_artefacts_created_by', 'artefacts', type_='foreignkey')
-    except:
-        pass
+    except Exception as e:
+        # Log but don't fail - constraint may not exist
+        print(f"Warning: Could not drop constraint fk_artefacts_created_by: {e}")
     
     try:
         op.drop_constraint('fk_artefacts_machine_id', 'artefacts', type_='foreignkey')
-    except:
-        pass
+    except Exception as e:
+        # Log but don't fail - constraint may not exist
+        print(f"Warning: Could not drop constraint fk_artefacts_machine_id: {e}")
     
     # Remove unique constraint
     try:
         op.drop_constraint('uq_artefacts_s3_location', 'artefacts', type_='unique')
-    except:
-        pass
+    except Exception as e:
+        # Log but don't fail - constraint may not exist
+        print(f"Warning: Could not drop constraint uq_artefacts_s3_location: {e}")
     
     # Remove new indexes
     for idx_name in [
@@ -239,8 +242,9 @@ def downgrade() -> None:
     ]:
         try:
             op.drop_index(idx_name, table_name='artefacts')
-        except:
-            pass
+        except Exception as e:
+            # Log but don't fail - index may not exist
+            print(f"Warning: Could not drop index {idx_name}: {e}")
     
     # Note: Not dropping columns to preserve data
     # In production, a more careful migration strategy would be needed

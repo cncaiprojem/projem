@@ -898,13 +898,13 @@ class FileService:
                     )
                     
                     # Create artefact with S3 tagging and audit logging
-                    artefact = asyncio.run(
-                        artefact_service.create_artefact(
-                            artefact_data=artefact_data,
-                            user_id=effective_user_id,
-                            ip_address=session.client_ip,
-                            user_agent=None,  # Not available in session
-                        )
+                    # Convert async method to sync since we're in a sync context
+                    # This avoids blocking the event loop with asyncio.run()
+                    artefact = artefact_service.create_artefact_sync(
+                        artefact_data=artefact_data,
+                        user_id=effective_user_id,
+                        ip_address=session.client_ip,
+                        user_agent=None,  # Not available in session
                     )
                     
                     logger.info(
@@ -916,8 +916,8 @@ class FileService:
                     )
                     
                 except Exception as e:
-                    # Log error but don't fail the upload
-                    # Artefact creation is supplementary to file upload
+                    # Log error but don't fail the upload - artefact creation is supplementary
+                    # However, we should track this failure for monitoring
                     logger.error(
                         "Failed to create artefact record",
                         error=str(e),
@@ -925,6 +925,15 @@ class FileService:
                         job_id=session.job_id,
                         exc_info=True,
                     )
+                    
+                    # Store the error in file metadata for debugging
+                    if file_metadata:
+                        file_metadata.tags = file_metadata.tags or {}
+                        file_metadata.tags['artefact_creation_failed'] = str(e)
+                        file_metadata.tags['artefact_creation_failed_at'] = datetime.now(UTC).isoformat()
+                        self.db.commit()
+                    
+                    # Continue without raising - upload is still successful
 
             # Step 8: Get object metadata for response
             metadata = self._get_object_metadata(bucket_name, object_name)
@@ -1286,17 +1295,17 @@ class FileService:
         # Try to get system user by known email
         system_user = self.db.query(User).filter(
             User.email == "system@localhost"
-        ).first()
+        ).order_by(User.id.asc()).first()
         
         if not system_user:
-            # Fallback: try to get the first admin user
+            # Fallback: try to get the first admin user (deterministic with ORDER BY)
             system_user = self.db.query(User).filter(
                 User.role == "admin"
-            ).first()
+            ).order_by(User.id.asc()).first()
         
         if not system_user:
-            # Last resort: get any user (should not happen in production)
-            system_user = self.db.query(User).first()
+            # Last resort: get any user deterministically (should not happen in production)
+            system_user = self.db.query(User).order_by(User.id.asc()).first()
         
         if not system_user:
             raise FileServiceError(
