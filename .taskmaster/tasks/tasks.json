@@ -767,7 +767,7 @@
               "5.5"
             ],
             "details": "- clamd: connect via TCP or Unix socket; timeouts 10s connect / 60s scan; stream-scan from MinIO (avoid local disk) using chunk bridge.\n- Scan policy: execute only for configured types (e.g., non-G-code CAD and videos) or if scan_enabled; on detection: delete object, 422 MALWARE_DETECTED with remediation hint.\n- Failure mode: fail closed if scan_enabled=true and clamd unreachable → 503 SCAN_UNAVAILABLE; log security_event.\n- Rate limiting: cap concurrent scans to protect resources.\n- Acceptance tests:\n  - EICAR string upload triggers 422 MALWARE_DETECTED and object removed.\n  - clamd down → finalize returns 503 SCAN_UNAVAILABLE when scan_enabled.\n  - scan_enabled=false → finalize succeeds without scan.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-21T07:22:36.650Z",
+      "updated": "2025-08-21T10:16:11.898Z",
       "description": "Tasks for master context"
     }
   }

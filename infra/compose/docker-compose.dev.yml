@@ -912,6 +912,76 @@ services:
         max-size: "10m"
         max-file: "3"
 
+  # ClamAV Daemon Service for Task 5.6
+  clamd:
+    build:
+      context: ../../infra/docker/clamav
+      dockerfile: Dockerfile
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    image: clamav-daemon:dev
+    container_name: fc_clamd_dev
+    restart: unless-stopped
+    profiles:
+      - security
+    
+    # Run ClamAV daemon in foreground mode
+    command: ["clamd", "--foreground=yes", "--config-file=/etc/clamav/clamd.conf"]
+    
+    # Security configuration
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100M
+      - /var/tmp:noexec,nosuid,size=50M
+      - /var/log/clamav:size=200M
+      - /var/run/clamav:size=10M
+    
+    # Network configuration for API access
+    ports:
+      - "3310:3310"  # ClamAV daemon TCP port
+    networks:
+      - freecad_network
+    
+    # Resource limits for daemon operation
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 3G
+        reservations:
+          cpus: '0.5'
+          memory: 1G
+    
+    # Environment configuration
+    environment:
+      CLAMAV_UPDATE_INTERVAL: 21600  # 6 hours
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      TZ: "UTC"
+    
+    # Database mount and socket directory
+    volumes:
+      - clamav_db:/var/lib/clamav
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    
+    # Health check for daemon availability
+    healthcheck:
+      test: ["CMD", "clamdscan", "--version"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
   # ClamAV Utility Service (Optional)
   clamav:
     build:
