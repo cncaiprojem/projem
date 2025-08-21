@@ -157,8 +157,8 @@ async def get_artefact(
 )
 async def get_artefact_download_url(
     artefact_id: int,
+    request: Request,
     expires_in: int = Query(3600, ge=60, le=86400, description="URL expiration in seconds"),
-    request: Request = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ArtefactDownloadResponse:

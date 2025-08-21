@@ -16,7 +16,7 @@ from typing import Optional, Dict, Any
 from uuid import uuid4
 
 from sqlalchemy import (
-    String, BigInteger, DateTime,
+    String, BigInteger, DateTime, Integer,
     Text, JSON, Enum as SQLEnum, Index, CheckConstraint,
     ForeignKey, UniqueConstraint
 )
@@ -142,8 +142,8 @@ class FileMetadata(Base):
         comment="Associated job ID"
     )
     
-    user_id: Mapped[Optional[UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
@@ -337,8 +337,8 @@ class UploadSession(Base):
         comment="Associated job ID"
     )
     
-    user_id: Mapped[Optional[UUID]] = mapped_column(
-        UUID(as_uuid=True),
+    user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
         ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         comment="Session owner"

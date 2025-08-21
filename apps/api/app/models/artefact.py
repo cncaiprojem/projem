@@ -268,6 +268,28 @@ class Artefact(Base, TimestampMixin):
         """Check if artefact has S3 version ID."""
         return bool(self.version_id)
     
+    def _sanitize_s3_tag_value(self, value: str) -> str:
+        """
+        Sanitize a value for use as an S3 tag.
+        
+        S3 tag constraints:
+        - Maximum key length: 128 characters
+        - Maximum value length: 256 characters
+        - Allowed characters: Letters, numbers, spaces, and +-=._:/
+        """
+        if not value:
+            return ""
+        
+        # Convert to string if not already
+        value = str(value)
+        
+        # Replace invalid characters with underscore
+        import re
+        sanitized = re.sub(r'[^a-zA-Z0-9\s+\-=._:/]', '_', value)
+        
+        # Truncate to max length (256 characters for values)
+        return sanitized[:256]
+    
     def get_s3_tags(self) -> dict:
         """Get S3 object tags for this artefact."""
         tags = {
@@ -282,7 +304,8 @@ class Artefact(Base, TimestampMixin):
             tags['machine_id'] = str(self.machine_id)
         
         if self.post_processor:
-            tags['post_processor'] = self.post_processor
+            # Sanitize post_processor to comply with S3 tag constraints
+            tags['post_processor'] = self._sanitize_s3_tag_value(self.post_processor)
             
         return tags
     

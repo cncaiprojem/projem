@@ -70,8 +70,30 @@ def upgrade() -> None:
         
         if 'created_by' not in existing_columns:
             op.add_column('artefacts', sa.Column('created_by', sa.Integer(), nullable=True))
-            # Set to first admin user or 1
-            op.execute("UPDATE artefacts SET created_by = COALESCE((SELECT id FROM users LIMIT 1), 1) WHERE created_by IS NULL")
+            # Check if we have any users in the database
+            result = op.get_bind().execute("SELECT COUNT(*) FROM users").scalar()
+            if result > 0:
+                # Set to first user (preferably admin)
+                op.execute("""
+                    UPDATE artefacts 
+                    SET created_by = COALESCE(
+                        (SELECT id FROM users WHERE role = 'admin' ORDER BY id LIMIT 1),
+                        (SELECT id FROM users ORDER BY id LIMIT 1)
+                    ) 
+                    WHERE created_by IS NULL
+                """)
+            else:
+                # Create a system user if no users exist
+                op.execute("""
+                    INSERT INTO users (email, full_name, role, is_active, created_at, updated_at)
+                    VALUES ('system@localhost', 'System User', 'admin', true, NOW(), NOW())
+                    ON CONFLICT (email) DO NOTHING
+                """)
+                op.execute("""
+                    UPDATE artefacts 
+                    SET created_by = (SELECT id FROM users WHERE email = 'system@localhost' LIMIT 1)
+                    WHERE created_by IS NULL
+                """)
             op.alter_column('artefacts', 'created_by', nullable=False)
         
         if 'machine_id' not in existing_columns:

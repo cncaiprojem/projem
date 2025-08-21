@@ -235,7 +235,7 @@ class FileService:
                     expected_sha256=request.sha256,
                     mime_type=request.mime_type,
                     job_id=request.job_id,
-                    user_id=uuid.UUID(user_id) if user_id else None,
+                    user_id=int(user_id) if user_id else None,  # Convert user_id string to int
                     client_ip=client_ip,
                     status="pending",
                     expires_at=expires_at,
@@ -837,7 +837,7 @@ class FileService:
                     version_id=version_id,
                     status=FileStatus.COMPLETED,
                     job_id=session.job_id,
-                    user_id=uuid.UUID(user_id) if user_id else None,
+                    user_id=int(user_id) if user_id else None,  # Convert user_id string to int
                     machine_id=session.metadata.get("machine_id"),
                     post_processor=session.metadata.get("post_processor"),
                     tags=self._get_object_tags(bucket_name, object_name),
@@ -873,6 +873,8 @@ class FileService:
                     artefact_service = ArtefactService(self.db)
                     
                     # Prepare artefact data
+                    # Note: session.user_id should be an integer, not UUID
+                    # If it's stored as UUID due to a schema mismatch, handle it appropriately
                     artefact_data = ArtefactCreate(
                         job_id=session.job_id,
                         type=artefact_type,
@@ -881,7 +883,7 @@ class FileService:
                         size_bytes=actual_size,
                         sha256=actual_sha256,
                         mime_type=session.mime_type,
-                        created_by=int(str(session.user_id)) if session.user_id else 1,  # Default to system user
+                        created_by=session.user_id if session.user_id else 1,  # session.user_id should be int
                         machine_id=session.metadata.get("machine_id"),
                         post_processor=session.metadata.get("post_processor"),
                         version_id=version_id,
@@ -898,7 +900,7 @@ class FileService:
                     artefact = asyncio.run(
                         artefact_service.create_artefact(
                             artefact_data=artefact_data,
-                            user_id=int(str(session.user_id)) if session.user_id else 1,
+                            user_id=session.user_id if session.user_id else 1,  # session.user_id should be int
                             ip_address=session.client_ip,
                             user_agent=None,  # Not available in session
                         )

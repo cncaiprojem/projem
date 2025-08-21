@@ -10,7 +10,7 @@ from decimal import Decimal
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, Field, ConfigDict, field_validator
+from pydantic import BaseModel, Field, ConfigDict, field_validator, computed_field
 
 
 class ArtefactType(str, Enum):
@@ -35,7 +35,7 @@ class ArtefactBase(BaseModel):
     s3_bucket: str = Field(..., max_length=255, description="S3 bucket name")
     s3_key: str = Field(..., max_length=1024, description="S3 object key")
     size_bytes: int = Field(..., gt=0, description="File size in bytes")
-    sha256: str = Field(..., regex="^[a-f0-9]{64}$", description="SHA256 hash")
+    sha256: str = Field(..., regex="^[a-fA-F0-9]{64}$", description="SHA256 hash")
     mime_type: str = Field(..., max_length=100, description="MIME type")
     machine_id: Optional[int] = Field(None, description="Optional machine ID")
     post_processor: Optional[str] = Field(None, max_length=100, description="Post-processor name")
@@ -75,24 +75,32 @@ class ArtefactResponse(ArtefactBase):
     created_at: datetime
     updated_at: Optional[datetime] = None
     
-    # Computed properties
-    size_mb: float = Field(..., description="File size in megabytes")
-    s3_full_path: str = Field(..., description="Full S3 path (bucket/key)")
-    is_invoice: bool = Field(..., description="Whether artefact is an invoice")
-    is_versioned: bool = Field(..., description="Whether artefact has version ID")
-    
     model_config = ConfigDict(from_attributes=True)
     
-    @field_validator('size_mb', mode='before')
-    @classmethod
-    def compute_size_mb(cls, v, values):
+    # Computed properties using Pydantic v2 @computed_field
+    @computed_field
+    @property
+    def size_mb(self) -> float:
         """Compute size in MB from bytes."""
-        if isinstance(v, (int, float)):
-            return v
-        # If we have the raw model, compute from size_bytes
-        if hasattr(values, 'size_bytes'):
-            return values.size_bytes / (1024.0 * 1024.0)
-        return 0.0
+        return self.size_bytes / (1024.0 * 1024.0) if hasattr(self, 'size_bytes') else 0.0
+    
+    @computed_field
+    @property
+    def s3_full_path(self) -> str:
+        """Full S3 path (bucket/key)."""
+        return f"{self.s3_bucket}/{self.s3_key}" if hasattr(self, 's3_bucket') and hasattr(self, 's3_key') else ""
+    
+    @computed_field
+    @property
+    def is_invoice(self) -> bool:
+        """Whether artefact is an invoice."""
+        return self.type == ArtefactType.INVOICE if hasattr(self, 'type') else False
+    
+    @computed_field
+    @property
+    def is_versioned(self) -> bool:
+        """Whether artefact has version ID."""
+        return bool(self.version_id) if hasattr(self, 'version_id') else False
 
 
 class ArtefactListResponse(BaseModel):
