@@ -683,6 +683,66 @@ class ClamAVService:
                     status_code=500,
                 )
 
+    def scan_object_sync(
+        self,
+        bucket_name: str,
+        object_name: str,
+        mime_type: str | None = None,
+        file_type: str | None = None,
+        max_size_bytes: int = 100 * 1024 * 1024,  # 100MB default limit
+    ) -> ClamAVScanResult:
+        """
+        Synchronous wrapper for scan_object_stream.
+        
+        This method provides a synchronous interface to the async scan_object_stream method,
+        handling the event loop management internally.
+        
+        Args:
+            bucket_name: S3 bucket name
+            object_name: S3 object name
+            mime_type: MIME type for policy decisions
+            file_type: File type for policy decisions
+            max_size_bytes: Maximum file size to scan
+            
+        Returns:
+            ClamAVScanResult: Scan result with metadata
+            
+        Raises:
+            ClamAVError: On scan failure or daemon unavailable
+        """
+        import asyncio
+        import sys
+        
+        # Check if we're already in an async context
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No event loop running, we can use asyncio.run()
+            return asyncio.run(
+                self.scan_object_stream(
+                    bucket_name=bucket_name,
+                    object_name=object_name,
+                    mime_type=mime_type,
+                    file_type=file_type,
+                    max_size_bytes=max_size_bytes,
+                )
+            )
+        
+        # We're already in an async context, create a new event loop in a thread
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(
+                asyncio.run,
+                self.scan_object_stream(
+                    bucket_name=bucket_name,
+                    object_name=object_name,
+                    mime_type=mime_type,
+                    file_type=file_type,
+                    max_size_bytes=max_size_bytes,
+                )
+            )
+            return future.result()
+
     def scan_eicar_test(self) -> ClamAVScanResult:
         """
         Test ClamAV functionality using EICAR test string.

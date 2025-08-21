@@ -10,6 +10,7 @@ Implements secure file upload/download with:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -718,31 +719,15 @@ class FileService:
                 # Extract file type for ClamAV policy decisions
                 file_type_str = session.metadata.get("type", "temp")
                 
-                # Perform asynchronous malware scan
-                import asyncio
-                try:
-                    # Run the async scan in the current thread's event loop
-                    scan_result = asyncio.run(
-                        self.clamav_service.scan_object_stream(
-                            bucket_name=bucket_name,
-                            object_name=object_name,
-                            mime_type=session.mime_type,
-                            file_type=file_type_str,
-                            max_size_bytes=100 * 1024 * 1024,  # 100MB limit
-                        )
-                    )
-                except RuntimeError:
-                    # Handle case where event loop is already running
-                    loop = asyncio.get_event_loop()
-                    scan_result = loop.run_until_complete(
-                        self.clamav_service.scan_object_stream(
-                            bucket_name=bucket_name,
-                            object_name=object_name,
-                            mime_type=session.mime_type,
-                            file_type=file_type_str,
-                            max_size_bytes=100 * 1024 * 1024,
-                        )
-                    )
+                # Perform synchronous malware scan (converted from async)
+                # Note: The clamav_service provides a synchronous interface that handles the async internally
+                scan_result = self.clamav_service.scan_object_sync(
+                    bucket_name=bucket_name,
+                    object_name=object_name,
+                    mime_type=session.mime_type,
+                    file_type=file_type_str,
+                    max_size_bytes=100 * 1024 * 1024,  # 100MB limit
+                )
 
                 logger.info(
                     "ClamAV scan completed",

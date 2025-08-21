@@ -471,7 +471,8 @@ class TestClamAVServiceFactory:
         mock_environment.CLAMAV_TIMEOUT_CONNECT = 15.0
         mock_environment.CLAMAV_TIMEOUT_SCAN = 90.0
         mock_environment.CLAMAV_MAX_CONCURRENT_SCANS = 5
-        mock_environment.CLAMAV_SCAN_ENABLED = False
+        mock_environment.CLAMAV_ENABLED = False
+        mock_environment.CLAMAV_FAIL_CLOSED = True
         
         service = get_clamav_service()
         
@@ -489,7 +490,8 @@ class TestClamAVServiceFactory:
         # Mock environment defaults
         mock_environment.CLAMAV_HOST = "env-clamd"
         mock_environment.CLAMAV_PORT = 3311
-        mock_environment.CLAMAV_SCAN_ENABLED = False
+        mock_environment.CLAMAV_ENABLED = False
+        mock_environment.CLAMAV_FAIL_CLOSED = True
         
         service = get_clamav_service(
             host="override-clamd",
