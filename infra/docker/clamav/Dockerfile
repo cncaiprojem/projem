@@ -40,8 +40,8 @@ RUN apk add --no-cache \
 
 # Security: Use existing clamav user from package installation
 # ClamAV package already creates clamav user and group
-RUN mkdir -p /home/clamav /var/lib/clamav /var/log/clamav \
-    && chown -R clamav:clamav /home/clamav /var/lib/clamav /var/log/clamav
+RUN mkdir -p /home/clamav /var/lib/clamav /var/log/clamav /var/run/clamav
+RUN chown -R clamav:clamav /home/clamav /var/lib/clamav /var/log/clamav /var/run/clamav
 
 # Create ClamAV configuration
 RUN echo "# ClamAV Configuration for Container Use" > /etc/clamav/clamd.conf \
@@ -49,6 +49,12 @@ RUN echo "# ClamAV Configuration for Container Use" > /etc/clamav/clamd.conf \
     && echo "LogTime yes" >> /etc/clamav/clamd.conf \
     && echo "DatabaseDirectory /var/lib/clamav" >> /etc/clamav/clamd.conf \
     && echo "LocalSocket /var/run/clamav/clamd.sock" >> /etc/clamav/clamd.conf \
+    && echo "TCPSocket 3310" >> /etc/clamav/clamd.conf \
+    && echo "TCPAddr 0.0.0.0" >> /etc/clamav/clamd.conf \
+    && echo "MaxConnectionQueueLength 200" >> /etc/clamav/clamd.conf \
+    && echo "MaxThreads 12" >> /etc/clamav/clamd.conf \
+    && echo "ReadTimeout 300" >> /etc/clamav/clamd.conf \
+    && echo "CommandReadTimeout 60" >> /etc/clamav/clamd.conf \
     && echo "User clamav" >> /etc/clamav/clamd.conf \
     && echo "ScanPE yes" >> /etc/clamav/clamd.conf \
     && echo "ScanELF yes" >> /etc/clamav/clamd.conf \
@@ -59,6 +65,7 @@ RUN echo "# ClamAV Configuration for Container Use" > /etc/clamav/clamd.conf \
     && echo "DetectPUA yes" >> /etc/clamav/clamd.conf \
     && echo "MaxFileSize 100M" >> /etc/clamav/clamd.conf \
     && echo "MaxScanSize 500M" >> /etc/clamav/clamd.conf \
+    && echo "StreamMaxLength 100M" >> /etc/clamav/clamd.conf \
     && chown clamav:clamav /etc/clamav/clamd.conf
 
 # Create freshclam configuration for virus database updates

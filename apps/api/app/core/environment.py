@@ -335,6 +335,50 @@ class UltraEnterpriseEnvironment(BaseSettings):
     S3_BUCKET_NAME: str = Field(default="dev-artifacts", description="S3 bucket name")
     
     # ===================================================================
+    # CLAMAV MALWARE SCANNING - TASK 5.6
+    # ===================================================================
+    
+    CLAMAV_ENABLED: bool = Field(
+        default=True,
+        description="Enable ClamAV malware scanning for uploaded files"
+    )
+    
+    CLAMAV_HOST: str = Field(
+        default="clamd",
+        description="ClamAV daemon hostname (Docker service name)"
+    )
+    
+    CLAMAV_PORT: int = Field(
+        default=3310,
+        description="ClamAV daemon TCP port"
+    )
+    
+    CLAMAV_UNIX_SOCKET: Optional[str] = Field(
+        default=None,
+        description="ClamAV Unix socket path (preferred over TCP)"
+    )
+    
+    CLAMAV_TIMEOUT_CONNECT: float = Field(
+        default=10.0,
+        description="ClamAV connection timeout in seconds"
+    )
+    
+    CLAMAV_TIMEOUT_SCAN: float = Field(
+        default=60.0,
+        description="ClamAV scan timeout in seconds"
+    )
+    
+    CLAMAV_MAX_CONCURRENT_SCANS: int = Field(
+        default=3,
+        description="Maximum concurrent ClamAV scans to protect resources"
+    )
+    
+    CLAMAV_FAIL_CLOSED: bool = Field(
+        default=True,
+        description="Fail-closed security policy: block uploads if ClamAV daemon is unreachable"
+    )
+    
+    # ===================================================================
     # FREECAD & APPLICATION SPECIFIC
     # ===================================================================
     

@@ -10,6 +10,7 @@ Implements secure file upload/download with:
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from datetime import UTC, datetime, timedelta
 
@@ -55,6 +56,11 @@ from app.services.sha256_service import (
     SHA256StreamingService,
     get_sha256_streaming_service,
 )
+from app.services.clamav_service import (
+    ClamAVError,
+    ClamAVService,
+    get_clamav_service,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -96,6 +102,7 @@ class FileService:
         db: Session | None = None,
         validation_service: FileValidationService | None = None,
         sha256_service: SHA256StreamingService | None = None,
+        clamav_service: ClamAVService | None = None,
     ):
         """
         Initialize file service.
@@ -106,6 +113,7 @@ class FileService:
             db: Database session
             validation_service: File validation service
             sha256_service: SHA256 streaming service
+            clamav_service: ClamAV malware scanning service
         """
         self.client = client or get_minio_client()
         self.config = config or get_minio_config()
@@ -113,8 +121,9 @@ class FileService:
         self.db = db
         self.validation_service = validation_service or get_file_validation_service()
         self.sha256_service = sha256_service or get_sha256_streaming_service(self.client)
+        self.clamav_service = clamav_service or get_clamav_service(db=db, minio_client=self.client)
 
-        logger.info("File service initialized with validation and SHA256 streaming")
+        logger.info("File service initialized with validation, SHA256 streaming, and ClamAV scanning")
 
     def init_upload(
         self,
@@ -697,7 +706,122 @@ class FileService:
                     status_code=500,
                 )
 
-            # Step 6: Create file metadata record
+            # Step 6: Task 5.6 - ClamAV malware scanning
+            # Scan file for malware using streaming from MinIO
+            logger.info(
+                "Starting ClamAV malware scan",
+                bucket=bucket_name,
+                object=object_name,
+                upload_id=request.upload_id,
+            )
+
+            try:
+                # Extract file type for ClamAV policy decisions
+                file_type_str = session.metadata.get("type", "temp")
+                
+                # Perform synchronous malware scan (converted from async)
+                # Note: The clamav_service provides a synchronous interface that handles the async internally
+                scan_result = self.clamav_service.scan_object_sync(
+                    bucket_name=bucket_name,
+                    object_name=object_name,
+                    mime_type=session.mime_type,
+                    file_type=file_type_str,
+                    max_size_bytes=100 * 1024 * 1024,  # 100MB limit
+                )
+
+                logger.info(
+                    "ClamAV scan completed",
+                    is_clean=scan_result.is_clean,
+                    scan_time_ms=scan_result.scan_time_ms,
+                    virus_name=scan_result.virus_name,
+                    object_key=request.key,
+                    scan_metadata=scan_result.scan_metadata,
+                )
+
+                # Handle malware detection - delete object immediately
+                if not scan_result.is_clean:
+                    # Delete the infected object with comprehensive audit logging
+                    self.sha256_service.delete_object_with_audit(
+                        bucket_name=bucket_name,
+                        object_name=object_name,
+                        reason=f"Malware detected: {scan_result.virus_name}",
+                        details={
+                            "virus_name": scan_result.virus_name,
+                            "scan_time_ms": scan_result.scan_time_ms,
+                            "upload_id": request.upload_id,
+                            "object_key": request.key,
+                            "scan_metadata": scan_result.scan_metadata,
+                        },
+                    )
+
+                    # Raise malware detection error with remediation hint
+                    raise FileServiceError(
+                        code="MALWARE_DETECTED",
+                        message=f"Malware detected and removed: {scan_result.virus_name}. "
+                                f"Please ensure your file is clean and try again. "
+                                f"If you believe this is a false positive, contact support.",
+                        turkish_message=f"Kötü amaçlı yazılım tespit edildi ve kaldırıldı: {scan_result.virus_name}. "
+                                       f"Lütfen dosyanızın temiz olduğundan emin olun ve tekrar deneyin. "
+                                       f"Bu yanlış pozitif olduğuna inanıyorsanız, destek ile iletişime geçin.",
+                        details={
+                            "virus_name": scan_result.virus_name,
+                            "scan_time_ms": scan_result.scan_time_ms,
+                            "remediation": "Scan your file with updated antivirus software before re-uploading",
+                            "remediation_tr": "Tekrar yüklemeden önce dosyanızı güncel antivirüs yazılımı ile tarayın",
+                        },
+                        status_code=422,
+                    )
+
+            except ClamAVError as e:
+                # Handle specific ClamAV errors
+                logger.error(
+                    "ClamAV scan failed",
+                    error=e.message,
+                    code=e.code,
+                    details=e.details,
+                    bucket=bucket_name,
+                    object=object_name,
+                    upload_id=request.upload_id,
+                )
+
+                # Map ClamAV errors to appropriate FileServiceError codes
+                if e.code == "SCAN_UNAVAILABLE":
+                    # Fail closed - scanning is required but unavailable
+                    raise FileServiceError(
+                        code=UploadErrorCode.STORAGE_ERROR,
+                        message=e.message,
+                        turkish_message=e.turkish_message,
+                        details=e.details,
+                        status_code=e.status_code,
+                    )
+                else:
+                    # Other scan errors (timeouts, connection issues)
+                    raise FileServiceError(
+                        code=UploadErrorCode.STORAGE_ERROR,
+                        message=f"Malware scan failed: {e.message}",
+                        turkish_message=f"Kötü amaçlı yazılım taraması başarısız: {e.turkish_message}",
+                        details=e.details,
+                        status_code=e.status_code,
+                    )
+
+            except FileServiceError:
+                raise
+            except Exception as e:
+                logger.error(
+                    "Unexpected error during ClamAV scan",
+                    error=str(e),
+                    bucket=bucket_name,
+                    object=object_name,
+                    exc_info=True,
+                )
+                raise FileServiceError(
+                    code=UploadErrorCode.STORAGE_ERROR,
+                    message=f"Failed to scan file for malware: {str(e)}",
+                    turkish_message=f"Dosya kötü amaçlı yazılım taraması başarısız: {str(e)}",
+                    status_code=500,
+                )
+
+            # Step 7: Create file metadata record
             if self.db:
                 file_metadata = FileMetadata(
                     object_key=request.key,
@@ -736,10 +860,10 @@ class FileService:
                     status=FileStatus.COMPLETED.value,
                 )
 
-            # Step 7: Get object metadata for response
+            # Step 8: Get object metadata for response
             metadata = self._get_object_metadata(bucket_name, object_name)
 
-            # Step 8: Build response
+            # Step 9: Build response
             response = UploadFinalizeResponse(
                 success=True,
                 object_key=request.key,
