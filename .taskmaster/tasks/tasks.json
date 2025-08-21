@@ -732,7 +732,7 @@
               "5.2"
             ],
             "details": "- POST /files/upload/init {type, size, sha256, mime, job_id, machine?, post?}\n  - Validate inputs (basic): size ≤ 200MB, type/mime prelim allowed list.\n  - Generate server-side key: artefacts/{job_id}/{uuid}.{ext}.\n  - Presign PUT URL (TTL 5m), optionally bind client IP; include conditions for content-type and content-length-range; optionally include tagging for job_id/machine/post.\n  - Response: {key, upload_url, expires_in:300, headers:{Content-Type,...}}.\n  - Errors: 400 INVALID_INPUT, 401 UNAUTHORIZED, 415 UNSUPPORTED_MEDIA_TYPE, 413 PAYLOAD_TOO_LARGE, 429 RATE_LIMITED.\n- POST /files/upload/finalize {key}\n  - Look up expected metadata from init (size, sha256, mime, job_id...)\n  - Stream-verify existence and SHA256 (see subtask 5); optional malware scan (subtask 6); persist artefact (subtask 7).\n  - Errors: 404 NOT_FOUND, 409 UPLOAD_INCOMPLETE, 413 PAYLOAD_TOO_LARGE, 422 HASH_MISMATCH or MALWARE_DETECTED, 503 SCAN_UNAVAILABLE, 500 STORAGE_ERROR.\n- GET /files/:id → presigned GET (TTL 2m)\n  - Authorize access by artefact ownership/role; log audit; return {download_url, expires_in:120}.\n  - For invoices ensure object lock is respected.\n- Security: presigned URLs single-operation; minimal TTLs; restrict headers; no backend file writes.\n- Acceptance tests:\n  - Happy path: init→PUT→finalize→GET works; TTLs honored (PUT 5m, GET 2m).\n  - Unauthorized user gets 401/403; wrong job_id cannot access artefacts; expired URL fails with 403 SignatureDoesNotMatch.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-20T18:27:29.077Z",
+      "updated": "2025-08-20T19:50:48.028Z",
       "description": "Tasks for master context"
     }
   }
