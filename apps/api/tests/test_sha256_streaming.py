@@ -64,7 +64,7 @@ class TestSHA256StreamingService:
         mock_minio_client.get_object.return_value = mock_response
         
         # Execute
-        is_valid, actual_sha256, metadata = sha256_service.verify_object_hash(
+        is_valid, actual_sha256, metadata, first_chunk = sha256_service.verify_object_hash(
             bucket_name="test-bucket",
             object_name="test-object",
             expected_sha256=expected_sha256,
@@ -78,6 +78,8 @@ class TestSHA256StreamingService:
         assert metadata["hash_match"] is True
         assert metadata["bytes_processed"] == len(test_data)
         assert metadata["chunks_processed"] == 1  # Small data fits in one chunk
+        assert first_chunk is not None
+        assert first_chunk == test_data[:1024]  # First 1KB for magic bytes
         
         # Verify proper resource cleanup
         mock_response.close.assert_called_once()
@@ -102,7 +104,7 @@ class TestSHA256StreamingService:
         mock_minio_client.get_object.return_value = mock_response
         
         # Execute
-        is_valid, actual_sha256, metadata = sha256_service.verify_object_hash(
+        is_valid, actual_sha256, metadata, first_chunk = sha256_service.verify_object_hash(
             bucket_name="test-bucket",
             object_name="test-object",
             expected_sha256=wrong_sha256,
@@ -145,7 +147,7 @@ class TestSHA256StreamingService:
         mock_minio_client.get_object.return_value = mock_response
         
         # Execute
-        is_valid, actual_sha256, metadata = sha256_service.verify_object_hash(
+        is_valid, actual_sha256, metadata, first_chunk = sha256_service.verify_object_hash(
             bucket_name="test-bucket",
             object_name="large-file.bin",
             expected_sha256=expected_sha256,
@@ -213,7 +215,7 @@ class TestSHA256StreamingService:
         ]
         
         # Execute
-        is_valid, actual_sha256, metadata = sha256_service.verify_object_hash(
+        is_valid, actual_sha256, metadata, first_chunk = sha256_service.verify_object_hash(
             bucket_name="test-bucket",
             object_name="test-object",
             expected_sha256=expected_sha256,
@@ -337,7 +339,7 @@ class TestSHA256StreamingService:
         mock_minio_client.get_object.return_value = mock_response
         
         # Execute with wrong expected size
-        is_valid, actual_sha256, metadata = sha256_service.verify_object_hash(
+        is_valid, actual_sha256, metadata, first_chunk = sha256_service.verify_object_hash(
             bucket_name="test-bucket",
             object_name="test-object",
             expected_sha256=expected_sha256,
@@ -371,7 +373,7 @@ class TestIntegrationScenarios:
         # Execute multiple times
         results = []
         for _ in range(3):
-            is_valid, actual_sha256, metadata = sha256_service.verify_object_hash(
+            is_valid, actual_sha256, metadata, first_chunk = sha256_service.verify_object_hash(
                 bucket_name="test-bucket",
                 object_name="test-object",
                 expected_sha256=expected_sha256,
@@ -415,13 +417,13 @@ class TestIntegrationScenarios:
         mock_minio_client.get_object.side_effect = [mock_response1, mock_response2]
         
         # Execute
-        is_valid1, hash1, _ = sha256_service.verify_object_hash(
+        is_valid1, hash1, _, _ = sha256_service.verify_object_hash(
             bucket_name="bucket1",
             object_name="file1",
             expected_sha256=sha256_1,
         )
         
-        is_valid2, hash2, _ = sha256_service.verify_object_hash(
+        is_valid2, hash2, _, _ = sha256_service.verify_object_hash(
             bucket_name="bucket2",
             object_name="file2",
             expected_sha256=sha256_2,

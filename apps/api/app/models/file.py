@@ -23,8 +23,8 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.dialects.postgresql import UUID
 
+from sqlalchemy import func
 from app.models.base import Base
-from app.core.database import get_db_time
 
 
 class FileStatus(enum.Enum):
@@ -196,15 +196,15 @@ class FileMetadata(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=get_db_time,
+        server_default=func.now(),
         comment="Upload timestamp"
     )
     
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=get_db_time,
-        onupdate=get_db_time,
+        server_default=func.now(),
+        onupdate=func.now(),
         comment="Last update timestamp"
     )
     
@@ -362,7 +362,7 @@ class UploadSession(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,
-        default=get_db_time,
+        server_default=func.now(),
         comment="Session creation time"
     )
     

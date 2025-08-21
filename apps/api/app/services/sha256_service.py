@@ -12,35 +12,37 @@ Implements memory-efficient SHA256 computation with:
 from __future__ import annotations
 
 import hashlib
+import os
 import time
 from contextlib import contextmanager
-from datetime import datetime, timezone
-from typing import Optional, Tuple, Dict, Any
+from datetime import UTC, datetime
+from typing import Any
 
 import structlog
 from minio import Minio
 from minio.error import S3Error
-from urllib3.exceptions import ReadTimeoutError, ProtocolError
+from urllib3.exceptions import ProtocolError, ReadTimeoutError
 
 from app.core.minio_config import get_minio_client
 
 logger = structlog.get_logger(__name__)
 
 # Constants for streaming configuration
-CHUNK_SIZE = 8 * 1024 * 1024  # 8MB chunks as specified in Task 5.5
-READ_TIMEOUT = 60  # 60 seconds read timeout
-MAX_RETRIES = 3  # Maximum number of retry attempts
-RETRY_DELAY = 2  # Seconds to wait between retries
+# CHUNK_SIZE can be overridden via environment variable for different deployments
+CHUNK_SIZE = int(os.getenv("SHA256_CHUNK_SIZE", str(8 * 1024 * 1024)))  # Default 8MB chunks as specified in Task 5.5
+READ_TIMEOUT = int(os.getenv("SHA256_READ_TIMEOUT", "60"))  # Default 60 seconds read timeout
+MAX_RETRIES = int(os.getenv("SHA256_MAX_RETRIES", "3"))  # Default 3 retry attempts
+RETRY_DELAY = int(os.getenv("SHA256_RETRY_DELAY", "2"))  # Default 2 seconds between retries
 
 
 class SHA256StreamingError(Exception):
     """Custom exception for SHA256 streaming operations."""
-    
+
     def __init__(
         self,
         code: str,
         message: str,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ):
         self.code = code
         self.message = message
@@ -58,8 +60,8 @@ class SHA256StreamingService:
     - Comprehensive audit logging
     - Idempotent operations
     """
-    
-    def __init__(self, client: Optional[Minio] = None):
+
+    def __init__(self, client: Minio | None = None):
         """
         Initialize SHA256 streaming service.
         
@@ -67,7 +69,7 @@ class SHA256StreamingService:
             client: MinIO client instance
         """
         self.client = client or get_minio_client()
-    
+
     @contextmanager
     def _timed_operation(self, operation: str, timeout: int = READ_TIMEOUT):
         """
@@ -84,12 +86,12 @@ class SHA256StreamingService:
             SHA256StreamingError: If operation times out
         """
         start_time = time.time()
-        
+
         try:
             yield start_time
         finally:
             elapsed_time = time.time() - start_time
-            
+
             if elapsed_time > timeout:
                 logger.error(
                     "Operation timed out",
@@ -102,20 +104,20 @@ class SHA256StreamingService:
                     message=f"Operation {operation} timed out after {elapsed_time:.2f}s",
                     details={"elapsed_time": elapsed_time, "timeout": timeout},
                 )
-            
+
             logger.debug(
                 "Operation completed",
                 operation=operation,
                 elapsed_time=elapsed_time,
             )
-    
+
     def verify_object_hash(
         self,
         bucket_name: str,
         object_name: str,
         expected_sha256: str,
-        expected_size: Optional[int] = None,
-    ) -> Tuple[bool, str, Dict[str, Any]]:
+        expected_size: int | None = None,
+    ) -> tuple[bool, str, dict[str, Any], bytes | None]:
         """
         Stream object from MinIO and verify its SHA256 hash.
         
@@ -128,10 +130,11 @@ class SHA256StreamingService:
             expected_size: Expected size in bytes (optional)
             
         Returns:
-            Tuple of (is_valid, actual_sha256, metadata)
+            Tuple of (is_valid, actual_sha256, metadata, first_chunk)
             - is_valid: True if hash matches
             - actual_sha256: Computed SHA256 hash
             - metadata: Additional metadata (size, chunks, time, etc.)
+            - first_chunk: First chunk of data for magic bytes validation
             
         Raises:
             SHA256StreamingError: On streaming or verification errors
@@ -141,9 +144,9 @@ class SHA256StreamingService:
             "object": object_name,
             "expected_sha256": expected_sha256,
             "expected_size": expected_size,
-            "start_time": datetime.now(timezone.utc).isoformat(),
+            "start_time": datetime.now(UTC).isoformat(),
         }
-        
+
         try:
             # Step 1: Use stat_object to confirm size first (Task 5.5 requirement)
             with self._timed_operation("stat_object", timeout=10):
@@ -151,14 +154,14 @@ class SHA256StreamingService:
                     stat = self.client.stat_object(bucket_name, object_name)
                     actual_size = stat.size
                     etag = stat.etag
-                    
+
                     metadata.update({
                         "actual_size": actual_size,
                         "etag": etag,
                         "content_type": stat.content_type,
                         "last_modified": stat.last_modified.isoformat() if stat.last_modified else None,
                     })
-                    
+
                     logger.info(
                         "Object stat retrieved",
                         bucket=bucket_name,
@@ -166,20 +169,20 @@ class SHA256StreamingService:
                         size=actual_size,
                         etag=etag,
                     )
-                    
+
                 except S3Error as e:
                     if e.code == "NoSuchKey":
                         raise SHA256StreamingError(
                             code="NOT_FOUND",
                             message=f"Object not found: {bucket_name}/{object_name}",
                             details={"error": str(e)},
-                        )
+                        ) from e
                     raise SHA256StreamingError(
                         code="STAT_ERROR",
                         message=f"Failed to stat object: {str(e)}",
                         details={"error": str(e)},
-                    )
-            
+                    ) from e
+
             # Step 2: Verify size if expected_size provided
             if expected_size is not None and actual_size != expected_size:
                 metadata["size_mismatch"] = True
@@ -191,39 +194,39 @@ class SHA256StreamingService:
                     actual_size=actual_size,
                 )
                 # Don't fail here, continue to compute hash for audit
-            
+
             # Step 3: Stream object with get_object and compute SHA256
             actual_sha256 = None
             bytes_processed = 0
             chunks_processed = 0
             first_chunk = None
             retry_count = 0
-            
+
             while retry_count < MAX_RETRIES:
                 try:
                     with self._timed_operation("stream_and_hash", timeout=READ_TIMEOUT):
                         # Get object stream
                         response = self.client.get_object(bucket_name, object_name)
-                        
+
                         try:
                             # Initialize hasher
                             hasher = hashlib.sha256()
                             bytes_processed = 0
                             chunks_processed = 0
-                            
+
                             # Stream through the file in 8MB chunks (Task 5.5 requirement)
                             for chunk_data in response.stream(CHUNK_SIZE):
                                 # Update hash
                                 hasher.update(chunk_data)
-                                
+
                                 # Track progress
                                 bytes_processed += len(chunk_data)
                                 chunks_processed += 1
-                                
+
                                 # Store first chunk for additional validation
                                 if chunks_processed == 1:
                                     first_chunk = chunk_data[:1024]  # First 1KB for magic bytes
-                                
+
                                 # Log progress for large files
                                 if chunks_processed % 10 == 0:  # Every 80MB
                                     logger.debug(
@@ -234,10 +237,10 @@ class SHA256StreamingService:
                                         chunks_processed=chunks_processed,
                                         progress_pct=round(bytes_processed / actual_size * 100, 2) if actual_size > 0 else 0,
                                     )
-                            
+
                             # Compute final hash
                             actual_sha256 = hasher.hexdigest()
-                            
+
                             metadata.update({
                                 "bytes_processed": bytes_processed,
                                 "chunks_processed": chunks_processed,
@@ -245,7 +248,7 @@ class SHA256StreamingService:
                                 "actual_sha256": actual_sha256,
                                 "first_chunk_size": len(first_chunk) if first_chunk else 0,
                             })
-                            
+
                             logger.info(
                                 "SHA256 computation completed",
                                 bucket=bucket_name,
@@ -254,15 +257,15 @@ class SHA256StreamingService:
                                 chunks=chunks_processed,
                                 sha256=actual_sha256,
                             )
-                            
+
                             # Break out of retry loop on success
                             break
-                            
+
                         finally:
                             # Always clean up the connection
                             response.close()
                             response.release_conn()
-                    
+
                 except (ReadTimeoutError, ProtocolError, ConnectionError) as e:
                     retry_count += 1
                     if retry_count >= MAX_RETRIES:
@@ -270,8 +273,8 @@ class SHA256StreamingService:
                             code="STREAM_ERROR",
                             message=f"Failed to stream object after {MAX_RETRIES} retries: {str(e)}",
                             details={"error": str(e), "retries": retry_count},
-                        )
-                    
+                        ) from e
+
                     logger.warning(
                         "Stream error, retrying",
                         bucket=bucket_name,
@@ -279,8 +282,8 @@ class SHA256StreamingService:
                         error=str(e),
                         retry_count=retry_count,
                     )
-                    time.sleep(RETRY_DELAY * retry_count)  # Exponential backoff
-            
+                    time.sleep(RETRY_DELAY * (2 ** (retry_count - 1)))  # Exponential backoff
+
             # Step 4: Verify bytes processed matches size
             if bytes_processed != actual_size:
                 metadata["incomplete_read"] = True
@@ -296,12 +299,12 @@ class SHA256StreamingService:
                     message=f"Incomplete read: expected {actual_size} bytes, got {bytes_processed}",
                     details=metadata,
                 )
-            
+
             # Step 5: Compare hashes
             is_valid = actual_sha256 == expected_sha256
             metadata["hash_match"] = is_valid
-            metadata["end_time"] = datetime.now(timezone.utc).isoformat()
-            
+            metadata["end_time"] = datetime.now(UTC).isoformat()
+
             if not is_valid:
                 # Audit log for hash mismatch
                 logger.error(
@@ -312,7 +315,7 @@ class SHA256StreamingService:
                     object_etag=etag,
                     verification_metadata=metadata,
                 )
-                
+
                 # Emit audit event (Task 5.5 requirement)
                 self._emit_audit_event(
                     event_type="HASH_MISMATCH",
@@ -334,9 +337,9 @@ class SHA256StreamingService:
                     sha256=actual_sha256,
                     size=actual_size,
                 )
-            
-            return is_valid, actual_sha256, metadata
-            
+
+            return is_valid, actual_sha256, metadata, first_chunk
+
         except SHA256StreamingError:
             raise
         except Exception as e:
@@ -351,14 +354,14 @@ class SHA256StreamingService:
                 code="UNEXPECTED_ERROR",
                 message=f"Unexpected error: {str(e)}",
                 details={"error": str(e), **metadata},
-            )
-    
+            ) from e
+
     def delete_object_with_audit(
         self,
         bucket_name: str,
         object_name: str,
         reason: str,
-        details: Optional[Dict[str, Any]] = None,
+        details: dict[str, Any] | None = None,
     ) -> bool:
         """
         Delete object from MinIO with audit logging.
@@ -377,7 +380,7 @@ class SHA256StreamingService:
         try:
             # Attempt to delete the object
             self.client.remove_object(bucket_name, object_name)
-            
+
             logger.warning(
                 "Object deleted",
                 bucket=bucket_name,
@@ -385,7 +388,7 @@ class SHA256StreamingService:
                 reason=reason,
                 details=details,
             )
-            
+
             # Emit audit event
             self._emit_audit_event(
                 event_type="OBJECT_DELETED",
@@ -396,9 +399,9 @@ class SHA256StreamingService:
                     **(details or {}),
                 },
             )
-            
+
             return True
-            
+
         except S3Error as e:
             logger.error(
                 "Failed to delete object",
@@ -408,13 +411,13 @@ class SHA256StreamingService:
                 error=str(e),
             )
             return False
-    
+
     def _emit_audit_event(
         self,
         event_type: str,
         bucket: str,
         object: str,
-        details: Dict[str, Any],
+        details: dict[str, Any],
     ) -> None:
         """
         Emit audit event for compliance and security tracking.
@@ -427,26 +430,26 @@ class SHA256StreamingService:
         """
         audit_event = {
             "event_type": event_type,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
             "bucket": bucket,
             "object": object,
             "details": details,
         }
-        
+
         # Log as structured audit event
         logger.info(
             "AUDIT_EVENT",
             **audit_event,
         )
-        
+
         # TODO: Task 5.7 - Send to audit service/queue
-    
+
     def get_first_chunk(
         self,
         bucket_name: str,
         object_name: str,
         chunk_size: int = 1024,
-    ) -> Optional[bytes]:
+    ) -> bytes | None:
         """
         Get first chunk of object for magic byte validation.
         
@@ -466,14 +469,14 @@ class SHA256StreamingService:
                 offset=0,
                 length=chunk_size,
             )
-            
+
             try:
                 chunk = response.read()
                 return chunk
             finally:
                 response.close()
                 response.release_conn()
-                
+
         except S3Error as e:
             logger.error(
                 "Failed to get first chunk",
@@ -484,7 +487,7 @@ class SHA256StreamingService:
             return None
 
 
-def get_sha256_streaming_service(client: Optional[Minio] = None) -> SHA256StreamingService:
+def get_sha256_streaming_service(client: Minio | None = None) -> SHA256StreamingService:
     """
     Get SHA256 streaming service instance for dependency injection.
     
