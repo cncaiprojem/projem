@@ -8,7 +8,7 @@ Tests the complete integration of ClamAV scanning within file upload finalizatio
 """
 
 import pytest
-from unittest.mock import Mock, patch, MagicMock
+from unittest.mock import Mock, patch, MagicMock, AsyncMock
 from datetime import datetime, UTC
 import uuid
 from io import BytesIO
@@ -92,9 +92,10 @@ class TestClamAVFileServiceIntegration:
         # Create ClamAV service that detects EICAR as malware
         mock_clamav_service = Mock(spec=ClamAVService)
         
-        # Mock async scan_object_stream method
+        # Mock async scan_object_stream method to return a coroutine
+        from app.services.clamav_service import ClamAVScanResult
+        
         async def mock_scan_result():
-            from app.services.clamav_service import ClamAVScanResult
             return ClamAVScanResult(
                 is_clean=False,
                 scan_time_ms=150.0,
@@ -102,7 +103,13 @@ class TestClamAVFileServiceIntegration:
                 scan_metadata={"scan_method": "instream", "bytes_scanned": 68},
             )
         
-        mock_clamav_service.scan_object_stream.return_value = mock_scan_result()
+        # Create an async mock that returns a coroutine
+        mock_clamav_service.scan_object_stream = AsyncMock(return_value=ClamAVScanResult(
+            is_clean=False,
+            scan_time_ms=150.0,
+            virus_name="Eicar-Test-Signature",
+            scan_metadata={"scan_method": "instream", "bytes_scanned": 68},
+        ))
         
         # Create file service
         file_service = self.create_file_service(clamav_service=mock_clamav_service)
@@ -156,8 +163,9 @@ class TestClamAVFileServiceIntegration:
         mock_clamav_service = Mock(spec=ClamAVService)
         
         # Mock async scan_object_stream to raise SCAN_UNAVAILABLE
+        from app.services.clamav_service import ClamAVError
+        
         async def mock_scan_error():
-            from app.services.clamav_service import ClamAVError
             raise ClamAVError(
                 code="SCAN_UNAVAILABLE",
                 message="Malware scanning unavailable",
@@ -166,7 +174,14 @@ class TestClamAVFileServiceIntegration:
                 status_code=503,
             )
         
-        mock_clamav_service.scan_object_stream.side_effect = mock_scan_error
+        # Use AsyncMock to properly handle async exception
+        mock_clamav_service.scan_object_stream = AsyncMock(side_effect=ClamAVError(
+            code="SCAN_UNAVAILABLE",
+            message="Malware scanning unavailable",
+            turkish_message="Kötü amaçlı yazılım taraması kullanılamıyor",
+            details={"daemon_status": "unreachable"},
+            status_code=503,
+        ))
         
         # Create file service
         file_service = self.create_file_service(clamav_service=mock_clamav_service)
@@ -205,15 +220,14 @@ class TestClamAVFileServiceIntegration:
         mock_clamav_service = Mock(spec=ClamAVService)
         
         # Mock async scan_object_stream to return "scan skipped"
-        async def mock_scan_skipped():
-            from app.services.clamav_service import ClamAVScanResult
-            return ClamAVScanResult(
-                is_clean=True,
-                scan_time_ms=0.0,
-                scan_metadata={"scan_skipped": True, "reason": "policy"},
-            )
+        from app.services.clamav_service import ClamAVScanResult
         
-        mock_clamav_service.scan_object_stream.return_value = mock_scan_skipped()
+        # Use AsyncMock for proper async handling
+        mock_clamav_service.scan_object_stream = AsyncMock(return_value=ClamAVScanResult(
+            is_clean=True,
+            scan_time_ms=0.0,
+            scan_metadata={"scan_skipped": True, "reason": "policy"},
+        ))
         
         # Create file service
         file_service = self.create_file_service(clamav_service=mock_clamav_service)
@@ -262,22 +276,21 @@ class TestClamAVFileServiceIntegration:
         mock_clamav_service = Mock(spec=ClamAVService)
         
         # Mock async scan_object_stream to return clean result
-        async def mock_scan_clean():
-            from app.services.clamav_service import ClamAVScanResult
-            return ClamAVScanResult(
-                is_clean=True,
-                scan_time_ms=245.0,
-                virus_name=None,
-                scan_metadata={
-                    "scan_method": "instream",
-                    "bytes_scanned": 1024,
-                    "object_size": 1024,
-                    "mime_type": "application/x-executable",
-                    "file_type": "temp",
-                },
-            )
+        from app.services.clamav_service import ClamAVScanResult
         
-        mock_clamav_service.scan_object_stream.return_value = mock_scan_clean()
+        # Use AsyncMock for proper async handling
+        mock_clamav_service.scan_object_stream = AsyncMock(return_value=ClamAVScanResult(
+            is_clean=True,
+            scan_time_ms=245.0,
+            virus_name=None,
+            scan_metadata={
+                "scan_method": "instream",
+                "bytes_scanned": 1024,
+                "object_size": 1024,
+                "mime_type": "application/x-executable",
+                "file_type": "temp",
+            },
+        ))
         
         # Create file service
         file_service = self.create_file_service(clamav_service=mock_clamav_service)

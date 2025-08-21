@@ -40,8 +40,8 @@ RUN apk add --no-cache \
 
 # Security: Use existing clamav user from package installation
 # ClamAV package already creates clamav user and group
-RUN mkdir -p /home/clamav /var/lib/clamav /var/log/clamav /var/run/clamav \
-    && chown -R clamav:clamav /home/clamav /var/lib/clamav /var/log/clamav /var/run/clamav
+RUN mkdir -p /home/clamav /var/lib/clamav /var/log/clamav /var/run/clamav
+RUN chown -R clamav:clamav /home/clamav /var/lib/clamav /var/log/clamav /var/run/clamav
 
 # Create ClamAV configuration
 RUN echo "# ClamAV Configuration for Container Use" > /etc/clamav/clamd.conf \

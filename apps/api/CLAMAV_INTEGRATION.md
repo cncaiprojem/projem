@@ -225,7 +225,7 @@ docker exec fc_clamd_dev clamdscan --version
 
 2. **Test EICAR detection:**
 ```bash
-echo 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > /tmp/eicar.txt
+echo 'X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > /tmp/eicar.txt
 docker exec fc_clamd_dev clamdscan /tmp/eicar.txt
 ```
 

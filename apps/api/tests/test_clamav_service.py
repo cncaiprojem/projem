@@ -11,6 +11,7 @@ Tests comprehensive ClamAV integration including:
 """
 
 import asyncio
+import socket
 import pytest
 from unittest.mock import Mock, MagicMock, patch, AsyncMock
 from io import BytesIO
@@ -503,7 +504,3 @@ class TestClamAVServiceFactory:
         assert service.host == "override-clamd"
         assert service.port == 9999
         assert service.scan_enabled is True
-
-
-# Import socket for timeout exception
-import socket

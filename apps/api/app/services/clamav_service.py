@@ -17,6 +17,7 @@ import socket
 import threading
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
+from io import BytesIO
 from typing import Any, Dict, List, Optional, Union
 
 import clamd
