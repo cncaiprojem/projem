@@ -23,9 +23,11 @@ if TYPE_CHECKING:
     from .user import User
     from .machine import Machine
 
-# Module-level compiled regex pattern for SHA256 validation
-# This avoids recompiling the pattern on every validation
+# Module-level compiled regex patterns
+# This avoids recompiling the patterns on every use
 SHA256_PATTERN = re.compile(r'^[a-fA-F0-9]{64}$')
+# S3 tag allowed characters: Letters, numbers, spaces, and +-=._:/@
+S3_TAG_SANITIZE_PATTERN = re.compile(r'[^a-zA-Z0-9\s+\-=._:/@]')
 
 
 class Artefact(Base, TimestampMixin):
@@ -298,7 +300,7 @@ class Artefact(Base, TimestampMixin):
         S3 tag constraints:
         - Maximum key length: 128 characters
         - Maximum value length: 256 characters
-        - Allowed characters: Letters, numbers, spaces, and +-=._:/
+        - Allowed characters: Letters, numbers, spaces, and +-=._:/@
         """
         if not value:
             return ""
@@ -306,9 +308,8 @@ class Artefact(Base, TimestampMixin):
         # Convert to string if not already
         value = str(value)
         
-        # Replace invalid characters with underscore
-        # S3 tag allowed characters: Letters, numbers, spaces, and +-=._:/@
-        sanitized = re.sub(r'[^a-zA-Z0-9\s+\-=._:/@]', '_', value)
+        # Replace invalid characters with underscore using compiled pattern
+        sanitized = S3_TAG_SANITIZE_PATTERN.sub('_', value)
         
         # Truncate to max length (256 characters for values)
         return sanitized[:256]

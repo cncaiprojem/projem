@@ -214,40 +214,81 @@ def upgrade() -> None:
 
 def downgrade() -> None:
     """
-    Downgrade is complex due to data dependencies.
-    This preserves data by keeping the table but removing new constraints.
+    Comprehensive downgrade to fully remove the artefacts table and all dependencies.
+    
+    WARNING: This will permanently delete all artefact data!
+    Make sure to backup the artefacts table before running this downgrade:
+    
+    pg_dump -t artefacts -a your_database > artefacts_backup.sql
     """
     
-    # Remove foreign key constraints
-    try:
-        op.drop_constraint('fk_artefacts_created_by', 'artefacts', type_='foreignkey')
-    except Exception as e:
-        # Log but don't fail - constraint may not exist
-        logger.warning(f"Could not drop constraint fk_artefacts_created_by: {e}")
-    
-    try:
-        op.drop_constraint('fk_artefacts_machine_id', 'artefacts', type_='foreignkey')
-    except Exception as e:
-        # Log but don't fail - constraint may not exist
-        logger.warning(f"Could not drop constraint fk_artefacts_machine_id: {e}")
-    
-    # Remove unique constraint
-    try:
-        op.drop_constraint('uq_artefacts_s3_location', 'artefacts', type_='unique')
-    except Exception as e:
-        # Log but don't fail - constraint may not exist
-        logger.warning(f"Could not drop constraint uq_artefacts_s3_location: {e}")
-    
-    # Remove new indexes
-    for idx_name in [
+    # Step 1: Drop all indexes on artefacts table
+    indexes_to_drop = [
+        'idx_artefacts_job_id',
+        'idx_artefacts_created_by',
+        'idx_artefacts_type',
+        'idx_artefacts_sha256',
+        'idx_artefacts_created_at',
+        'idx_artefacts_s3_search',
+        'idx_artefacts_job_id_type',
         'idx_artefacts_created_by_type',
         'idx_artefacts_machine_post',
-    ]:
+        'idx_artefacts_meta_gin',
+    ]
+    
+    for idx_name in indexes_to_drop:
         try:
-            op.drop_index(idx_name, table_name='artefacts')
+            op.drop_index(idx_name, table_name='artefacts', if_exists=True)
+            logger.info(f"Dropped index: {idx_name}")
         except Exception as e:
-            # Log but don't fail - index may not exist
+            # Index may not exist, log and continue
             logger.warning(f"Could not drop index {idx_name}: {e}")
     
-    # Note: Not dropping columns to preserve data
-    # In production, a more careful migration strategy would be needed
+    # Step 2: Drop all constraints on artefacts table
+    constraints_to_drop = [
+        ('fk_artefacts_job_id', 'foreignkey'),
+        ('fk_artefacts_created_by', 'foreignkey'),
+        ('fk_artefacts_machine_id', 'foreignkey'),
+        ('uq_artefacts_s3_location', 'unique'),
+        ('ck_artefacts_size_positive', 'check'),
+        ('ck_artefacts_sha256_format', 'check'),
+    ]
+    
+    for constraint_name, constraint_type in constraints_to_drop:
+        try:
+            op.drop_constraint(constraint_name, 'artefacts', type_=constraint_type)
+            logger.info(f"Dropped constraint: {constraint_name}")
+        except Exception as e:
+            # Constraint may not exist, log and continue
+            logger.warning(f"Could not drop constraint {constraint_name}: {e}")
+    
+    # Step 3: Check if table exists before dropping
+    connection = op.get_bind()
+    result = connection.execute(
+        sa.text(
+            "SELECT EXISTS ("
+            "  SELECT FROM information_schema.tables "
+            "  WHERE table_schema = 'public' "
+            "  AND table_name = 'artefacts'"
+            ")"
+        )
+    )
+    table_exists = result.scalar()
+    
+    if table_exists:
+        # Step 4: Count records that will be deleted (for logging)
+        try:
+            count_result = connection.execute(sa.text("SELECT COUNT(*) FROM artefacts"))
+            record_count = count_result.scalar()
+            logger.warning(
+                f"DROPPING artefacts table with {record_count} records. "
+                f"Ensure you have backed up this data if needed!"
+            )
+        except Exception as e:
+            logger.warning(f"Could not count artefacts records: {e}")
+        
+        # Step 5: Drop the artefacts table completely
+        op.drop_table('artefacts')
+        logger.info("Successfully dropped artefacts table")
+    else:
+        logger.info("Artefacts table does not exist, nothing to drop")

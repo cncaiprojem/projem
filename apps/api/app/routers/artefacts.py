@@ -9,6 +9,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import get_db
 from app.core.logging import get_logger
@@ -69,11 +70,13 @@ async def create_artefact(
         user_agent = request.headers.get("User-Agent")
         
         # Let service handle created_by override internally
+        # Pass the current_user object to avoid extra DB query
         artefact = await service.create_artefact(
             artefact_data=artefact_data,
             user_id=current_user.id,
             ip_address=client_ip,
             user_agent=user_agent,
+            current_user=current_user,
         )
         
         return ArtefactResponse.model_validate(artefact)
@@ -355,6 +358,8 @@ async def update_artefact(
             if artefact.meta is None:
                 artefact.meta = {}
             artefact.meta.update(update_data.meta)
+            # Mark JSONB field as modified so SQLAlchemy detects the change
+            flag_modified(artefact, 'meta')
         
         db.commit()
         db.refresh(artefact)

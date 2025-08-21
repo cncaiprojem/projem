@@ -101,18 +101,64 @@ def downgrade() -> None:
     """
     Downgrade is not supported for this migration.
     
-    Converting from Integer back to UUID would require generating new UUIDs
-    for each user_id, which would break existing foreign key relationships
-    and lose the original UUID values. The users table uses Integer IDs,
-    so creating a foreign key from UUID to Integer is not possible.
+    CRITICAL DATA LOSS WARNING:
+    =============================
+    Converting from Integer back to UUID would result in:
     
-    If you need to revert this migration, you should:
-    1. Backup your data
-    2. Manually handle the data migration
-    3. Or restore from a backup taken before this migration
+    1. **Total Loss of User Associations**: All user_id values would be lost because:
+       - The users table uses Integer IDs (not UUIDs)
+       - There's no UUID column in the users table to map back to
+       - New random UUIDs would have no relationship to actual users
+    
+    2. **Foreign Key Constraint Violations**: 
+       - Cannot create FK from UUID column to Integer users.id column
+       - Would require dropping all user-related constraints permanently
+    
+    3. **Audit Trail Breakage**:
+       - All file upload history would lose user attribution
+       - Upload sessions would become orphaned from their creators
+       - Security audit logs would be incomplete
+    
+    4. **Compliance Issues**:
+       - Loss of user attribution violates data retention requirements
+       - Turkish tax law requires maintaining upload audit trails
+    
+    RECOVERY OPTIONS:
+    =================
+    If you absolutely must revert this migration:
+    
+    Option 1 (Recommended): Full Database Restore
+    ----------------------------------------------
+    1. Stop all application services
+    2. Restore database from backup taken before this migration
+    3. Re-apply any other migrations that occurred after this one
+    
+    Option 2: Manual Data Preservation (Complex)
+    --------------------------------------------
+    1. Export current data with user associations:
+       pg_dump -t file_metadata -t upload_sessions > backup.sql
+    
+    2. Create mapping table:
+       CREATE TABLE user_id_mapping (
+           integer_id INTEGER,
+           new_uuid UUID DEFAULT gen_random_uuid()
+       );
+       INSERT INTO user_id_mapping (integer_id)
+       SELECT DISTINCT user_id FROM file_metadata
+       UNION
+       SELECT DISTINCT user_id FROM upload_sessions;
+    
+    3. Manually reconstruct relationships using mapping table
+    
+    Option 3: Accept Data Loss (NOT Recommended)
+    --------------------------------------------
+    Remove this raise statement to proceed with data loss.
+    All user associations will be permanently lost.
     """
     raise NotImplementedError(
-        "Downgrade is not supported for this migration. "
-        "Converting Integer user IDs back to UUID would break foreign key relationships "
-        "since the users table uses Integer IDs. Please restore from backup if needed."
+        "Downgrade is not supported for this migration due to CRITICAL DATA LOSS. "
+        "Converting Integer user IDs back to UUID would permanently lose all user associations "
+        "and break foreign key relationships. The users table uses Integer IDs, not UUIDs. "
+        "Please see the downgrade() docstring for detailed recovery options. "
+        "To proceed anyway (NOT RECOMMENDED), remove this exception."
     )

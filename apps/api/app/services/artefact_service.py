@@ -93,6 +93,7 @@ class ArtefactService:
         user_id: int,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
+        current_user: Optional[User] = None,
     ) -> Artefact:
         """
         Create a new artefact record with S3 tagging.
@@ -102,6 +103,7 @@ class ArtefactService:
             user_id: ID of user creating the artefact
             ip_address: Client IP address for audit
             user_agent: Client user agent for audit
+            current_user: Optional User object to avoid extra DB query
             
         Returns:
             Created artefact instance
@@ -126,7 +128,11 @@ class ArtefactService:
             
             # Check if user has access to the job
             # Admin users can access any job
-            user = self.db.query(User).filter_by(id=user_id).first()
+            # Use provided user object if available, otherwise query DB
+            if current_user:
+                user = current_user
+            else:
+                user = self.db.query(User).filter_by(id=user_id).first()
             is_admin = user and user.role == "admin"
             
             if not is_admin and job.user_id != user_id:
@@ -353,6 +359,7 @@ class ArtefactService:
         user_id: int,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
+        current_user: Optional[User] = None,
     ) -> Artefact:
         """
         Synchronous wrapper for create_artefact.
@@ -365,6 +372,7 @@ class ArtefactService:
             user_id: ID of user creating the artefact
             ip_address: Client IP address for audit
             user_agent: Client user agent for audit
+            current_user: Optional User object to avoid extra DB query
             
         Returns:
             Created artefact instance
@@ -372,10 +380,27 @@ class ArtefactService:
         Raises:
             ArtefactServiceError: On creation failure
         """
-        # Always run the coroutine in a new event loop to ensure synchronous execution
-        return asyncio.run(
-            self.create_artefact(artefact_data, user_id, ip_address, user_agent)
-        )
+        # Run the coroutine in the current event loop if one is running, otherwise create a new one
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, safe to use asyncio.run()
+            return asyncio.run(
+                self.create_artefact(artefact_data, user_id, ip_address, user_agent, current_user)
+            )
+        else:
+            # Running loop exists, create a task and wait for it
+            # Note: run_until_complete would block the existing loop, so we use create_task
+            import concurrent.futures
+            import threading
+            
+            # Use a thread to run asyncio.run() to avoid blocking the current loop
+            with concurrent.futures.ThreadPoolExecutor() as executor:
+                future = executor.submit(
+                    asyncio.run,
+                    self.create_artefact(artefact_data, user_id, ip_address, user_agent, current_user)
+                )
+                return future.result()
     
     async def get_artefact(
         self,
