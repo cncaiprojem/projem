@@ -17,7 +17,6 @@ import socket
 import threading
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from io import BytesIO
 from typing import Any, Dict, List, Optional, Union
 
 import clamd
@@ -517,7 +516,7 @@ class ClamAVService:
                         status_code=404,
                     )
 
-                # Stream object from MinIO in chunks to avoid memory issues
+                # Stream object from MinIO directly to ClamAV
                 logger.info(
                     "Starting ClamAV streaming scan",
                     object_key=object_key,
@@ -525,44 +524,20 @@ class ClamAVService:
                     mime_type=mime_type,
                 )
 
-                # Create BytesIO buffer for streaming
-                buffer = BytesIO()
+                # Get MinIO response object for streaming
+                response = self.minio_client.get_object(bucket_name, object_name)
                 
                 try:
-                    # Stream object from MinIO
-                    response = self.minio_client.get_object(bucket_name, object_name)
+                    # Perform ClamAV scan using instream directly with MinIO response
+                    client = self._get_clamd_client()
+                    scan_start_time = datetime.now(UTC)
                     
-                    # Read in chunks to avoid memory exhaustion
-                    chunk_size = 8 * 1024 * 1024  # 8MB chunks
-                    total_bytes = 0
-                    
-                    for chunk in response.stream(chunk_size):
-                        if not chunk:
-                            break
-                        buffer.write(chunk)
-                        total_bytes += len(chunk)
-                        
-                        # Safety check to prevent runaway memory usage
-                        if total_bytes > max_size_bytes:
-                            break
-                    
-                    # Reset buffer position for scanning
-                    buffer.seek(0)
-                    
-                finally:
-                    response.close()
-                    response.release_conn()
-
-                # Perform ClamAV scan using instream
-                client = self._get_clamd_client()
-                scan_start_time = datetime.now(UTC)
-                
-                try:
                     # Set scan-specific timeout
                     client.timeout = self.timeout_scan
                     
-                    # Perform streaming scan
-                    scan_result = client.instream(buffer)
+                    # Stream directly from MinIO to ClamAV without buffering
+                    # The MinIO response object is file-like and can be passed directly
+                    scan_result = client.instream(response)
                     
                     scan_end_time = datetime.now(UTC)
                     scan_time_ms = (scan_end_time - scan_start_time).total_seconds() * 1000
@@ -588,7 +563,7 @@ class ClamAVService:
                         is_clean=is_clean,
                         virus_name=virus_name,
                         scan_time_ms=scan_time_ms,
-                        bytes_scanned=total_bytes,
+                        bytes_scanned=stat.size,
                     )
                     
                     # Security event for malware detection
@@ -600,7 +575,7 @@ class ClamAVService:
                                 "object_key": object_key,
                                 "virus_name": virus_name,
                                 "scan_time_ms": scan_time_ms,
-                                "file_size": total_bytes,
+                                "file_size": stat.size,
                                 "mime_type": mime_type,
                             },
                             severity=SeverityLevel.CRITICAL,
@@ -611,7 +586,7 @@ class ClamAVService:
                         scan_time_ms=scan_time_ms,
                         virus_name=virus_name if not is_clean else None,
                         scan_metadata={
-                            "bytes_scanned": total_bytes,
+                            "bytes_scanned": stat.size,
                             "object_size": stat.size,
                             "mime_type": mime_type,
                             "file_type": file_type,
@@ -679,6 +654,11 @@ class ClamAVService:
                         details={"error": str(e)},
                         status_code=500,
                     )
+                    
+                finally:
+                    # Always close the MinIO response to release connection
+                    response.close()
+                    response.release_conn()
 
             except ClamAVError:
                 raise
