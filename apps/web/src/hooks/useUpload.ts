@@ -125,6 +125,8 @@ export function useUpload(options: UseUploadOptions) {
   // Refs
   const workerRef = useRef<Worker | null>(null);
   const xhrRef = useRef<XMLHttpRequest | null>(null);
+  const isCancelledRef = useRef<boolean>(false);
+  const hashAbortControllerRef = useRef<AbortController | null>(null);
   const uploadStartTimeRef = useRef<number>(0);
   const presignedUrlExpiryRef = useRef<number>(0);
   const retryCountRef = useRef<number>(0);
@@ -138,16 +140,34 @@ export function useUpload(options: UseUploadOptions) {
 
     return () => {
       // Cleanup on unmount
+      isCancelledRef.current = true;
+      hashAbortControllerRef.current?.abort();
+      xhrRef.current?.abort();
       workerRef.current?.terminate();
     };
   }, []);
 
-  // Update progress callback
+  // Use ref to store onProgress callback to avoid delays and extra renders
+  const onProgressRef = useRef(onProgress);
   useEffect(() => {
-    if (onProgress) {
-      onProgress(progress);
-    }
-  }, [progress, onProgress]);
+    onProgressRef.current = onProgress;
+  }, [onProgress]);
+
+  // Call onProgress directly when updating state
+  const updateProgress = useCallback((newProgress: UploadProgress | ((prev: UploadProgress) => UploadProgress)) => {
+    setProgress(currentProgress => {
+      const nextProgress = typeof newProgress === 'function' 
+        ? newProgress(currentProgress) 
+        : newProgress;
+      
+      // Call onProgress immediately with the new value
+      if (onProgressRef.current) {
+        onProgressRef.current(nextProgress);
+      }
+      
+      return nextProgress;
+    });
+  }, []);
 
   /**
    * Validate file before upload
@@ -187,7 +207,7 @@ export function useUpload(options: UseUploadOptions) {
   }, [maxSize, allowedExtensions, allowedMimeTypes]);
 
   /**
-   * Compute SHA256 hash using Web Worker
+   * Compute SHA256 hash using Web Worker with cancellation support
    */
   const computeHash = useCallback((file: File): Promise<string> => {
     return new Promise((resolve, reject) => {
@@ -196,28 +216,53 @@ export function useUpload(options: UseUploadOptions) {
         return;
       }
 
+      // Create abort controller for this hash operation
+      hashAbortControllerRef.current = new AbortController();
+      
       const handleMessage = (event: MessageEvent) => {
         const { data } = event;
         
+        // Check if cancelled
+        if (isCancelledRef.current) {
+          workerRef.current?.removeEventListener('message', handleMessage);
+          reject(new Error('Hashing cancelled'));
+          return;
+        }
+        
         if (data.type === 'progress') {
-          setProgress(prev => ({
+          updateProgress(prev => ({
             ...prev,
             status: 'hashing',
             progress: data.progress * 0.2, // Hash is 20% of total progress
           }));
         } else if (data.type === 'result') {
           workerRef.current?.removeEventListener('message', handleMessage);
+          hashAbortControllerRef.current = null;
           resolve(data.hash);
         } else if (data.type === 'error') {
           workerRef.current?.removeEventListener('message', handleMessage);
+          hashAbortControllerRef.current = null;
           reject(new Error(data.error));
         }
       };
 
+      // Listen for abort signal
+      hashAbortControllerRef.current.signal.addEventListener('abort', () => {
+        workerRef.current?.removeEventListener('message', handleMessage);
+        // Terminate and recreate worker to stop hashing
+        if (workerRef.current) {
+          workerRef.current.terminate();
+          workerRef.current = new Worker(
+            new URL('../workers/sha256.worker.ts', import.meta.url)
+          );
+        }
+        reject(new Error('Hashing cancelled'));
+      });
+
       workerRef.current.addEventListener('message', handleMessage);
       workerRef.current.postMessage({ type: 'hash', file });
     });
-  }, []);
+  }, [updateProgress]);
 
   /**
    * Initialize upload with backend
@@ -279,14 +324,17 @@ export function useUpload(options: UseUploadOptions) {
           const eta = speed > 0 ? remaining / speed : 0;
           const progressPercent = (bytesUploaded / totalBytes) * 100;
 
-          setProgress({
-            status: 'uploading',
-            progress: 20 + (progressPercent * 0.7), // 20-90% for upload
-            speed,
-            eta,
-            bytesUploaded,
-            totalBytes,
-          });
+          // Check if cancelled before updating progress
+          if (!isCancelledRef.current) {
+            updateProgress({
+              status: 'uploading',
+              progress: 20 + (progressPercent * 0.7), // 20-90% for upload
+              speed,
+              eta,
+              bytesUploaded,
+              totalBytes,
+            });
+          }
         }
       });
 
@@ -306,6 +354,11 @@ export function useUpload(options: UseUploadOptions) {
       xhr.addEventListener('error', () => {
         reject(new Error(ERROR_MESSAGES.NETWORK_ERROR));
       });
+      
+      // Handle abort
+      xhr.addEventListener('abort', () => {
+        reject(new Error('Upload cancelled'));
+      });
 
       // Check if URL is about to expire
       const timeUntilExpiry = presignedUrlExpiryRef.current - Date.now();
@@ -321,7 +374,7 @@ export function useUpload(options: UseUploadOptions) {
       uploadStartTimeRef.current = Date.now();
       xhr.send(file);
     });
-  }, []);
+  }, [updateProgress]);
 
   /**
    * Finalize upload with backend
@@ -355,7 +408,7 @@ export function useUpload(options: UseUploadOptions) {
   }, []);
 
   /**
-   * Handle upload with retry logic
+   * Handle upload with iterative retry logic (non-recursive)
    */
   const handleUploadWithRetry = useCallback(async (
     file: File,
@@ -363,43 +416,73 @@ export function useUpload(options: UseUploadOptions) {
     initData?: { uploadId: string; presignedUrl: string; key: string }
   ): Promise<void> => {
     let currentInitData = initData;
+    let attempt = 0;
+    let lastError: Error | null = null;
 
-    try {
-      // Initialize if not already done
-      if (!currentInitData) {
-        setProgress(prev => ({ ...prev, status: 'initializing', progress: 20 }));
-        currentInitData = await initializeUpload(file, hash);
-      }
+    // Iterative retry loop instead of recursive calls
+    while (attempt <= retryCount) {
+      try {
+        // Check if cancelled before each attempt
+        if (isCancelledRef.current) {
+          throw new Error('Upload cancelled');
+        }
 
-      // Upload to presigned URL
-      setProgress(prev => ({ ...prev, status: 'uploading' }));
-      await uploadToPresignedUrl(file, currentInitData.presignedUrl);
+        // Initialize if not already done
+        if (!currentInitData) {
+          updateProgress(prev => ({ ...prev, status: 'initializing', progress: 20 }));
+          currentInitData = await initializeUpload(file, hash);
+        }
 
-      // Finalize upload
-      setProgress(prev => ({ ...prev, status: 'finalizing', progress: 90 }));
-      const uploadResult = await finalizeUpload(currentInitData.uploadId, hash);
+        // Check if cancelled after initialization
+        if (isCancelledRef.current) {
+          throw new Error('Upload cancelled');
+        }
 
-      // Success
-      setResult(uploadResult);
-      setProgress({
-        status: 'success',
-        progress: 100,
-        speed: 0,
-        eta: 0,
-        bytesUploaded: file.size,
-        totalBytes: file.size,
-      });
+        // Upload to presigned URL
+        updateProgress(prev => ({ ...prev, status: 'uploading' }));
+        await uploadToPresignedUrl(file, currentInitData.presignedUrl);
 
-      if (onSuccess) {
-        onSuccess(uploadResult);
-      }
+        // Check if cancelled after upload
+        if (isCancelledRef.current) {
+          throw new Error('Upload cancelled');
+        }
 
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
-      // Check if we should retry
-      if (autoRetry && retryCountRef.current < retryCount) {
-        // Check error type
+        // Finalize upload
+        updateProgress(prev => ({ ...prev, status: 'finalizing', progress: 90 }));
+        const uploadResult = await finalizeUpload(currentInitData.uploadId, hash);
+
+        // Success - exit loop
+        setResult(uploadResult);
+        updateProgress({
+          status: 'success',
+          progress: 100,
+          speed: 0,
+          eta: 0,
+          bytesUploaded: file.size,
+          totalBytes: file.size,
+        });
+
+        if (onSuccess) {
+          onSuccess(uploadResult);
+        }
+        
+        return; // Success, exit function
+        
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error('Unknown error');
+        const errorMessage = lastError.message;
+        
+        // Don't retry if cancelled
+        if (errorMessage === 'Upload cancelled' || errorMessage === 'Hashing cancelled') {
+          throw lastError;
+        }
+        
+        // Check if we should retry
+        if (!autoRetry || attempt >= retryCount) {
+          throw lastError; // No more retries
+        }
+        
+        // Check error type for retry eligibility
         const isTransientError = 
           errorMessage.includes('Network') ||
           errorMessage.includes('503') ||
@@ -409,24 +492,37 @@ export function useUpload(options: UseUploadOptions) {
         const isExpiredUrl = errorMessage === ERROR_MESSAGES.EXPIRED_URL;
 
         if (isTransientError || isExpiredUrl) {
-          retryCountRef.current++;
-          console.log(`Retrying upload (attempt ${retryCountRef.current}/${retryCount})`);
+          attempt++;
+          retryCountRef.current = attempt;
+          console.log(`Retrying upload (attempt ${attempt}/${retryCount})`);
           
-          // Wait before retry
-          await new Promise(resolve => setTimeout(resolve, retryDelay * retryCountRef.current));
+          // Wait before retry with exponential backoff
+          const delay = Math.min(retryDelay * Math.pow(2, attempt - 1), 30000); // Max 30 seconds
+          await new Promise(resolve => {
+            const timeoutId = setTimeout(resolve, delay);
+            // Allow cancellation during delay
+            if (isCancelledRef.current) {
+              clearTimeout(timeoutId);
+              resolve(undefined);
+            }
+          });
           
           // If URL expired, reinitialize
           if (isExpiredUrl) {
             currentInitData = undefined;
           }
           
-          // Retry
-          return handleUploadWithRetry(file, hash, currentInitData);
+          // Continue to next iteration
+        } else {
+          // Non-retryable error
+          throw lastError;
         }
       }
-
-      // No retry or max retries reached
-      throw error;
+    }
+    
+    // Should not reach here, but throw last error if we do
+    if (lastError) {
+      throw lastError;
     }
   }, [
     initializeUpload,
@@ -436,6 +532,7 @@ export function useUpload(options: UseUploadOptions) {
     retryCount,
     retryDelay,
     onSuccess,
+    updateProgress,
   ]);
 
   /**
@@ -443,8 +540,9 @@ export function useUpload(options: UseUploadOptions) {
    */
   const upload = useCallback(async (file: File): Promise<void> => {
     try {
-      // Reset state
-      setProgress({
+      // Reset state and cancellation flag
+      isCancelledRef.current = false;
+      updateProgress({
         status: 'idle',
         progress: 0,
         speed: 0,
@@ -462,7 +560,7 @@ export function useUpload(options: UseUploadOptions) {
       }
 
       // Compute hash
-      setProgress(prev => ({ ...prev, status: 'hashing' }));
+      updateProgress(prev => ({ ...prev, status: 'hashing' }));
       const hash = await computeHash(file);
 
       // Upload with retry logic
@@ -483,12 +581,15 @@ export function useUpload(options: UseUploadOptions) {
         errorCode = 'RATE_LIMITED';
       }
 
-      setProgress(prev => ({
-        ...prev,
-        status: 'error',
-        error: errorMessage,
-        errorCode,
-      }));
+      // Don't update state if cancelled (component might be unmounted)
+      if (!isCancelledRef.current) {
+        updateProgress(prev => ({
+          ...prev,
+          status: 'error',
+          error: errorMessage,
+          errorCode,
+        }));
+      }
 
       if (onError) {
         onError(errorMessage, errorCode);
@@ -499,21 +600,30 @@ export function useUpload(options: UseUploadOptions) {
     computeHash,
     handleUploadWithRetry,
     onError,
+    updateProgress,
   ]);
 
   /**
-   * Cancel ongoing upload
+   * Cancel ongoing upload (works during hashing and uploading)
    */
   const cancel = useCallback(() => {
-    // Abort the XMLHttpRequest upload
-    xhrRef.current?.abort();
-    xhrRef.current = null; // Clear the reference after aborting
+    // Set cancellation flag
+    isCancelledRef.current = true;
     
-    // Don't terminate the worker - it's stateless and reusable
-    // The worker will remain available for the next upload
+    // Abort hashing if in progress
+    if (hashAbortControllerRef.current) {
+      hashAbortControllerRef.current.abort();
+      hashAbortControllerRef.current = null;
+    }
+    
+    // Abort the XMLHttpRequest upload if in progress
+    if (xhrRef.current) {
+      xhrRef.current.abort();
+      xhrRef.current = null;
+    }
     
     // Reset progress state
-    setProgress({
+    updateProgress({
       status: 'idle',
       progress: 0,
       speed: 0,
@@ -521,13 +631,14 @@ export function useUpload(options: UseUploadOptions) {
       bytesUploaded: 0,
       totalBytes: 0,
     });
-  }, []);
+  }, [updateProgress]);
 
   /**
    * Reset upload state
    */
   const reset = useCallback(() => {
-    setProgress({
+    isCancelledRef.current = false;
+    updateProgress({
       status: 'idle',
       progress: 0,
       speed: 0,
@@ -537,7 +648,7 @@ export function useUpload(options: UseUploadOptions) {
     });
     setResult(null);
     retryCountRef.current = 0;
-  }, []);
+  }, [updateProgress]);
 
   return {
     upload,
