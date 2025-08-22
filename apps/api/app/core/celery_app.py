@@ -19,8 +19,6 @@ from ..config import settings
 from ..settings import app_settings as appset
 from .queue_constants import (
     MAIN_QUEUES,
-    DLQ_QUEUES,
-    DLX_EXCHANGES,
     DLX_SUFFIX,
     DLQ_SUFFIX,
     QUEUE_CONFIGS,

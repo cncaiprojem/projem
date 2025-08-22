@@ -48,7 +48,7 @@ class RabbitMQInitializer:
     """RabbitMQ topology initializer for Task 6.1 requirements."""
     
     def __init__(self, host: str = "localhost", port: int = 15672,
-                 username: str = "freecad", password: str = "freecad",
+                 username: str = "freecad", password: str = "freecad_dev_pass",
                  vhost: str = "/"):
         self.host = host
         self.port = port
@@ -240,7 +240,9 @@ class RabbitMQInitializer:
                 # Message and queue limits
                 "x-message-ttl": config["ttl"],
                 "x-max-length-bytes": config["max_message_bytes"],  # 10MB limit
-                # Note: x-max-retries is not a valid RabbitMQ queue argument, retries handled by Celery
+                # Note: x-max-retries is not a valid RabbitMQ queue argument.
+                # Retries are handled by Celery, which provides more flexibility and control than RabbitMQ's basic retry functionality.
+                # Celery allows for customizable retry delays, exponential backoff, and per-task retry logic, whereas RabbitMQ only supports basic dead-lettering.
                 # Priority configuration
                 "x-max-priority": 10,
                 "x-priority": PRIORITY_MAP[config["priority"]],
@@ -406,7 +408,7 @@ def main():
     rabbitmq_host = os.getenv("RABBITMQ_HOST", "localhost")
     rabbitmq_mgmt_port = int(os.getenv("RABBITMQ_MGMT_PORT", "15672"))
     rabbitmq_user = os.getenv("RABBITMQ_USER", "freecad")
-    rabbitmq_pass = os.getenv("RABBITMQ_PASS", "freecad")
+    rabbitmq_pass = os.getenv("RABBITMQ_PASS", "freecad_dev_pass")
     rabbitmq_vhost = os.getenv("RABBITMQ_VHOST", "/")
     
     # İnitializer oluştur

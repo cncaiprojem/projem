@@ -516,7 +516,6 @@ services:
       # Celery development settings
       CELERY_TASK_ALWAYS_EAGER: "false"
       CELERY_TASK_EAGER_PROPAGATES: "true"
-      CELERY_WORKER_PREFETCH_MULTIPLIER: 1
       TZ: "UTC"
     
     # Development volume mounts
@@ -606,7 +605,6 @@ services:
       # Celery development settings
       CELERY_TASK_ALWAYS_EAGER: "false"
       CELERY_TASK_EAGER_PROPAGATES: "true"
-      CELERY_WORKER_PREFETCH_MULTIPLIER: 1
       TZ: "UTC"
     
     # Development volume mounts

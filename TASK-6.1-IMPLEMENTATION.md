@@ -212,7 +212,7 @@ def generate_cam_task(self, params):
 ### Check Queue Status
 ```bash
 # Using RabbitMQ management API
-curl -u freecad:freecad http://localhost:15672/api/queues
+curl -u freecad:freecad_dev_pass http://localhost:15672/api/queues
 
 # Using Celery inspect
 celery -A app.tasks.worker inspect active_queues
@@ -221,7 +221,7 @@ celery -A app.tasks.worker inspect active_queues
 ### Monitor Dead Letter Queues
 ```bash
 # Check DLQ message counts
-curl -u freecad:freecad http://localhost:15672/api/queues | jq '.[] | select(.name | endswith("_dlq")) | {name: .name, messages: .messages}'
+curl -u freecad:freecad_dev_pass http://localhost:15672/api/queues | jq '.[] | select(.name | endswith("_dlq")) | {name: .name, messages: .messages}'
 ```
 
 ### View Task Routes

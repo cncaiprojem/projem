@@ -13,22 +13,26 @@ This script validates:
 
 import json
 import logging
+import os
 import sys
 import time
 from typing import Dict, List, Optional
 
+# Add path to make script runnable directly
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..', '..')))
+
 import requests
 from requests.auth import HTTPBasicAuth
 
-from ..core.celery_app import celery_app
-from ..core.queue_constants import (
+from apps.api.app.core.celery_app import celery_app
+from apps.api.app.core.queue_constants import (
     MAIN_QUEUES,
     DLQ_QUEUES,
     ROUTING_KEYS,
     JOBS_EXCHANGE,
     QUEUE_CONFIGS,
 )
-from ..config import settings
+from apps.api.app.config import settings
 
 # Logging konfigürasyonu
 logging.basicConfig(
@@ -42,7 +46,7 @@ class DLXTopologyTester:
     """Task 6.1 DLX/DLQ topology tester."""
     
     def __init__(self, rabbitmq_host: str = "localhost", rabbitmq_port: int = 15672,
-                 username: str = "freecad", password: str = "freecad"):
+                 username: str = "freecad", password: str = "freecad_dev_pass"):
         self.host = rabbitmq_host
         self.port = rabbitmq_port  
         self.username = username
@@ -388,7 +392,7 @@ def main():
     rabbitmq_host = os.getenv("RABBITMQ_HOST", "localhost")
     rabbitmq_port = int(os.getenv("RABBITMQ_MGMT_PORT", "15672"))
     rabbitmq_user = os.getenv("RABBITMQ_USER", "freecad")
-    rabbitmq_pass = os.getenv("RABBITMQ_PASS", "freecad")
+    rabbitmq_pass = os.getenv("RABBITMQ_PASS", "freecad_dev_pass")
     
     tester = DLXTopologyTester(
         rabbitmq_host=rabbitmq_host,

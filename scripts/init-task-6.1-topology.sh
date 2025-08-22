@@ -45,7 +45,7 @@ log_info "Python initialization script bulundu: $INIT_SCRIPT"
 export RABBITMQ_HOST="${RABBITMQ_HOST:-localhost}"
 export RABBITMQ_MGMT_PORT="${RABBITMQ_MGMT_PORT:-15672}"
 export RABBITMQ_USER="${RABBITMQ_USER:-freecad}"
-export RABBITMQ_PASS="${RABBITMQ_PASS:-freecad}"
+export RABBITMQ_PASS="${RABBITMQ_PASS:-freecad_dev_pass}"
 export RABBITMQ_VHOST="${RABBITMQ_VHOST:-/}"
 
 log_info "RabbitMQ ayarları:"
