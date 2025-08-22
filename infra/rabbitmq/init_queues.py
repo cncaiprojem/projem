@@ -22,12 +22,31 @@ from typing import Dict, List, Optional
 import requests
 from requests.auth import HTTPBasicAuth
 
-# Add path to import from apps/api/app
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../apps/api'))
-from app.core.queue_constants import (
-    MAIN_QUEUES, JOBS_EXCHANGE, DLX_SUFFIX, DLQ_SUFFIX, 
-    QUEUE_CONFIGS, DLQ_CONFIG, ROUTING_KEYS
-)
+# Robust import path resolution for infrastructure scripts
+def _setup_import_path():
+    """Add API module to Python path in a robust way."""
+    script_dir = os.path.dirname(os.path.abspath(__file__))
+    api_path = os.path.join(script_dir, '..', '..', 'apps', 'api')
+    api_path = os.path.normpath(api_path)
+    
+    if os.path.exists(api_path) and api_path not in sys.path:
+        sys.path.insert(0, api_path)
+        return True
+    return False
+
+# Setup imports with error handling
+try:
+    if not _setup_import_path():
+        raise ImportError("Could not locate API module path")
+    
+    from app.core.queue_constants import (
+        MAIN_QUEUES, JOBS_EXCHANGE, DLX_SUFFIX, DLQ_SUFFIX, 
+        QUEUE_CONFIGS, DLQ_CONFIG, ROUTING_KEYS
+    )
+except ImportError as e:
+    print(f"Error: Could not import queue constants: {e}")
+    print("Please ensure this script is run from the project root or with proper PYTHONPATH")
+    sys.exit(1)
 
 # Logging konfigürasyonu
 logging.basicConfig(

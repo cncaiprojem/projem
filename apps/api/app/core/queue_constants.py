@@ -51,42 +51,36 @@ DLQ_CONFIG = {
 QUEUE_CONFIGS = {
     QUEUE_DEFAULT: {
         "ttl": 1800000,  # 30 minutes
-        "max_retries": 3,
         "priority": "normal",
         "queue_type": "quorum",  # Quorum queues for primaries
         "max_message_bytes": 10485760,  # 10MB message size limit
     },
     QUEUE_MODEL: {
         "ttl": 3600000,  # 1 hour - model generation can be slow
-        "max_retries": 3,
         "priority": "high",
         "queue_type": "quorum",
         "max_message_bytes": 10485760,
     },
     QUEUE_CAM: {
         "ttl": 2700000,  # 45 minutes - CAM processing
-        "max_retries": 3,
         "priority": "high",
         "queue_type": "quorum",
         "max_message_bytes": 10485760,
     },
     QUEUE_SIM: {
         "ttl": 3600000,  # 1 hour - simulation can be slow
-        "max_retries": 3,
         "priority": "high",
         "queue_type": "quorum",
         "max_message_bytes": 10485760,
     },
     QUEUE_REPORT: {
         "ttl": 900000,  # 15 minutes - report generation
-        "max_retries": 2,
         "priority": "low",
         "queue_type": "quorum",
         "max_message_bytes": 10485760,
     },
     QUEUE_ERP: {
         "ttl": 1800000,  # 30 minutes - ERP integration
-        "max_retries": 2,
         "priority": "normal",
         "queue_type": "quorum",
         "max_message_bytes": 10485760,

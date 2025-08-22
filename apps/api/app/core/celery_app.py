@@ -11,6 +11,7 @@ This module provides the main Celery application configuration with:
 
 from __future__ import annotations
 
+import logging
 from celery import Celery
 from celery.schedules import crontab
 from kombu import Exchange, Queue
@@ -58,11 +59,7 @@ celery_app = Celery(
 )
 
 # Auto-discover tasks from modules
-try:
-    celery_app.autodiscover_tasks(["app.tasks"])
-except Exception as e:
-    import logging
-    logging.getLogger(__name__).error("Failed to autodiscover tasks", exc_info=e)
+celery_app.autodiscover_tasks(["app.tasks"])
 
 # Task 6.1: Define exchanges
 jobs_direct_exchange = Exchange(JOBS_EXCHANGE, type=JOBS_EXCHANGE_TYPE, durable=True)
@@ -365,8 +362,4 @@ celery_app.conf.worker_send_task_events = True
 celery_app.conf.task_send_sent_event = True
 
 # Set as default Celery app
-try:
-    celery_app.set_default()
-except Exception as e:
-    import logging
-    logging.getLogger(__name__).error("Failed to set default celery app", exc_info=e)
+celery_app.set_default()

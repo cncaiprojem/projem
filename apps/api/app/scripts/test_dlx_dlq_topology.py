@@ -45,8 +45,7 @@ logger = logging.getLogger(__name__)
 class DLXTopologyTester:
     """Task 6.1 DLX/DLQ topology tester."""
     
-    def __init__(self, rabbitmq_host: str = "localhost", rabbitmq_port: int = 15672,
-                 username: str = "freecad", password: str = "freecad_dev_pass"):
+    def __init__(self, username: str, password: str, rabbitmq_host: str = "localhost", rabbitmq_port: int = 15672):
         self.host = rabbitmq_host
         self.port = rabbitmq_port  
         self.username = username
@@ -395,10 +394,10 @@ def main():
     rabbitmq_pass = os.getenv("RABBITMQ_PASS", "freecad_dev_pass")
     
     tester = DLXTopologyTester(
-        rabbitmq_host=rabbitmq_host,
-        rabbitmq_port=rabbitmq_port,
         username=rabbitmq_user,
-        password=rabbitmq_pass
+        password=rabbitmq_pass,
+        rabbitmq_host=rabbitmq_host,
+        rabbitmq_port=rabbitmq_port
     )
     
     try:

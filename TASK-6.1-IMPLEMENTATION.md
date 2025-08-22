@@ -119,37 +119,37 @@ docker-compose -f infra/compose/docker-compose.dev.yml up workers workers-priori
 
 ### Default Queue
 - **TTL:** 30 minutes
-- **Max retries:** 3
+- **Max retries:** 3 (handled by Celery, not a queue property)
 - **Priority:** Normal (5)
 - **Use case:** AI tasks, maintenance, monitoring
 
 ### Model Queue  
 - **TTL:** 1 hour
-- **Max retries:** 3
+- **Max retries:** 3 (handled by Celery, not a queue property)
 - **Priority:** High (7)
 - **Use case:** FreeCAD operations, 3D model generation
 
 ### CAM Queue
 - **TTL:** 45 minutes
-- **Max retries:** 3  
+- **Max retries:** 3 (handled by Celery, not a queue property) 
 - **Priority:** High (7)
 - **Use case:** CAM path generation, toolpath operations
 
 ### Sim Queue
 - **TTL:** 1 hour
-- **Max retries:** 3
+- **Max retries:** 3 (handled by Celery, not a queue property)
 - **Priority:** High (7) 
 - **Use case:** Process simulation, FEA analysis
 
 ### Report Queue
 - **TTL:** 15 minutes
-- **Max retries:** 2
+- **Max retries:** 2 (handled by Celery, not a queue property)
 - **Priority:** Low (3)
 - **Use case:** Report generation, post-processing
 
 ### ERP Queue
 - **TTL:** 30 minutes  
-- **Max retries:** 2
+- **Max retries:** 2 (handled by Celery, not a queue property)
 - **Priority:** Normal (5)
 - **Use case:** Future ERP integration tasks
 
