@@ -11,7 +11,7 @@ This script validates:
 - Message size limits and publisher confirms
 """
 
-import asyncio
+# import asyncio  # Remove unused import
 import json
 import logging
 import sys
@@ -25,7 +25,7 @@ from ..core.celery_app import celery_app
 from ..core.queue_constants import (
     MAIN_QUEUES,
     DLQ_QUEUES,
-    ROUTING_KEY_MAPPINGS,
+    ROUTING_KEYS,
     JOBS_EXCHANGE,
     QUEUE_CONFIGS,
 )
@@ -179,7 +179,7 @@ class DLXTopologyTester:
                 initial_counts[queue_name] = queue_info.get("messages", 0)
                 
         # Test each routing key mapping
-        for routing_key, expected_queue in ROUTING_KEY_MAPPINGS.items():
+        for routing_key, expected_queue in ROUTING_KEYS.items():
             logger.info(f"Testing routing: {routing_key} -> {expected_queue}")
             
             try:
@@ -331,7 +331,7 @@ class DLXTopologyTester:
             
         logger.info("")
         logger.info("📋 Routing Key Mappings:")
-        for routing_key, queue_name in ROUTING_KEY_MAPPINGS.items():
+        for routing_key, queue_name in ROUTING_KEYS.items():
             logger.info(f"  ✓ {routing_key} -> {queue_name}")
             
         logger.info("")

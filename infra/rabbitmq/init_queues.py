@@ -289,7 +289,7 @@ class RabbitMQInitializer:
                 # Message and queue limits
                 "x-message-ttl": config["ttl"],
                 "x-max-length-bytes": config["max_message_bytes"],  # 10MB limit
-                "x-max-retries": config["max_retries"],
+                # Note: x-max-retries is not a valid RabbitMQ queue argument, retries handled by Celery
                 # Priority configuration
                 "x-max-priority": 10,
                 "x-priority": config["priority"],
@@ -315,9 +315,9 @@ class RabbitMQInitializer:
                 
         # 5. Primary queue bindings (jobs.direct -> queues)
         logger.info("--- Primary Queue Bindings oluşturuluyor ---")
-        for queue_name in MAIN_QUEUES:
-            # Bind primary queue to jobs.direct exchange with queue name as routing key
-            if not self.create_binding(JOBS_EXCHANGE, queue_name, queue_name, "queue"):
+        for routing_key, queue_name in ROUTING_KEY_MAPPINGS.items():
+            # Bind primary queue to jobs.direct exchange with its specific routing key
+            if not self.create_binding(JOBS_EXCHANGE, queue_name, routing_key, "queue"):
                 return False
                 
         # 6. Dead letter queue bindings (DLX -> DLQs)  
@@ -336,9 +336,10 @@ class RabbitMQInitializer:
         # Task 6.1: Message size limit policy (10MB)
         message_size_policy = {
             "max-message-bytes": 10485760,  # 10MB
-            "confirm-publish": True,  # Publisher confirms
+            "confirm": True,  # Publisher confirms
         }
-        if not self.set_policy("message-size-limit", "^(default|model|cam|sim|report|erp)$", 
+        queues_pattern = f"^({'|'.join(MAIN_QUEUES)})$"
+        if not self.set_policy("message-size-limit", queues_pattern, 
                               message_size_policy, 20, "queues"):
             return False
             
@@ -356,7 +357,7 @@ class RabbitMQInitializer:
             "ha-mode": "all",
             "ha-sync-mode": "automatic",
         }
-        if not self.set_policy("quorum-ha", "^(default|model|cam|sim|report|erp)$", 
+        if not self.set_policy("quorum-ha", queues_pattern, 
                               ha_policy, 10, "queues"):
             return False
             

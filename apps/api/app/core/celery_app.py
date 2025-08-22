@@ -62,8 +62,9 @@ celery_app = Celery(
 # Auto-discover tasks from modules
 try:
     celery_app.autodiscover_tasks(["app.tasks"])
-except Exception:
-    pass
+except Exception as e:
+    import logging
+    logging.getLogger(__name__).error("Failed to autodiscover tasks", exc_info=e)
 
 # Task 6.1: Define exchanges
 jobs_direct_exchange = Exchange(JOBS_EXCHANGE, type=JOBS_EXCHANGE_TYPE, durable=True)
@@ -75,6 +76,9 @@ for queue_name in MAIN_QUEUES:
     dlx_exchanges[queue_name] = Exchange(dlx_name, type="direct", durable=True)
 
 # Task 6.1: Create primary queues with per-queue DLX configuration
+# Create reverse mapping from queue name to routing key
+ROUTING_KEYS_BY_QUEUE = {v: k for k, v in ROUTING_KEYS.items()}
+
 primary_queues = []
 for queue_name in MAIN_QUEUES:
     config = QUEUE_CONFIGS[queue_name]
@@ -95,7 +99,7 @@ for queue_name in MAIN_QUEUES:
         # Message and queue limits
         "x-message-ttl": config["ttl"],
         "x-max-length-bytes": config["max_message_bytes"],  # 10MB limit
-        "x-max-retries": config["max_retries"],
+        # Note: x-max-retries is not a valid RabbitMQ queue argument, retries handled by Celery
         # Priority handling
         "x-max-priority": 10,
         "x-priority": priority_map[config["priority"]],
@@ -108,7 +112,7 @@ for queue_name in MAIN_QUEUES:
     queue = Queue(
         queue_name,
         exchange=jobs_direct_exchange,
-        routing_key=queue_name,
+        routing_key=ROUTING_KEYS_BY_QUEUE[queue_name],
         durable=True,
         queue_arguments=queue_arguments,
     )
@@ -151,7 +155,7 @@ celery_app.conf.worker_prefetch_multiplier = 8  # Basic QoS prefetch=8
 celery_app.conf.task_default_queue = QUEUE_DEFAULT
 celery_app.conf.task_default_exchange = JOBS_EXCHANGE
 celery_app.conf.task_default_exchange_type = JOBS_EXCHANGE_TYPE
-celery_app.conf.task_default_routing_key = QUEUE_DEFAULT
+celery_app.conf.task_default_routing_key = "jobs.ai"
 
 # Task 6.1: Task routing configuration - mapping job types to queues
 celery_app.conf.task_routes = {
@@ -368,5 +372,6 @@ celery_app.conf.task_send_sent_event = True
 # Set as default Celery app
 try:
     celery_app.set_default()
-except Exception:
-    pass
+except Exception as e:
+    import logging
+    logging.getLogger(__name__).error("Failed to set default celery app", exc_info=e)

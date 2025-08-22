@@ -113,7 +113,7 @@ declare_queue() {
         if [ -n "$message_ttl" ]; then
             arguments+=",\"x-message-ttl\":$message_ttl"
         fi
-        arguments+=",\"x-max-retries\":$max_retries"
+        # Note: x-max-retries is not a valid RabbitMQ queue argument, retries handled by Celery
         arguments+="}}"
     else
         arguments+="}"

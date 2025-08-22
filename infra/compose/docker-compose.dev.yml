@@ -204,7 +204,7 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ../../scripts/init-rabbitmq.sh:/opt/rabbitmq/init-rabbitmq.sh:ro
-      - ../../infra/rabbitmq/init_queues.py:/opt/rabbitmq/init_queues.py:ro
+      - ../../infra/rabbitmq:/opt/rabbitmq:ro
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     
