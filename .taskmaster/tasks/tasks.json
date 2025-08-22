@@ -792,7 +792,7 @@
               "5.4"
             ],
             "details": "- Flow: user selects file → worker computes SHA256 (streaming via File.slice) → call /files/upload/init → PUT to presigned URL with correct Content-Type and Content-Length → on 200/204, call /files/upload/finalize.\n- Progress: upload progress via XHR/fetch streams; show speed, ETA; handle retries/backoff on transient 5xx.\n- Validation UX: enforce allowed extensions, size ≤200MB, double-extension warning before init; show clear errors for 415, 413, 422.\n- TTL handling: warn if PUT URL close to expiry; if expired (403), re-init and retry automatically once.\n- Security: no file reads by main thread beyond hashing; sandbox worker; never send file to backend; respect IP binding if enabled.\n- Acceptance tests:\n  - Happy path completes and shows success state; finalize returns artefact metadata.\n  - Wrong hash simulation (flip byte) yields 422 with user-facing remediation and auto-cleanup shown.\n  - Expired URL triggers re-init and successful retry; wrong MIME blocked with inline error.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           }
         ]
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-21T17:12:14.770Z",
+      "updated": "2025-08-22T09:49:38.881Z",
       "description": "Tasks for master context"
     }
   }
