@@ -29,6 +29,7 @@ from app.core.minio_config import (
     get_minio_config,
     validate_object_key,
 )
+from app.core.utils import convert_user_id_to_int
 from app.models.file import (
     FileMetadata,
     FileStatus,
@@ -61,6 +62,8 @@ from app.services.clamav_service import (
     ClamAVService,
     get_clamav_service,
 )
+from app.services.artefact_service import ArtefactService
+from app.schemas.artefact import ArtefactCreate, ArtefactType
 
 logger = structlog.get_logger(__name__)
 
@@ -125,6 +128,7 @@ class FileService:
 
         logger.info("File service initialized with validation, SHA256 streaming, and ClamAV scanning")
 
+
     def init_upload(
         self,
         request: UploadInitRequest,
@@ -147,6 +151,9 @@ class FileService:
             FileServiceError: On validation or generation failure
         """
         try:
+            # Convert user_id safely to int
+            user_id_int = convert_user_id_to_int(user_id)
+            
             # Step 1: Validate inputs with comprehensive security checks
             self._validate_upload_request(request)
 
@@ -233,7 +240,7 @@ class FileService:
                     expected_sha256=request.sha256,
                     mime_type=request.mime_type,
                     job_id=request.job_id,
-                    user_id=uuid.UUID(user_id) if user_id else None,
+                    user_id=user_id_int,  # Safely converted user_id
                     client_ip=client_ip,
                     status="pending",
                     expires_at=expires_at,
@@ -377,6 +384,9 @@ class FileService:
             FileServiceError: On verification failure
         """
         try:
+            # Convert user_id safely to int
+            user_id_int = convert_user_id_to_int(user_id)
+            
             # Step 1: Look up upload session - REQUIRED for security validation
             if (
                 not self.db
@@ -835,7 +845,7 @@ class FileService:
                     version_id=version_id,
                     status=FileStatus.COMPLETED,
                     job_id=session.job_id,
-                    user_id=uuid.UUID(user_id) if user_id else None,
+                    user_id=user_id_int,  # Safely converted user_id
                     machine_id=session.metadata.get("machine_id"),
                     post_processor=session.metadata.get("post_processor"),
                     tags=self._get_object_tags(bucket_name, object_name),
@@ -859,6 +869,79 @@ class FileService:
                     object_key=request.key,
                     status=FileStatus.COMPLETED.value,
                 )
+                
+                # Task 5.7: Create artefact record with S3 tagging
+                try:
+                    # Determine artefact type from file type
+                    artefact_type = self._map_file_type_to_artefact_type(
+                        session.metadata.get("type", "temp")
+                    )
+                    
+                    # Create artefact service
+                    artefact_service = ArtefactService(self.db)
+                    
+                    # Prepare artefact data
+                    # Get the appropriate user ID - use session user_id if available, otherwise system user
+                    effective_user_id = session.user_id if session.user_id else self._get_system_user_id()
+                    
+                    artefact_data = ArtefactCreate(
+                        job_id=session.job_id,
+                        type=artefact_type,
+                        s3_bucket=bucket_name,
+                        s3_key=object_name,
+                        size_bytes=actual_size,
+                        sha256=actual_sha256,
+                        mime_type=session.mime_type,
+                        created_by=effective_user_id,
+                        machine_id=session.metadata.get("machine_id"),
+                        post_processor=session.metadata.get("post_processor"),
+                        version_id=version_id,
+                        meta={
+                            "filename": session.metadata.get("filename"),
+                            "upload_id": request.upload_id,
+                            "etag": etag,
+                            "clamav_clean": True,  # File passed malware scan
+                            "finalized_at": datetime.now(UTC).isoformat(),
+                        }
+                    )
+                    
+                    # Create artefact with S3 tagging and audit logging
+                    # Convert async method to sync since we're in a sync context
+                    # This avoids blocking the event loop with asyncio.run()
+                    artefact = artefact_service.create_artefact_sync(
+                        artefact_data=artefact_data,
+                        user_id=effective_user_id,
+                        ip_address=session.client_ip,
+                        user_agent=None,  # Not available in session
+                    )
+                    
+                    logger.info(
+                        "Artefact created successfully",
+                        artefact_id=artefact.id,
+                        job_id=artefact.job_id,
+                        type=artefact.type,
+                        s3_location=artefact.s3_full_path,
+                    )
+                    
+                except Exception as e:
+                    # Log error but don't fail the upload - artefact creation is supplementary
+                    # However, we should track this failure for monitoring
+                    logger.error(
+                        "Failed to create artefact record",
+                        error=str(e),
+                        object_key=request.key,
+                        job_id=session.job_id,
+                        exc_info=True,
+                    )
+                    
+                    # Store the error in file metadata for debugging
+                    if file_metadata:
+                        file_metadata.tags = file_metadata.tags or {}
+                        file_metadata.tags['artefact_creation_failed'] = str(e)
+                        file_metadata.tags['artefact_creation_failed_at'] = datetime.now(UTC).isoformat()
+                        self.db.commit()
+                    
+                    # Continue without raising - upload is still successful
 
             # Step 8: Get object metadata for response
             metadata = self._get_object_metadata(bucket_name, object_name)
@@ -1196,6 +1279,77 @@ class FileService:
         # TODO: Add role-based access control in Task 5.7
         # For now, allow access to all authenticated users
         return True
+    
+    def _get_system_user_id(self) -> int:
+        """
+        Get the system user ID from the database.
+        
+        Returns:
+            int: System user ID
+            
+        Raises:
+            FileServiceError: If system user not found
+        """
+        if not self.db:
+            raise FileServiceError(
+                code="NO_DB_SESSION",
+                message="Database session not available",
+                turkish_message="Veritabanı oturumu mevcut değil",
+                status_code=500,
+            )
+        
+        from app.models.user import User
+        
+        # Try to get system user by known email
+        system_user = self.db.query(User).filter(
+            User.email == "system@localhost"
+        ).order_by(User.id.asc()).first()
+        
+        if not system_user:
+            # Fallback: try to get the first admin user (deterministic with ORDER BY)
+            system_user = self.db.query(User).filter(
+                User.role == "admin"
+            ).order_by(User.id.asc()).first()
+        
+        if not system_user:
+            # Last resort: get any user deterministically (should not happen in production)
+            system_user = self.db.query(User).order_by(User.id.asc()).first()
+        
+        if not system_user:
+            raise FileServiceError(
+                code="SYSTEM_USER_NOT_FOUND",
+                message="System user not found in database",
+                turkish_message="Sistem kullanıcısı veritabanında bulunamadı",
+                status_code=500,
+            )
+        
+        return system_user.id
+    
+    def _map_file_type_to_artefact_type(self, file_type: str) -> ArtefactType:
+        """
+        Map file service file type to artefact type.
+        
+        Args:
+            file_type: File type string from upload
+            
+        Returns:
+            ArtefactType enum value
+        """
+        # Map common file types to artefact types
+        type_mapping = {
+            "model": ArtefactType.MODEL,
+            "gcode": ArtefactType.GCODE,
+            "report": ArtefactType.REPORT,
+            "invoice": ArtefactType.INVOICE,
+            "log": ArtefactType.LOG,
+            "simulation": ArtefactType.SIMULATION,
+            "analysis": ArtefactType.ANALYSIS,
+            "drawing": ArtefactType.DRAWING,
+            "toolpath": ArtefactType.TOOLPATH,
+            "temp": ArtefactType.OTHER,
+        }
+        
+        return type_mapping.get(file_type.lower(), ArtefactType.OTHER)
 
 
 def get_file_service(db: Session | None = None) -> FileService:
