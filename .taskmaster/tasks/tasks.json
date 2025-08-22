@@ -809,7 +809,7 @@
           3,
           5
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -817,7 +817,7 @@
             "description": "Define Celery app and RabbitMQ resources for job orchestration with per-queue dead-lettering.",
             "dependencies": [],
             "details": "Implement Celery 5.4 app configuration. Declare durable direct exchanges and queues: primary queues: default, model, cam, sim, report, erp; for each, create a dedicated dead-letter exchange <queue>.dlx and a DLQ queue <queue>_dlq. Bindings: primary queues bound to exchange jobs.direct with routing keys: default, model, cam, sim, report, erp. Each primary queue sets x-dead-letter-exchange to <queue>.dlx; each DLQ queue bound to its DLX with routing key '#'. Use quorum queues for primaries, classic (lazy) for DLQs. Set basic_qos prefetch=8; acks_late=True. Define Celery task_queues using kombu Queue objects; configure task_routes mapping type→queue. Routing keys: jobs.ai→default, jobs.model→model, jobs.cam→cam, jobs.sim→sim, jobs.report→report, jobs.erp→erp. Policies: durable, lazy-mode for DLQs, message size limit 10MB, enforce publisher confirms. Acceptance: publishing a message with each routing key delivers to the correct primary queue; rejecting with requeue=False routes to the corresponding *_dlq; Celery workers consume from their expected queues.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-22T09:49:38.881Z",
+      "updated": "2025-08-22T13:19:58.435Z",
       "description": "Tasks for master context"
     }
   }
