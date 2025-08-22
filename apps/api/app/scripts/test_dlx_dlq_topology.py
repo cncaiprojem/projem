@@ -11,7 +11,6 @@ This script validates:
 - Message size limits and publisher confirms
 """
 
-# import asyncio  # Remove unused import
 import json
 import logging
 import sys

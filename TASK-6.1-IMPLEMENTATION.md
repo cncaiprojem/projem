@@ -282,7 +282,7 @@ With Task 6.1 completed, the foundation is ready for:
    - Check RabbitMQ is running and accessible
 
 2. **Messages not routing correctly**
-   - Verify routing keys match ROUTING_KEY_MAPPINGS
+   - Verify routing keys match ROUTING_KEYS
    - Check exchange bindings in management UI
 
 3. **Workers not consuming**

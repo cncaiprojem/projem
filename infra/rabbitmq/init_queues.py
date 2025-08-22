@@ -22,6 +22,13 @@ from typing import Dict, List, Optional
 import requests
 from requests.auth import HTTPBasicAuth
 
+# Add path to import from apps/api/app
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../apps/api'))
+from app.core.queue_constants import (
+    MAIN_QUEUES, JOBS_EXCHANGE, DLX_SUFFIX, DLQ_SUFFIX, 
+    QUEUE_CONFIGS, DLQ_CONFIG, ROUTING_KEYS
+)
+
 # Logging konfigürasyonu
 logging.basicConfig(
     level=logging.INFO,
@@ -29,67 +36,11 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Task 6.1: Queue topology configuration
-MAIN_QUEUES = ["default", "model", "cam", "sim", "report", "erp"]
-JOBS_EXCHANGE = "jobs.direct"
-DLX_SUFFIX = ".dlx"
-DLQ_SUFFIX = "_dlq"
-
-# Queue configurations per Task 6.1 requirements
-QUEUE_CONFIGS = {
-    "default": {
-        "ttl": 1800000,  # 30 minutes
-        "max_retries": 3,
-        "priority": 5,  # normal
-        "max_message_bytes": 10485760,  # 10MB
-    },
-    "model": {
-        "ttl": 3600000,  # 1 hour
-        "max_retries": 3,
-        "priority": 7,  # high
-        "max_message_bytes": 10485760,
-    },
-    "cam": {
-        "ttl": 2700000,  # 45 minutes
-        "max_retries": 3,
-        "priority": 7,  # high
-        "max_message_bytes": 10485760,
-    },
-    "sim": {
-        "ttl": 3600000,  # 1 hour
-        "max_retries": 3,
-        "priority": 7,  # high
-        "max_message_bytes": 10485760,
-    },
-    "report": {
-        "ttl": 900000,  # 15 minutes
-        "max_retries": 2,
-        "priority": 3,  # low
-        "max_message_bytes": 10485760,
-    },
-    "erp": {
-        "ttl": 1800000,  # 30 minutes
-        "max_retries": 2,
-        "priority": 5,  # normal
-        "max_message_bytes": 10485760,
-    },
-}
-
-# DLQ configuration - classic lazy queues
-DLQ_CONFIG = {
-    "ttl": 86400000,  # 24 hours
-    "max_length": 10000,
-    "queue_mode": "lazy",
-}
-
-# Routing key mappings per Task 6.1
-ROUTING_KEY_MAPPINGS = {
-    "jobs.ai": "default",
-    "jobs.model": "model", 
-    "jobs.cam": "cam",
-    "jobs.sim": "sim",
-    "jobs.report": "report",
-    "jobs.erp": "erp",
+# Priority mapping from string to integer for RabbitMQ
+PRIORITY_MAP = {
+    "low": 3,
+    "normal": 5,
+    "high": 7,
 }
 
 
@@ -292,7 +243,7 @@ class RabbitMQInitializer:
                 # Note: x-max-retries is not a valid RabbitMQ queue argument, retries handled by Celery
                 # Priority configuration
                 "x-max-priority": 10,
-                "x-priority": config["priority"],
+                "x-priority": PRIORITY_MAP[config["priority"]],
             }
             
             if not self.declare_queue(queue_name, True, "quorum", queue_arguments):
@@ -315,7 +266,7 @@ class RabbitMQInitializer:
                 
         # 5. Primary queue bindings (jobs.direct -> queues)
         logger.info("--- Primary Queue Bindings oluşturuluyor ---")
-        for routing_key, queue_name in ROUTING_KEY_MAPPINGS.items():
+        for routing_key, queue_name in ROUTING_KEYS.items():
             # Bind primary queue to jobs.direct exchange with its specific routing key
             if not self.create_binding(JOBS_EXCHANGE, queue_name, routing_key, "queue"):
                 return False
@@ -336,7 +287,7 @@ class RabbitMQInitializer:
         # Task 6.1: Message size limit policy (10MB)
         message_size_policy = {
             "max-message-bytes": 10485760,  # 10MB
-            "confirm": True,  # Publisher confirms
+            "confirm-publish": True,  # Publisher confirms
         }
         queues_pattern = f"^({'|'.join(MAIN_QUEUES)})$"
         if not self.set_policy("message-size-limit", queues_pattern, 
@@ -440,7 +391,7 @@ class RabbitMQInitializer:
             
         logger.info("")
         logger.info("📋 Routing Key Mappings:")
-        for routing_key, queue_name in ROUTING_KEY_MAPPINGS.items():
+        for routing_key, queue_name in ROUTING_KEYS.items():
             logger.info(f"  ✓ {routing_key} -> {queue_name}")
             
         logger.info("")

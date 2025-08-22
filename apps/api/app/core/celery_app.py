@@ -105,8 +105,6 @@ for queue_name in MAIN_QUEUES:
         "x-priority": priority_map[config["priority"]],
         # Task 6.1: Quorum queue type for high availability
         "x-queue-type": config["queue_type"],
-        # Publisher confirms and persistence
-        "durable": True,
     }
     
     queue = Queue(
@@ -130,7 +128,6 @@ for queue_name in MAIN_QUEUES:
         "x-max-length": DLQ_CONFIG["max_length"],  # Max messages
         "x-queue-mode": DLQ_CONFIG["queue_mode"],  # Lazy mode
         "x-queue-type": "classic",  # Classic queue type for DLQs
-        "durable": True,
     }
     
     dlq = Queue(
@@ -254,7 +251,7 @@ celery_app.conf.broker_connection_max_retries = 10
 celery_app.conf.broker_heartbeat = 30
 celery_app.conf.broker_transport_options = {
     # Task 6.1: Publisher confirms and message persistence
-    "confirm_publish": True,  # Publisher confirms
+    "publisher_confirms": True,  # Publisher confirms
     "max_retries": 3,
     "interval_start": 0,
     "interval_step": 0.2,
