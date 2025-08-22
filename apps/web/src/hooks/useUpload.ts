@@ -124,7 +124,7 @@ export function useUpload(options: UseUploadOptions) {
 
   // Refs
   const workerRef = useRef<Worker | null>(null);
-  const abortControllerRef = useRef<AbortController | null>(null);
+  const xhrRef = useRef<XMLHttpRequest | null>(null);
   const uploadStartTimeRef = useRef<number>(0);
   const presignedUrlExpiryRef = useRef<number>(0);
   const retryCountRef = useRef<number>(0);
@@ -265,7 +265,7 @@ export function useUpload(options: UseUploadOptions) {
   ): Promise<void> => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
-      abortControllerRef.current = new AbortController();
+      xhrRef.current = xhr; // Store XMLHttpRequest instance for cancellation
       
       // Track upload progress
       xhr.upload.addEventListener('progress', (event) => {
@@ -505,8 +505,9 @@ export function useUpload(options: UseUploadOptions) {
    * Cancel ongoing upload
    */
   const cancel = useCallback(() => {
-    // Abort the upload request
-    abortControllerRef.current?.abort();
+    // Abort the XMLHttpRequest upload
+    xhrRef.current?.abort();
+    xhrRef.current = null; // Clear the reference after aborting
     
     // Don't terminate the worker - it's stateless and reusable
     // The worker will remain available for the next upload

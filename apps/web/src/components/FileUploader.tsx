@@ -13,6 +13,46 @@ import { UploadProgress } from './UploadProgress';
 // Constants
 const SUCCESS_CLEAR_TIMEOUT_MS = 3000; // Clear file after successful upload
 
+/**
+ * Format file size - Moved outside component for performance
+ */
+const formatFileSize = (bytes: number): string => {
+  if (bytes === 0) return '0 Bayt';
+  const k = 1024;
+  const sizes = ['Bayt', 'KB', 'MB', 'GB'];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
+};
+
+/**
+ * Get file icon based on extension - Moved outside component for performance
+ */
+const getFileIcon = (fileName: string): string => {
+  const ext = fileName.toLowerCase().split('.').pop();
+  switch (ext) {
+    case 'stl':
+    case 'step':
+    case 'fcstd':
+    case 'glb':
+      return '📐'; // CAD model
+    case 'gcode':
+    case 'nc':
+    case 'tap':
+      return '⚙️'; // G-code
+    case 'pdf':
+      return '📄'; // Document
+    case 'mp4':
+    case 'gif':
+      return '🎬'; // Media
+    case 'png':
+    case 'jpg':
+    case 'jpeg':
+      return '🖼️'; // Image
+    default:
+      return '📎'; // Generic file
+  }
+};
+
 interface FileUploaderProps {
   jobId: string;
   machineId?: string;
@@ -130,46 +170,6 @@ export function FileUploader({
     const files = e.dataTransfer.files;
     handleFileSelect(files);
   }, [handleFileSelect]);
-
-  /**
-   * Format file size
-   */
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 Bayt';
-    const k = 1024;
-    const sizes = ['Bayt', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-  };
-
-  /**
-   * Get file icon based on extension
-   */
-  const getFileIcon = (fileName: string): string => {
-    const ext = fileName.toLowerCase().split('.').pop();
-    switch (ext) {
-      case 'stl':
-      case 'step':
-      case 'fcstd':
-      case 'glb':
-        return '📐'; // CAD model
-      case 'gcode':
-      case 'nc':
-      case 'tap':
-        return '⚙️'; // G-code
-      case 'pdf':
-        return '📄'; // Document
-      case 'mp4':
-      case 'gif':
-        return '🎬'; // Media
-      case 'png':
-      case 'jpg':
-      case 'jpeg':
-        return '🖼️'; // Image
-      default:
-        return '📎'; // Generic file
-    }
-  };
 
   /**
    * Start upload
