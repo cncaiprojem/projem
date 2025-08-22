@@ -84,6 +84,7 @@ class DLQHandler:
         kwargs: dict,
         exc: Exception,
         attempt_count: int,
+        failure_reason: str,
         headers: Optional[Dict] = None
     ) -> bool:
         """
@@ -99,6 +100,7 @@ class DLQHandler:
             kwargs: Task keyword arguments
             exc: Exception that caused the failure
             attempt_count: Number of attempts made
+            failure_reason: Reason for failure (e.g., 'fatal_error', 'max_retries_exceeded')
             headers: Original task headers
             
         Returns:
@@ -108,7 +110,7 @@ class DLQHandler:
             # Format DLQ message with all metadata
             dlq_message = self._create_dlq_message(
                 task_id, task_name, queue_name, args, kwargs, 
-                exc, attempt_count, headers
+                exc, attempt_count, failure_reason, headers
             )
             
             # Get DLQ name for the original queue
@@ -157,6 +159,7 @@ class DLQHandler:
         kwargs: dict,
         exc: Exception,
         attempt_count: int,
+        failure_reason: str,
         headers: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """Create a comprehensive DLQ message with all metadata."""
@@ -178,7 +181,7 @@ class DLQHandler:
             'error_metadata': error_metadata,
             
             # Classification
-            'failure_reason': 'max_retries_exceeded' if error_metadata['is_retryable'] else 'non_retryable_error',
+            'failure_reason': failure_reason,
             'error_classification': error_metadata['error_classification'],
             
             # Recovery information
@@ -213,7 +216,7 @@ def handle_task_failure(
     
     # Get task metadata
     task_name = task_self.name
-    queue_name = getattr(task_self.request, 'delivery_info', {}).get('routing_key', 'default')
+    queue_name = getattr(task_self.request, 'queue', 'default')
     attempt_count = getattr(task_self.request, 'retries', 0) + 1
     
     # Get retry configuration for this queue
@@ -236,6 +239,7 @@ def handle_task_failure(
             kwargs=kwargs,
             exc=exc,
             attempt_count=attempt_count,
+            failure_reason=reason,
             headers=getattr(task_self.request, 'headers', {})
         )
         

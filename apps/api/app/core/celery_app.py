@@ -270,171 +270,58 @@ celery_app.conf.broker_transport_options = {
     "visibility_timeout": 43200,  # 12 hours
 }
 
+# Task 6.2: Helper function to create task annotations with retry config (DRY principle)
+def _create_task_annotation(queue_name: str, rate_limit_key: str, default_rate_limit: str) -> dict:
+    """
+    Helper to generate task annotation with retry config.
+    
+    Args:
+        queue_name: Queue name from QUEUE_RETRY_CONFIG (e.g., QUEUE_DEFAULT, QUEUE_MODEL)
+        rate_limit_key: Key for rate limit lookup in appset.rate_limits
+        default_rate_limit: Default rate limit if not found in settings
+    
+    Returns:
+        dict: Complete task annotation with retry strategy
+    """
+    config = QUEUE_RETRY_CONFIG[queue_name]
+    return {
+        "rate_limit": appset.rate_limits.get(rate_limit_key, default_rate_limit),
+        "max_message_size": 10485760,
+        "autoretry_for": RETRYABLE_EXCEPTIONS,
+        "max_retries": config['max_retries'],
+        "retry_backoff": True,
+        "retry_backoff_max": config['backoff_cap'],
+        "retry_jitter": True,
+        "time_limit": config['time_limit'],
+        "soft_time_limit": config['soft_time_limit'],
+    }
+
+
 # Task 6.2: Enhanced task annotations with retry strategy and rate limiting
 celery_app.conf.task_annotations = {
     # AI/General tasks (default queue) - 3 retries, 20s cap
-    "app.tasks.maintenance.*": {
-        "rate_limit": appset.rate_limits.get("maintenance", "10/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['soft_time_limit'],
-    },
-    "app.tasks.monitoring.*": {
-        "rate_limit": appset.rate_limits.get("monitoring", "20/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['soft_time_limit'],
-    },
-    "app.tasks.license_notifications.*": {
-        "rate_limit": appset.rate_limits.get("license", "5/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_DEFAULT]['soft_time_limit'],
-    },
+    "app.tasks.maintenance.*": _create_task_annotation(QUEUE_DEFAULT, "maintenance", "10/m"),
+    "app.tasks.monitoring.*": _create_task_annotation(QUEUE_DEFAULT, "monitoring", "20/m"),
+    "app.tasks.license_notifications.*": _create_task_annotation(QUEUE_DEFAULT, "license", "5/m"),
     
     # Model generation tasks (model queue) - 5 retries, 60s cap
-    "app.tasks.assembly.*": {
-        "rate_limit": appset.rate_limits.get("assembly", "6/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['soft_time_limit'],
-    },
-    "app.tasks.cad.*": {
-        "rate_limit": appset.rate_limits.get("cad", "8/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['soft_time_limit'],
-    },
-    "app.tasks.design.*": {
-        "rate_limit": appset.rate_limits.get("design", "8/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['soft_time_limit'],
-    },
-    "app.tasks.freecad.*": {
-        "rate_limit": appset.rate_limits.get("freecad", "6/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_MODEL]['soft_time_limit'],
-    },
+    "app.tasks.assembly.*": _create_task_annotation(QUEUE_MODEL, "assembly", "6/m"),
+    "app.tasks.cad.*": _create_task_annotation(QUEUE_MODEL, "cad", "8/m"),
+    "app.tasks.design.*": _create_task_annotation(QUEUE_MODEL, "design", "8/m"),
+    "app.tasks.freecad.*": _create_task_annotation(QUEUE_MODEL, "freecad", "6/m"),
     
     # CAM processing tasks (cam queue) - 5 retries, 60s cap
-    "app.tasks.cam.*": {
-        "rate_limit": appset.rate_limits.get("cam", "12/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_CAM]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_CAM]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_CAM]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_CAM]['soft_time_limit'],
-    },
-    "app.tasks.cam_build.*": {
-        "rate_limit": appset.rate_limits.get("cam_build", "10/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_CAM]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_CAM]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_CAM]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_CAM]['soft_time_limit'],
-    },
-    "app.tasks.m18_cam.*": {
-        "rate_limit": appset.rate_limits.get("m18_cam", "8/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_CAM]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_CAM]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_CAM]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_CAM]['soft_time_limit'],
-    },
+    "app.tasks.cam.*": _create_task_annotation(QUEUE_CAM, "cam", "12/m"),
+    "app.tasks.cam_build.*": _create_task_annotation(QUEUE_CAM, "cam_build", "10/m"),
+    "app.tasks.m18_cam.*": _create_task_annotation(QUEUE_CAM, "m18_cam", "8/m"),
     
     # Simulation tasks (sim queue) - 5 retries, 60s cap
-    "app.tasks.sim.*": {
-        "rate_limit": appset.rate_limits.get("sim", "4/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_SIM]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_SIM]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_SIM]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_SIM]['soft_time_limit'],
-    },
-    "app.tasks.m18_sim.*": {
-        "rate_limit": appset.rate_limits.get("m18_sim", "4/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_SIM]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_SIM]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_SIM]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_SIM]['soft_time_limit'],
-    },
+    "app.tasks.sim.*": _create_task_annotation(QUEUE_SIM, "sim", "4/m"),
+    "app.tasks.m18_sim.*": _create_task_annotation(QUEUE_SIM, "m18_sim", "4/m"),
     
     # Report generation tasks (report queue) - 5 retries, 45s cap
-    "app.tasks.reports.*": {
-        "rate_limit": appset.rate_limits.get("reports", "15/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_REPORT]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_REPORT]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_REPORT]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_REPORT]['soft_time_limit'],
-    },
-    "app.tasks.m18_post.*": {
-        "rate_limit": appset.rate_limits.get("m18_post", "12/m"),
-        "max_message_size": 10485760,
-        "autoretry_for": RETRYABLE_EXCEPTIONS,
-        "max_retries": QUEUE_RETRY_CONFIG[QUEUE_REPORT]['max_retries'],
-        "retry_backoff": True,
-        "retry_backoff_max": QUEUE_RETRY_CONFIG[QUEUE_REPORT]['backoff_cap'],
-        "retry_jitter": True,
-        "time_limit": QUEUE_RETRY_CONFIG[QUEUE_REPORT]['time_limit'],
-        "soft_time_limit": QUEUE_RETRY_CONFIG[QUEUE_REPORT]['soft_time_limit'],
-    },
+    "app.tasks.reports.*": _create_task_annotation(QUEUE_REPORT, "reports", "15/m"),
+    "app.tasks.m18_post.*": _create_task_annotation(QUEUE_REPORT, "m18_post", "12/m"),
 }
 
 # Task 6.2: Enhanced retry configuration with exponential backoff

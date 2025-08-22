@@ -27,7 +27,7 @@ from ..core.dlq_handler import handle_task_failure
 logger = logging.getLogger(__name__)
 
 
-@shared_task(bind=True, **MODEL_TASK_RETRY_KWARGS)
+@shared_task(bind=True, on_failure=cad_build_task_on_failure, **MODEL_TASK_RETRY_KWARGS)
 def cad_build_task(self, project_id: int):
     """
     CAD build task with Task 6.2 retry strategy.
@@ -152,13 +152,13 @@ def cad_build_task(self, project_id: int):
 
 
 # Task 6.2: Add failure callback for additional observability
-def cad_build_task_on_failure(task_id, err, traceback, args, kwargs):
+def cad_build_task_on_failure(self, exc, task_id, args, kwargs, einfo):
     """
     Callback for when CAD build task fails permanently.
     This provides additional logging and potential cleanup.
     """
     project_id = args[0] if args else "unknown"
-    error_metadata = get_error_metadata(err)
+    error_metadata = get_error_metadata(exc)
     
     logger.error(
         f"CAD build task {task_id} failed permanently for project {project_id}. "
