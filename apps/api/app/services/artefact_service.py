@@ -389,18 +389,11 @@ class ArtefactService:
                 self.create_artefact(artefact_data, user_id, ip_address, user_agent, current_user)
             )
         else:
-            # Running loop exists, create a task and wait for it
-            # Note: run_until_complete would block the existing loop, so we use create_task
-            import concurrent.futures
-            import threading
-            
-            # Use a thread to run asyncio.run() to avoid blocking the current loop
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(
-                    asyncio.run,
-                    self.create_artefact(artefact_data, user_id, ip_address, user_agent, current_user)
-                )
-                return future.result()
+            # Running loop exists, schedule the coroutine and wait for it
+            task = loop.create_task(
+                self.create_artefact(artefact_data, user_id, ip_address, user_agent, current_user)
+            )
+            return loop.run_until_complete(task)
     
     async def get_artefact(
         self,

@@ -29,6 +29,7 @@ from app.core.minio_config import (
     get_minio_config,
     validate_object_key,
 )
+from app.core.utils import convert_user_id_to_int
 from app.models.file import (
     FileMetadata,
     FileStatus,
@@ -127,28 +128,6 @@ class FileService:
 
         logger.info("File service initialized with validation, SHA256 streaming, and ClamAV scanning")
 
-    def _convert_user_id_to_int(self, user_id: str | None) -> int | None:
-        """
-        Safely convert user_id to integer.
-        
-        Args:
-            user_id: User ID as string or None
-            
-        Returns:
-            User ID as integer or None if invalid/not provided
-        """
-        if not user_id:
-            return None
-            
-        try:
-            return int(user_id)
-        except (ValueError, TypeError) as e:
-            logger.warning(
-                "Invalid user_id format, cannot convert to integer",
-                user_id=user_id,
-                error=str(e)
-            )
-            return None
 
     def init_upload(
         self,
@@ -173,7 +152,7 @@ class FileService:
         """
         try:
             # Convert user_id safely to int
-            user_id_int = self._convert_user_id_to_int(user_id)
+            user_id_int = convert_user_id_to_int(user_id)
             
             # Step 1: Validate inputs with comprehensive security checks
             self._validate_upload_request(request)
@@ -406,7 +385,7 @@ class FileService:
         """
         try:
             # Convert user_id safely to int
-            user_id_int = self._convert_user_id_to_int(user_id)
+            user_id_int = convert_user_id_to_int(user_id)
             
             # Step 1: Look up upload session - REQUIRED for security validation
             if (

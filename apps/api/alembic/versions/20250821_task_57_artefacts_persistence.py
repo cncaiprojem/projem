@@ -223,13 +223,19 @@ def downgrade() -> None:
     """
     
     # Step 1: Drop all indexes on artefacts table
+    # This list must match exactly what was created in upgrade()
     indexes_to_drop = [
         'idx_artefacts_job_id',
-        'idx_artefacts_created_by',
+        'idx_artefacts_s3_bucket',
+        'idx_artefacts_s3_key',
         'idx_artefacts_type',
+        'idx_artefacts_created_by',
+        'idx_artefacts_machine_id',
+        'idx_artefacts_post_processor',
+        'idx_artefacts_version_id',
         'idx_artefacts_sha256',
+        'idx_artefacts_size_bytes',
         'idx_artefacts_created_at',
-        'idx_artefacts_s3_search',
         'idx_artefacts_job_id_type',
         'idx_artefacts_created_by_type',
         'idx_artefacts_machine_post',
@@ -237,12 +243,9 @@ def downgrade() -> None:
     ]
     
     for idx_name in indexes_to_drop:
-        try:
-            op.drop_index(idx_name, table_name='artefacts', if_exists=True)
-            logger.info(f"Dropped index: {idx_name}")
-        except Exception as e:
-            # Index may not exist, log and continue
-            logger.warning(f"Could not drop index {idx_name}: {e}")
+        # if_exists=True handles missing indexes gracefully
+        op.drop_index(idx_name, table_name='artefacts', if_exists=True)
+        logger.info(f"Dropped index: {idx_name}")
     
     # Step 2: Drop all constraints on artefacts table
     constraints_to_drop = [
