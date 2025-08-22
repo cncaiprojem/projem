@@ -828,7 +828,7 @@
               "6.1"
             ],
             "details": "Set max retries: AI 3 (uses default queue), model 5, cam 5, sim 5, erp 5, report 5. Use exponential backoff with full jitter: delay_n = min(cap, base * 2^n) * random.uniform(0.5, 1.5); base=2s, caps: AI 20s, model/cam/sim 60s, report/erp 45s. Configure Celery autoretry_for on retryable exceptions and retry_kwargs per task type. Error taxonomy (examples): Retryable: TransientExternalError, RateLimitedError, NetworkError; Non-retryable: ValidationError, UnauthorizedError, QuotaExceededError; Cancellation: JobCancelledError (no retry); Fatal: IntegrityError (send to DLQ immediately). Enable task_acks_late, reject_on_worker_lost=True, time_limit/soft_time_limit per type (e.g., model 900/840s). On exceeding retries, nack with requeue=False to DLQ. Include attempt count and last_exception in task headers for observability. Acceptance: forced Retryable errors show increasing backoff with jitter and cap; Non-retryable errors go directly to DLQ; attempt counts align with configured maxima; tasks respect time limits.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-22T13:19:58.435Z",
+      "updated": "2025-08-22T15:45:16.103Z",
       "description": "Tasks for master context"
     }
   }
