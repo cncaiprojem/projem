@@ -19,8 +19,7 @@ from app.core.error_taxonomy import (
     IntegrityError,
     classify_error,
     should_retry_error,
-    get_error_metadata,
-    format_error_for_dlq
+    get_error_metadata
 )
 
 from app.core.retry_config import (
@@ -131,18 +130,6 @@ class TestErrorTaxonomy:
         assert metadata['retry_count'] == 2
         assert metadata['max_retries'] == 5
     
-    def test_dlq_formatting(self):
-        """Test DLQ message formatting."""
-        error = ValidationError("Invalid input data")
-        task_id = "test-task-123"
-        attempt_count = 3
-        
-        dlq_data = format_error_for_dlq(error, task_id, attempt_count)
-        
-        assert dlq_data['task_id'] == task_id
-        assert dlq_data['attempt_count'] == attempt_count
-        assert dlq_data['final_exception']['error_type'] == 'ValidationError'
-        assert dlq_data['reason'] == 'non_retryable_error'
 
 
 class TestRetryConfiguration:

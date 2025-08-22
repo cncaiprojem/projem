@@ -20,13 +20,11 @@ from celery.exceptions import Retry, Reject
 from kombu import Exchange, Queue
 
 from .error_taxonomy import (
-    classify_error, 
-    format_error_for_dlq,
-    get_error_metadata,
-    FATAL_EXCEPTIONS,
-    CANCELLATION_EXCEPTIONS
+    classify_error,
+    get_error_metadata
 )
 from .queue_constants import DLX_SUFFIX, DLQ_SUFFIX
+from .retry_config import get_queue_retry_config
 
 
 logger = logging.getLogger(__name__)
@@ -212,13 +210,13 @@ def handle_task_failure(
         kwargs: Task keyword arguments
         einfo: Exception info from Celery
     """
-    from .retry_config import get_queue_retry_config
-    
     # Get task metadata
     task_name = task_self.name
-    # Get queue name from delivery_info routing_key or fall back to 'queue' attribute
-    delivery_info = getattr(task_self.request, 'delivery_info', {})
-    queue_name = delivery_info.get('routing_key', getattr(task_self.request, 'queue', 'default'))
+    # Get queue name from 'queue' attribute first, then fall back to routing_key
+    queue_name = getattr(task_self.request, 'queue', None)
+    if not queue_name:
+        delivery_info = getattr(task_self.request, 'delivery_info', {})
+        queue_name = delivery_info.get('routing_key', 'default')
     attempt_count = getattr(task_self.request, 'retries', 0) + 1
     
     # Get max_retries from the task itself (tasks can have different max_retries)

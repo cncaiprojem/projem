@@ -178,24 +178,3 @@ def get_error_metadata(exc: Exception) -> dict:
     }
 
 
-def format_error_for_dlq(exc: Exception, task_id: str, attempt_count: int) -> dict:
-    """
-    Format error information for Dead Letter Queue storage.
-    
-    Args:
-        exc: Exception that caused the failure
-        task_id: Unique task identifier
-        attempt_count: Number of attempts made
-        
-    Returns:
-        dict: Formatted error data for DLQ
-    """
-    error_metadata = get_error_metadata(exc)
-    
-    return {
-        'task_id': task_id,
-        'attempt_count': attempt_count,
-        'final_exception': error_metadata,
-        'failed_at': None,  # Will be set by caller
-        'reason': 'max_retries_exceeded' if error_metadata['is_retryable'] else 'non_retryable_error'
-    }

@@ -17,7 +17,7 @@ from .queue_constants import (
     QUEUE_DEFAULT, QUEUE_MODEL, QUEUE_CAM, 
     QUEUE_SIM, QUEUE_REPORT, QUEUE_ERP
 )
-from .error_taxonomy import RETRYABLE_EXCEPTIONS
+from .error_taxonomy import RETRYABLE_EXCEPTIONS, get_error_metadata
 
 
 # Task 6.2: Per-queue retry configuration
@@ -110,27 +110,6 @@ def get_queue_retry_config(queue_name: str) -> Dict:
         dict: Retry configuration for the queue
     """
     return QUEUE_RETRY_CONFIG.get(queue_name, QUEUE_RETRY_CONFIG[QUEUE_DEFAULT])
-
-
-def get_retry_kwargs_for_queue(queue_name: str) -> Dict:
-    """
-    Get Celery retry_kwargs configuration for a specific queue.
-    
-    Args:
-        queue_name: Name of the queue
-        
-    Returns:
-        dict: Celery-compatible retry_kwargs
-    """
-    config = get_queue_retry_config(queue_name)
-    
-    # Note: Celery requires countdown to be a static value. Dynamic countdown calculation
-    # (e.g., exponential backoff with jitter) should be handled in the task's retry logic,
-    # using calculate_retry_delay(attempt, cap=config['backoff_cap']).
-    return {
-        'max_retries': config['max_retries'],
-        'countdown': config['backoff_cap'],  # Use static cap as default; override in task retry logic
-    }
 
 
 def get_task_time_limits(queue_name: str) -> Tuple[Optional[int], Optional[int]]:
@@ -244,7 +223,6 @@ def create_task_headers_with_retry_info(
     }
     
     if last_exception:
-        from .error_taxonomy import get_error_metadata
         headers['last_exception'] = get_error_metadata(last_exception)
     
     return headers
