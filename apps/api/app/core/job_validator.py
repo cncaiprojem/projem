@@ -103,8 +103,8 @@ def validate_job_payload(
             error_code="ERR-JOB-422",
             details={"validation_errors": error_details},
         )
-    except Exception as e:
-        # Unexpected validation error
+    except (TypeError, AttributeError, KeyError) as e:
+        # Specific validation errors that shouldn't occur with valid input
         logger.error(
             "Unexpected error during job validation",
             error=str(e),
@@ -114,10 +114,17 @@ def validate_job_payload(
             message="Internal validation error",
             error_code="ERR-JOB-422",
             details={"error": str(e)},
-        )
+        ) from e
     
     # Get routing configuration
-    routing_config = get_routing_config_for_job_type(task_payload.type)
+    try:
+        routing_config = get_routing_config_for_job_type(task_payload.type)
+    except KeyError as e:
+        raise JobValidationError(
+            message=f"No routing configuration found for job type: {task_payload.type.value}",
+            error_code="ERR-JOB-400",
+            details={"job_type": task_payload.type.value},
+        ) from e
     
     logger.info(
         "Job payload validated successfully",
@@ -152,7 +159,12 @@ def publish_job_task(
     """
     # Get routing config if not provided
     if not routing_config:
-        routing_config = get_routing_config_for_job_type(task_payload.type)
+        try:
+            routing_config = get_routing_config_for_job_type(task_payload.type)
+        except KeyError as e:
+            raise RuntimeError(
+                f"No routing configuration found for job type: {task_payload.type.value}"
+            ) from e
     
     # Prepare task arguments
     task_args = {
@@ -165,23 +177,35 @@ def publish_job_task(
     }
     
     try:
-        # Send task to Celery with proper routing
-        result = celery_app.send_task(
-            task_name,
-            args=[task_args],
-            queue=routing_config["queue"],
-            routing_key=routing_config["routing_key"],
-            exchange=routing_config["exchange"],
-            exchange_type=routing_config["exchange_type"],
-            serializer="json",
-            compression="gzip",  # Compress large payloads
-            retry=True,
-            retry_policy={
+        # Determine payload size for conditional compression
+        payload_json = json.dumps(task_args)
+        payload_size = len(payload_json.encode("utf-8"))
+        
+        # Prepare send_task kwargs
+        send_task_kwargs = {
+            "args": [task_args],
+            "queue": routing_config["queue"],
+            "routing_key": routing_config["routing_key"],
+            "exchange": routing_config["exchange"],
+            "exchange_type": routing_config["exchange_type"],
+            "serializer": "json",
+            "retry": True,
+            "retry_policy": {
                 "max_retries": 3,
                 "interval_start": 0,
                 "interval_step": 0.2,
                 "interval_max": 0.2,
             },
+        }
+        
+        # Only compress payloads larger than 1KB
+        if payload_size > 1024:  # 1KB threshold
+            send_task_kwargs["compression"] = "gzip"
+        
+        # Send task to Celery with proper routing
+        result = celery_app.send_task(
+            task_name,
+            **send_task_kwargs
         )
         
         logger.info(

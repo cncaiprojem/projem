@@ -78,7 +78,7 @@ class TestJobRouting:
     def test_get_queue_for_invalid_job_type(self):
         """Test that invalid job type raises ValueError."""
         with pytest.raises(ValueError, match="Unknown job type"):
-            get_queue_for_job_type("invalid")  # type: ignore
+            get_queue_for_job_type("invalid")  # type: ignore[arg-type]
     
     def test_get_routing_key_for_job_type(self):
         """Test routing key retrieval for job types."""

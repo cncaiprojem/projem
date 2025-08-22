@@ -13,8 +13,8 @@ Task 6.3 Canonical payload structure:
 }
 """
 
-from datetime import datetime
-from typing import Any, Dict, Optional, Union
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Type, Union
 from uuid import UUID
 import json
 
@@ -37,7 +37,7 @@ class BaseJobParams(BaseModel):
     
     # Large artifacts should be referenced via object storage keys
     # Büyük dosyalar object storage anahtarları ile referans edilmeli
-    file_keys: Optional[list[str]] = Field(
+    file_keys: Optional[List[str]] = Field(
         default=None,
         description="Object storage keys for large artifacts (S3/MinIO)",
         max_length=10,
@@ -133,7 +133,7 @@ class ReportJobParams(BaseJobParams):
         description="Type of report to generate",
     )
     
-    data_keys: list[str] = Field(
+    data_keys: List[str] = Field(
         ...,
         description="Object storage keys for report data",
         min_length=1,
@@ -167,7 +167,7 @@ class ERPJobParams(BaseJobParams):
 
 
 # Type mapping for job parameters
-JOB_PARAMS_MAPPING: Dict[JobType, type[BaseJobParams]] = {
+JOB_PARAMS_MAPPING: Dict[JobType, Type[BaseJobParams]] = {
     JobType.AI: AIJobParams,
     JobType.MODEL: ModelJobParams,
     JobType.CAM: CAMJobParams,
@@ -212,7 +212,7 @@ class TaskPayload(BaseModel):
     )
     
     created_at: datetime = Field(
-        default_factory=datetime.utcnow,
+        default_factory=lambda: datetime.now(timezone.utc),
         description="Job creation timestamp (ISO 8601)",
     )
     
@@ -251,7 +251,10 @@ class TaskPayload(BaseModel):
         Validate payload size - maximum 256KB.
         """
         # Serialize to JSON to check size
-        payload_json = self.model_dump_json()
+        try:
+            payload_json = self.model_dump_json()
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Failed to serialize payload to JSON: {e}") from e
         payload_size = len(payload_json.encode("utf-8"))
         
         if payload_size > MAX_PAYLOAD_SIZE_BYTES:
