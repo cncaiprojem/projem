@@ -46,7 +46,8 @@ interface UseUploadOptions {
 
 // Constants
 const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
-const TTL_WARNING_THRESHOLD = 30 * 1000; // Warn if less than 30 seconds left
+const TTL_WARNING_THRESHOLD_SECONDS = 30; // Warn if less than 30 seconds left
+const TTL_WARNING_THRESHOLD = TTL_WARNING_THRESHOLD_SECONDS * 1000; // milliseconds
 
 // Default allowed extensions (from backend)
 const DEFAULT_ALLOWED_EXTENSIONS = [
