@@ -248,13 +248,12 @@ def downgrade() -> None:
         logger.info(f"Dropped index: {idx_name}")
     
     # Step 2: Drop all constraints on artefacts table
+    # Per Gemini feedback: Remove non-existent constraints (ck_artefacts_size_positive, ck_artefacts_sha256_format)
     constraints_to_drop = [
         ('fk_artefacts_job_id', 'foreignkey'),
         ('fk_artefacts_created_by', 'foreignkey'),
         ('fk_artefacts_machine_id', 'foreignkey'),
         ('uq_artefacts_s3_location', 'unique'),
-        ('ck_artefacts_size_positive', 'check'),
-        ('ck_artefacts_sha256_format', 'check'),
     ]
     
     for constraint_name, constraint_type in constraints_to_drop:

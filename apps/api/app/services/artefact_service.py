@@ -389,11 +389,11 @@ class ArtefactService:
                 self.create_artefact(artefact_data, user_id, ip_address, user_agent, current_user)
             )
         else:
-            # Running loop exists, schedule the coroutine and wait for it
-            task = loop.create_task(
+            # Running loop exists, run the coroutine directly without create_task
+            # Per Copilot feedback: using create_task() then run_until_complete() is inefficient
+            return loop.run_until_complete(
                 self.create_artefact(artefact_data, user_id, ip_address, user_agent, current_user)
             )
-            return loop.run_until_complete(task)
     
     async def get_artefact(
         self,
@@ -707,6 +707,103 @@ class ArtefactService:
             average_size_mb=avg_size / (1024**2),
             largest_size_mb=max_size / (1024**2),
         )
+    
+    async def update_artefact(
+        self,
+        artefact_id: int,
+        update_data: ArtefactUpdate,
+        user_id: int,
+        current_user: Optional[User] = None,
+        ip_address: Optional[str] = None,
+        user_agent: Optional[str] = None,
+    ) -> Artefact:
+        """
+        Update artefact metadata.
+        
+        Per Gemini feedback: Moving update logic from router to service layer
+        for better separation of concerns.
+        
+        Args:
+            artefact_id: Artefact ID to update
+            update_data: Update data
+            user_id: User performing update
+            current_user: Optional User object to avoid extra DB query
+            ip_address: Client IP for audit
+            user_agent: Client user agent for audit
+            
+        Returns:
+            Updated artefact instance
+            
+        Raises:
+            ArtefactServiceError: If update fails
+        """
+        try:
+            # Get artefact with access check
+            artefact = await self.get_artefact(
+                artefact_id=artefact_id,
+                user_id=user_id,
+                check_access=True,
+            )
+            
+            # Update allowed fields
+            if update_data.machine_id is not None:
+                artefact.machine_id = update_data.machine_id
+            
+            if update_data.post_processor is not None:
+                artefact.post_processor = update_data.post_processor
+            
+            if update_data.meta is not None:
+                if artefact.meta is None:
+                    artefact.meta = {}
+                artefact.meta.update(update_data.meta)
+                # Mark JSONB field as modified so SQLAlchemy detects the change
+                from sqlalchemy.orm.attributes import flag_modified
+                flag_modified(artefact, 'meta')
+            
+            # Audit the update
+            await audit_service.create_audit_entry(
+                db=self.db,
+                event_type="artefact_updated",
+                user_id=user_id,
+                scope_type="artefact",
+                scope_id=artefact_id,
+                resource=f"artefact/{artefact.type}",
+                ip_address=ip_address,
+                user_agent=user_agent,
+                payload={
+                    "artefact_id": artefact_id,
+                    "updated_fields": list(update_data.model_dump(exclude_unset=True).keys()),
+                },
+            )
+            
+            self.db.commit()
+            self.db.refresh(artefact)
+            
+            logger.info(
+                "Artefact updated",
+                artefact_id=artefact_id,
+                user_id=user_id,
+            )
+            
+            return artefact
+            
+        except ArtefactServiceError:
+            self.db.rollback()
+            raise
+        except Exception as e:
+            self.db.rollback()
+            logger.error(
+                "Failed to update artefact",
+                artefact_id=artefact_id,
+                error=str(e),
+                exc_info=True,
+            )
+            raise ArtefactServiceError(
+                code="UPDATE_ERROR",
+                message=f"Failed to update artefact: {str(e)}",
+                turkish_message=f"Artefact güncellenemedi: {str(e)}",
+                status_code=500,
+            )
     
     async def delete_artefact(
         self,

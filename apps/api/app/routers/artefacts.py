@@ -9,7 +9,6 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
-from sqlalchemy.orm.attributes import flag_modified
 
 from app.core.database import get_db
 from app.core.logging import get_logger
@@ -329,50 +328,44 @@ async def get_artefact_stats(
 async def update_artefact(
     artefact_id: int,
     update_data: ArtefactUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> ArtefactResponse:
     """
     Update artefact metadata.
     
-    Only certain fields can be updated after creation.
+    Per Gemini feedback: Moved update logic to service layer for better separation of concerns.
+    Router now only handles HTTP concerns while business logic is in the service.
     """
     try:
         service = ArtefactService(db)
         
-        # Get artefact with access check
-        artefact = await service.get_artefact(
+        # Get client info for audit
+        client_ip = request.client.host if request.client else None
+        user_agent = request.headers.get("User-Agent")
+        
+        # Call service method with all necessary parameters
+        # Pass current_user to avoid extra DB query (per Gemini feedback)
+        artefact = await service.update_artefact(
             artefact_id=artefact_id,
+            update_data=update_data,
             user_id=current_user.id,
-            check_access=True,
-        )
-        
-        # Update allowed fields
-        if update_data.machine_id is not None:
-            artefact.machine_id = update_data.machine_id
-        
-        if update_data.post_processor is not None:
-            artefact.post_processor = update_data.post_processor
-        
-        if update_data.meta is not None:
-            if artefact.meta is None:
-                artefact.meta = {}
-            artefact.meta.update(update_data.meta)
-            # Mark JSONB field as modified so SQLAlchemy detects the change
-            flag_modified(artefact, 'meta')
-        
-        db.commit()
-        db.refresh(artefact)
-        
-        logger.info(
-            "Artefact updated",
-            artefact_id=artefact_id,
-            user_id=current_user.id,
+            current_user=current_user,
+            ip_address=client_ip,
+            user_agent=user_agent,
         )
         
         return ArtefactResponse.model_validate(artefact)
         
     except ArtefactServiceError as e:
+        logger.warning(
+            "Artefact update failed",
+            artefact_id=artefact_id,
+            error=e.message,
+            code=e.code,
+            user_id=current_user.id,
+        )
         raise HTTPException(
             status_code=e.status_code,
             detail={
@@ -382,7 +375,7 @@ async def update_artefact(
         )
     except Exception as e:
         logger.error(
-            "Update artefact failed",
+            "Unexpected error updating artefact",
             artefact_id=artefact_id,
             error=str(e),
             user_id=current_user.id,

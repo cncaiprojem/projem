@@ -29,8 +29,13 @@ def upgrade() -> None:
     # Step 2: Copy existing UUIDs to the temporary column (if any exist)
     op.execute("UPDATE file_metadata SET user_id_uuid_temp = user_id WHERE user_id IS NOT NULL")
     
-    # Step 3: Drop the foreign key constraint
-    op.drop_constraint('file_metadata_user_id_fkey', 'file_metadata', type_='foreignkey')
+    # Step 3: Drop the foreign key constraint with error handling
+    # Per Gemini feedback: Add try/except for robustness
+    try:
+        op.drop_constraint('file_metadata_user_id_fkey', 'file_metadata', type_='foreignkey')
+    except Exception as e:
+        # Constraint might not exist, log and continue
+        print(f"Warning: Could not drop constraint file_metadata_user_id_fkey: {e}")
     
     # Step 4: Change column type from UUID to Integer
     op.alter_column('file_metadata', 'user_id',
@@ -69,8 +74,13 @@ def upgrade() -> None:
     # Step 2: Copy existing UUIDs to the temporary column (if any exist)
     op.execute("UPDATE upload_sessions SET user_id_uuid_temp = user_id WHERE user_id IS NOT NULL")
     
-    # Step 3: Drop the foreign key constraint
-    op.drop_constraint('upload_sessions_user_id_fkey', 'upload_sessions', type_='foreignkey')
+    # Step 3: Drop the foreign key constraint with error handling
+    # Per Gemini feedback: Add try/except for robustness
+    try:
+        op.drop_constraint('upload_sessions_user_id_fkey', 'upload_sessions', type_='foreignkey')
+    except Exception as e:
+        # Constraint might not exist, log and continue
+        print(f"Warning: Could not drop constraint upload_sessions_user_id_fkey: {e}")
     
     # Step 4: Change column type from UUID to Integer
     op.alter_column('upload_sessions', 'user_id',
