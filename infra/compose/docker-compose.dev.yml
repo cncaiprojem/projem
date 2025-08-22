@@ -11,6 +11,75 @@
 name: freecad-platform-dev
 
 # ==============================================================================
+# EXTENSION FIELDS (YAML ANCHORS)
+# ==============================================================================
+x-worker-common: &worker-common
+  build:
+    context: ../../apps/api
+    dockerfile: Dockerfile.workers
+    args:
+      BUILDKIT_INLINE_CACHE: 1
+  image: freecad-workers:dev
+  restart: unless-stopped
+  
+  # Security configuration
+  security_opt:
+    - no-new-privileges:true
+  
+  # Service dependencies
+  depends_on:
+    api:
+      condition: service_healthy
+    rabbitmq:
+      condition: service_healthy
+  
+  # Environment configuration
+  env_file:
+    - ../../.env
+  environment:
+    DEBUG: "true"
+    LOG_LEVEL: DEBUG
+    # Database connection
+    DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-freecad}:${POSTGRES_PASSWORD:-freecad_dev_pass}@postgres:5432/${POSTGRES_DB:-freecad}
+    # Cache connection
+    REDIS_URL: redis://redis:6379/0
+    # Message broker
+    RABBITMQ_URL: amqp://${RABBITMQ_USER:-freecad}:${RABBITMQ_PASS:-freecad_dev_pass}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
+    # Object storage
+    AWS_S3_ENDPOINT: http://minio:9000
+    AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
+    AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin_dev_pass}
+    # Celery development settings
+    CELERY_TASK_ALWAYS_EAGER: "false"
+    CELERY_TASK_EAGER_PROPAGATES: "true"
+    TZ: "UTC"
+  
+  # Development volume mounts
+  volumes:
+    - ../../apps/api:/app:rw
+    - /etc/timezone:/etc/timezone:ro
+    - /etc/localtime:/etc/localtime:ro
+  
+  # Health monitoring
+  healthcheck:
+    test: ["CMD", "celery", "-A", "app.tasks.worker", "inspect", "ping"]
+    interval: 30s
+    timeout: 10s
+    retries: 3
+    start_period: 60s
+  
+  # Network assignment
+  networks:
+    - backend
+  
+  # Logging configuration
+  logging:
+    driver: "json-file"
+    options:
+      max-size: "20m"
+      max-file: "5"
+
+# ==============================================================================
 # SERVICES CONFIGURATION
 # ==============================================================================
 services:
@@ -204,6 +273,7 @@ services:
     volumes:
       - rabbitmq_data:/var/lib/rabbitmq
       - ../../scripts/init-rabbitmq.sh:/opt/rabbitmq/init-rabbitmq.sh:ro
+      - ../../infra/rabbitmq:/opt/rabbitmq:ro
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     
@@ -466,18 +536,8 @@ services:
 
   # General Purpose Celery Workers
   workers:
-    build:
-      context: ../../apps/api
-      dockerfile: Dockerfile.workers
-      args:
-        BUILDKIT_INLINE_CACHE: 1
-    image: freecad-workers:dev
+    <<: *worker-common
     container_name: fc_workers_dev
-    restart: unless-stopped
-    
-    # Security configuration
-    security_opt:
-      - no-new-privileges:true
     
     # Resource limits for development
     deploy:
@@ -489,70 +549,54 @@ services:
           cpus: '0.5'
           memory: 256M
     
-    # Service dependencies
-    depends_on:
-      api:
-        condition: service_healthy
-      rabbitmq:
-        condition: service_healthy
-    
-    # Environment configuration
-    env_file:
-      - ../../.env
-    environment:
-      DEBUG: "true"
-      LOG_LEVEL: DEBUG
-      # Database connection
-      DATABASE_URL: postgresql+psycopg2://${POSTGRES_USER:-freecad}:${POSTGRES_PASSWORD:-freecad_dev_pass}@postgres:5432/${POSTGRES_DB:-freecad}
-      # Cache connection
-      REDIS_URL: redis://redis:6379/0
-      # Message broker
-      RABBITMQ_URL: amqp://${RABBITMQ_USER:-freecad}:${RABBITMQ_PASS:-freecad_dev_pass}@rabbitmq:5672/${RABBITMQ_VHOST:-/}
-      # Object storage
-      AWS_S3_ENDPOINT: http://minio:9000
-      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER:-minioadmin}
-      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin_dev_pass}
-      # Celery development settings
-      CELERY_TASK_ALWAYS_EAGER: "false"
-      CELERY_TASK_EAGER_PROPAGATES: "true"
-      CELERY_WORKER_PREFETCH_MULTIPLIER: 1
-      TZ: "UTC"
-    
-    # Development volume mounts
+    # Worker-specific volume for logs
     volumes:
       - ../../apps/api:/app:rw
       - worker_logs:/app/logs
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     
-    # Health monitoring
-    healthcheck:
-      test: ["CMD", "celery", "-A", "app.tasks.worker", "inspect", "ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
-    
-    # Worker command
+    # Worker command - Task 6.1: Updated to new queue names
     command: >
       celery -A app.tasks.worker worker 
         --loglevel=DEBUG 
         --concurrency=2 
-        --queues=cpu,postproc
+        --queues=default,report
         --without-heartbeat
         --without-gossip
         --pool=prefork
+
+  # Task 6.1: Specialized High-Priority Workers for Model/CAM/Sim
+  workers-priority:
+    <<: *worker-common
+    container_name: fc_workers_priority_dev
     
-    # Network assignment
-    networks:
-      - backend
+    # Higher resource limits for intensive tasks
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
     
-    # Logging configuration
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "20m"
-        max-file: "5"
+    # Worker-specific volume for logs
+    volumes:
+      - ../../apps/api:/app:rw
+      - worker_priority_logs:/app/logs
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
+    
+    # Priority worker command - handles model, cam, sim queues
+    command: >
+      celery -A app.tasks.worker worker 
+        --loglevel=DEBUG 
+        --concurrency=4
+        --queues=model,cam,sim
+        --without-heartbeat
+        --without-gossip
+        --pool=prefork
 
   # Celery Beat Scheduler
   beat:
@@ -1097,6 +1141,13 @@ volumes:
       type: none
       o: bind
       device: ./data/worker-logs
+  
+  worker_priority_logs:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ./data/worker-priority-logs
   
   beat_logs:
     driver: local
