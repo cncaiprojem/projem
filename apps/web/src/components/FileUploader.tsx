@@ -7,13 +7,17 @@
 
 import React, { useState, useRef, useCallback, DragEvent } from 'react';
 import { useUpload } from '@/hooks/useUpload';
+import type { UploadResult } from '@/hooks/useUpload';
 import { UploadProgress } from './UploadProgress';
+
+// Constants
+const SUCCESS_CLEAR_TIMEOUT_MS = 3000; // Clear file after successful upload
 
 interface FileUploaderProps {
   jobId: string;
   machineId?: string;
   postProcessor?: string;
-  onUploadComplete?: (result: any) => void;
+  onUploadComplete?: (result: UploadResult) => void;
   maxSize?: number;
   allowedExtensions?: string[];
   className?: string;
@@ -60,7 +64,7 @@ export function FileUploader({
       setTimeout(() => {
         setSelectedFile(null);
         reset();
-      }, 3000);
+      }, SUCCESS_CLEAR_TIMEOUT_MS);
     },
     onError: (error, code) => {
       setUploadError(error);

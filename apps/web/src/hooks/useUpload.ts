@@ -6,8 +6,8 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { api } from '@/lib/api';
 
-// Types
-interface UploadProgress {
+// Export types for use in other components
+export interface UploadProgress {
   status: 'idle' | 'hashing' | 'initializing' | 'uploading' | 'finalizing' | 'success' | 'error';
   progress: number;
   speed: number; // bytes per second
@@ -18,7 +18,7 @@ interface UploadProgress {
   errorCode?: string;
 }
 
-interface UploadResult {
+export interface UploadResult {
   artefactId: string;
   objectKey: string;
   size: number;
@@ -35,6 +35,7 @@ interface UseUploadOptions {
   jobId: string; // Required job ID for upload
   machineId?: string; // Optional machine ID
   postProcessor?: string; // Optional post-processor
+  fileType?: string; // Type of file being uploaded (default: 'model')
   onProgress?: (progress: UploadProgress) => void;
   onSuccess?: (result: UploadResult) => void;
   onError?: (error: string, code?: string) => void;
@@ -45,7 +46,6 @@ interface UseUploadOptions {
 
 // Constants
 const MAX_FILE_SIZE = 200 * 1024 * 1024; // 200MB
-const PRESIGNED_URL_TTL = 5 * 60 * 1000; // 5 minutes in ms
 const TTL_WARNING_THRESHOLD = 30 * 1000; // Warn if less than 30 seconds left
 
 // Default allowed extensions (from backend)
@@ -101,6 +101,7 @@ export function useUpload(options: UseUploadOptions) {
     jobId,
     machineId,
     postProcessor,
+    fileType = 'model', // Default to 'model' type
     onProgress,
     onSuccess,
     onError,
@@ -129,89 +130,14 @@ export function useUpload(options: UseUploadOptions) {
 
   // Initialize Web Worker
   useEffect(() => {
-    // Create a blob URL for the worker script
-    const workerScript = `
-      const DEFAULT_CHUNK_SIZE = 2 * 1024 * 1024;
-
-      function bufferToHex(buffer) {
-        return Array.from(new Uint8Array(buffer))
-          .map(b => b.toString(16).padStart(2, '0'))
-          .join('');
-      }
-
-      async function computeSHA256(file, chunkSize = DEFAULT_CHUNK_SIZE) {
-        const startTime = performance.now();
-        let position = 0;
-        const totalSize = file.size;
-        const hashBuffer = [];
-        
-        while (position < totalSize) {
-          const end = Math.min(position + chunkSize, totalSize);
-          const chunk = file.slice(position, end);
-          const arrayBuffer = await chunk.arrayBuffer();
-          hashBuffer.push(arrayBuffer);
-          position = end;
-          
-          const progress = (position / totalSize) * 100;
-          self.postMessage({
-            type: 'progress',
-            progress,
-            bytesProcessed: position,
-            totalBytes: totalSize
-          });
-        }
-        
-        const totalLength = hashBuffer.reduce((acc, buf) => acc + buf.byteLength, 0);
-        const combined = new Uint8Array(totalLength);
-        let offset = 0;
-        
-        for (const buffer of hashBuffer) {
-          combined.set(new Uint8Array(buffer), offset);
-          offset += buffer.byteLength;
-        }
-        
-        const hashArrayBuffer = await crypto.subtle.digest('SHA-256', combined);
-        const hash = bufferToHex(hashArrayBuffer);
-        const duration = performance.now() - startTime;
-        
-        return hash;
-      }
-
-      self.addEventListener('message', async (event) => {
-        const { data } = event;
-        
-        if (data.type === 'hash') {
-          try {
-            if (!data.file || !(data.file instanceof File)) {
-              throw new Error('Geçersiz dosya');
-            }
-            
-            const hash = await computeSHA256(data.file, data.chunkSize);
-            const duration = performance.now();
-            
-            self.postMessage({
-              type: 'result',
-              hash,
-              duration
-            });
-            
-          } catch (error) {
-            self.postMessage({
-              type: 'error',
-              error: error instanceof Error ? error.message : 'Bilinmeyen hata'
-            });
-          }
-        }
-      });
-    `;
-    
-    const blob = new Blob([workerScript], { type: 'application/javascript' });
-    const workerUrl = URL.createObjectURL(blob);
-    workerRef.current = new Worker(workerUrl);
+    // Use the dedicated worker file
+    workerRef.current = new Worker(
+      new URL('../workers/sha256.worker.ts', import.meta.url)
+    );
 
     return () => {
+      // Cleanup on unmount
       workerRef.current?.terminate();
-      URL.revokeObjectURL(workerUrl);
     };
   }, []);
 
@@ -309,7 +235,7 @@ export function useUpload(options: UseUploadOptions) {
       key: string;
       ttl_seconds: number;
     }>('/files/upload/init', {
-      type: 'model', // Default to model type
+      type: fileType, // Use configurable file type
       size: file.size,
       sha256: hash,
       mime_type: mimeType,
@@ -327,7 +253,7 @@ export function useUpload(options: UseUploadOptions) {
       presignedUrl: response.presigned_url,
       key: response.key,
     };
-  }, [jobId, machineId, postProcessor]);
+  }, [jobId, machineId, postProcessor, fileType]);
 
   /**
    * Upload file to presigned URL with progress tracking
@@ -578,11 +504,13 @@ export function useUpload(options: UseUploadOptions) {
    * Cancel ongoing upload
    */
   const cancel = useCallback(() => {
+    // Abort the upload request
     abortControllerRef.current?.abort();
-    workerRef.current?.terminate();
     
-    // Note: Worker will be recreated on next upload since it's initialized in useEffect
-
+    // Don't terminate the worker - it's stateless and reusable
+    // The worker will remain available for the next upload
+    
+    // Reset progress state
     setProgress({
       status: 'idle',
       progress: 0,

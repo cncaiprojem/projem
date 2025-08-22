@@ -6,18 +6,10 @@
 'use client';
 
 import React from 'react';
+import type { UploadProgress as UploadProgressType } from '@/hooks/useUpload';
 
 interface UploadProgressProps {
-  progress: {
-    status: string;
-    progress: number;
-    speed: number;
-    eta: number;
-    bytesUploaded: number;
-    totalBytes: number;
-    error?: string;
-    errorCode?: string;
-  };
+  progress: UploadProgressType;
   fileName: string;
   fileSize: number;
   onCancel?: () => void;

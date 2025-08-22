@@ -3,6 +3,9 @@
  * Task 5.8 - Computes SHA256 hash of files without blocking main thread
  */
 
+// Import js-sha256 for true streaming hash computation
+import { sha256 } from 'js-sha256';
+
 interface HashRequest {
   type: 'hash';
   file: File;
@@ -34,24 +37,15 @@ type WorkerResponse = HashProgress | HashResult | HashError;
 const DEFAULT_CHUNK_SIZE = 2 * 1024 * 1024;
 
 /**
- * Convert ArrayBuffer to hex string
+ * Process file in chunks and compute SHA256 using true streaming
  */
-function bufferToHex(buffer: ArrayBuffer): string {
-  return Array.from(new Uint8Array(buffer))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
-}
-
-/**
- * Process file in chunks and compute SHA256
- */
-async function computeSHA256(file: File, chunkSize: number = DEFAULT_CHUNK_SIZE): Promise<string> {
+async function computeSHA256(file: File, chunkSize: number = DEFAULT_CHUNK_SIZE): Promise<{ hash: string; duration: number }> {
   const startTime = performance.now();
   let position = 0;
   const totalSize = file.size;
   
-  // Initialize hash computation
-  const hashBuffer: ArrayBuffer[] = [];
+  // Initialize streaming hash computation
+  const hash = sha256.create();
   
   while (position < totalSize) {
     // Calculate chunk boundaries
@@ -61,8 +55,8 @@ async function computeSHA256(file: File, chunkSize: number = DEFAULT_CHUNK_SIZE)
     const chunk = file.slice(position, end);
     const arrayBuffer = await chunk.arrayBuffer();
     
-    // Store chunk for hashing
-    hashBuffer.push(arrayBuffer);
+    // Update hash with chunk (true streaming - no memory accumulation)
+    hash.update(arrayBuffer);
     
     // Update position
     position = end;
@@ -77,23 +71,13 @@ async function computeSHA256(file: File, chunkSize: number = DEFAULT_CHUNK_SIZE)
     } as HashProgress);
   }
   
-  // Combine all chunks for final hash
-  const totalLength = hashBuffer.reduce((acc, buf) => acc + buf.byteLength, 0);
-  const combined = new Uint8Array(totalLength);
-  let offset = 0;
+  // Get final hash in hex format
+  const hexHash = hash.hex();
   
-  for (const buffer of hashBuffer) {
-    combined.set(new Uint8Array(buffer), offset);
-    offset += buffer.byteLength;
-  }
-  
-  // Compute SHA256 using Web Crypto API
-  const hashArrayBuffer = await crypto.subtle.digest('SHA-256', combined);
-  const hash = bufferToHex(hashArrayBuffer);
-  
+  // Calculate duration
   const duration = performance.now() - startTime;
   
-  return hash;
+  return { hash: hexHash, duration };
 }
 
 /**
@@ -109,15 +93,14 @@ self.addEventListener('message', async (event: MessageEvent<WorkerMessage>) => {
         throw new Error('Geçersiz dosya');
       }
       
-      // Compute hash
-      const hash = await computeSHA256(data.file, data.chunkSize);
-      const duration = performance.now();
+      // Compute hash (now returns both hash and duration)
+      const result = await computeSHA256(data.file, data.chunkSize);
       
       // Send result
       self.postMessage({
         type: 'result',
-        hash,
-        duration
+        hash: result.hash,
+        duration: result.duration
       } as HashResult);
       
     } catch (error) {

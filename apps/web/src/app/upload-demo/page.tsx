@@ -7,9 +7,10 @@
 
 import React from 'react';
 import { FileUploader } from '@/components/FileUploader';
+import type { UploadResult } from '@/hooks/useUpload';
 
 export default function UploadDemoPage() {
-  const handleUploadComplete = (result: any) => {
+  const handleUploadComplete = (result: UploadResult) => {
     console.log('Upload complete:', result);
   };
 
@@ -53,7 +54,7 @@ export default function UploadDemoPage() {
               Test Senaryoları
             </h3>
             <ul className="list-disc list-inside text-sm text-gray-600 space-y-2">
-              <li>200MB'dan büyük dosya yüklemeyi deneyin (hata mesajı gösterilmeli)</li>
+              <li>200MB&apos;dan büyük dosya yüklemeyi deneyin (hata mesajı gösterilmeli)</li>
               <li>Desteklenmeyen dosya türü yüklemeyi deneyin (.exe, .bat vb.)</li>
               <li>Çift uzantılı dosya yüklemeyi deneyin (güvenlik uyarısı gösterilmeli)</li>
               <li>Dosyayı sürükleyip bırakarak yüklemeyi test edin</li>
