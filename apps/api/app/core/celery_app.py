@@ -283,7 +283,7 @@ def _create_task_annotation(queue_name: str, rate_limit_key: str, default_rate_l
     Returns:
         dict: Complete task annotation with retry strategy
     """
-    config = QUEUE_RETRY_CONFIG[queue_name]
+    config = QUEUE_RETRY_CONFIG.get(queue_name, QUEUE_RETRY_CONFIG[QUEUE_DEFAULT])
     return {
         "rate_limit": appset.rate_limits.get(rate_limit_key, default_rate_limit),
         "max_message_size": 10485760,

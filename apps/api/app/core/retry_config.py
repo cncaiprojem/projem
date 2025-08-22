@@ -11,7 +11,9 @@ This module provides:
 
 from __future__ import annotations
 
+import logging
 import random
+from datetime import datetime, timezone
 from typing import Dict, Tuple, Optional
 from .queue_constants import (
     QUEUE_DEFAULT, QUEUE_MODEL, QUEUE_CAM, 
@@ -216,6 +218,12 @@ def get_retry_kwargs_by_task_name(task_name: str) -> Dict:
             return config['retry_kwargs']
     
     # Default to AI queue configuration if no pattern matches
+    logger = logging.getLogger(__name__)
+    logger.warning(
+        "Task name '%s' did not match any routing pattern. Falling back to AI_TASK_RETRY_KWARGS. "
+        "Consider updating TASK_ROUTING_MAP to include this task for proper retry configuration.",
+        task_name
+    )
     return AI_TASK_RETRY_KWARGS
 
 
@@ -237,8 +245,6 @@ def create_task_headers_with_retry_info(
     Returns:
         dict: Headers to include with task message
     """
-    from datetime import datetime, timezone
-    
     headers = {
         'task_id': task_id,
         'attempt_count': attempt_count,

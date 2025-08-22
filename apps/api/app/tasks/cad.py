@@ -43,7 +43,7 @@ def cad_build_task_on_failure(self, exc, task_id, args, kwargs, einfo):
     )
 
 
-@shared_task(bind=True, on_failure=cad_build_task_on_failure, **MODEL_TASK_RETRY_KWARGS)
+@shared_task(bind=True, on_failure=cad_build_task_on_failure, queue='model', **MODEL_TASK_RETRY_KWARGS)
 def cad_build_task(self, project_id: int):
     """
     CAD build task with Task 6.2 retry strategy.

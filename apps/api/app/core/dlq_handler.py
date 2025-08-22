@@ -262,6 +262,10 @@ def handle_task_failure(
     
     # For cancellation, just reject without requeue
     elif reason == 'cancelled':
+        logger.info(
+            f"Task {task_id} ({task_name}) on queue '{queue_name}' cancelled: {exc}. "
+            f"Rejecting without requeue."
+        )
         raise Reject(exc, requeue=False)
 
 
