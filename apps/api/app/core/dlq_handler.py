@@ -23,7 +23,7 @@ from .error_taxonomy import (
     classify_error,
     get_error_metadata
 )
-from .queue_constants import DLX_SUFFIX, DLQ_SUFFIX
+from .queue_constants import DLX_SUFFIX, DLQ_SUFFIX, QUEUE_DEFAULT
 from .retry_config import get_queue_retry_config
 
 
@@ -119,11 +119,12 @@ class DLQHandler:
             dlx_exchange = Exchange(dlx_name, type='direct', durable=True)
             
             # Publish to DLX with routing key that matches DLQ binding
+            # Direct exchanges require exact routing key match
             with self.celery_app.producer_pool.acquire(block=True) as producer:
                 producer.publish(
                     dlq_message,
                     exchange=dlx_exchange,
-                    routing_key='#',  # Matches DLQ binding
+                    routing_key=dlq_name,  # Direct exchange needs exact match with DLQ name
                     declare=[dlx_exchange],
                     serializer='json',
                     compression='gzip',
@@ -216,7 +217,7 @@ def handle_task_failure(
     queue_name = getattr(task_self.request, 'queue', None)
     if not queue_name:
         delivery_info = getattr(task_self.request, 'delivery_info', {})
-        queue_name = delivery_info.get('routing_key', 'default')
+        queue_name = delivery_info.get('routing_key', QUEUE_DEFAULT)
     attempt_count = getattr(task_self.request, 'retries', 0) + 1
     
     # Get max_retries from the task itself (tasks can have different max_retries)

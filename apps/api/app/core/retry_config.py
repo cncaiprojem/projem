@@ -170,9 +170,39 @@ REPORT_TASK_RETRY_KWARGS = create_retry_decorator_kwargs(QUEUE_REPORT)
 ERP_TASK_RETRY_KWARGS = create_retry_decorator_kwargs(QUEUE_ERP)
 
 
+# Task 6.2: Data-driven task routing configuration
+# Maps task name patterns to their corresponding retry kwargs
+TASK_ROUTING_MAP = {
+    'ai': {
+        'patterns': ['maintenance', 'monitoring', 'license_notifications'],
+        'retry_kwargs': AI_TASK_RETRY_KWARGS
+    },
+    'model': {
+        'patterns': ['cad', 'assembly', 'design', 'freecad'],
+        'retry_kwargs': MODEL_TASK_RETRY_KWARGS
+    },
+    'cam': {
+        'patterns': ['cam', 'cam_build', 'm18_cam'],
+        'retry_kwargs': CAM_TASK_RETRY_KWARGS
+    },
+    'sim': {
+        'patterns': ['sim', 'm18_sim'],
+        'retry_kwargs': SIM_TASK_RETRY_KWARGS
+    },
+    'report': {
+        'patterns': ['reports', 'm18_post'],
+        'retry_kwargs': REPORT_TASK_RETRY_KWARGS
+    },
+    'erp': {
+        'patterns': ['erp'],
+        'retry_kwargs': ERP_TASK_RETRY_KWARGS
+    }
+}
+
+
 def get_retry_kwargs_by_task_name(task_name: str) -> Dict:
     """
-    Get retry kwargs based on task name routing.
+    Get retry kwargs based on task name routing using data-driven mapping.
     
     Args:
         task_name: Full task name (e.g., 'app.tasks.cad.generate_model')
@@ -180,22 +210,13 @@ def get_retry_kwargs_by_task_name(task_name: str) -> Dict:
     Returns:
         dict: Retry kwargs for the task
     """
-    # Map task prefixes to queues based on celery_app.py routing
-    if any(prefix in task_name for prefix in ['maintenance', 'monitoring', 'license_notifications']):
-        return AI_TASK_RETRY_KWARGS
-    elif any(prefix in task_name for prefix in ['cad', 'assembly', 'design', 'freecad']):
-        return MODEL_TASK_RETRY_KWARGS
-    elif any(prefix in task_name for prefix in ['cam', 'cam_build', 'm18_cam']):
-        return CAM_TASK_RETRY_KWARGS
-    elif any(prefix in task_name for prefix in ['sim', 'm18_sim']):
-        return SIM_TASK_RETRY_KWARGS
-    elif any(prefix in task_name for prefix in ['reports', 'm18_post']):
-        return REPORT_TASK_RETRY_KWARGS
-    elif 'erp' in task_name:
-        return ERP_TASK_RETRY_KWARGS
-    else:
-        # Default to AI queue configuration
-        return AI_TASK_RETRY_KWARGS
+    # Iterate through the routing map to find matching patterns
+    for queue_type, config in TASK_ROUTING_MAP.items():
+        if any(pattern in task_name for pattern in config['patterns']):
+            return config['retry_kwargs']
+    
+    # Default to AI queue configuration if no pattern matches
+    return AI_TASK_RETRY_KWARGS
 
 
 def create_task_headers_with_retry_info(
@@ -216,10 +237,12 @@ def create_task_headers_with_retry_info(
     Returns:
         dict: Headers to include with task message
     """
+    from datetime import datetime, timezone
+    
     headers = {
         'task_id': task_id,
         'attempt_count': attempt_count,
-        'retry_timestamp': None,  # Will be set when task is retried
+        'retry_timestamp': datetime.now(timezone.utc).isoformat(),  # Set timestamp when headers are created
     }
     
     if last_exception:
