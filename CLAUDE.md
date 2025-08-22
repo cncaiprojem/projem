@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 FreeCAD-based CNC/CAM/CAD production platform with Turkish UI/UX. Users generate 3D models and CAM simulations through prompts/parameters, create G-code, and manage manufacturing jobs via scalable queue system.
 
 **Tech Stack**: FastAPI + Celery + Next.js + PostgreSQL + Redis + MinIO + RabbitMQ + FreeCAD  
-**Repository**: https://github.com/shaptina/projem  
+**Repository**: https://github.com/cncaiprojem/projem  
 **Development**: Docker Compose orchestration with hot-reload
 
 ## Commands
@@ -56,6 +56,14 @@ alembic history                             # View migration history
 make seed                                    # Full seed data
 make seed-basics                           # Basic seed data only
 docker exec -it fc_postgres_dev psql -U freecad -d freecad  # Direct DB access
+
+# Migration integrity tests (Task 2.9)
+make test-migration-integrity               # Complete migration test suite
+make test-migration-safety                  # Upgrade/downgrade safety tests
+make test-constraints                       # Database constraint validation
+make test-audit-integrity                   # Audit chain cryptographic tests
+make test-performance                       # Query performance tests
+make test-turkish-compliance                # Turkish KVKK/GDPR compliance
 ```
 
 ### Development Utilities
@@ -70,6 +78,11 @@ make rabbitmq-setup                         # Initialize queues and DLX
 make rabbitmq-status                        # Check cluster status
 make dlq-status                            # Check Dead Letter Queue
 make rabbitmq-ui                           # Open management UI (localhost:15672)
+
+# Task 6.1 Queue Topology
+./scripts/init-task-6.1-topology.sh         # Initialize new queue topology
+python infra/rabbitmq/init_queues.py        # Direct topology initialization
+python apps/api/app/scripts/test_dlx_dlq_topology.py  # Test topology
 
 # Pre-commit hooks
 make pre-commit-install                     # Install git hooks
@@ -117,13 +130,18 @@ infra/
 
 ### Key Services & Queues
 
-**Celery Queues**:
-- `default`: General tasks
-- `freecad`: CAD model generation
-- `cam`: CAM path generation
-- `simulation`: Process simulation
-- `gcode`: G-code generation
-- `analysis`: FEA/optimization
+**Primary Queues (Task 6.1 Quorum Type)**:
+- `default`: General AI tasks, maintenance (routing key: `jobs.ai`)
+- `model`: FreeCAD model generation (routing key: `jobs.model`)
+- `cam`: CAM path generation (routing key: `jobs.cam`)
+- `sim`: Process simulation (routing key: `jobs.sim`)
+- `report`: Report generation (routing key: `jobs.report`)
+- `erp`: ERP integration (routing key: `jobs.erp`)
+
+**Dead Letter Topology**:
+- Each queue has its own DLX: `{queue}.dlx`
+- Each DLX routes to a DLQ: `{queue}_dlq`
+- DLQs use classic lazy queues for efficient storage
 
 **MinIO Buckets**:
 - `artefacts`: CAD models, G-code files (versioned)
@@ -220,10 +238,12 @@ DATABASE_URL=postgresql+psycopg2://freecad:password@postgres:5432/freecad
 
 # Storage
 AWS_S3_ENDPOINT=http://minio:9000
-S3_BUCKET_NAME=dev-artifacts
+S3_BUCKET_NAME=artefacts
 
-# Message Queue
-RABBITMQ_URL=amqp://freecad:freecad@rabbitmq:5672/
+# Message Queue (Task 6.1)
+RABBITMQ_URL=amqp://freecad:freecad_dev_pass@rabbitmq:5672/
+RABBITMQ_USER=freecad
+RABBITMQ_PASS=freecad_dev_pass
 
 # FreeCAD
 FREECADCMD_PATH=/usr/bin/FreeCADCmd       # Path to FreeCAD binary
@@ -259,9 +279,10 @@ curl http://localhost:8000/healthz
 # View logs
 docker logs fc_api_dev --tail 50 -f
 
-# Celery task monitoring
-docker exec fc_worker_dev celery -A app.tasks.celery_app inspect active
-docker exec fc_worker_dev celery -A app.tasks.celery_app inspect reserved
+# Celery task monitoring (Task 6.1)
+docker exec fc_worker_dev celery -A app.core.celery_app inspect active
+docker exec fc_worker_dev celery -A app.core.celery_app inspect reserved
+docker exec fc_worker_priority_dev celery -A app.core.celery_app inspect active_queues
 ```
 
 ### Common Issues & Solutions
@@ -282,8 +303,11 @@ docker exec fc_minio_dev mc admin info minio
 ```bash
 # Check worker status
 docker logs fc_worker_dev --tail 100
+docker logs fc_worker_priority_dev --tail 100  # Priority worker
 # Check RabbitMQ connection
 docker exec fc_rabbitmq_dev rabbitmqctl status
+# Check queue bindings
+curl -u freecad:freecad_dev_pass http://localhost:15672/api/bindings
 ```
 
 **FreeCAD not found**:
@@ -385,3 +409,10 @@ mcp__task-master__next_task --projectRoot "$(pwd)"
 # Update task status
 mcp__task-master__set_task_status --id "1.10" --status "done" --projectRoot "$(pwd)"
 ```
+
+## Important Instruction Reminders
+
+- Do what has been asked; nothing more, nothing less
+- NEVER create files unless they're absolutely necessary for achieving your goal
+- ALWAYS prefer editing an existing file to creating a new one
+- NEVER proactively create documentation files (*.md) or README files unless explicitly requested
