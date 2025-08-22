@@ -216,12 +216,17 @@ def handle_task_failure(
     
     # Get task metadata
     task_name = task_self.name
-    queue_name = getattr(task_self.request, 'queue', 'default')
+    # Get queue name from delivery_info routing_key or fall back to 'queue' attribute
+    delivery_info = getattr(task_self.request, 'delivery_info', {})
+    queue_name = delivery_info.get('routing_key', getattr(task_self.request, 'queue', 'default'))
     attempt_count = getattr(task_self.request, 'retries', 0) + 1
     
-    # Get retry configuration for this queue
-    retry_config = get_queue_retry_config(queue_name)
-    max_retries = retry_config['max_retries']
+    # Get max_retries from the task itself (tasks can have different max_retries)
+    # Fall back to queue config if not set on the task
+    max_retries = getattr(task_self, 'max_retries', None)
+    if max_retries is None:
+        retry_config = get_queue_retry_config(queue_name)
+        max_retries = retry_config['max_retries']
     
     # Create DLQ handler
     dlq_handler = DLQHandler(task_self.app)

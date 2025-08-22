@@ -124,12 +124,12 @@ def get_retry_kwargs_for_queue(queue_name: str) -> Dict:
     """
     config = get_queue_retry_config(queue_name)
     
+    # Note: Celery requires countdown to be a static value. Dynamic countdown calculation
+    # (e.g., exponential backoff with jitter) should be handled in the task's retry logic,
+    # using calculate_retry_delay(attempt, cap=config['backoff_cap']).
     return {
         'max_retries': config['max_retries'],
-        'countdown': lambda attempt=0: calculate_retry_delay(
-            attempt, 
-            cap=config['backoff_cap']
-        ),
+        'countdown': config['backoff_cap'],  # Use static cap as default; override in task retry logic
     }
 
 
