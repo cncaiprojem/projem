@@ -34,6 +34,17 @@ from .queue_constants import (
     QUEUE_REPORT,
     QUEUE_ERP,
 )
+from .retry_config import (
+    QUEUE_RETRY_CONFIG,
+    get_queue_retry_config,
+    calculate_retry_delay,
+)
+from .error_taxonomy import (
+    RETRYABLE_EXCEPTIONS,
+    NON_RETRYABLE_EXCEPTIONS,
+    FATAL_EXCEPTIONS,
+    CANCELLATION_EXCEPTIONS,
+)
 
 # Task 6.1: Celery 5.4 app initialization
 celery_app = Celery(
@@ -138,6 +149,7 @@ for queue_name in MAIN_QUEUES:
 celery_app.conf.task_queues = tuple(primary_queues + dlq_queues)
 
 # Task 6.1: Basic QoS configuration - prefetch=8, acks_late=True
+# Task 6.2: Enhanced with retry strategy configurations
 celery_app.conf.task_acks_late = True
 celery_app.conf.task_acks_on_failure_or_timeout = True
 celery_app.conf.task_reject_on_worker_lost = True
@@ -258,29 +270,68 @@ celery_app.conf.broker_transport_options = {
     "visibility_timeout": 43200,  # 12 hours
 }
 
-# Task annotations with rate limiting
+# Task 6.2: Helper function to create task annotations with retry config (DRY principle)
+def _create_task_annotation(queue_name: str, rate_limit_key: str, default_rate_limit: str) -> dict:
+    """
+    Helper to generate task annotation with retry config.
+    
+    Args:
+        queue_name: Queue name from QUEUE_RETRY_CONFIG (e.g., QUEUE_DEFAULT, QUEUE_MODEL)
+        rate_limit_key: Key for rate limit lookup in appset.rate_limits
+        default_rate_limit: Default rate limit if not found in settings
+    
+    Returns:
+        dict: Complete task annotation with retry strategy
+    """
+    config = QUEUE_RETRY_CONFIG.get(queue_name, QUEUE_RETRY_CONFIG[QUEUE_DEFAULT])
+    return {
+        "rate_limit": appset.rate_limits.get(rate_limit_key, default_rate_limit),
+        "max_message_size": 10485760,
+        "autoretry_for": RETRYABLE_EXCEPTIONS,
+        "max_retries": config['max_retries'],
+        "retry_backoff": True,
+        "retry_backoff_max": config['backoff_cap'],
+        "retry_jitter": True,
+        "time_limit": config['time_limit'],
+        "soft_time_limit": config['soft_time_limit'],
+    }
+
+
+# Task 6.2: Enhanced task annotations with retry strategy and rate limiting
 celery_app.conf.task_annotations = {
-    "app.tasks.assembly.*": {
-        "rate_limit": appset.rate_limits.get("assembly", "6/m"),
-        "max_message_size": 10485760,  # 10MB
-    },
-    "app.tasks.cam.*": {
-        "rate_limit": appset.rate_limits.get("cam", "12/m"),
-        "max_message_size": 10485760,
-    },
-    "app.tasks.sim.*": {
-        "rate_limit": appset.rate_limits.get("sim", "4/m"),
-        "max_message_size": 10485760,
-    },
-    "app.tasks.cad.*": {
-        "rate_limit": appset.rate_limits.get("cad", "8/m"),
-        "max_message_size": 10485760,
-    },
+    # AI/General tasks (default queue) - 3 retries, 20s cap
+    "app.tasks.maintenance.*": _create_task_annotation(QUEUE_DEFAULT, "maintenance", "10/m"),
+    "app.tasks.monitoring.*": _create_task_annotation(QUEUE_DEFAULT, "monitoring", "20/m"),
+    "app.tasks.license_notifications.*": _create_task_annotation(QUEUE_DEFAULT, "license", "5/m"),
+    
+    # Model generation tasks (model queue) - 5 retries, 60s cap
+    "app.tasks.assembly.*": _create_task_annotation(QUEUE_MODEL, "assembly", "6/m"),
+    "app.tasks.cad.*": _create_task_annotation(QUEUE_MODEL, "cad", "8/m"),
+    "app.tasks.design.*": _create_task_annotation(QUEUE_MODEL, "design", "8/m"),
+    "app.tasks.freecad.*": _create_task_annotation(QUEUE_MODEL, "freecad", "6/m"),
+    
+    # CAM processing tasks (cam queue) - 5 retries, 60s cap
+    "app.tasks.cam.*": _create_task_annotation(QUEUE_CAM, "cam", "12/m"),
+    "app.tasks.cam_build.*": _create_task_annotation(QUEUE_CAM, "cam_build", "10/m"),
+    "app.tasks.m18_cam.*": _create_task_annotation(QUEUE_CAM, "m18_cam", "8/m"),
+    
+    # Simulation tasks (sim queue) - 5 retries, 60s cap
+    "app.tasks.sim.*": _create_task_annotation(QUEUE_SIM, "sim", "4/m"),
+    "app.tasks.m18_sim.*": _create_task_annotation(QUEUE_SIM, "m18_sim", "4/m"),
+    
+    # Report generation tasks (report queue) - 5 retries, 45s cap
+    "app.tasks.reports.*": _create_task_annotation(QUEUE_REPORT, "reports", "15/m"),
+    "app.tasks.m18_post.*": _create_task_annotation(QUEUE_REPORT, "m18_post", "12/m"),
 }
 
-# Retry configuration
-celery_app.conf.task_default_retry_delay = 30
-celery_app.conf.task_max_retries = 3
+# Task 6.2: Enhanced retry configuration with exponential backoff
+# Default retry configuration - overridden by task annotations above
+celery_app.conf.task_default_retry_delay = 2  # Base delay for exponential backoff
+celery_app.conf.task_max_retries = 3  # Default max retries (AI queue)
+celery_app.conf.task_autoretry_for = RETRYABLE_EXCEPTIONS
+celery_app.conf.task_retry_backoff = True
+celery_app.conf.task_retry_backoff_max = 20  # Default cap (AI queue)
+celery_app.conf.task_retry_jitter = True
 celery_app.conf.broker_pool_limit = settings.celery_broker_pool_limit
 
 # Beat schedule configuration
