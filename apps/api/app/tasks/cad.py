@@ -24,6 +24,9 @@ from ..core.error_taxonomy import (
 )
 from ..core.dlq_handler import handle_task_failure
 
+# Task 6.6: Import cancellation support
+from ..services.job_cancellation_service import check_cancel, mark_cancelled, JobCancelledError
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,6 +63,21 @@ def cad_build_task(self, project_id: int):
     
     db = SessionLocal()
     try:
+        # Task 6.6: Check for cancellation at start
+        try:
+            check_cancel(db, project_id)
+        except JobCancelledError as e:
+            logger.info(f"CAD build task {task_id} cancelled at start for project {project_id}")
+            # Mark job as cancelled and clean up (sync context, don't use await)
+            # mark_cancelled is async but we're in sync context - need to handle differently
+            from ..models import Job
+            job = db.query(Job).filter(Job.id == project_id).first()
+            if job:
+                job.status = "cancelled"
+                job.cancel_requested = True
+                db.commit()
+            return {"status": "cancelled", "project_id": project_id}
+        
         # Task 6.2: Input validation - non-retryable error
         if not isinstance(project_id, int) or project_id <= 0:
             raise ValidationError(f"Invalid project_id: {project_id}")
@@ -92,6 +110,26 @@ def cad_build_task(self, project_id: int):
                 else:
                     # Re-raise for normal handling
                     raise
+            
+            # Task 6.6: Check for cancellation after FreeCAD processing
+            try:
+                check_cancel(db, project_id)
+            except JobCancelledError as e:
+                logger.info(f"CAD build task {task_id} cancelled after FreeCAD processing for project {project_id}")
+                # Mark job as cancelled with progress (sync context)
+                from ..models import Job
+                job = db.query(Job).filter(Job.id == project_id).first()
+                if job:
+                    job.status = "cancelled"
+                    job.cancel_requested = True
+                    if not job.metadata:
+                        job.metadata = {}
+                    job.metadata["cancellation_completed"] = {
+                        "cancellation_point": "after_freecad",
+                        "final_progress": {"step": "freecad_complete", "percent": 50}
+                    }
+                    db.commit()
+                return {"status": "cancelled", "project_id": project_id}
             
             # Process results
             out = {}
@@ -148,6 +186,12 @@ def cad_build_task(self, project_id: int):
             
             return {"project_id": p.id, "artifacts": out, "stats": stats}
             
+    except JobCancelledError as exc:
+        # Task 6.6: Job was cancelled - don't retry
+        logger.info(f"CAD build task {task_id} cancelled for project {project_id}: {exc}")
+        # Already marked as cancelled in the check
+        return {"status": "cancelled", "project_id": project_id}
+        
     except Exception as exc:
         # Task 6.2: Enhanced error handling with retry strategy
         logger.error(f"CAD build task {task_id} failed (attempt {attempt_count}): {exc}", exc_info=True)

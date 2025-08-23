@@ -875,7 +875,7 @@
               "6.1"
             ],
             "details": "API: POST /jobs/:id/cancel sets jobs.cancel_requested=true and writes an audit entry. Workers must call check_cancel(job_id) between major steps; check reads a cached flag (Redis) backed by DB and raises JobCancelledError if set. On cancellation: mark job status='cancelled', persist final progress, do not retry, and release resources. Ensure idempotent cancel endpoint responses (200 even if already cancelled). Acceptance: cancelling during a long-running job stops work within a step boundary; subsequent GET shows status=cancelled; cancelled tasks are not retried or sent to DLQ.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-23T07:02:38.492Z",
+      "updated": "2025-08-23T15:07:20.173Z",
       "description": "Tasks for master context"
     }
   }

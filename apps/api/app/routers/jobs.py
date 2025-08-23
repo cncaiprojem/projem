@@ -16,8 +16,9 @@ import structlog
 from ..models import Job, User
 from ..models.enums import JobStatus, JobType, UserRole
 from ..storage import presigned_url
-from ..services.job_control import cancel_job, queue_pause, queue_resume
+from ..services.job_control import queue_pause, queue_resume
 from ..services.job_queue_service import JobQueueService
+from ..services.job_cancellation_service import job_cancellation_service
 from ..security.oidc import require_role
 from ..db import db_session, get_db
 from ..schemas.job_create import (
@@ -684,12 +685,97 @@ async def get_job_status(
     )
 
 
-@router.post("/{job_id}/cancel", dependencies=[Depends(require_role("admin"))])
-def cancel(job_id: int):
-    ok = cancel_job(job_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="İş bulunamadı")
-    return {"status": "cancelled"}
+@router.post(
+    "/{job_id}/cancel",
+    responses={
+        200: {"description": "Cancellation requested successfully (idempotent)"},
+        404: {"description": "Job not found"},
+        403: {"description": "Unauthorized to cancel job"},
+    }
+)
+async def cancel_job(
+    job_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+) -> Dict[str, Any]:
+    """
+    Request cancellation of a job - Task 6.6.
+    
+    Sets jobs.cancel_requested=true and notifies workers via Redis cache.
+    This endpoint is idempotent - calling it multiple times returns success.
+    
+    Workers check for cancellation between major steps and will:
+    - Stop processing at the next check point
+    - Mark job status as 'cancelled'
+    - Persist final progress
+    - Not retry cancelled jobs
+    - Release all resources
+    
+    İşi iptal et (idempotent).
+    """
+    
+    # Get job to check permissions
+    job = db.query(Job).filter(Job.id == job_id).first()
+    
+    if not job:
+        logger.warning(
+            "Job not found for cancellation",
+            job_id=job_id,
+            user_id=current_user.id if current_user else None,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="İş bulunamadı / Job not found"
+        )
+    
+    # Authorization: Owner or admin can cancel
+    if current_user:
+        is_owner = job.user_id == current_user.id
+        is_admin = current_user.role == UserRole.ADMIN
+        
+        if not (is_owner or is_admin):
+            logger.warning(
+                "Unauthorized job cancellation attempt",
+                job_id=job_id,
+                user_id=current_user.id,
+                job_owner_id=job.user_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Bu işi iptal etme yetkiniz yok / Unauthorized to cancel this job"
+            )
+    elif not settings.DEV_AUTH_BYPASS:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Kimlik doğrulama gerekli / Authentication required"
+        )
+    
+    # Request cancellation through service
+    result = await job_cancellation_service.request_cancellation(
+        db=db,
+        job_id=job_id,
+        user_id=current_user.id if current_user else None,
+        reason="User requested cancellation via API",
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("User-Agent"),
+    )
+    
+    if not result["success"]:
+        # This should rarely happen since we already checked job exists
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=result.get("error", "İş bulunamadı / Job not found")
+        )
+    
+    # Return idempotent response
+    return {
+        "job_id": job_id,
+        "status": result.get("status", "cancellation_requested"),
+        "cancel_requested": True,
+        "message": result.get("message", "İptal isteği alındı / Cancellation requested"),
+        "already_cancelled": result.get("was_already_requested", False),
+    }
 
 
 @router.post("/queues/{name}/pause", dependencies=[Depends(require_role("admin"))])
