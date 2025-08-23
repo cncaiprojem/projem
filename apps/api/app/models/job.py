@@ -145,7 +145,7 @@ class Job(Base, TimestampMixin):
         back_populates="job"
     )
     
-    # Constraints and indexes (Task 2.3 requirements + Task 6.4)
+    # Constraints and indexes (Task 2.3 requirements + Task 6.4 + Task 6.5 queue performance)
     __table_args__ = (
         CheckConstraint('progress >= 0 AND progress <= 100',
                        name='ck_jobs_progress_valid'),
@@ -166,6 +166,13 @@ class Job(Base, TimestampMixin):
               postgresql_where='input_params IS NOT NULL'),
         Index('idx_jobs_cancel_requested', 'cancel_requested',
               postgresql_where='cancel_requested = true'),
+        # Task 6.5: Composite indexes for queue position calculation performance (PR #227 feedback)
+        Index('ix_jobs_queue_position', 'type', 'status', 'priority', 'created_at',
+              postgresql_using='btree'),
+        Index('ix_jobs_type_status', 'type', 'status',
+              postgresql_using='btree'),
+        Index('ix_jobs_status_priority_created', 'status', 'priority', 'created_at',
+              postgresql_using='btree'),
     )
     
     def __repr__(self) -> str:
