@@ -482,10 +482,8 @@ async def get_job_status(
         # Check if user is owner
         is_owner = job.user_id == current_user.id
         
-        # Check if user is admin (you may need to adjust this based on your RBAC implementation)
-        is_admin = False
-        if hasattr(current_user, 'roles'):
-            is_admin = any(role.name == 'admin' for role in current_user.roles)
+        # Check if user is admin using getattr for safety
+        is_admin = any(role.name == 'admin' for role in getattr(current_user, 'roles', []))
         
         if not (is_owner or is_admin):
             logger.warning(
