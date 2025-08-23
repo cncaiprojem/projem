@@ -68,14 +68,14 @@ def cad_build_task(self, project_id: int):
             check_cancel(db, project_id)
         except JobCancelledError as e:
             logger.info(f"CAD build task {task_id} cancelled at start for project {project_id}")
-            # Mark job as cancelled and clean up (sync context, don't use await)
-            # mark_cancelled is async but we're in sync context - need to handle differently
-            from ..models import Job
-            job = db.query(Job).filter(Job.id == project_id).first()
-            if job:
-                job.status = "cancelled"
-                job.cancel_requested = True
-                db.commit()
+            # Task 6.6 fix from PR #231: Use centralized mark_cancelled function
+            # Now synchronous - no need for asyncio.run
+            mark_cancelled(
+                db=db,
+                job_id=project_id,
+                cancellation_point="start",
+                final_progress={"step": "startup", "percent": 0}
+            )
             return {"status": "cancelled", "project_id": project_id}
         
         # Task 6.2: Input validation - non-retryable error
@@ -116,19 +116,14 @@ def cad_build_task(self, project_id: int):
                 check_cancel(db, project_id)
             except JobCancelledError as e:
                 logger.info(f"CAD build task {task_id} cancelled after FreeCAD processing for project {project_id}")
-                # Mark job as cancelled with progress (sync context)
-                from ..models import Job
-                job = db.query(Job).filter(Job.id == project_id).first()
-                if job:
-                    job.status = "cancelled"
-                    job.cancel_requested = True
-                    if not job.metadata:
-                        job.metadata = {}
-                    job.metadata["cancellation_completed"] = {
-                        "cancellation_point": "after_freecad",
-                        "final_progress": {"step": "freecad_complete", "percent": 50}
-                    }
-                    db.commit()
+                # Task 6.6 fix from PR #231: Use centralized mark_cancelled function
+                # This ensures proper metadata update, audit trail, and Redis flag cleanup
+                mark_cancelled(
+                    db=db,
+                    job_id=project_id,
+                    cancellation_point="after_freecad",
+                    final_progress={"step": "freecad_complete", "percent": 50}
+                )
                 return {"status": "cancelled", "project_id": project_id}
             
             # Process results

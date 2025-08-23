@@ -462,6 +462,13 @@ class TestWorkerCancellation:
                 
                 assert result["status"] == "cancelled"
                 assert result["project_id"] == mock_job_for_worker.id
+                
+                # Task 6.6 fix from PR #231: Verify database state after cancellation
+                db.refresh(mock_job_for_worker)
+                assert mock_job_for_worker.status == "cancelled"
+                assert mock_job_for_worker.finished_at is not None
+                assert mock_job_for_worker.metadata is not None
+                assert "cancellation_completed" in mock_job_for_worker.metadata
 
 
 class TestRedisCaching:

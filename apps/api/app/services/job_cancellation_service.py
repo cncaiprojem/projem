@@ -131,7 +131,7 @@ class JobCancellationService:
                     "success": True,
                     "status": job.status,
                     "already_cancelled": job.cancel_requested,
-                    "message": f"İş zaten {job.status} durumunda"
+                    "message": f"İş zaten {job.status} durumunda / Job already {job.status}"
                 }
             
             # Set cancellation flag in database
@@ -204,10 +204,11 @@ class JobCancellationService:
                 "status": job.status,
                 "cancel_requested": True,
                 "was_already_requested": was_already_requested,
-                "message": "İptal isteği alındı" if not was_already_requested else "İptal zaten istenmişti"
+                "message": "İptal isteği alındı / Cancellation requested" if not was_already_requested else "İptal zaten istenmişti / Cancellation already requested"
             }
             
         except Exception as e:
+            db.rollback()  # Task 6.6: Critical fix from PR #231 - prevent broken session state
             logger.error(
                 f"Failed to request cancellation for job {job_id}: {e}",
                 extra={
@@ -219,7 +220,7 @@ class JobCancellationService:
             
             # Attempt to create error audit
             try:
-                await self._create_cancellation_audit(
+                self._create_cancellation_audit(
                     db=db,
                     job_id=job_id,
                     user_id=user_id,
@@ -328,7 +329,7 @@ class JobCancellationService:
             # On error, conservatively return False (don't cancel)
             return False
     
-    async def mark_job_cancelled(
+    def mark_job_cancelled(
         self,
         db: Session,
         job_id: int,
@@ -386,12 +387,13 @@ class JobCancellationService:
             
             db.commit()
             
-            # Create completion audit
-            await self._create_cancellation_audit(
-                db=db,
-                job_id=job_id,
-                action="cancel_completed",
-                metadata={
+            # Create completion audit (synchronous context - log instead of audit)
+            # Task 6.6: In sync context, use logging instead of async audit service
+            logger.info(
+                f"Job {job_id} cancellation completed",
+                extra={
+                    "job_id": job_id,
+                    "action": "cancel_completed",
                     "cancellation_point": cancellation_point,
                     "had_final_progress": bool(final_progress)
                 }
@@ -408,6 +410,7 @@ class JobCancellationService:
             return True
             
         except Exception as e:
+            db.rollback()  # Task 6.6: Ensure clean session state
             logger.error(
                 f"Failed to mark job {job_id} as cancelled: {e}",
                 extra={
@@ -479,7 +482,7 @@ def check_cancel(db: Session, job_id: int):
     job_cancellation_service.check_cancellation(db, job_id)
 
 
-async def mark_cancelled(
+def mark_cancelled(
     db: Session,
     job_id: int,
     final_progress: Optional[Dict[str, Any]] = None,
@@ -489,6 +492,7 @@ async def mark_cancelled(
     Mark a job as cancelled.
     
     Convenience function for workers to mark a job as cancelled.
+    Task 6.6: Made synchronous for use in Celery tasks.
     
     Args:
         db: Database session
@@ -499,6 +503,6 @@ async def mark_cancelled(
     Returns:
         True if successfully marked as cancelled
     """
-    return await job_cancellation_service.mark_job_cancelled(
+    return job_cancellation_service.mark_job_cancelled(
         db, job_id, final_progress, cancellation_point
     )
