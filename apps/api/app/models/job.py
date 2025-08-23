@@ -115,6 +115,7 @@ class Job(Base, TimestampMixin):
     cancel_requested: Mapped[bool] = mapped_column(
         default=False,
         nullable=False,
+        server_default="false",
         comment="Flag for cooperative cancellation"
     )
     

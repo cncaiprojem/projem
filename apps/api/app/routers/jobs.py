@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from datetime import datetime
 from typing import Optional, Dict, Any
 from uuid import uuid4
@@ -33,6 +34,12 @@ from ..core.rate_limiter import RateLimiter
 from ..core.auth import get_current_user
 
 logger = structlog.get_logger(__name__)
+
+# Error code constants for enterprise quality (Copilot feedback)
+ERROR_CODE_VALIDATION = "ERR-JOB-422"
+ERROR_CODE_CONFLICT = "ERR-JOB-409" 
+ERROR_CODE_INTERNAL = "ERR-JOB-500"
+ERROR_CODE_BAD_REQUEST = "ERR-JOB-400"
 
 # Rate limiters for Task 6.4
 per_user_rate_limiter = RateLimiter(
@@ -123,6 +130,82 @@ async def create_job(
             ).dict(),
         )
     
+    # GEMINI MEDIUM FIX: Check payload size (256KB limit)
+    payload_size = sys.getsizeof(job_request.params)
+    MAX_PAYLOAD_SIZE = 256 * 1024  # 256KB
+    
+    if payload_size > MAX_PAYLOAD_SIZE:
+        logger.warning(
+            "Payload size exceeds 256KB limit",
+            payload_size=payload_size,
+            max_size=MAX_PAYLOAD_SIZE,
+            idempotency_key=job_request.idempotency_key,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            content=JobErrorResponse(
+                error="ERR-JOB-413",
+                message=f"Payload size ({payload_size} bytes) exceeds maximum allowed size ({MAX_PAYLOAD_SIZE} bytes). Large artifacts should be referenced via object storage keys.",
+                details={
+                    "payload_size": payload_size,
+                    "max_size": MAX_PAYLOAD_SIZE,
+                    "recommendation": "Store large data in S3/MinIO and reference by key"
+                },
+                retryable=False,
+            ).dict(),
+        )
+    
+    # GEMINI HIGH PRIORITY FIX: Check idempotency BEFORE validation for efficiency
+    # This avoids unnecessary validation work for duplicate requests
+    existing_job = db.query(Job).filter(
+        Job.idempotency_key == job_request.idempotency_key
+    ).first()
+    
+    if existing_job:
+        # Idempotent hit - return existing job immediately without validation
+        logger.info(
+            "Idempotent job request - returning existing job (early check)",
+            job_id=existing_job.id,
+            idempotency_key=job_request.idempotency_key,
+        )
+        
+        # Get routing config for the existing job type to return queue info
+        # Safe fallback if job type validation would fail
+        try:
+            _, routing_config = validate_job_payload({
+                "type": existing_job.type.value,
+                "params": existing_job.params,
+                "job_id": str(existing_job.id),
+                "submitted_by": str(existing_job.user_id) if existing_job.user_id else "anonymous",
+                "attempt": 0,
+                "created_at": existing_job.created_at,
+            })
+        except:
+            # Fallback queue mapping if validation fails
+            queue_mapping = {
+                JobType.AI: "default",
+                JobType.MODEL: "model",
+                JobType.CAM: "cam", 
+                JobType.SIM: "sim",
+                JobType.REPORT: "report",
+                JobType.ERP: "erp",
+            }
+            routing_config = {"queue": queue_mapping.get(existing_job.type, "default")}
+        
+        response.status_code = status.HTTP_200_OK
+        return JobCreateResponse(
+            id=existing_job.id,
+            type=existing_job.type,
+            status=existing_job.status,
+            idempotency_key=existing_job.idempotency_key,
+            created_at=existing_job.created_at,
+            task_id=existing_job.task_id,
+            queue=routing_config["queue"],
+            message="Job already exists (idempotent request)",
+            is_duplicate=True,
+        )
+    
+    # Only validate if job doesn't exist (new job creation)
     try:
         # Prepare job data for validation
         job_data = {
@@ -146,7 +229,7 @@ async def create_job(
         )
         
         # Return 422 for validation errors
-        if e.error_code == "ERR-JOB-422":
+        if e.error_code == ERROR_CODE_VALIDATION:
             return JSONResponse(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 content=get_job_error_response(e),
@@ -158,34 +241,8 @@ async def create_job(
                 content=get_job_error_response(e),
             )
     
-    # Start database transaction for idempotent creation
+    # Start database transaction for new job creation
     try:
-        # Check for existing job with idempotency_key
-        existing_job = db.query(Job).filter(
-            Job.idempotency_key == job_request.idempotency_key
-        ).first()
-        
-        if existing_job:
-            # Idempotent hit - return existing job with 200
-            logger.info(
-                "Idempotent job request - returning existing job",
-                job_id=existing_job.id,
-                idempotency_key=job_request.idempotency_key,
-            )
-            
-            response.status_code = status.HTTP_200_OK
-            return JobCreateResponse(
-                id=existing_job.id,
-                type=existing_job.type,
-                status=existing_job.status,
-                idempotency_key=existing_job.idempotency_key,
-                created_at=existing_job.created_at,
-                task_id=existing_job.task_id,
-                queue=routing_config["queue"],
-                message="Job already exists (idempotent request)",
-                is_duplicate=True,
-            )
-        
         # Create new job
         new_job = Job(
             idempotency_key=job_request.idempotency_key,
@@ -276,6 +333,29 @@ async def create_job(
                     idempotency_key=job_request.idempotency_key,
                 )
                 
+                # GEMINI HIGH PRIORITY FIX: Recalculate routing_config for the existing job
+                # The original routing_config was for the new job that failed to insert
+                try:
+                    _, race_routing_config = validate_job_payload({
+                        "type": existing_job.type.value,
+                        "params": existing_job.params,
+                        "job_id": str(existing_job.id),
+                        "submitted_by": str(existing_job.user_id) if existing_job.user_id else "anonymous",
+                        "attempt": 0,
+                        "created_at": existing_job.created_at,
+                    })
+                except:
+                    # Fallback queue mapping if validation fails
+                    queue_mapping = {
+                        JobType.AI: "default",
+                        JobType.MODEL: "model",
+                        JobType.CAM: "cam",
+                        JobType.SIM: "sim",
+                        JobType.REPORT: "report",
+                        JobType.ERP: "erp",
+                    }
+                    race_routing_config = {"queue": queue_mapping.get(existing_job.type, "default")}
+                
                 response.status_code = status.HTTP_200_OK
                 return JobCreateResponse(
                     id=existing_job.id,
@@ -284,7 +364,7 @@ async def create_job(
                     idempotency_key=existing_job.idempotency_key,
                     created_at=existing_job.created_at,
                     task_id=existing_job.task_id,
-                    queue=routing_config["queue"],
+                    queue=race_routing_config["queue"],
                     message="Job already exists (race condition resolved)",
                     is_duplicate=True,
                 )
@@ -298,7 +378,7 @@ async def create_job(
         return JSONResponse(
             status_code=status.HTTP_409_CONFLICT,
             content=JobErrorResponse(
-                error="ERR-JOB-409",
+                error=ERROR_CODE_CONFLICT,
                 message="Database conflict occurred",
                 details={"error": "integrity_error"},
                 retryable=True,
@@ -316,7 +396,7 @@ async def create_job(
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content=JobErrorResponse(
-                error="ERR-JOB-500",
+                error=ERROR_CODE_INTERNAL,
                 message="Internal server error occurred",
                 details={"error": type(e).__name__},
                 retryable=True,

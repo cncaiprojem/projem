@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """
 Job creation schemas for Task 6.4.
 İş oluşturma şemaları.

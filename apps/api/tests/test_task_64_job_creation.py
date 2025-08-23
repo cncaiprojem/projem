@@ -104,7 +104,8 @@ class TestJobCreation:
                     data = response.json()
                     
                     assert data["type"] == "model"
-                    assert data["status"] == "pending"
+                    # GEMINI MEDIUM FIX: Job status should be "queued" after publishing to queue
+                    assert data["status"] == "queued"
                     assert data["idempotency_key"] == job_create_payload["idempotency_key"]
                     assert data["queue"] == "model"
                     assert data["is_duplicate"] is False
@@ -410,26 +411,41 @@ class TestJobCreation:
         with patch("app.routers.jobs.get_db", return_value=mock_db_session):
             with patch("app.routers.jobs.get_current_user", return_value=test_user):
                 with patch("app.routers.jobs.publish_job_task") as mock_publish:
-                    # Configure mock
+                    # GEMINI MEDIUM FIX: Fix mock strategy for proper job ID assignment
+                    # Configure mock to return None for idempotency check
                     mock_db_session.query.return_value.filter.return_value.first.return_value = None
                     
-                    # Mock the job to have id=789 after creation
-                    mock_job = MagicMock()
-                    mock_job.id = 789
-                    mock_db_session.add.return_value = None
-                    mock_db_session.flush.return_value = None
+                    # Create a mock job instance that will be added to the session
+                    mock_job = MagicMock(spec=Job)
+                    mock_job.id = 789  # This ID should appear in Location header
+                    mock_job.type = JobType.MODEL
+                    mock_job.status = JobStatus.QUEUED
+                    mock_job.idempotency_key = job_create_payload["idempotency_key"]
+                    mock_job.created_at = datetime.utcnow()
+                    mock_job.task_id = str(uuid4())
                     
-                    mock_publish.return_value = MagicMock(job_id=str(uuid4()))
-                    
-                    response = test_client.post(
-                        "/api/v1/jobs",
-                        json=job_create_payload,
-                    )
-                    
-                    assert response.status_code == status.HTTP_201_CREATED
-                    assert "Location" in response.headers
-                    # Location header should contain the job ID
-                    assert "/api/v1/jobs/" in response.headers["Location"]
+                    # Mock the Job constructor to return our mock job
+                    with patch("app.routers.jobs.Job", return_value=mock_job):
+                        # Configure session mocks
+                        mock_db_session.add.return_value = None
+                        mock_db_session.flush.return_value = None
+                        mock_db_session.commit.return_value = None
+                        
+                        mock_publish.return_value = MagicMock(
+                            job_id=str(uuid4()),
+                            status="queued",
+                            queue="model",
+                        )
+                        
+                        response = test_client.post(
+                            "/api/v1/jobs",
+                            json=job_create_payload,
+                        )
+                        
+                        assert response.status_code == status.HTTP_201_CREATED
+                        assert "Location" in response.headers
+                        # Location header should contain the specific job ID
+                        assert response.headers["Location"] == "/api/v1/jobs/789"
 
 
 class TestIdempotencyEdgeCases:
