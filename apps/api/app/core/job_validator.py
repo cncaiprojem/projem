@@ -106,17 +106,17 @@ def validate_job_payload(
             error_code="ERR-JOB-422",
             details={"validation_errors": error_details},
         )
-    except (TypeError, AttributeError) as e:
-        # Specific validation errors that shouldn't occur with valid input
-        logger.error(
-            "Unexpected error during job validation",
+    except (TypeError, AttributeError, ValueError) as e:
+        # Catches validation errors from custom validators or unexpected type issues.
+        logger.warning(
+            "Job validation failed",
             error=str(e),
             job_type=job_type_str,
         )
         raise JobValidationError(
-            message="Internal validation error",
+            message=f"Job payload validation error: {e}",
             error_code="ERR-JOB-422",
-            details={"error": str(e)},
+            details={"error": type(e).__name__, "reason": str(e)},
         ) from e
     
     # Get routing configuration

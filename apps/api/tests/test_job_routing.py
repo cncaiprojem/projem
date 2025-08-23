@@ -8,6 +8,7 @@ from datetime import datetime
 from uuid import uuid4, UUID
 import pytest
 from unittest.mock import Mock, patch, MagicMock
+from pydantic import ValidationError
 
 from app.core.job_routing import (
     JobType,
@@ -195,7 +196,7 @@ class TestJobPayloadSchemas:
             "submitted_by": 1,
         }
         
-        with pytest.raises(ValueError, match="Invalid params for job type"):
+        with pytest.raises(ValidationError):
             TaskPayload(**payload_data)
     
     def test_task_payload_empty_params_rejected(self):
