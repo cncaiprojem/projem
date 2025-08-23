@@ -126,6 +126,7 @@ class JobCancellationService:
                         "already_cancelled": job.cancel_requested
                     }
                 )
+                db.commit()  # Commit audit entry to database
                 
                 return {
                     "success": True,
@@ -189,6 +190,7 @@ class JobCancellationService:
                     "task_id": job.task_id
                 }
             )
+            db.commit()  # Commit audit entry to database
             
             logger.info(
                 f"Cancellation requested for job {job_id}",
@@ -222,7 +224,7 @@ class JobCancellationService:
             
             # Attempt to create error audit
             try:
-                self._create_cancellation_audit(
+                await self._create_cancellation_audit(
                     db=db,
                     job_id=job_id,
                     user_id=user_id,
@@ -232,8 +234,10 @@ class JobCancellationService:
                     user_agent=user_agent,
                     metadata={"error": str(e)}
                 )
+                db.commit()  # Commit audit entry to database
             except Exception as audit_error:
                 logger.error(f"Failed to create error audit: {audit_error}")
+                db.rollback()  # Rollback if audit commit fails
             
             return {
                 "success": False,

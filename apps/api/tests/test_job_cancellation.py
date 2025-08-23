@@ -469,8 +469,8 @@ class TestWorkerCancellation:
                 db.refresh(mock_job_for_worker)
                 assert mock_job_for_worker.status == "cancelled"
                 assert mock_job_for_worker.finished_at is not None
-                assert mock_job_for_worker.metadata is not None
-                assert "cancellation_completed" in mock_job_for_worker.metadata
+                assert mock_job_for_worker.metrics is not None
+                assert "cancellation_completed" in mock_job_for_worker.metrics
 
 
 class TestRedisCaching:
