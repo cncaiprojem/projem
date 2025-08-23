@@ -138,13 +138,13 @@ class JobCancellationService:
             was_already_requested = job.cancel_requested
             job.cancel_requested = True
             
-            # Update cancellation metadata
-            if not job.metadata:
-                job.metadata = {}
+            # Update cancellation metrics (using metrics field, not metadata)
+            if not job.metrics:
+                job.metrics = {}
             
             # Generate timestamp once for consistency
             requested_at = datetime.now(timezone.utc)
-            job.metadata["cancellation"] = {
+            job.metrics["cancellation"] = {
                 "requested_at": requested_at.isoformat(),
                 "requested_by": user_id,
                 "reason": reason,
@@ -362,24 +362,35 @@ class JobCancellationService:
                 logger.error(f"Job {job_id} not found when marking as cancelled")
                 return False
             
-            # Update job status and metadata
+            # Update job status and metrics
             # Generate timestamp once for consistency
             completed_at = datetime.now(timezone.utc)
             job.status = "cancelled"
             job.finished_at = completed_at
             
-            if not job.metadata:
-                job.metadata = {}
+            if not job.metrics:
+                job.metrics = {}
             
-            job.metadata["cancellation_completed"] = {
+            job.metrics["cancellation_completed"] = {
                 "completed_at": completed_at.isoformat(),
                 "cancellation_point": cancellation_point,
                 "final_progress": final_progress
             }
             
             # Persist final progress if provided
-            if final_progress and job.progress:
-                job.progress.update(final_progress)
+            # CRITICAL FIX: job.progress is an integer (0-100), not a dict!
+            # Update both the integer progress field and metrics dict
+            if final_progress:
+                # Update metrics with all progress data
+                if not job.metrics:
+                    job.metrics = {}
+                job.metrics.update(final_progress)
+                
+                # If final_progress contains a percent/progress value, update the integer field
+                if "percent" in final_progress:
+                    job.progress = max(0, min(100, final_progress["percent"]))
+                elif "progress" in final_progress:
+                    job.progress = max(0, min(100, final_progress["progress"]))
             
             # Clear Redis cache
             if self.redis_client:

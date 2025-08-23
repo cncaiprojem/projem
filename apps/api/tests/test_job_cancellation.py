@@ -85,10 +85,10 @@ class TestJobCancellationService:
         # Verify database update
         db.refresh(mock_job)
         assert mock_job.cancel_requested is True
-        assert mock_job.metadata is not None
-        assert "cancellation" in mock_job.metadata
-        assert mock_job.metadata["cancellation"]["requested_by"] == 1
-        assert mock_job.metadata["cancellation"]["reason"] == "User requested"
+        assert mock_job.metrics is not None
+        assert "cancellation" in mock_job.metrics
+        assert mock_job.metrics["cancellation"]["requested_by"] == 1
+        assert mock_job.metrics["cancellation"]["reason"] == "User requested"
     
     @pytest.mark.asyncio
     async def test_request_cancellation_idempotent(
@@ -217,8 +217,11 @@ class TestJobCancellationService:
         db.refresh(mock_job)
         assert mock_job.status == "cancelled"
         assert mock_job.finished_at is not None
-        assert mock_job.metadata["cancellation_completed"]["cancellation_point"] == "worker_check"
-        assert mock_job.progress["percent"] == 50
+        assert mock_job.metrics["cancellation_completed"]["cancellation_point"] == "worker_check"
+        # CRITICAL FIX: job.progress is an integer, not a dict!
+        assert mock_job.progress == 50  # Should be updated to 50 from final_progress["percent"]
+        assert mock_job.metrics["percent"] == 50  # The dict data goes into metrics
+        assert mock_job.metrics["step"] == "processing"
 
 
 class TestJobCancellationAPI:
