@@ -181,12 +181,6 @@ def cad_build_task(self, project_id: int):
             
             return {"project_id": p.id, "artifacts": out, "stats": stats}
             
-    except JobCancelledError as exc:
-        # Task 6.6: Job was cancelled - don't retry
-        logger.info(f"CAD build task {task_id} cancelled for project {project_id}: {exc}")
-        # Already marked as cancelled in the check
-        return {"status": "cancelled", "project_id": project_id}
-        
     except Exception as exc:
         # Task 6.2: Enhanced error handling with retry strategy
         logger.error(f"CAD build task {task_id} failed (attempt {attempt_count}): {exc}", exc_info=True)

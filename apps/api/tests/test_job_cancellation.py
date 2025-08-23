@@ -196,8 +196,7 @@ class TestJobCancellationService:
         result = cancellation_service.check_cancellation(db, mock_job.id)
         assert result is False
     
-    @pytest.mark.asyncio
-    async def test_mark_job_cancelled(
+    def test_mark_job_cancelled(
         self,
         cancellation_service: JobCancellationService,
         mock_job: Job,
@@ -205,7 +204,7 @@ class TestJobCancellationService:
     ):
         """Test marking a job as cancelled."""
         # Mark as cancelled with progress
-        result = await cancellation_service.mark_job_cancelled(
+        result = cancellation_service.mark_job_cancelled(
             db=db,
             job_id=mock_job.id,
             final_progress={"percent": 50, "step": "processing"},

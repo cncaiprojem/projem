@@ -142,8 +142,10 @@ class JobCancellationService:
             if not job.metadata:
                 job.metadata = {}
             
+            # Generate timestamp once for consistency
+            requested_at = datetime.now(timezone.utc)
             job.metadata["cancellation"] = {
-                "requested_at": datetime.now(timezone.utc).isoformat(),
+                "requested_at": requested_at.isoformat(),
                 "requested_by": user_id,
                 "reason": reason,
                 "previous_status": job.status
@@ -158,7 +160,7 @@ class JobCancellationService:
                         self.CANCEL_FLAG_TTL,
                         json.dumps({
                             "cancelled": True,
-                            "requested_at": datetime.now(timezone.utc).isoformat(),
+                            "requested_at": requested_at.isoformat(),
                             "requested_by": user_id,
                             "reason": reason
                         })
@@ -361,14 +363,16 @@ class JobCancellationService:
                 return False
             
             # Update job status and metadata
+            # Generate timestamp once for consistency
+            completed_at = datetime.now(timezone.utc)
             job.status = "cancelled"
-            job.finished_at = datetime.now(timezone.utc)
+            job.finished_at = completed_at
             
             if not job.metadata:
                 job.metadata = {}
             
             job.metadata["cancellation_completed"] = {
-                "completed_at": datetime.now(timezone.utc).isoformat(),
+                "completed_at": completed_at.isoformat(),
                 "cancellation_point": cancellation_point,
                 "final_progress": final_progress
             }
