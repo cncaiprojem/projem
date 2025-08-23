@@ -539,7 +539,7 @@ async def get_job_status(
     queue_position = JobQueueService.get_queue_position(db, job)
     
     # Generate ETag based on job state
-    # Include: status, progress, artefacts count, last error, queue position
+    # Include: status, progress, artefacts count, last error, queue position, metrics
     etag_components = [
         str(job.id),
         job.status.value,
@@ -548,6 +548,7 @@ async def get_job_status(
         str(job.error_code) if job.error_code else "none",
         str(queue_position) if queue_position is not None else "none",
         job.updated_at.isoformat() if job.updated_at else "",
+        json.dumps(job.metrics, sort_keys=True) if job.metrics else "{}",
     ]
     
     etag_content = "|".join(etag_components)

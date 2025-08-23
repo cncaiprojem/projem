@@ -47,6 +47,17 @@ logger.info(
     mappings=dict(_QUEUE_TO_JOB_TYPES)  # Convert to dict for logging
 )
 
+# Default processing time estimates in seconds for each job type
+# Used when no historical data is available for wait time calculation
+DEFAULT_JOB_TIME_ESTIMATES: Mapping[JobType, int] = MappingProxyType({
+    JobType.MODEL: 120,  # 2 minutes
+    JobType.CAM: 180,    # 3 minutes
+    JobType.SIM: 300,    # 5 minutes
+    JobType.AI: 30,      # 30 seconds
+    JobType.REPORT: 60,  # 1 minute
+    JobType.ERP: 45,     # 45 seconds
+})
+
 
 class JobQueueService:
     """Service for calculating job queue positions."""
@@ -182,16 +193,7 @@ class JobQueueService:
                 return estimated_seconds
             else:
                 # No historical data, use a default estimate based on job type
-                default_estimates = {
-                    JobType.MODEL: 120,  # 2 minutes
-                    JobType.CAM: 180,    # 3 minutes
-                    JobType.SIM: 300,  # 5 minutes
-                    JobType.AI: 30,          # 30 seconds
-                    JobType.REPORT: 60,  # 1 minute
-                    JobType.ERP: 45,  # 45 seconds
-                }
-                
-                default_time = default_estimates.get(job.type, 60)
+                default_time = DEFAULT_JOB_TIME_ESTIMATES.get(job.type, 60)
                 return position * default_time
                 
         except Exception as e:
