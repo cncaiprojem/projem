@@ -30,8 +30,10 @@ from ..core.job_validator import (
     publish_job_task,
     get_job_error_response,
 )
+from ..core.job_routing import get_routing_config_for_job_type
 from ..core.rate_limiter import RateLimiter
 from ..core.auth import get_current_user
+from kombu.exceptions import OperationalError
 
 logger = structlog.get_logger(__name__)
 
@@ -171,16 +173,17 @@ async def create_job(
             idempotency_key=job_request.idempotency_key,
         )
         
-        # Use direct queue mapping for existing job (no validation needed)
-        queue_mapping = {
-            JobType.AI: "default",
-            JobType.MODEL: "model",
-            JobType.CAM: "cam", 
-            JobType.SIM: "sim",
-            JobType.REPORT: "report",
-            JobType.ERP: "erp",
-        }
-        routing_config = {"queue": queue_mapping.get(existing_job.type, "default")}
+        # Use centralized routing logic to get the queue for the existing job.
+        try:
+            routing_config = get_routing_config_for_job_type(existing_job.type)
+        except ValueError:
+            # Fallback for safety, though this should not happen for a job type in the DB.
+            logger.warning(
+                "Could not determine routing for existing idempotent job, using fallback.",
+                job_id=existing_job.id,
+                job_type=existing_job.type.value,
+            )
+            routing_config = {"queue": "default"}
         
         response.status_code = status.HTTP_200_OK
         return JobCreateResponse(
@@ -282,11 +285,12 @@ async def create_job(
                 queue=routing_config["queue"],
             )
             
-        except Exception as e:
+        except OperationalError as e:
             logger.error(
-                "Failed to publish job task",
+                "Failed to publish job task - broker connection issue",
                 job_id=new_job.id,
                 error=str(e),
+                error_type=type(e).__name__,
             )
             # Job is created but not queued - leave as PENDING
             # Don't fail the request since job is already persisted
@@ -334,17 +338,18 @@ async def create_job(
                         "attempt": 0,
                         "created_at": existing_job.created_at,
                     })
-                except Exception:
-                    # Fallback queue mapping if validation fails
-                    queue_mapping = {
-                        JobType.AI: "default",
-                        JobType.MODEL: "model",
-                        JobType.CAM: "cam",
-                        JobType.SIM: "sim",
-                        JobType.REPORT: "report",
-                        JobType.ERP: "erp",
-                    }
-                    race_routing_config = {"queue": queue_mapping.get(existing_job.type, "default")}
+                except JobValidationError as e:
+                    # This should be rare, but as a fallback, get routing directly.
+                    logger.warning(
+                        "Could not re-validate existing job during race condition, falling back to direct routing lookup.",
+                        job_id=existing_job.id,
+                        error=str(e),
+                    )
+                    try:
+                        race_routing_config = get_routing_config_for_job_type(existing_job.type)
+                    except ValueError:
+                        # Final fallback if even direct routing lookup fails.
+                        race_routing_config = {"queue": "default"}
                 
                 response.status_code = status.HTTP_200_OK
                 return JobCreateResponse(
@@ -380,6 +385,7 @@ async def create_job(
         logger.error(
             "Unexpected error creating job",
             error=str(e),
+            error_type=type(e).__name__,
             idempotency_key=job_request.idempotency_key,
         )
         

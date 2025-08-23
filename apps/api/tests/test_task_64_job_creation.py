@@ -174,8 +174,13 @@ class TestJobCreation:
             
             assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
             data = response.json()
-            assert "error" in data
-            assert data["error"] == "ERR-JOB-400"
+            # For a Pydantic validation error, the response format is different.
+            # It should contain a "detail" key with a list of errors.
+            assert "detail" in data
+            assert isinstance(data["detail"], list)
+            assert len(data["detail"]) > 0
+            # Check that the error is related to the 'type' field
+            assert data["detail"][0]["loc"] == ["body", "type"]
     
     def test_invalid_params_returns_422(
         self,
