@@ -840,7 +840,7 @@
               "6.2"
             ],
             "details": "Job types: ai (routes to default), model, cam, sim, report, erp. Routing map: type→routing_key (jobs.<type>) → queue (matching the type, ai→default). Canonical task payload: { job_id: uuid, type: enum, params: object, submitted_by: user_id, attempt: int, created_at: iso8601 }. Validate params per type with Pydantic schemas; reject invalid with ERR-JOB-422. Enforce a max payload size of 256KB; large artefacts are referenced via object storage keys, not embedded. Acceptance: publishing with each type selects the correct queue; invalid types yield ERR-JOB-400; params validation errors are non-retryable.",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -852,7 +852,7 @@
               "6.3"
             ],
             "details": "FastAPI endpoint: POST /jobs accepts {type, params, idempotency_key}. In a DB transaction: lookup by idempotency_key; if found, return existing (200). Else insert jobs row with status='pending', cancel_requested=false, attempts=0, progress=0, idempotency_key unique. Use unique index on jobs.idempotency_key; implement insert-on-conflict pattern to avoid races and then select existing. After commit, publish task to appropriate queue with payload contract. Rate limiting: per-user 60/min and global 500/min via Redis token bucket; return 429 ERR-JOB-RATE-LIMIT when exceeded. Responses: 201 for new with Location header; 200 for existing idempotent hit. Errors: invalid type/params → 422; database conflict → 409; unknown → 500. Acceptance: two concurrent requests with same idempotency_key yield a single job; metrics show rate-limit counters; task appears on correct queue.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-22T19:49:07.535Z",
+      "updated": "2025-08-23T07:02:38.492Z",
       "description": "Tasks for master context"
     }
   }
