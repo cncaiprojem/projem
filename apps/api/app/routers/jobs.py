@@ -428,6 +428,181 @@ def list_jobs(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)
             })
         return {"items": items, "limit": limit, "offset": offset}
 
+def _authorize_job_access(
+    job: Job,
+    current_user: Optional[User],
+    settings: Any
+) -> None:
+    """
+    Authorize job access for the current user.
+    
+    Args:
+        job: The job to check access for
+        current_user: The current authenticated user (optional)
+        settings: Application settings
+    
+    Raises:
+        HTTPException: If the user is not authorized to access the job
+    """
+    if current_user:
+        # Check if user is owner
+        is_owner = job.user_id == current_user.id
+        
+        # Check if user is admin - User model has single 'role' attribute, not 'roles' collection
+        is_admin = current_user.role.value == 'admin'
+        
+        if not (is_owner or is_admin):
+            logger.warning(
+                "Unauthorized job access attempt",
+                job_id=job.id,
+                user_id=current_user.id,
+                job_owner_id=job.user_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,  # Return 404 for security
+                detail="İş bulunamadı / Job not found"
+            )
+    else:
+        # No authentication - check if DEV_AUTH_BYPASS is enabled
+        if not settings.DEV_AUTH_BYPASS:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="İş bulunamadı / Job not found"
+            )
+
+
+def _build_job_status_response(
+    job: Job,
+    db: Session
+) -> Dict[str, Any]:
+    """
+    Build the job status response components.
+    
+    Args:
+        job: The job to build response for
+        db: Database session
+    
+    Returns:
+        Dictionary containing response components:
+        - progress_info: JobProgressResponse
+        - artefacts_list: List[ArtefactResponse]
+        - last_error: Optional[JobLastErrorResponse]
+        - queue_position: Optional[int]
+    """
+    # Build progress information
+    # Extract progress update timestamp for cleaner logic with safe parsing
+    progress_update_str = job.metrics.get('last_progress_update') if job.metrics else None
+    
+    # Safely parse the timestamp, falling back to job.updated_at if invalid
+    try:
+        progress_updated_at = datetime.fromisoformat(progress_update_str) if progress_update_str else job.updated_at
+    except (ValueError, TypeError):
+        logger.warning(
+            "Invalid 'last_progress_update' format in job.metrics, falling back to job.updated_at",
+            job_id=job.id,
+            invalid_timestamp=progress_update_str
+        )
+        progress_updated_at = job.updated_at
+    
+    progress_info = JobProgressResponse(
+        percent=job.progress,
+        step=job.metrics.get('current_step') if job.metrics else None,
+        message=job.metrics.get('last_progress_message') if job.metrics else None,
+        updated_at=progress_updated_at,
+    )
+    
+    # Build artefacts list using list comprehension for better readability
+    artefacts_list = [
+        ArtefactResponse(
+            id=artefact.id,
+            type=artefact.type,  # Changed from 'kind' to 'type' for consistency
+            s3_key=artefact.s3_key,
+            sha256=artefact.sha256,
+            size=artefact.size_bytes,
+        )
+        for artefact in job.artefacts
+    ]
+    
+    # Build error information if present
+    last_error = None
+    if job.error_code and job.error_message:
+        last_error = JobLastErrorResponse(
+            code=job.error_code,
+            message=job.error_message,
+        )
+    
+    # Calculate queue position
+    queue_position = JobQueueService.get_queue_position(db, job)
+    
+    return {
+        "progress_info": progress_info,
+        "artefacts_list": artefacts_list,
+        "last_error": last_error,
+        "queue_position": queue_position,
+    }
+
+
+def _generate_etag(
+    job: Job,
+    queue_position: Optional[int]
+) -> str:
+    """
+    Generate an ETag for the job based on its current state.
+    
+    Args:
+        job: The job to generate ETag for
+        queue_position: The job's queue position
+    
+    Returns:
+        The generated ETag string
+    """
+    # Include: status, progress, artefacts count, last error, queue position, metrics
+    etag_components = [
+        str(job.id),
+        job.status.value,
+        str(job.progress),
+        str(len(job.artefacts)),
+        str(job.error_code) if job.error_code else "none",
+        str(queue_position) if queue_position is not None else "none",
+        job.updated_at.isoformat() if job.updated_at else "",
+        json.dumps(job.metrics, sort_keys=True) if job.metrics else "{}",
+    ]
+    
+    etag_content = "|".join(etag_components)
+    return f'W/"{hashlib.md5(etag_content.encode()).hexdigest()}"'
+
+
+def _handle_etag_validation(
+    request: Request,
+    response: Response,
+    etag: str
+) -> Optional[Response]:
+    """
+    Handle ETag validation for conditional requests.
+    
+    Args:
+        request: The incoming request
+        response: The response object to set headers on
+        etag: The generated ETag
+    
+    Returns:
+        304 Response if ETag matches, None otherwise
+    """
+    # Check If-None-Match header
+    if_none_match = request.headers.get("If-None-Match")
+    if if_none_match and if_none_match == etag:
+        # Return 304 Not Modified
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
+    
+    # Set ETag header
+    response.headers["ETag"] = etag
+    
+    # Set Cache-Control for short polling interval
+    response.headers["Cache-Control"] = "private, max-age=1"
+    
+    return None
+
+
 @router.get(
     "/{job_id}",
     response_model=JobStatusResponse,
@@ -477,119 +652,33 @@ async def get_job_status(
             detail="İş bulunamadı / Job not found"
         )
     
-    # Authorization: owner or admin only
-    if current_user:
-        # Check if user is owner
-        is_owner = job.user_id == current_user.id
-        
-        # Check if user is admin - User model has single 'role' attribute, not 'roles' collection
-        is_admin = current_user.role.value == 'admin'
-        
-        if not (is_owner or is_admin):
-            logger.warning(
-                "Unauthorized job access attempt",
-                job_id=job_id,
-                user_id=current_user.id,
-                job_owner_id=job.user_id,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,  # Return 404 for security
-                detail="İş bulunamadı / Job not found"
-            )
-    else:
-        # No authentication - check if DEV_AUTH_BYPASS is enabled
-        if not settings.DEV_AUTH_BYPASS:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="İş bulunamadı / Job not found"
-            )
+    # Authorization check - extracted to helper function for clarity
+    _authorize_job_access(job, current_user, settings)
     
-    # Build progress information
-    # Extract progress update timestamp for cleaner logic with safe parsing
-    progress_update_str = job.metrics.get('last_progress_update') if job.metrics else None
+    # Build response components - extracted to helper function for maintainability
+    response_components = _build_job_status_response(job, db)
     
-    # Safely parse the timestamp, falling back to job.updated_at if invalid
-    try:
-        progress_updated_at = datetime.fromisoformat(progress_update_str) if progress_update_str else job.updated_at
-    except (ValueError, TypeError):
-        logger.warning(
-            "Invalid 'last_progress_update' format in job.metrics, falling back to job.updated_at",
-            job_id=job.id,
-            invalid_timestamp=progress_update_str
-        )
-        progress_updated_at = job.updated_at
+    # Generate ETag for conditional requests
+    etag = _generate_etag(job, response_components["queue_position"])
     
-    progress_info = JobProgressResponse(
-        percent=job.progress,
-        step=job.metrics.get('current_step') if job.metrics else None,
-        message=job.metrics.get('last_progress_message') if job.metrics else None,
-        updated_at=progress_updated_at,
-    )
-    
-    # Build artefacts list using list comprehension for better readability
-    artefacts_list = [
-        ArtefactResponse(
-            id=artefact.id,
-            type=artefact.type,  # Changed from 'kind' to 'type' for consistency
-            s3_key=artefact.s3_key,
-            sha256=artefact.sha256,
-            size=artefact.size_bytes,
-        )
-        for artefact in job.artefacts
-    ]
-    
-    # Build error information if present
-    last_error = None
-    if job.error_code and job.error_message:
-        last_error = JobLastErrorResponse(
-            code=job.error_code,
-            message=job.error_message,
-        )
-    
-    # Calculate queue position
-    queue_position = JobQueueService.get_queue_position(db, job)
-    
-    # Generate ETag based on job state
-    # Include: status, progress, artefacts count, last error, queue position, metrics
-    etag_components = [
-        str(job.id),
-        job.status.value,
-        str(job.progress),
-        str(len(job.artefacts)),
-        str(job.error_code) if job.error_code else "none",
-        str(queue_position) if queue_position is not None else "none",
-        job.updated_at.isoformat() if job.updated_at else "",
-        json.dumps(job.metrics, sort_keys=True) if job.metrics else "{}",
-    ]
-    
-    etag_content = "|".join(etag_components)
-    etag = f'W/"{hashlib.md5(etag_content.encode()).hexdigest()}"'
-    
-    # Check If-None-Match header
-    if_none_match = request.headers.get("If-None-Match")
-    if if_none_match and if_none_match == etag:
-        # Return 304 Not Modified by returning a Response object directly
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
-    
-    # Set ETag header
-    response.headers["ETag"] = etag
-    
-    # Set Cache-Control for short polling interval
-    response.headers["Cache-Control"] = "private, max-age=1"
+    # Handle ETag validation and caching headers
+    not_modified_response = _handle_etag_validation(request, response, etag)
+    if not_modified_response:
+        return not_modified_response
     
     # Build and return response
     return JobStatusResponse(
         id=job.id,
         type=job.type,
         status=job.status,
-        progress=progress_info,
+        progress=response_components["progress_info"],
         attempts=job.attempts,
         cancel_requested=job.cancel_requested,
         created_at=job.created_at,
         updated_at=job.updated_at,
-        artefacts=artefacts_list,
-        last_error=last_error,
-        queue_position=queue_position,
+        artefacts=response_components["artefacts_list"],
+        last_error=response_components["last_error"],
+        queue_position=response_components["queue_position"],
         started_at=job.started_at,
         finished_at=job.finished_at,
     )
