@@ -62,6 +62,32 @@ class JobCancellationService:
                 self._redis_client = None
         return self._redis_client
     
+    def _extract_progress_value(self, progress_data: Optional[Dict[str, Any]]) -> Optional[int]:
+        """
+        Extract progress value from a dict containing 'percent' or 'progress' keys.
+        
+        This helper method consolidates the logic for extracting progress values
+        from various dict formats, ensuring consistency and avoiding duplication.
+        
+        Args:
+            progress_data: Dict that may contain 'percent' or 'progress' keys
+            
+        Returns:
+            Clamped progress value (0-100) or None if no valid key found
+        """
+        if not progress_data:
+            return None
+        
+        # Check for 'percent' key first
+        if "percent" in progress_data:
+            return max(0, min(100, progress_data["percent"]))
+        
+        # Then check for 'progress' key
+        if "progress" in progress_data:
+            return max(0, min(100, progress_data["progress"]))
+        
+        return None
+    
     async def request_cancellation(
         self,
         db: Session,
@@ -390,11 +416,10 @@ class JobCancellationService:
                     job.metrics = {}
                 job.metrics.update(final_progress)
                 
-                # If final_progress contains a percent/progress value, update the integer field
-                if "percent" in final_progress:
-                    job.progress = max(0, min(100, final_progress["percent"]))
-                elif "progress" in final_progress:
-                    job.progress = max(0, min(100, final_progress["progress"]))
+                # Use helper to extract progress value from final_progress dict
+                progress_value = self._extract_progress_value(final_progress)
+                if progress_value is not None:
+                    job.progress = progress_value
             
             # Clear Redis cache
             if self.redis_client:
