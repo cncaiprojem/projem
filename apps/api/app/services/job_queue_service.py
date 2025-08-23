@@ -6,7 +6,8 @@ Provides queue position calculation for jobs.
 
 from __future__ import annotations
 
-from typing import Optional, Dict, List
+from typing import Optional, Dict, List, Mapping
+from types import MappingProxyType
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import Session
 import structlog
@@ -20,28 +21,32 @@ logger = structlog.get_logger(__name__)
 
 # Pre-compute reverse mapping from queue names to job types at module load time
 # This avoids expensive iteration over all JobType enums on every request
-_QUEUE_TO_JOB_TYPES: Dict[str, List[JobType]] = {}
+# Using MappingProxyType to make it immutable for thread safety
+_QUEUE_TO_JOB_TYPES: Mapping[str, List[JobType]] = MappingProxyType({})
 
 def _initialize_queue_mappings() -> None:
     """Initialize the reverse mapping from queues to job types."""
     global _QUEUE_TO_JOB_TYPES
-    _QUEUE_TO_JOB_TYPES.clear()
+    temp_mapping: Dict[str, List[JobType]] = {}
     
     for job_type in JobType:
         try:
             config = get_routing_config_for_job_type(job_type)
             queue_name = config.get("queue", "default")
             
-            if queue_name not in _QUEUE_TO_JOB_TYPES:
-                _QUEUE_TO_JOB_TYPES[queue_name] = []
-            _QUEUE_TO_JOB_TYPES[queue_name].append(job_type)
+            if queue_name not in temp_mapping:
+                temp_mapping[queue_name] = []
+            temp_mapping[queue_name].append(job_type)
         except ValueError:
             # Skip job types without routing config
             continue
     
+    # Make the mapping immutable to prevent accidental modifications
+    _QUEUE_TO_JOB_TYPES = MappingProxyType(temp_mapping)
+    
     logger.info(
         "Initialized queue to job type mappings",
-        mappings=_QUEUE_TO_JOB_TYPES
+        mappings=dict(_QUEUE_TO_JOB_TYPES)  # Convert to dict for logging
     )
 
 # Initialize mappings at module load
@@ -57,7 +62,7 @@ class JobQueueService:
         Calculate the queue position for a job.
         
         Returns:
-            - None if job is completed, failed, or cancelled
+            - None if job is completed, failed, cancelled, or if position cannot be determined due to errors
             - 0 if job is currently running
             - Position (1+) if job is pending or queued
         """
@@ -180,11 +185,12 @@ class JobQueueService:
             else:
                 # No historical data, use a default estimate based on job type
                 default_estimates = {
-                    JobType.FREECAD_MODEL: 120,  # 2 minutes
-                    JobType.FREECAD_CAM: 180,    # 3 minutes
-                    JobType.FREECAD_SIMULATION: 300,  # 5 minutes
-                    JobType.AI_CHAT: 30,          # 30 seconds
-                    JobType.REPORT_GENERATION: 60,  # 1 minute
+                    JobType.MODEL: 120,  # 2 minutes
+                    JobType.CAM: 180,    # 3 minutes
+                    JobType.SIM: 300,  # 5 minutes
+                    JobType.AI: 30,          # 30 seconds
+                    JobType.REPORT: 60,  # 1 minute
+                    JobType.ERP: 45,  # 45 seconds
                 }
                 
                 default_time = default_estimates.get(job.type, 60)

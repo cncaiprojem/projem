@@ -16,7 +16,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.main import app
-from app.models import Job, User, Artefact
+from app.models import Job, User, Artefact, Role
 from app.models.enums import JobStatus, JobType
 from app.services.job_queue_service import JobQueueService
 from app.core.database import get_db
@@ -79,7 +79,7 @@ class TestJobStatusEndpoint:
         # Create a job with all fields
         job = Job(
             idempotency_key="test-job-complete",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.COMPLETED,
             params={"design": "test"},
             user_id=test_user.id,
@@ -184,7 +184,7 @@ class TestJobStatusEndpoint:
         # Higher priority job (should be processed first)
         job1 = Job(
             idempotency_key="high-priority-job",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.QUEUED,
             params={"design": "priority"},
             user_id=test_user.id,
@@ -195,7 +195,7 @@ class TestJobStatusEndpoint:
         # Earlier job with same priority
         job2 = Job(
             idempotency_key="earlier-job",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.QUEUED,
             params={"design": "earlier"},
             user_id=test_user.id,
@@ -206,7 +206,7 @@ class TestJobStatusEndpoint:
         # Currently running job
         job3 = Job(
             idempotency_key="running-job",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.RUNNING,
             params={"design": "running"},
             user_id=test_user.id,
@@ -220,7 +220,7 @@ class TestJobStatusEndpoint:
         # Our test job (created after job2)
         test_job = Job(
             idempotency_key="test-job-queue",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.QUEUED,
             params={"design": "test"},
             user_id=test_user.id,
@@ -256,7 +256,7 @@ class TestJobStatusEndpoint:
         # Create a failed job
         job = Job(
             idempotency_key="failed-job",
-            type=JobType.FREECAD_CAM,
+            type=JobType.CAM,
             status=JobStatus.FAILED,
             params={"toolpath": "complex"},
             user_id=test_user.id,
@@ -311,7 +311,7 @@ class TestJobStatusEndpoint:
         # Create job owned by test_user
         job = Job(
             idempotency_key="other-user-job",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.RUNNING,
             params={"design": "private"},
             user_id=test_user.id,
@@ -328,7 +328,7 @@ class TestJobStatusEndpoint:
         db_session.commit()
         
         # Mock auth for other user
-        with patch("app.core.auth.get_current_user") as mock_auth:
+        with patch("app.routers.jobs.get_current_user") as mock_auth:
             mock_auth.return_value = other_user
             
             # Manually create headers for other user
@@ -351,7 +351,7 @@ class TestJobStatusEndpoint:
         # Create a job
         job = Job(
             idempotency_key="etag-test-job",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.RUNNING,
             params={"design": "test"},
             user_id=test_user.id,
@@ -388,7 +388,7 @@ class TestJobStatusEndpoint:
         # Create a job
         job = Job(
             idempotency_key="etag-change-job",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.RUNNING,
             params={"design": "test"},
             user_id=test_user.id,
@@ -436,7 +436,7 @@ class TestJobStatusEndpoint:
         # Create a running job
         job = Job(
             idempotency_key="running-position-job",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.RUNNING,
             params={"design": "active"},
             user_id=test_user.id,
@@ -467,7 +467,7 @@ class TestJobStatusEndpoint:
         # Create a job
         job = Job(
             idempotency_key="cache-test-job",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.QUEUED,
             params={"design": "test"},
             user_id=test_user.id,
@@ -493,7 +493,7 @@ class TestJobStatusEndpoint:
         # Create job owned by test_user
         job = Job(
             idempotency_key="admin-access-job",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.COMPLETED,
             params={"design": "admin-test"},
             user_id=test_user.id,
@@ -510,7 +510,6 @@ class TestJobStatusEndpoint:
         db_session.commit()
         
         # Add admin role (simplified for test - adjust based on your RBAC implementation)
-        from app.models import Role
         admin_role = db_session.query(Role).filter_by(name="admin").first()
         if not admin_role:
             admin_role = Role(name="admin", description="Administrator")
@@ -519,7 +518,7 @@ class TestJobStatusEndpoint:
         db_session.commit()
         
         # Mock auth for admin user
-        with patch("app.core.auth.get_current_user") as mock_auth:
+        with patch("app.routers.jobs.get_current_user") as mock_auth:
             mock_auth.return_value = admin_user
             
             admin_headers = {"Authorization": "Bearer admin-token"}
@@ -550,7 +549,7 @@ class TestQueuePositionCalculation:
         # Running job in model queue
         running_model = Job(
             idempotency_key="running-model",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.RUNNING,
             params={},
             user_id=user.id,
@@ -559,7 +558,7 @@ class TestQueuePositionCalculation:
         # Queued jobs in model queue
         queued_model1 = Job(
             idempotency_key="queued-model-1",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.QUEUED,
             params={},
             user_id=user.id,
@@ -568,7 +567,7 @@ class TestQueuePositionCalculation:
         
         queued_model2 = Job(
             idempotency_key="queued-model-2",
-            type=JobType.FREECAD_MODEL,
+            type=JobType.MODEL,
             status=JobStatus.QUEUED,
             params={},
             user_id=user.id,
@@ -578,7 +577,7 @@ class TestQueuePositionCalculation:
         # Job in different queue (should not affect position)
         queued_cam = Job(
             idempotency_key="queued-cam",
-            type=JobType.FREECAD_CAM,
+            type=JobType.CAM,
             status=JobStatus.QUEUED,
             params={},
             user_id=user.id,
@@ -618,7 +617,7 @@ class TestQueuePositionCalculation:
         for status in terminal_states:
             job = Job(
                 idempotency_key=f"terminal-{status.value}",
-                type=JobType.FREECAD_MODEL,
+                type=JobType.MODEL,
                 status=status,
                 params={},
                 user_id=user.id,

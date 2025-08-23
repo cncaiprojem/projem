@@ -41,6 +41,7 @@ from ..core.job_validator import (
 from ..core.job_routing import get_routing_config_for_job_type
 from ..core.rate_limiter import RateLimiter
 from ..core.auth import get_current_user
+from ..core.config import settings
 from kombu.exceptions import OperationalError
 
 logger = structlog.get_logger(__name__)
@@ -499,7 +500,6 @@ async def get_job_status(
             )
     else:
         # No authentication - check if DEV_AUTH_BYPASS is enabled
-        from ..core.config import settings
         if not settings.DEV_AUTH_BYPASS:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -558,8 +558,8 @@ async def get_job_status(
     # Check If-None-Match header
     if_none_match = request.headers.get("If-None-Match")
     if if_none_match and if_none_match == etag:
-        # Return 304 Not Modified directly
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
+        # Return 304 Not Modified by raising HTTPException
+        raise HTTPException(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
     
     # Set ETag header
     response.headers["ETag"] = etag

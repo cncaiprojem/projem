@@ -62,7 +62,7 @@ def mock_job_with_artefacts(test_user):
     job = Mock(spec=Job)
     job.id = 123
     job.idempotency_key = "test-job-123"
-    job.type = JobType.FREECAD_MODEL
+    job.type = JobType.MODEL
     job.status = JobStatus.COMPLETED
     job.params = {"design": "test", "material": "aluminum"}
     job.user_id = test_user.id
@@ -183,7 +183,7 @@ class TestJobStatusEndpoint:
         # Create a queued job
         queued_job = Mock(spec=Job)
         queued_job.id = 456
-        queued_job.type = JobType.FREECAD_MODEL
+        queued_job.type = JobType.MODEL
         queued_job.status = JobStatus.QUEUED
         queued_job.params = {"design": "queued"}
         queued_job.user_id = test_user.id
@@ -231,7 +231,7 @@ class TestJobStatusEndpoint:
         # Create a failed job
         failed_job = Mock(spec=Job)
         failed_job.id = 789
-        failed_job.type = JobType.FREECAD_CAM
+        failed_job.type = JobType.CAM
         failed_job.status = JobStatus.FAILED
         failed_job.params = {"toolpath": "complex"}
         failed_job.user_id = test_user.id
@@ -309,7 +309,7 @@ class TestJobStatusEndpoint:
         other_user_job = Mock(spec=Job)
         other_user_job.id = 321
         other_user_job.user_id = 999  # Different user ID
-        other_user_job.type = JobType.FREECAD_MODEL
+        other_user_job.type = JobType.MODEL
         other_user_job.status = JobStatus.RUNNING
         
         # Mock database session
@@ -338,7 +338,7 @@ class TestJobStatusEndpoint:
         user_job = Mock(spec=Job)
         user_job.id = 654
         user_job.user_id = test_user.id  # Different from admin
-        user_job.type = JobType.FREECAD_MODEL
+        user_job.type = JobType.MODEL
         user_job.status = JobStatus.COMPLETED
         user_job.params = {}
         user_job.progress = 100
@@ -380,7 +380,7 @@ class TestJobStatusEndpoint:
         # Create a job
         job = Mock(spec=Job)
         job.id = 888
-        job.type = JobType.FREECAD_MODEL
+        job.type = JobType.MODEL
         job.status = JobStatus.RUNNING
         job.params = {}
         job.user_id = test_user.id
@@ -433,7 +433,7 @@ class TestJobStatusEndpoint:
         # Create a job
         job = Mock(spec=Job)
         job.id = 777
-        job.type = JobType.FREECAD_MODEL
+        job.type = JobType.MODEL
         job.status = JobStatus.QUEUED
         job.params = {}
         job.user_id = test_user.id
@@ -475,7 +475,7 @@ class TestJobStatusEndpoint:
         # Create a running job
         running_job = Mock(spec=Job)
         running_job.id = 555
-        running_job.type = JobType.FREECAD_MODEL
+        running_job.type = JobType.MODEL
         running_job.status = JobStatus.RUNNING
         running_job.params = {}
         running_job.user_id = test_user.id
