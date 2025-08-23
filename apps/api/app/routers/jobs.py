@@ -252,7 +252,7 @@ async def create_job(
             type=job_request.type,
             status=JobStatus.PENDING,
             params=job_request.params,
-            user_id=current_user.id if current_user else None,
+            user_id=getattr(current_user, "id", None),
             priority=job_request.priority or 0,
             progress=0,
             attempts=0,
@@ -646,7 +646,7 @@ async def get_job_status(
         logger.warning(
             "Job not found",
             job_id=job_id,
-            user_id=current_user.id if current_user else None,
+            user_id=getattr(current_user, "id", None),
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -722,7 +722,7 @@ async def cancel_job(
         logger.warning(
             "Job not found for cancellation",
             job_id=job_id,
-            user_id=current_user.id if current_user else None,
+            user_id=getattr(current_user, "id", None),
         )
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -755,7 +755,7 @@ async def cancel_job(
     result = await job_cancellation_service.request_cancellation(
         db=db,
         job_id=job_id,
-        user_id=current_user.id if current_user else None,
+        user_id=getattr(current_user, "id", None),
         reason="User requested cancellation via API",
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("User-Agent"),

@@ -78,15 +78,22 @@ class JobCancellationService:
         if not progress_data:
             return None
         
-        # Check for 'percent' key first
-        if "percent" in progress_data:
-            return max(0, min(100, progress_data["percent"]))
+        raw_value = progress_data.get("percent", progress_data.get("progress"))
         
-        # Then check for 'progress' key
-        if "progress" in progress_data:
-            return max(0, min(100, progress_data["progress"]))
+        if raw_value is None or isinstance(raw_value, bool):
+            return None
         
-        return None
+        try:
+            # Convert to float first to handle various numeric string formats like "50.0"
+            progress = int(float(raw_value))
+            return max(0, min(100, progress))
+        except (ValueError, TypeError):
+            logger.warning(
+                "Could not parse progress value to integer",
+                value=raw_value,
+                data=progress_data,
+            )
+            return None
     
     async def request_cancellation(
         self,
