@@ -17,8 +17,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.main import app
-from app.models import Job, User, Artefact, Role
-from app.models.enums import JobStatus, JobType
+from app.models import Job, User, Artefact
+from app.models.enums import JobStatus, JobType, UserRole
 from app.services.job_queue_service import JobQueueService
 from app.core.database import get_db
 from app.core.auth import get_current_user
@@ -506,16 +506,9 @@ class TestJobStatusEndpoint:
         admin_user = User(
             email="admin@example.com",
             full_name="Admin User",
+            role=UserRole.ADMIN,  # Set role directly as User has single 'role' attribute
         )
         db_session.add(admin_user)
-        db_session.commit()
-        
-        # Add admin role (simplified for test - adjust based on your RBAC implementation)
-        admin_role = db_session.query(Role).filter_by(name="admin").first()
-        if not admin_role:
-            admin_role = Role(name="admin", description="Administrator")
-            db_session.add(admin_role)
-        admin_user.roles.append(admin_role)
         db_session.commit()
         
         # Mock auth for admin user

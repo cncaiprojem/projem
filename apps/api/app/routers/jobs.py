@@ -482,8 +482,8 @@ async def get_job_status(
         # Check if user is owner
         is_owner = job.user_id == current_user.id
         
-        # Check if user is admin using getattr for safety
-        is_admin = any(role.name == 'admin' for role in getattr(current_user, 'roles', []))
+        # Check if user is admin - User model has single 'role' attribute, not 'roles' collection
+        is_admin = current_user.role.value == 'admin'
         
         if not (is_owner or is_admin):
             logger.warning(
@@ -505,14 +505,25 @@ async def get_job_status(
             )
     
     # Build progress information
-    # Extract progress update timestamp for cleaner logic
+    # Extract progress update timestamp for cleaner logic with safe parsing
     progress_update_str = job.metrics.get('last_progress_update') if job.metrics else None
+    
+    # Safely parse the timestamp, falling back to job.updated_at if invalid
+    try:
+        progress_updated_at = datetime.fromisoformat(progress_update_str) if progress_update_str else job.updated_at
+    except (ValueError, TypeError):
+        logger.warning(
+            "Invalid 'last_progress_update' format in job.metrics, falling back to job.updated_at",
+            job_id=job.id,
+            invalid_timestamp=progress_update_str
+        )
+        progress_updated_at = job.updated_at
     
     progress_info = JobProgressResponse(
         percent=job.progress,
         step=job.metrics.get('current_step') if job.metrics else None,
         message=job.metrics.get('last_progress_message') if job.metrics else None,
-        updated_at=datetime.fromisoformat(progress_update_str) if progress_update_str else job.updated_at,
+        updated_at=progress_updated_at,
     )
     
     # Build artefacts list using list comprehension for better readability
@@ -557,8 +568,8 @@ async def get_job_status(
     # Check If-None-Match header
     if_none_match = request.headers.get("If-None-Match")
     if if_none_match and if_none_match == etag:
-        # Return 304 Not Modified by raising HTTPException
-        raise HTTPException(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
+        # Return 304 Not Modified by returning a Response object directly
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
     
     # Set ETag header
     response.headers["ETag"] = etag
