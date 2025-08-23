@@ -774,6 +774,7 @@ async def cancel_job(
         "status": result.get("status", "cancellation_requested"),
         "cancel_requested": True,
         "message": result.get("message", "İptal isteği alındı / Cancellation requested"),
+        # Note: Checking both keys for backward compatibility - older code may use either key
         "already_cancelled": result.get("was_already_requested", False) or result.get("already_cancelled", False),
     }
 

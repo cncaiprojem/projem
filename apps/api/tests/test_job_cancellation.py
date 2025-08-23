@@ -270,7 +270,7 @@ class TestJobCancellationAPI:
                     "status": "in_progress",
                     "cancel_requested": True,
                     "was_already_requested": False,
-                    "message": "İptal isteği alındı"
+                    "message": "İptal isteği alındı / Cancellation requested"
                 }
                 
                 # Make request

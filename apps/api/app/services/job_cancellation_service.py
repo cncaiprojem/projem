@@ -85,6 +85,8 @@ class JobCancellationService:
         
         try:
             # Convert to float first to handle various numeric string formats like "50.0"
+            # Note: For progress values (0-100 range), float conversion is sufficient
+            # and doesn't require decimal.Decimal precision
             progress = int(float(raw_value))
             return max(0, min(100, progress))
         except (ValueError, TypeError):
@@ -303,7 +305,19 @@ class JobCancellationService:
                     cached_value = self.redis_client.get(cache_key)
                     
                     if cached_value:
-                        cancel_data = json.loads(cached_value)
+                        try:
+                            cancel_data = json.loads(cached_value)
+                        except json.JSONDecodeError as e:
+                            # Handle corrupted cache data
+                            logger.warning(
+                                f"Corrupted cache data for job {job_id}, clearing cache",
+                                error=str(e),
+                                cached_value=cached_value[:100]  # Log first 100 chars for debugging
+                            )
+                            # Clear corrupted cache entry
+                            self.redis_client.delete(cache_key)
+                            cancel_data = {}
+                        
                         if cancel_data.get("cancelled"):
                             logger.debug(f"Job {job_id} cancellation detected from Redis cache")
                             raise JobCancelledError(
