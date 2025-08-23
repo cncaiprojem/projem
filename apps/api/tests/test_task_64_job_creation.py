@@ -379,13 +379,29 @@ class TestJobCreation:
     ):
         """Test payload size limit enforcement (256KB)."""
         
-        # Create oversized payload (> 256KB)
-        large_data = "x" * (256 * 1024 + 1)
+        # Create oversized payload (> 256KB including JSON overhead)
+        base_payload = {
+            "type": "model",
+            "params": {"data": ""},
+            "idempotency_key": f"test-{uuid4()}",
+        }
+        # Find the string length that makes the total JSON payload > 256KB
+        target_bytes = 256 * 1024 + 1
+        # Estimate overhead
+        overhead = len(json.dumps(base_payload).encode("utf-8"))
+        # Calculate required string length
+        required_length = target_bytes - overhead
+        if required_length < 1:
+            required_length = 1
+        large_data = "x" * required_length
         oversized_payload = {
             "type": "model",
             "params": {"data": large_data},
             "idempotency_key": f"test-{uuid4()}",
         }
+        # Double-check actual size
+        actual_size = len(json.dumps(oversized_payload).encode("utf-8"))
+        assert actual_size > 256 * 1024, f"Payload size {actual_size} is not over 256KB"
         
         with patch("app.routers.jobs.get_current_user", return_value=test_user):
             response = test_client.post(

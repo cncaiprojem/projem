@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import sys
+import json
 from datetime import datetime
 from typing import Optional, Dict, Any
 from uuid import uuid4
@@ -37,7 +37,7 @@ logger = structlog.get_logger(__name__)
 
 # Error code constants for enterprise quality (Copilot feedback)
 ERROR_CODE_VALIDATION = "ERR-JOB-422"
-ERROR_CODE_CONFLICT = "ERR-JOB-409" 
+ERROR_CODE_CONFLICT = "ERR-JOB-409"
 ERROR_CODE_INTERNAL = "ERR-JOB-500"
 ERROR_CODE_BAD_REQUEST = "ERR-JOB-400"
 
@@ -130,8 +130,10 @@ async def create_job(
             ).dict(),
         )
     
-    # GEMINI MEDIUM FIX: Check payload size (256KB limit)
-    payload_size = sys.getsizeof(job_request.params)
+    # GEMINI HIGH FIX: Check JSON payload size (256KB limit)
+    # Use JSON serialization to get accurate byte size, not sys.getsizeof
+    payload_json = json.dumps(job_request.params)
+    payload_size = len(payload_json.encode('utf-8'))
     MAX_PAYLOAD_SIZE = 256 * 1024  # 256KB
     
     if payload_size > MAX_PAYLOAD_SIZE:
@@ -169,28 +171,16 @@ async def create_job(
             idempotency_key=job_request.idempotency_key,
         )
         
-        # Get routing config for the existing job type to return queue info
-        # Safe fallback if job type validation would fail
-        try:
-            _, routing_config = validate_job_payload({
-                "type": existing_job.type.value,
-                "params": existing_job.params,
-                "job_id": str(existing_job.id),
-                "submitted_by": str(existing_job.user_id) if existing_job.user_id else "anonymous",
-                "attempt": 0,
-                "created_at": existing_job.created_at,
-            })
-        except:
-            # Fallback queue mapping if validation fails
-            queue_mapping = {
-                JobType.AI: "default",
-                JobType.MODEL: "model",
-                JobType.CAM: "cam", 
-                JobType.SIM: "sim",
-                JobType.REPORT: "report",
-                JobType.ERP: "erp",
-            }
-            routing_config = {"queue": queue_mapping.get(existing_job.type, "default")}
+        # Use direct queue mapping for existing job (no validation needed)
+        queue_mapping = {
+            JobType.AI: "default",
+            JobType.MODEL: "model",
+            JobType.CAM: "cam", 
+            JobType.SIM: "sim",
+            JobType.REPORT: "report",
+            JobType.ERP: "erp",
+        }
+        routing_config = {"queue": queue_mapping.get(existing_job.type, "default")}
         
         response.status_code = status.HTTP_200_OK
         return JobCreateResponse(
@@ -344,7 +334,7 @@ async def create_job(
                         "attempt": 0,
                         "created_at": existing_job.created_at,
                     })
-                except:
+                except Exception:
                     # Fallback queue mapping if validation fails
                     queue_mapping = {
                         JobType.AI: "default",
