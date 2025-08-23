@@ -14,7 +14,7 @@ Task 6.3 Canonical payload structure:
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Type, Union
+from typing import Any, Dict, Optional, Type, Union
 from uuid import UUID
 import json
 
@@ -37,7 +37,7 @@ class BaseJobParams(BaseModel):
     
     # Large artifacts should be referenced via object storage keys
     # Büyük dosyalar object storage anahtarları ile referans edilmeli
-    file_keys: Optional[List[str]] = Field(
+    file_keys: Optional[list[str]] = Field(
         default=None,
         description="Object storage keys for large artifacts (S3/MinIO)",
         max_length=10,
@@ -133,7 +133,7 @@ class ReportJobParams(BaseJobParams):
         description="Type of report to generate",
     )
     
-    data_keys: List[str] = Field(
+    data_keys: list[str] = Field(
         ...,
         description="Object storage keys for report data",
         min_length=1,
@@ -234,13 +234,11 @@ class TaskPayload(BaseModel):
         if not params_class:
             raise ValueError(f"Unknown job type: {self.type}")
         
-        try:
-            # Validate params against the appropriate schema
-            validated_params = params_class(**self.params)
-            # Convert back to dict for storage
-            self.params = validated_params.model_dump(exclude_unset=True)
-        except Exception as e:
-            raise ValueError(f"Invalid params for job type {self.type}: {str(e)}")
+        # Validate params against the appropriate schema
+        # Let Pydantic ValidationError propagate for detailed error messages
+        validated_params = params_class(**self.params)
+        # Convert back to dict for storage
+        self.params = validated_params.model_dump(exclude_unset=True)
         
         return self
     

@@ -74,10 +74,11 @@ def get_queue_for_job_type(job_type: JobType) -> str:
     Raises:
         ValueError: If job type is not recognized
     """
-    if job_type not in JOB_TYPE_TO_QUEUE:
+    queue = JOB_TYPE_TO_QUEUE.get(job_type)
+    if queue is None:
         raise ValueError(f"Unknown job type: {job_type}")
     
-    return JOB_TYPE_TO_QUEUE[job_type]
+    return queue
 
 
 def get_routing_key_for_job_type(job_type: JobType) -> str:
@@ -94,10 +95,11 @@ def get_routing_key_for_job_type(job_type: JobType) -> str:
     Raises:
         ValueError: If job type is not recognized
     """
-    if job_type not in JOB_TYPE_TO_ROUTING_KEY:
+    routing_key = JOB_TYPE_TO_ROUTING_KEY.get(job_type)
+    if routing_key is None:
         raise ValueError(f"Unknown job type: {job_type}")
     
-    return JOB_TYPE_TO_ROUTING_KEY[job_type]
+    return routing_key
 
 
 def get_routing_config_for_job_type(job_type: JobType) -> Dict[str, str]:

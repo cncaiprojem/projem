@@ -33,6 +33,9 @@ from ..schemas.job_payload import (
 
 logger = structlog.get_logger(__name__)
 
+# Compression threshold for payload size (1KB)
+COMPRESSION_THRESHOLD_BYTES = 1024
+
 
 class JobValidationError(Exception):
     """
@@ -103,7 +106,7 @@ def validate_job_payload(
             error_code="ERR-JOB-422",
             details={"validation_errors": error_details},
         )
-    except (TypeError, AttributeError, KeyError) as e:
+    except (TypeError, AttributeError) as e:
         # Specific validation errors that shouldn't occur with valid input
         logger.error(
             "Unexpected error during job validation",
@@ -119,7 +122,7 @@ def validate_job_payload(
     # Get routing configuration
     try:
         routing_config = get_routing_config_for_job_type(task_payload.type)
-    except KeyError as e:
+    except ValueError as e:
         raise JobValidationError(
             message=f"No routing configuration found for job type: {task_payload.type.value}",
             error_code="ERR-JOB-400",
@@ -161,7 +164,7 @@ def publish_job_task(
     if not routing_config:
         try:
             routing_config = get_routing_config_for_job_type(task_payload.type)
-        except KeyError as e:
+        except ValueError as e:
             raise RuntimeError(
                 f"No routing configuration found for job type: {task_payload.type.value}"
             ) from e
@@ -178,7 +181,16 @@ def publish_job_task(
     
     try:
         # Determine payload size for conditional compression
-        payload_json = json.dumps(task_args)
+        try:
+            payload_json = json.dumps(task_args)
+        except (TypeError, ValueError) as json_err:
+            logger.error(
+                "Failed to serialize task_args to JSON",
+                job_id=str(task_payload.job_id),
+                error=str(json_err),
+                task_args=task_args,
+            )
+            raise RuntimeError(f"Task arguments could not be serialized to JSON: {json_err}") from json_err
         payload_size = len(payload_json.encode("utf-8"))
         
         # Prepare send_task kwargs
@@ -198,8 +210,8 @@ def publish_job_task(
             },
         }
         
-        # Only compress payloads larger than 1KB
-        if payload_size > 1024:  # 1KB threshold
+        # Only compress payloads larger than threshold
+        if payload_size > COMPRESSION_THRESHOLD_BYTES:
             send_task_kwargs["compression"] = "gzip"
         
         # Send task to Celery with proper routing
@@ -275,7 +287,9 @@ def check_payload_size(data: Any) -> bool:
         json_str = json.dumps(data)
         size_bytes = len(json_str.encode("utf-8"))
         return size_bytes <= MAX_PAYLOAD_SIZE_BYTES
-    except Exception:
+    except (TypeError, ValueError) as exc:
+        logger.error("Failed to check payload size due to exception", exc_info=True, data=data)
+        # If we can't serialize to JSON, consider it too large
         return False
 
 
