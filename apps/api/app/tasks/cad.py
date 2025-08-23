@@ -24,6 +24,9 @@ from ..core.error_taxonomy import (
 )
 from ..core.dlq_handler import handle_task_failure
 
+# Task 6.6: Import cancellation support
+from ..services.job_cancellation_service import check_cancel, mark_cancelled, JobCancelledError
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,6 +46,39 @@ def cad_build_task_on_failure(self, exc, task_id, args, kwargs, einfo):
     )
 
 
+def _handle_cancellation_check(db, job_id: int, task_id: str, cancellation_point: str, final_progress: dict):
+    """
+    Helper function to handle job cancellation checks.
+    
+    Encapsulates the try/except logic for checking and handling job cancellation,
+    reducing code duplication in the main task function.
+    
+    Args:
+        db: Database session
+        job_id: The job ID to check
+        task_id: Task ID for logging
+        cancellation_point: Where the cancellation was detected (e.g., "start", "after_freecad")
+        final_progress: Progress information to record when marking as cancelled
+        
+    Returns:
+        dict: Cancellation result if job was cancelled, None otherwise
+    """
+    try:
+        check_cancel(db, job_id)
+    except JobCancelledError as e:
+        logger.info(f"CAD build task {task_id} cancelled at {cancellation_point} for project {job_id}")
+        # Task 6.6 fix from PR #231: Use centralized mark_cancelled function
+        # Now synchronous - no need for asyncio.run
+        mark_cancelled(
+            db=db,
+            job_id=job_id,
+            cancellation_point=cancellation_point,
+            final_progress=final_progress
+        )
+        return {"status": "cancelled", "project_id": job_id}
+    return None
+
+
 @shared_task(bind=True, on_failure=cad_build_task_on_failure, queue='model', **MODEL_TASK_RETRY_KWARGS)
 def cad_build_task(self, project_id: int):
     """
@@ -60,6 +96,14 @@ def cad_build_task(self, project_id: int):
     
     db = SessionLocal()
     try:
+        # Task 6.6: Check for cancellation at start
+        cancellation_result = _handle_cancellation_check(
+            db, project_id, task_id, "start", 
+            {"step": "startup", "percent": 0}
+        )
+        if cancellation_result:
+            return cancellation_result
+        
         # Task 6.2: Input validation - non-retryable error
         if not isinstance(project_id, int) or project_id <= 0:
             raise ValidationError(f"Invalid project_id: {project_id}")
@@ -92,6 +136,14 @@ def cad_build_task(self, project_id: int):
                 else:
                     # Re-raise for normal handling
                     raise
+            
+            # Task 6.6: Check for cancellation after FreeCAD processing
+            cancellation_result = _handle_cancellation_check(
+                db, project_id, task_id, "after_freecad",
+                {"step": "freecad_complete", "percent": 50}
+            )
+            if cancellation_result:
+                return cancellation_result
             
             # Process results
             out = {}
