@@ -6,7 +6,7 @@ Provides queue position calculation for jobs.
 
 from __future__ import annotations
 
-from typing import Optional
+from typing import Optional, Dict, List
 from sqlalchemy import select, func, and_
 from sqlalchemy.orm import Session
 import structlog
@@ -16,6 +16,36 @@ from ..models.enums import JobStatus, JobType
 from ..core.job_routing import get_routing_config_for_job_type
 
 logger = structlog.get_logger(__name__)
+
+
+# Pre-compute reverse mapping from queue names to job types at module load time
+# This avoids expensive iteration over all JobType enums on every request
+_QUEUE_TO_JOB_TYPES: Dict[str, List[JobType]] = {}
+
+def _initialize_queue_mappings() -> None:
+    """Initialize the reverse mapping from queues to job types."""
+    global _QUEUE_TO_JOB_TYPES
+    _QUEUE_TO_JOB_TYPES.clear()
+    
+    for job_type in JobType:
+        try:
+            config = get_routing_config_for_job_type(job_type)
+            queue_name = config.get("queue", "default")
+            
+            if queue_name not in _QUEUE_TO_JOB_TYPES:
+                _QUEUE_TO_JOB_TYPES[queue_name] = []
+            _QUEUE_TO_JOB_TYPES[queue_name].append(job_type)
+        except ValueError:
+            # Skip job types without routing config
+            continue
+    
+    logger.info(
+        "Initialized queue to job type mappings",
+        mappings=_QUEUE_TO_JOB_TYPES
+    )
+
+# Initialize mappings at module load
+_initialize_queue_mappings()
 
 
 class JobQueueService:
@@ -48,15 +78,8 @@ class JobQueueService:
                 routing_config = get_routing_config_for_job_type(job.type)
                 queue_name = routing_config.get("queue", "default")
                 
-                # Find job types that use the same queue
-                same_queue_types = []
-                for job_type in JobType:
-                    try:
-                        config = get_routing_config_for_job_type(job_type)
-                        if config.get("queue") == queue_name:
-                            same_queue_types.append(job_type)
-                    except ValueError:
-                        continue
+                # Use pre-computed mapping for O(1) lookup
+                same_queue_types = _QUEUE_TO_JOB_TYPES.get(queue_name, [])
                 
                 # Count jobs ahead in the same queue
                 # Jobs are ahead if they have:
@@ -112,8 +135,8 @@ class JobQueueService:
                     job_id=job.id,
                     error=str(e)
                 )
-                # Return a default position on error
-                return 1
+                # Return None to indicate position could not be determined
+                return None
         
         # Default for any other status
         return None

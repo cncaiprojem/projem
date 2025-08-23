@@ -60,7 +60,7 @@ class ArtefactResponse(BaseModel):
         ...,
         description="Artefact unique identifier"
     )
-    kind: str = Field(
+    type: str = Field(
         ...,
         description="Artefact type (model, gcode, report, etc.)"
     )

@@ -156,7 +156,7 @@ class TestJobStatusEndpoint:
         assert len(data["artefacts"]) == 2
         artefact = data["artefacts"][0]
         assert artefact["id"] == artefact1.id
-        assert artefact["kind"] == "model"
+        assert artefact["type"] == "model"
         assert artefact["s3_key"] == f"models/{job.id}/model.fcstd"
         assert artefact["sha256"] == "a" * 64
         assert artefact["size"] == 1024000

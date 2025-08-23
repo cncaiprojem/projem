@@ -140,7 +140,7 @@ def test_job_status_response_structure():
                     assert len(data["artefacts"]) == 1
                     artefact = data["artefacts"][0]
                     assert artefact["id"] == 1
-                    assert artefact["kind"] == "gcode"
+                    assert artefact["type"] == "gcode"
                     assert artefact["s3_key"] == "jobs/123/output.gcode"
                     assert len(artefact["sha256"]) == 64
                     assert artefact["size"] == 2048000

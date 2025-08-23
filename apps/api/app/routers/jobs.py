@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, Query, status, Depends, Request, R
 from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 import structlog
 
 from ..models import Job, User
@@ -462,8 +462,8 @@ async def get_job_status(
     İş durumu ve ilerleme bilgisini getir.
     """
     
-    # Fetch job with relationships
-    job = db.query(Job).filter(Job.id == job_id).first()
+    # Fetch job with relationships - eagerly load artefacts to prevent N+1 queries
+    job = db.query(Job).options(joinedload(Job.artefacts)).filter(Job.id == job_id).first()
     
     if not job:
         logger.warning(
@@ -507,25 +507,27 @@ async def get_job_status(
             )
     
     # Build progress information
+    # Extract progress update timestamp for cleaner logic
+    progress_update_str = job.metrics.get('last_progress_update') if job.metrics else None
+    
     progress_info = JobProgressResponse(
         percent=job.progress,
         step=job.metrics.get('current_step') if job.metrics else None,
         message=job.metrics.get('last_progress_message') if job.metrics else None,
-        updated_at=datetime.fromisoformat(job.metrics['last_progress_update']) 
-                   if job.metrics and 'last_progress_update' in job.metrics 
-                   else job.updated_at,
+        updated_at=datetime.fromisoformat(progress_update_str) if progress_update_str else job.updated_at,
     )
     
-    # Build artefacts list
-    artefacts_list = []
-    for artefact in job.artefacts:
-        artefacts_list.append(ArtefactResponse(
+    # Build artefacts list using list comprehension for better readability
+    artefacts_list = [
+        ArtefactResponse(
             id=artefact.id,
-            kind=artefact.type,
+            type=artefact.type,  # Changed from 'kind' to 'type' for consistency
             s3_key=artefact.s3_key,
             sha256=artefact.sha256,
             size=artefact.size_bytes,
-        ))
+        )
+        for artefact in job.artefacts
+    ]
     
     # Build error information if present
     last_error = None
@@ -550,16 +552,13 @@ async def get_job_status(
         job.updated_at.isoformat() if job.updated_at else "",
     ]
     
-    import hashlib
     etag_content = "|".join(etag_components)
     etag = f'W/"{hashlib.md5(etag_content.encode()).hexdigest()}"'
     
     # Check If-None-Match header
     if_none_match = request.headers.get("If-None-Match")
     if if_none_match and if_none_match == etag:
-        # Return 304 Not Modified
-        response.status_code = status.HTTP_304_NOT_MODIFIED
-        response.headers["ETag"] = etag
+        # Return 304 Not Modified directly
         return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
     
     # Set ETag header
