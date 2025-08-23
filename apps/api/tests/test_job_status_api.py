@@ -636,8 +636,11 @@ class TestQueuePositionCalculation:
 class TestJobStatusSmoke:
     """Smoke tests for basic endpoint functionality."""
     
-    def test_job_status_endpoint_exists(self, test_client):
-        """Test that the GET /jobs/{id} endpoint exists and is accessible."""
+    def test_job_status_endpoint_with_auth_bypass(self, test_client, monkeypatch):
+        """Test GET /jobs/{id} endpoint with DEV_AUTH_BYPASS enabled."""
+        
+        # Explicitly set DEV_AUTH_BYPASS to true using monkeypatch
+        monkeypatch.setenv("DEV_AUTH_BYPASS", "true")
         
         # Mock the database and auth dependencies  
         mock_job = Mock()
@@ -667,22 +670,43 @@ class TestJobStatusSmoke:
                     # Make request to the endpoint
                     response = test_client.get("/api/v1/jobs/1")
                     
-                    # Check that we get a response (not 404 for missing endpoint)
-                    assert response.status_code in [200, 401, 403, 404]  # Any of these means endpoint exists
+                    # Should get 200 with auth bypass enabled
+                    assert response.status_code == 200
                     
-                    # With DEV_AUTH_BYPASS, we should get 200
-                    if os.environ.get("DEV_AUTH_BYPASS") == "true":
-                        assert response.status_code == 200
-                        
-                        # Check response structure
-                        data = response.json()
-                        assert "id" in data
-                        assert "type" in data
-                        assert "status" in data
-                        assert "progress" in data
-                        assert "attempts" in data
-                        assert "cancel_requested" in data
-                        assert "created_at" in data
-                        assert "updated_at" in data
-                        assert "artefacts" in data
-                        assert "queue_position" in data or data["queue_position"] is None
+                    # Check response structure
+                    data = response.json()
+                    assert "id" in data
+                    assert "type" in data
+                    assert "status" in data
+                    assert "progress" in data
+                    assert "attempts" in data
+                    assert "cancel_requested" in data
+                    assert "created_at" in data
+                    assert "updated_at" in data
+                    assert "artefacts" in data
+                    assert "queue_position" in data or data["queue_position"] is None
+    
+    def test_job_status_endpoint_without_auth_bypass(self, test_client, monkeypatch):
+        """Test GET /jobs/{id} endpoint without DEV_AUTH_BYPASS (normal auth required)."""
+        
+        # Explicitly unset DEV_AUTH_BYPASS using monkeypatch
+        monkeypatch.delenv("DEV_AUTH_BYPASS", raising=False)
+        
+        # Mock the database - job exists
+        mock_job = Mock()
+        mock_job.id = 1
+        mock_job.user_id = 123  # Job belongs to user 123
+        
+        mock_db = Mock()
+        mock_db.query.return_value.options.return_value.filter.return_value.first.return_value = mock_job
+        
+        with patch("app.routers.jobs.get_db", return_value=mock_db):
+            # No current user - should trigger auth requirement
+            with patch("app.routers.jobs.get_current_user", side_effect=Exception("Authentication required")):
+                
+                # Make request to the endpoint
+                response = test_client.get("/api/v1/jobs/1")
+                
+                # Should get 401 or 403 or 404 when auth is required and not provided
+                # (404 is used for security to not reveal job existence)
+                assert response.status_code in [401, 403, 404]

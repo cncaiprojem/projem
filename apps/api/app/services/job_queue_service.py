@@ -22,11 +22,8 @@ logger = structlog.get_logger(__name__)
 # Pre-compute reverse mapping from queue names to job types at module load time
 # This avoids expensive iteration over all JobType enums on every request
 # Using MappingProxyType to make it immutable for thread safety
-_QUEUE_TO_JOB_TYPES: Mapping[str, List[JobType]] = MappingProxyType({})
-
-def _initialize_queue_mappings() -> None:
-    """Initialize the reverse mapping from queues to job types."""
-    global _QUEUE_TO_JOB_TYPES
+def _compute_queue_to_job_types() -> Mapping[str, List[JobType]]:
+    """Compute the reverse mapping from queues to job types."""
     temp_mapping: Dict[str, List[JobType]] = {}
     
     for job_type in JobType:
@@ -41,16 +38,14 @@ def _initialize_queue_mappings() -> None:
             # Skip job types without routing config
             continue
     
-    # Make the mapping immutable to prevent accidental modifications
-    _QUEUE_TO_JOB_TYPES = MappingProxyType(temp_mapping)
-    
-    logger.info(
-        "Initialized queue to job type mappings",
-        mappings=dict(_QUEUE_TO_JOB_TYPES)  # Convert to dict for logging
-    )
+    return MappingProxyType(temp_mapping)
 
-# Initialize mappings at module load
-_initialize_queue_mappings()
+_QUEUE_TO_JOB_TYPES: Mapping[str, List[JobType]] = _compute_queue_to_job_types()
+
+logger.info(
+    "Initialized queue to job type mappings",
+    mappings=dict(_QUEUE_TO_JOB_TYPES)  # Convert to dict for logging
+)
 
 
 class JobQueueService:
@@ -160,20 +155,23 @@ class JobQueueService:
         
         try:
             # Get average processing time for this job type (last 100 completed jobs)
+            # Use subquery to first get the last 100 jobs, then calculate average
             avg_time_query = select(
                 func.avg(
                     func.extract('epoch', Job.finished_at - Job.started_at)
                 )
             ).where(
-                and_(
-                    Job.type == job.type,
-                    Job.status == JobStatus.COMPLETED,
-                    Job.started_at.isnot(None),
-                    Job.finished_at.isnot(None)
+                Job.id.in_(
+                    select(Job.id).where(
+                        and_(
+                            Job.type == job.type,
+                            Job.status == JobStatus.COMPLETED,
+                            Job.started_at.isnot(None),
+                            Job.finished_at.isnot(None)
+                        )
+                    ).order_by(Job.finished_at.desc()).limit(100)
                 )
-            ).order_by(
-                Job.finished_at.desc()
-            ).limit(100)
+            )
             
             avg_seconds = db.scalar(avg_time_query)
             
