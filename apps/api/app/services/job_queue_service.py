@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from typing import Optional, Dict, List, Mapping
 from types import MappingProxyType
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 import structlog
 
@@ -74,8 +75,7 @@ class JobQueueService:
         """
         
         # No queue position for terminal states
-        if job.status in [JobStatus.COMPLETED, JobStatus.FAILED, 
-                          JobStatus.CANCELLED, JobStatus.TIMEOUT]:
+        if job.is_complete:
             return None
         
         # Currently running = position 0
@@ -103,11 +103,11 @@ class JobQueueService:
                         Job.status.in_([JobStatus.PENDING, JobStatus.QUEUED]),
                         Job.id != job.id,  # Exclude current job
                         # Higher priority OR (same priority and created earlier)
-                        (
-                            (Job.priority > job.priority) |
-                            (
-                                (Job.priority == job.priority) &
-                                (Job.created_at < job.created_at)
+                        or_(
+                            Job.priority > job.priority,
+                            and_(
+                                Job.priority == job.priority,
+                                Job.created_at < job.created_at
                             )
                         )
                     )
@@ -140,7 +140,7 @@ class JobQueueService:
                 
                 return position
                 
-            except Exception as e:
+            except SQLAlchemyError as e:
                 logger.error(
                     "Failed to calculate queue position",
                     job_id=job.id,
@@ -196,7 +196,7 @@ class JobQueueService:
                 default_time = DEFAULT_JOB_TIME_ESTIMATES.get(job.type, 60)
                 return position * default_time
                 
-        except Exception as e:
+        except SQLAlchemyError as e:
             logger.error(
                 "Failed to estimate wait time",
                 job_id=job.id,
