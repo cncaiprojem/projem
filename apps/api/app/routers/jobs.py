@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from datetime import datetime
 from typing import Optional, Dict, Any
 from uuid import uuid4
@@ -16,6 +17,7 @@ from ..models import Job, User
 from ..models.enums import JobStatus, JobType
 from ..storage import presigned_url
 from ..services.job_control import cancel_job, queue_pause, queue_resume
+from ..services.job_queue_service import JobQueueService
 from ..security.oidc import require_role
 from ..db import db_session, get_db
 from ..schemas.job_create import (
@@ -23,6 +25,12 @@ from ..schemas.job_create import (
     JobCreateResponse,
     JobErrorResponse,
     RateLimitErrorResponse,
+)
+from ..schemas.job_status import (
+    JobStatusResponse,
+    JobProgressResponse,
+    JobErrorResponse as JobLastErrorResponse,
+    ArtefactResponse,
 )
 from ..core.job_validator import (
     JobValidationError,
@@ -419,26 +427,163 @@ def list_jobs(limit: int = Query(20, ge=1, le=100), offset: int = Query(0, ge=0)
             })
         return {"items": items, "limit": limit, "offset": offset}
 
-@router.get("/{job_id}")
-def get_job(job_id: int):
-    with db_session() as s:
-        job: Optional[Job] = s.get(Job, job_id)
-        if not job:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="İş bulunamadı")
-        artefacts = []
-        if job.artefacts:
-            for a in job.artefacts:
-                url = presigned_url(a.get("s3_key", "")) if a.get("s3_key") else None
-                artefacts.append({**a, "signed_url": url})
-        return {
-            "id": job.id,
-            "type": job.type,
-            "status": job.status,
-            "started_at": job.started_at.isoformat() if job.started_at else None,
-            "finished_at": job.finished_at.isoformat() if job.finished_at else None,
-            "metrics": job.metrics,
-            "artefacts": artefacts or None,
-        }
+@router.get(
+    "/{job_id}",
+    response_model=JobStatusResponse,
+    responses={
+        200: {"model": JobStatusResponse, "description": "Job details with progress and queue position"},
+        304: {"description": "Not Modified - ETag matches"},
+        404: {"description": "Job not found or unauthorized"},
+    }
+)
+async def get_job_status(
+    job_id: int,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+) -> JobStatusResponse:
+    """
+    Get job status with progress and queue position - Task 6.5.
+    
+    Returns comprehensive job details including:
+    - Current status and progress (percent, step, message)
+    - Execution attempts and cancellation status
+    - Generated artefacts with S3 keys and checksums
+    - Last error information if failed
+    - Queue position for pending/queued jobs
+    
+    Features:
+    - Authorization: Owner or admin only
+    - ETag support for efficient polling
+    - Progress updates visible within 1s
+    - Queue position calculation
+    
+    İş durumu ve ilerleme bilgisini getir.
+    """
+    
+    # Fetch job with relationships
+    job = db.query(Job).filter(Job.id == job_id).first()
+    
+    if not job:
+        logger.warning(
+            "Job not found",
+            job_id=job_id,
+            user_id=current_user.id if current_user else None,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="İş bulunamadı / Job not found"
+        )
+    
+    # Authorization: owner or admin only
+    if current_user:
+        # Check if user is owner
+        is_owner = job.user_id == current_user.id
+        
+        # Check if user is admin (you may need to adjust this based on your RBAC implementation)
+        is_admin = False
+        if hasattr(current_user, 'roles'):
+            is_admin = any(role.name == 'admin' for role in current_user.roles)
+        
+        if not (is_owner or is_admin):
+            logger.warning(
+                "Unauthorized job access attempt",
+                job_id=job_id,
+                user_id=current_user.id,
+                job_owner_id=job.user_id,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,  # Return 404 for security
+                detail="İş bulunamadı / Job not found"
+            )
+    else:
+        # No authentication - check if DEV_AUTH_BYPASS is enabled
+        from ..core.config import settings
+        if not settings.DEV_AUTH_BYPASS:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="İş bulunamadı / Job not found"
+            )
+    
+    # Build progress information
+    progress_info = JobProgressResponse(
+        percent=job.progress,
+        step=job.metrics.get('current_step') if job.metrics else None,
+        message=job.metrics.get('last_progress_message') if job.metrics else None,
+        updated_at=datetime.fromisoformat(job.metrics['last_progress_update']) 
+                   if job.metrics and 'last_progress_update' in job.metrics 
+                   else job.updated_at,
+    )
+    
+    # Build artefacts list
+    artefacts_list = []
+    for artefact in job.artefacts:
+        artefacts_list.append(ArtefactResponse(
+            id=artefact.id,
+            kind=artefact.type,
+            s3_key=artefact.s3_key,
+            sha256=artefact.sha256,
+            size=artefact.size_bytes,
+        ))
+    
+    # Build error information if present
+    last_error = None
+    if job.error_code and job.error_message:
+        last_error = JobLastErrorResponse(
+            code=job.error_code,
+            message=job.error_message,
+        )
+    
+    # Calculate queue position
+    queue_position = JobQueueService.get_queue_position(db, job)
+    
+    # Generate ETag based on job state
+    # Include: status, progress, artefacts count, last error, queue position
+    etag_components = [
+        str(job.id),
+        job.status.value,
+        str(job.progress),
+        str(len(job.artefacts)),
+        str(job.error_code) if job.error_code else "none",
+        str(queue_position) if queue_position is not None else "none",
+        job.updated_at.isoformat() if job.updated_at else "",
+    ]
+    
+    import hashlib
+    etag_content = "|".join(etag_components)
+    etag = f'W/"{hashlib.md5(etag_content.encode()).hexdigest()}"'
+    
+    # Check If-None-Match header
+    if_none_match = request.headers.get("If-None-Match")
+    if if_none_match and if_none_match == etag:
+        # Return 304 Not Modified
+        response.status_code = status.HTTP_304_NOT_MODIFIED
+        response.headers["ETag"] = etag
+        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers={"ETag": etag})
+    
+    # Set ETag header
+    response.headers["ETag"] = etag
+    
+    # Set Cache-Control for short polling interval
+    response.headers["Cache-Control"] = "private, max-age=1"
+    
+    # Build and return response
+    return JobStatusResponse(
+        id=job.id,
+        type=job.type,
+        status=job.status,
+        progress=progress_info,
+        attempts=job.attempts,
+        cancel_requested=job.cancel_requested,
+        created_at=job.created_at,
+        updated_at=job.updated_at,
+        artefacts=artefacts_list,
+        last_error=last_error,
+        queue_position=queue_position,
+        started_at=job.started_at,
+        finished_at=job.finished_at,
+    )
 
 
 @router.post("/{job_id}/cancel", dependencies=[Depends(require_role("admin"))])
