@@ -37,7 +37,7 @@ def upgrade() -> None:
         'ix_jobs_queue_position',
         'jobs',
         ['type', 'status', 'priority', 'created_at'],
-        if_not_exists=True,
+        postgresql_if_not_exists=True,
         postgresql_using='btree'
     )
     
@@ -47,7 +47,7 @@ def upgrade() -> None:
         'ix_jobs_type_status',
         'jobs',
         ['type', 'status'],
-        if_not_exists=True,
+        postgresql_if_not_exists=True,
         postgresql_using='btree'
     )
     
@@ -57,7 +57,7 @@ def upgrade() -> None:
         'ix_jobs_status_priority_created',
         'jobs',
         ['status', 'priority', 'created_at'],
-        if_not_exists=True,
+        postgresql_if_not_exists=True,
         postgresql_using='btree'
     )
 
@@ -65,6 +65,6 @@ def upgrade() -> None:
 def downgrade() -> None:
     """Remove the composite indexes."""
     
-    op.drop_index('ix_jobs_status_priority_created', table_name='jobs', if_exists=True)
-    op.drop_index('ix_jobs_type_status', table_name='jobs', if_exists=True)
-    op.drop_index('ix_jobs_queue_position', table_name='jobs', if_exists=True)
+    op.drop_index('ix_jobs_status_priority_created', table_name='jobs', postgresql_if_exists=True)
+    op.drop_index('ix_jobs_type_status', table_name='jobs', postgresql_if_exists=True)
+    op.drop_index('ix_jobs_queue_position', table_name='jobs', postgresql_if_exists=True)

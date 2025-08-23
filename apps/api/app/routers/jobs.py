@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session, joinedload
 import structlog
 
 from ..models import Job, User
-from ..models.enums import JobStatus, JobType
+from ..models.enums import JobStatus, JobType, UserRole
 from ..storage import presigned_url
 from ..services.job_control import cancel_job, queue_pause, queue_resume
 from ..services.job_queue_service import JobQueueService
@@ -449,7 +449,7 @@ def _authorize_job_access(
         is_owner = job.user_id == current_user.id
         
         # Check if user is admin - User model has single 'role' attribute, not 'roles' collection
-        is_admin = current_user.role.value == 'admin'
+        is_admin = current_user.role == UserRole.ADMIN
         
         if not (is_owner or is_admin):
             logger.warning(
@@ -639,7 +639,7 @@ async def get_job_status(
     """
     
     # Fetch job with relationships - eagerly load artefacts to prevent N+1 queries
-    job = db.query(Job).options(joinedload(Job.artefacts)).filter(Job.id == job_id).first()
+    job = db.execute(select(Job).options(joinedload(Job.artefacts)).where(Job.id == job_id)).scalar_one_or_none()
     
     if not job:
         logger.warning(
