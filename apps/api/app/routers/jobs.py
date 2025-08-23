@@ -1,18 +1,327 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict, Any
+from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query, status, Depends
+from fastapi import APIRouter, HTTPException, Query, status, Depends, Request, Response
+from fastapi.responses import JSONResponse
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
+import structlog
 
-from ..models import Job
+from ..models import Job, User
+from ..models.enums import JobStatus, JobType
 from ..storage import presigned_url
 from ..services.job_control import cancel_job, queue_pause, queue_resume
 from ..security.oidc import require_role
-from ..db import db_session
+from ..db import db_session, get_db
+from ..schemas.job_create import (
+    JobCreateRequest,
+    JobCreateResponse,
+    JobErrorResponse,
+    RateLimitErrorResponse,
+)
+from ..core.job_validator import (
+    JobValidationError,
+    validate_job_payload,
+    publish_job_task,
+    get_job_error_response,
+)
+from ..core.rate_limiter import RateLimiter
+from ..core.auth import get_current_user
+
+logger = structlog.get_logger(__name__)
+
+# Rate limiters for Task 6.4
+per_user_rate_limiter = RateLimiter(
+    max_requests=60,
+    window_seconds=60,
+    key_prefix="job_create_user"
+)
+
+global_rate_limiter = RateLimiter(
+    max_requests=500,
+    window_seconds=60,
+    key_prefix="job_create_global"
+)
+
+router = APIRouter(prefix="/api/v1/jobs", tags=["İşler"])
 
 
-router = APIRouter(prefix="/api/v1/jobs", tags=["İşler"]) 
+@router.post(
+    "",
+    response_model=JobCreateResponse,
+    status_code=status.HTTP_201_CREATED,
+    responses={
+        200: {"model": JobCreateResponse, "description": "Existing job returned (idempotent)"},
+        201: {"model": JobCreateResponse, "description": "New job created"},
+        409: {"model": JobErrorResponse, "description": "Database conflict"},
+        422: {"model": JobErrorResponse, "description": "Invalid type or params"},
+        429: {"model": RateLimitErrorResponse, "description": "Rate limit exceeded"},
+        500: {"model": JobErrorResponse, "description": "Internal server error"},
+    }
+)
+async def create_job(
+    request: Request,
+    response: Response,
+    job_request: JobCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: Optional[User] = Depends(get_current_user),
+) -> JobCreateResponse:
+    """
+    İş oluştur - idempotency ile.
+    Create a new job with idempotency support.
+    
+    Task 6.4 Implementation:
+    - Idempotent creation with unique idempotency_key
+    - Transactional database operations
+    - Rate limiting (per-user: 60/min, global: 500/min)
+    - Automatic queue routing based on job type
+    - Returns existing job on idempotent hit (200)
+    - Returns new job with Location header (201)
+    """
+    
+    # Get user identifier for rate limiting
+    user_key = str(current_user.id) if current_user else request.client.host
+    
+    # Check per-user rate limit
+    if not per_user_rate_limiter.check_rate_limit(user_key):
+        remaining, reset_in = per_user_rate_limiter.get_remaining(user_key)
+        logger.warning(
+            "Per-user rate limit exceeded",
+            user_key=user_key,
+            remaining=remaining,
+            reset_in=reset_in,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content=RateLimitErrorResponse(
+                message=f"Rate limit exceeded for user. Please try again in {reset_in} seconds.",
+                remaining=remaining,
+                reset_in=reset_in,
+                limit=60,
+            ).dict(),
+        )
+    
+    # Check global rate limit
+    if not global_rate_limiter.check_rate_limit("global"):
+        remaining, reset_in = global_rate_limiter.get_remaining("global")
+        logger.warning(
+            "Global rate limit exceeded",
+            remaining=remaining,
+            reset_in=reset_in,
+        )
+        return JSONResponse(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            content=RateLimitErrorResponse(
+                message=f"Global rate limit exceeded. Please try again in {reset_in} seconds.",
+                remaining=remaining,
+                reset_in=reset_in,
+                limit=500,
+            ).dict(),
+        )
+    
+    try:
+        # Prepare job data for validation
+        job_data = {
+            "type": job_request.type.value if isinstance(job_request.type, JobType) else job_request.type,
+            "params": job_request.params,
+            "job_id": str(uuid4()),
+            "submitted_by": str(current_user.id) if current_user else "anonymous",
+            "attempt": 0,
+            "created_at": datetime.utcnow(),
+        }
+        
+        # Validate job payload using Task 6.3 validator
+        task_payload, routing_config = validate_job_payload(job_data)
+        
+    except JobValidationError as e:
+        logger.warning(
+            "Job validation failed",
+            error_code=e.error_code,
+            message=e.message,
+            details=e.details,
+        )
+        
+        # Return 422 for validation errors
+        if e.error_code == "ERR-JOB-422":
+            return JSONResponse(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                content=get_job_error_response(e),
+            )
+        # Return 400 for other job errors
+        else:
+            return JSONResponse(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                content=get_job_error_response(e),
+            )
+    
+    # Start database transaction for idempotent creation
+    try:
+        # Check for existing job with idempotency_key
+        existing_job = db.query(Job).filter(
+            Job.idempotency_key == job_request.idempotency_key
+        ).first()
+        
+        if existing_job:
+            # Idempotent hit - return existing job with 200
+            logger.info(
+                "Idempotent job request - returning existing job",
+                job_id=existing_job.id,
+                idempotency_key=job_request.idempotency_key,
+            )
+            
+            response.status_code = status.HTTP_200_OK
+            return JobCreateResponse(
+                id=existing_job.id,
+                type=existing_job.type,
+                status=existing_job.status,
+                idempotency_key=existing_job.idempotency_key,
+                created_at=existing_job.created_at,
+                task_id=existing_job.task_id,
+                queue=routing_config["queue"],
+                message="Job already exists (idempotent request)",
+                is_duplicate=True,
+            )
+        
+        # Create new job
+        new_job = Job(
+            idempotency_key=job_request.idempotency_key,
+            type=job_request.type,
+            status=JobStatus.PENDING,
+            params=job_request.params,
+            user_id=current_user.id if current_user else None,
+            priority=job_request.priority or 0,
+            progress=0,
+            attempts=0,
+            cancel_requested=False,
+            retry_count=0,
+            max_retries=routing_config.get("max_retries", 3),
+            timeout_seconds=routing_config.get("timeout_seconds", 3600),
+        )
+        
+        # Add and flush to get the ID
+        db.add(new_job)
+        db.flush()
+        
+        # Update task_payload with actual job_id
+        task_payload.job_id = str(new_job.id)
+        
+        # Commit the transaction before publishing
+        db.commit()
+        
+        logger.info(
+            "Job created successfully",
+            job_id=new_job.id,
+            job_type=new_job.type.value,
+            idempotency_key=new_job.idempotency_key,
+        )
+        
+        # Publish task to queue (after commit)
+        try:
+            publish_result = publish_job_task(task_payload, routing_config)
+            
+            # Update job with task_id
+            new_job.task_id = publish_result.job_id
+            new_job.status = JobStatus.QUEUED
+            db.commit()
+            
+            logger.info(
+                "Job task published successfully",
+                job_id=new_job.id,
+                task_id=publish_result.job_id,
+                queue=routing_config["queue"],
+            )
+            
+        except Exception as e:
+            logger.error(
+                "Failed to publish job task",
+                job_id=new_job.id,
+                error=str(e),
+            )
+            # Job is created but not queued - leave as PENDING
+            # Don't fail the request since job is already persisted
+        
+        # Set Location header for new resource
+        response.headers["Location"] = f"/api/v1/jobs/{new_job.id}"
+        
+        return JobCreateResponse(
+            id=new_job.id,
+            type=new_job.type,
+            status=new_job.status,
+            idempotency_key=new_job.idempotency_key,
+            created_at=new_job.created_at,
+            task_id=new_job.task_id,
+            queue=routing_config["queue"],
+            message=f"Job created and queued to {routing_config['queue']}",
+            is_duplicate=False,
+        )
+        
+    except IntegrityError as e:
+        db.rollback()
+        
+        # Handle unique constraint violation (race condition)
+        if "idempotency_key" in str(e):
+            # Try to fetch the job that was just created by another request
+            existing_job = db.query(Job).filter(
+                Job.idempotency_key == job_request.idempotency_key
+            ).first()
+            
+            if existing_job:
+                logger.info(
+                    "Race condition resolved - returning existing job",
+                    job_id=existing_job.id,
+                    idempotency_key=job_request.idempotency_key,
+                )
+                
+                response.status_code = status.HTTP_200_OK
+                return JobCreateResponse(
+                    id=existing_job.id,
+                    type=existing_job.type,
+                    status=existing_job.status,
+                    idempotency_key=existing_job.idempotency_key,
+                    created_at=existing_job.created_at,
+                    task_id=existing_job.task_id,
+                    queue=routing_config["queue"],
+                    message="Job already exists (race condition resolved)",
+                    is_duplicate=True,
+                )
+        
+        logger.error(
+            "Database integrity error",
+            error=str(e),
+            idempotency_key=job_request.idempotency_key,
+        )
+        
+        return JSONResponse(
+            status_code=status.HTTP_409_CONFLICT,
+            content=JobErrorResponse(
+                error="ERR-JOB-409",
+                message="Database conflict occurred",
+                details={"error": "integrity_error"},
+                retryable=True,
+            ).dict(),
+        )
+        
+    except Exception as e:
+        db.rollback()
+        logger.error(
+            "Unexpected error creating job",
+            error=str(e),
+            idempotency_key=job_request.idempotency_key,
+        )
+        
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content=JobErrorResponse(
+                error="ERR-JOB-500",
+                message="Internal server error occurred",
+                details={"error": type(e).__name__},
+                retryable=True,
+            ).dict(),
+        )
 
 
 @router.get("")

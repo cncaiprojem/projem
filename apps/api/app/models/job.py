@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional, List
 
 from sqlalchemy import (
-    String, Integer, ForeignKey, Index, 
+    String, Integer, ForeignKey, Index, Boolean,
     DateTime, CheckConstraint, Enum as SQLEnum
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -105,6 +105,19 @@ class Job(Base, TimestampMixin):
         default=3
     )
     
+    # Task 6.4: Additional fields for job orchestration
+    attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        comment="Number of execution attempts"
+    )
+    cancel_requested: Mapped[bool] = mapped_column(
+        default=False,
+        nullable=False,
+        comment="Flag for cooperative cancellation"
+    )
+    
     # Timeout
     timeout_seconds: Mapped[int] = mapped_column(
         Integer,
@@ -131,13 +144,14 @@ class Job(Base, TimestampMixin):
         back_populates="job"
     )
     
-    # Constraints and indexes (Task 2.3 requirements)
+    # Constraints and indexes (Task 2.3 requirements + Task 6.4)
     __table_args__ = (
         CheckConstraint('progress >= 0 AND progress <= 100',
                        name='ck_jobs_progress_valid'),
         CheckConstraint('retry_count >= 0', name='ck_jobs_retry_count_non_negative'),
         CheckConstraint('max_retries >= 0', name='ck_jobs_max_retries_non_negative'),
         CheckConstraint('timeout_seconds > 0', name='ck_jobs_timeout_positive'),
+        CheckConstraint('attempts >= 0', name='ck_jobs_attempts_non_negative'),
         Index('idx_jobs_status_created_at', 'status', 'created_at'),
         Index('idx_jobs_user_id', 'user_id'),
         Index('idx_jobs_type', 'type'),
@@ -149,6 +163,8 @@ class Job(Base, TimestampMixin):
         Index('idx_jobs_input_params', 'input_params',
               postgresql_using='gin',
               postgresql_where='input_params IS NOT NULL'),
+        Index('idx_jobs_cancel_requested', 'cancel_requested',
+              postgresql_where='cancel_requested = true'),
     )
     
     def __repr__(self) -> str:

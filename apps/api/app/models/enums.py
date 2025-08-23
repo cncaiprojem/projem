@@ -37,7 +37,16 @@ class LicenseStatus(str, enum.Enum):
 
 
 class JobType(str, enum.Enum):
-    """Types of processing jobs."""
+    """Types of processing jobs - Task 6.3 specification."""
+    # Task 6.3 primary job types
+    AI = "ai"  # AI/ML tasks
+    MODEL = "model"  # 3D model generation
+    CAM = "cam"  # CAM path generation
+    SIM = "sim"  # Simulation tasks
+    REPORT = "report"  # Report generation
+    ERP = "erp"  # ERP integration
+    
+    # Legacy job types (kept for backward compatibility)
     CAD_GENERATE = "cad_generate"
     CAD_IMPORT = "cad_import"
     CAD_EXPORT = "cad_export"
