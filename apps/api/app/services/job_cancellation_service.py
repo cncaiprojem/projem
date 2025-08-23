@@ -171,10 +171,7 @@ class JobCancellationService:
                     # Redis failure is non-fatal - DB is source of truth
                     logger.warning(f"Failed to set Redis cancel flag for job {job_id}: {e}")
             
-            # Commit database changes
-            db.commit()
-            
-            # Create audit log
+            # Create audit log BEFORE committing for atomic transaction
             await self._create_cancellation_audit(
                 db=db,
                 job_id=job_id,
@@ -190,7 +187,10 @@ class JobCancellationService:
                     "task_id": job.task_id
                 }
             )
-            db.commit()  # Commit audit entry to database
+            
+            # Single atomic commit for both job update and audit entry
+            # This ensures data consistency - either both succeed or both fail
+            db.commit()
             
             logger.info(
                 f"Cancellation requested for job {job_id}",
