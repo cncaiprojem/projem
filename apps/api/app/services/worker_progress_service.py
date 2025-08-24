@@ -424,7 +424,8 @@ class WorkerProgressService:
         status: JobStatus,
         error_code: Optional[str] = None,
         error_message: Optional[str] = None,
-        output_data: Optional[Dict[str, Any]] = None
+        output_data: Optional[Dict[str, Any]] = None,
+        worker_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Update job status and publish status change event.
@@ -438,6 +439,7 @@ class WorkerProgressService:
             error_code: Error code if failed
             error_message: Error message if failed
             output_data: Output data if completed
+            worker_id: Worker process/thread ID processing the job
             
         Returns:
             Dict with update status and details
@@ -529,7 +531,7 @@ class WorkerProgressService:
                     await job_audit_service.audit_job_started(
                         db=db,
                         job_id=job_id,
-                        worker_id=None,  # TODO: Get worker ID from context
+                        worker_id=worker_id,  # Now passed from caller context
                         task_id=job.task_id,
                         metadata={"previous_status": previous_status.value if previous_status else None}
                     )

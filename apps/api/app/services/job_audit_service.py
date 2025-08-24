@@ -43,6 +43,9 @@ JOB_EVENT_TYPES = {
     "dlq_replayed": "job_dlq_replayed",
 }
 
+# Reverse mapping for verification (from full event type to short form)
+JOB_EVENT_TYPE_REVERSE_MAP = {v: k for k, v in JOB_EVENT_TYPES.items()}
+
 
 class JobAuditService:
     """
@@ -117,16 +120,16 @@ class JobAuditService:
             prev_hash: Previous entry's chain_hash (32 zero bytes for first entry)
             job_id: Job ID being audited
             event_type: Type of job event
-            payload: Event payload data
+            payload: Event payload data (must include timestamp for deterministic hashing)
             
         Returns:
             64-character hex SHA256 hash
         """
         # Build canonical payload with job context
+        # Note: timestamp must be in payload already for deterministic hashing
         canonical_payload = {
             "job_id": job_id,
             "event_type": event_type,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
             **payload
         }
         
@@ -157,6 +160,7 @@ class JobAuditService:
             Created audit log entry
         """
         payload = {
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "job_type": job.type.value if hasattr(job.type, 'value') else str(job.type),
             "priority": job.priority,
             "params": job.params,
@@ -512,7 +516,8 @@ class JobAuditService:
             
             # Determine previous hash
             if prev_job_audit:
-                prev_hash = prev_job_audit.chain_hash
+                # chain_hash is stored in the payload JSON, not as a direct attribute
+                prev_hash = prev_job_audit.payload.get("chain_hash", "0" * 64)
             else:
                 # First entry for this job - use genesis hash
                 prev_hash = "0" * 64
@@ -619,10 +624,16 @@ class JobAuditService:
                     if k not in ["chain_hash", "prev_hash"]
                 }
                 
+                # Use reverse mapping to get short event type safely
+                short_event_type = JOB_EVENT_TYPE_REVERSE_MAP.get(
+                    entry.event_type, 
+                    entry.event_type.replace("job_", "")  # Fallback for unknown types
+                )
+                
                 expected_hash = JobAuditService.compute_job_chain_hash(
                     prev_hash=prev_hash,
                     job_id=job_id,
-                    event_type=entry.event_type.replace("job_", ""),
+                    event_type=short_event_type,
                     payload=clean_payload
                 )
                 
@@ -696,4 +707,4 @@ def _summarize_output(output_data: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 # Singleton instance
 job_audit_service = JobAuditService()
 
-__all__ = ["JobAuditService", "job_audit_service", "JOB_EVENT_TYPES"]
+__all__ = ["JobAuditService", "job_audit_service", "JOB_EVENT_TYPES", "JOB_EVENT_TYPE_REVERSE_MAP"]

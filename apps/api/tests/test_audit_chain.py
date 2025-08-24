@@ -21,10 +21,8 @@ import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
-import sys
-import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
+# Import models and services using proper Python path
+# Tests should be run from the project root with proper PYTHONPATH
 from app.models.audit_log import AuditLog
 from app.models.enums import JobStatus, JobType
 from app.models.job import Job
