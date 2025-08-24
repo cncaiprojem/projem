@@ -233,11 +233,12 @@ def handle_idempotency(
     if not idempotency_key:
         return None
     
-    # CRITICAL: Check for existing job with same idempotency key FOR THE SAME USER
-    # This prevents data leakage between users
+    # CRITICAL: Check for existing job with same idempotency key FOR THE SAME USER AND JOB TYPE
+    # This prevents data leakage between users and ensures idempotency is scoped per job type
     existing_job = db.query(Job).filter(
         Job.idempotency_key == idempotency_key,
-        Job.user_id == current_user.user_id
+        Job.user_id == current_user.user_id,
+        Job.type == job_type
     ).first()
     
     if existing_job:

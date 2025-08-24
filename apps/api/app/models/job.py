@@ -145,8 +145,7 @@ class Job(Base, TimestampMixin):
     user: Mapped[Optional["User"]] = relationship("User", back_populates="jobs")
     license: Mapped[Optional["License"]] = relationship(
         "License", 
-        back_populates="jobs",
-        foreign_keys=[license_id]
+        back_populates="jobs"
     )
     artefacts: Mapped[List["Artefact"]] = relationship(
         "Artefact",
