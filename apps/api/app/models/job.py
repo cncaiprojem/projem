@@ -37,6 +37,18 @@ class Job(Base, TimestampMixin):
         index=True
     )
     
+    # Task 7.1: License and tenant tracking for job orchestration
+    license_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("licenses.id", ondelete="RESTRICT"),
+        index=True,
+        comment="License used for this job"
+    )
+    tenant_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        index=True,
+        comment="Tenant UUID for multi-tenancy"
+    )
+    
     # Job type and status
     type: Mapped[JobType] = mapped_column(
         SQLEnum(JobType),
@@ -131,6 +143,11 @@ class Job(Base, TimestampMixin):
     
     # Relationships
     user: Mapped[Optional["User"]] = relationship("User", back_populates="jobs")
+    license: Mapped[Optional["License"]] = relationship(
+        "License", 
+        back_populates="jobs",
+        foreign_keys=[license_id]
+    )
     artefacts: Mapped[List["Artefact"]] = relationship(
         "Artefact",
         back_populates="job",
@@ -155,6 +172,10 @@ class Job(Base, TimestampMixin):
         CheckConstraint('attempts >= 0', name='ck_jobs_attempts_non_negative'),
         Index('idx_jobs_status_created_at', 'status', 'created_at'),
         Index('idx_jobs_user_id', 'user_id'),
+        Index('idx_jobs_license_id', 'license_id',
+              postgresql_where='license_id IS NOT NULL'),
+        Index('idx_jobs_tenant_id', 'tenant_id',
+              postgresql_where='tenant_id IS NOT NULL'),
         Index('idx_jobs_type', 'type'),
         Index('idx_jobs_idempotency_key', 'idempotency_key',
               postgresql_where='idempotency_key IS NOT NULL'),

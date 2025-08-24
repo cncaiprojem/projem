@@ -273,6 +273,117 @@ def set_version_headers(response: Response) -> None:
     response.headers["X-API-Version"] = "1"
 
 
+def create_job_from_design(
+    db: Session,
+    current_user: AuthenticatedUser,
+    license: License,
+    body: DesignCreateRequest,
+    idempotency_key: Optional[str],
+    job_type: JobType,
+    input_type: str,
+    extra_metadata: Dict[str, Any] = None
+) -> Job:
+    """
+    Create a job from design request with proper type handling.
+    
+    Args:
+        db: Database session
+        current_user: Authenticated user
+        license: Valid license
+        body: Design request body
+        idempotency_key: Idempotency key
+        job_type: Type of job
+        input_type: Type of input (prompt, params, upload, assembly)
+        extra_metadata: Additional metadata to include
+        
+    Returns:
+        Created job instance
+        
+    Raises:
+        IntegrityError: If database constraint violated
+    """
+    metadata = {
+        "input_type": input_type,
+        "request_id": f"req_{uuid4().hex[:10]}",
+        "chain_cam": body.chain_cam,
+        "chain_sim": body.chain_sim
+    }
+    
+    if extra_metadata:
+        metadata.update(extra_metadata)
+    
+    job = Job(
+        idempotency_key=idempotency_key,
+        type=job_type,
+        status=JobStatus.PENDING,
+        params=body.model_dump(),
+        user_id=current_user.user_id,  # Already an int from User model
+        license_id=license.id,  # Already an int from License model
+        tenant_id=current_user.tenant_id,  # String UUID from JWT claims
+        priority=body.priority,
+        metadata=metadata
+    )
+    
+    db.add(job)
+    db.commit()
+    
+    return job
+
+
+def publish_job_and_respond(
+    job: Job,
+    current_user: AuthenticatedUser,
+    license: License,
+    response: Response,
+    estimated_duration: int = 120
+) -> DesignJobResponse:
+    """
+    Publish job to queue and return response.
+    
+    Args:
+        job: Created job
+        current_user: Authenticated user
+        license: License used
+        response: FastAPI response object
+        estimated_duration: Estimated job duration in seconds
+        
+    Returns:
+        Design job response
+    """
+    # Get routing configuration
+    routing_config = get_routing_config_for_job_type(job.type)
+    
+    # Publish to queue
+    task_payload = {
+        "job_id": str(job.id),
+        "type": job.type.value,
+        "params": job.params,
+        "submitted_by": str(current_user.user_id),
+        "license_id": str(license.id),
+        "tenant_id": current_user.tenant_id if current_user.tenant_id else None,
+    }
+    
+    publish_job_task(task_payload, routing_config)
+    
+    logger.info(
+        "Design job published to queue",
+        job_id=job.id,
+        user_id=current_user.user_id,
+        job_type=job.type.value,
+        queue=routing_config["queue"]
+    )
+    
+    set_version_headers(response)
+    return DesignJobResponse(
+        job_id=job.id,
+        request_id=job.metadata["request_id"],
+        status="accepted",
+        queue=routing_config["queue"],
+        estimated_duration=estimated_duration,
+        created_at=job.created_at
+    )
+
+
 @router.post(
     "/designs/prompt",
     response_model=DesignJobResponse,
@@ -333,58 +444,24 @@ async def create_design_from_prompt(
             created_at=existing_job.created_at
         )
     
-    # Create new job
+    # Create new job using shared helper
     try:
-        job = Job(
+        job = create_job_from_design(
+            db=db,
+            current_user=current_user,
+            license=license,
+            body=body,
             idempotency_key=idempotency_key,
-            type=JobType.MODEL_GENERATION,
-            status=JobStatus.PENDING,
-            params=body.model_dump(),
-            user_id=UUID(current_user.user_id),
-            license_id=license.id,
-            tenant_id=UUID(current_user.tenant_id) if current_user.tenant_id else None,
-            priority=body.priority,
-            metadata={
-                "input_type": "prompt",
-                "request_id": f"req_{uuid4().hex[:10]}",
-                "chain_cam": body.chain_cam,
-                "chain_sim": body.chain_sim
-            }
+            job_type=JobType.MODEL_GENERATION,
+            input_type="prompt"
         )
         
-        db.add(job)
-        db.commit()
-        
-        # Get routing configuration
-        routing_config = get_routing_config_for_job_type(JobType.MODEL_GENERATION)
-        
-        # Publish to queue
-        task_payload = {
-            "job_id": str(job.id),
-            "type": "model_generation",
-            "params": body.model_dump(),
-            "submitted_by": str(current_user.user_id),
-            "license_id": str(license.id),
-            "tenant_id": str(current_user.tenant_id) if current_user.tenant_id else None,
-        }
-        
-        publish_job_task(task_payload, routing_config)
-        
-        logger.info(
-            "Design job created from prompt",
-            job_id=job.id,
-            user_id=current_user.user_id,
-            queue=routing_config["queue"]
-        )
-        
-        set_version_headers(response)
-        return DesignJobResponse(
-            job_id=job.id,
-            request_id=job.metadata["request_id"],
-            status="accepted",
-            queue=routing_config["queue"],
-            estimated_duration=120,
-            created_at=job.created_at
+        return publish_job_and_respond(
+            job=job,
+            current_user=current_user,
+            license=license,
+            response=response,
+            estimated_duration=120
         )
         
     except IntegrityError as e:
@@ -456,60 +533,25 @@ async def create_design_from_params(
             created_at=existing_job.created_at
         )
     
-    # Create new job
+    # Create new job using shared helper
     try:
-        job = Job(
+        job = create_job_from_design(
+            db=db,
+            current_user=current_user,
+            license=license,
+            body=body,
             idempotency_key=idempotency_key,
-            type=JobType.MODEL_GENERATION,
-            status=JobStatus.PENDING,
-            params=body.model_dump(),
-            user_id=UUID(current_user.user_id),
-            license_id=license.id,
-            tenant_id=UUID(current_user.tenant_id) if current_user.tenant_id else None,
-            priority=body.priority,
-            metadata={
-                "input_type": "params",
-                "request_id": f"req_{uuid4().hex[:10]}",
-                "template_id": body.design.template_id,
-                "chain_cam": body.chain_cam,
-                "chain_sim": body.chain_sim
-            }
+            job_type=JobType.MODEL_GENERATION,
+            input_type="params",
+            extra_metadata={"template_id": body.design.template_id}
         )
         
-        db.add(job)
-        db.commit()
-        
-        # Get routing configuration
-        routing_config = get_routing_config_for_job_type(JobType.MODEL_GENERATION)
-        
-        # Publish to queue
-        task_payload = {
-            "job_id": str(job.id),
-            "type": "model_generation",
-            "params": body.model_dump(),
-            "submitted_by": str(current_user.user_id),
-            "license_id": str(license.id),
-            "tenant_id": str(current_user.tenant_id) if current_user.tenant_id else None,
-        }
-        
-        publish_job_task(task_payload, routing_config)
-        
-        logger.info(
-            "Design job created from parameters",
-            job_id=job.id,
-            user_id=current_user.user_id,
-            template_id=body.design.template_id,
-            queue=routing_config["queue"]
-        )
-        
-        set_version_headers(response)
-        return DesignJobResponse(
-            job_id=job.id,
-            request_id=job.metadata["request_id"],
-            status="accepted",
-            queue=routing_config["queue"],
-            estimated_duration=60,
-            created_at=job.created_at
+        return publish_job_and_respond(
+            job=job,
+            current_user=current_user,
+            license=license,
+            response=response,
+            estimated_duration=60
         )
         
     except IntegrityError as e:
@@ -588,61 +630,28 @@ async def create_design_from_upload(
             created_at=existing_job.created_at
         )
     
-    # Create new job
+    # Create new job using shared helper
     try:
-        job = Job(
+        job = create_job_from_design(
+            db=db,
+            current_user=current_user,
+            license=license,
+            body=body,
             idempotency_key=idempotency_key,
-            type=JobType.MODEL_GENERATION,
-            status=JobStatus.PENDING,
-            params=body.model_dump(),
-            user_id=UUID(current_user.user_id),
-            license_id=license.id,
-            tenant_id=UUID(current_user.tenant_id) if current_user.tenant_id else None,
-            priority=body.priority,
-            metadata={
-                "input_type": "upload",
-                "request_id": f"req_{uuid4().hex[:10]}",
+            job_type=JobType.MODEL_GENERATION,
+            input_type="upload",
+            extra_metadata={
                 "s3_key": body.design.s3_key,
-                "file_format": body.design.file_format,
-                "chain_cam": body.chain_cam,
-                "chain_sim": body.chain_sim
+                "file_format": body.design.file_format
             }
         )
         
-        db.add(job)
-        db.commit()
-        
-        # Get routing configuration
-        routing_config = get_routing_config_for_job_type(JobType.MODEL_GENERATION)
-        
-        # Publish to queue
-        task_payload = {
-            "job_id": str(job.id),
-            "type": "model_generation",
-            "params": body.model_dump(),
-            "submitted_by": str(current_user.user_id),
-            "license_id": str(license.id),
-            "tenant_id": str(current_user.tenant_id) if current_user.tenant_id else None,
-        }
-        
-        publish_job_task(task_payload, routing_config)
-        
-        logger.info(
-            "Design job created from upload",
-            job_id=job.id,
-            user_id=current_user.user_id,
-            s3_key=body.design.s3_key,
-            queue=routing_config["queue"]
-        )
-        
-        set_version_headers(response)
-        return DesignJobResponse(
-            job_id=job.id,
-            request_id=job.metadata["request_id"],
-            status="accepted",
-            queue=routing_config["queue"],
-            estimated_duration=30,
-            created_at=job.created_at
+        return publish_job_and_respond(
+            job=job,
+            current_user=current_user,
+            license=license,
+            response=response,
+            estimated_duration=90
         )
         
     except IntegrityError as e:
@@ -714,61 +723,28 @@ async def create_assembly4(
             created_at=existing_job.created_at
         )
     
-    # Create new job
+    # Create new job using shared helper
     try:
-        job = Job(
+        job = create_job_from_design(
+            db=db,
+            current_user=current_user,
+            license=license,
+            body=body,
             idempotency_key=idempotency_key,
-            type=JobType.MODEL_GENERATION,
-            status=JobStatus.PENDING,
-            params=body.model_dump(),
-            user_id=UUID(current_user.user_id),
-            license_id=license.id,
-            tenant_id=UUID(current_user.tenant_id) if current_user.tenant_id else None,
-            priority=body.priority,
-            metadata={
-                "input_type": "assembly4",
-                "request_id": f"req_{uuid4().hex[:10]}",
+            job_type=JobType.MODEL_GENERATION,
+            input_type="assembly4",
+            extra_metadata={
                 "part_count": len(body.design.parts),
-                "constraint_count": len(body.design.constraints),
-                "chain_cam": body.chain_cam,
-                "chain_sim": body.chain_sim
+                "constraint_count": len(body.design.constraints)
             }
         )
         
-        db.add(job)
-        db.commit()
-        
-        # Get routing configuration
-        routing_config = get_routing_config_for_job_type(JobType.MODEL_GENERATION)
-        
-        # Publish to queue
-        task_payload = {
-            "job_id": str(job.id),
-            "type": "model_generation",
-            "params": body.model_dump(),
-            "submitted_by": str(current_user.user_id),
-            "license_id": str(license.id),
-            "tenant_id": str(current_user.tenant_id) if current_user.tenant_id else None,
-        }
-        
-        publish_job_task(task_payload, routing_config)
-        
-        logger.info(
-            "Assembly4 job created",
-            job_id=job.id,
-            user_id=current_user.user_id,
-            part_count=len(body.design.parts),
-            queue=routing_config["queue"]
-        )
-        
-        set_version_headers(response)
-        return DesignJobResponse(
-            job_id=job.id,
-            request_id=job.metadata["request_id"],
-            status="accepted",
-            queue=routing_config["queue"],
-            estimated_duration=180,
-            created_at=job.created_at
+        return publish_job_and_respond(
+            job=job,
+            current_user=current_user,
+            license=license,
+            response=response,
+            estimated_duration=180
         )
         
     except IntegrityError as e:

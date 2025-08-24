@@ -95,7 +95,7 @@ def auth_headers(test_user):
         "jti": str(uuid4())
     }
     
-    token = jwt_service._encode_token(claims)
+    token = jwt_service.create_test_token(claims)
     return {"Authorization": f"Bearer {token}"}
 
 
@@ -146,8 +146,24 @@ class TestDesignPromptEndpoint:
         
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
     
-    def test_prompt_rate_limiting(self, client, auth_headers):
+    def test_prompt_rate_limiting(self, client, auth_headers, monkeypatch):
         """Test prompt-specific rate limiting (30/min)."""
+        from ...core.rate_limiter import RateLimiter
+        
+        # Mock the rate limiter to simulate rate limit exceeded
+        def mock_check_rate_limit(self, key):
+            # Return False on the second call to simulate rate limit
+            if not hasattr(self, '_call_count'):
+                self._call_count = 0
+            self._call_count += 1
+            return self._call_count <= 1
+        
+        def mock_get_remaining(self, key):
+            return 0, 45  # 0 remaining, reset in 45 seconds
+        
+        monkeypatch.setattr(RateLimiter, "check_rate_limit", mock_check_rate_limit)
+        monkeypatch.setattr(RateLimiter, "get_remaining", mock_get_remaining)
+        
         request_body = {
             "design": {
                 "type": "prompt",
@@ -155,19 +171,22 @@ class TestDesignPromptEndpoint:
             }
         }
         
-        # Note: This is a simplified test. In production, you'd need
-        # to actually make 31 requests to trigger the rate limit
-        # For now, we just verify the endpoint accepts the request
-        response = client.post(
+        # First request should succeed
+        response1 = client.post(
             "/api/v1/designs/prompt",
             json=request_body,
             headers=auth_headers
         )
+        assert response1.status_code == status.HTTP_202_ACCEPTED
         
-        assert response.status_code in [
-            status.HTTP_202_ACCEPTED,
-            status.HTTP_429_TOO_MANY_REQUESTS
-        ]
+        # Second request should be rate limited
+        response2 = client.post(
+            "/api/v1/designs/prompt",
+            json=request_body,
+            headers=auth_headers
+        )
+        assert response2.status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert "retry_after" in response2.json()["detail"]
     
     def test_prompt_idempotency(self, client, auth_headers):
         """Test idempotency key handling."""
@@ -314,8 +333,16 @@ class TestDesignParametricEndpoint:
 class TestDesignUploadEndpoint:
     """Test POST /api/v1/designs/upload endpoint."""
     
-    def test_create_design_from_upload_success(self, client, auth_headers):
+    def test_create_design_from_upload_success(self, client, auth_headers, monkeypatch):
         """Test successful file upload processing."""
+        # Mock S3 service to always return True for object existence
+        from ...storage import s3_service
+        
+        def mock_object_exists(key):
+            return True
+        
+        monkeypatch.setattr(s3_service, "object_exists", mock_object_exists)
+        
         request_body = {
             "design": {
                 "type": "upload",
@@ -334,12 +361,11 @@ class TestDesignUploadEndpoint:
             headers=auth_headers
         )
         
-        # Note: Will fail if S3 service can't find the file
-        # In production tests, you'd mock the S3 service
-        assert response.status_code in [
-            status.HTTP_202_ACCEPTED,
-            status.HTTP_422_UNPROCESSABLE_ENTITY
-        ]
+        # With mocked S3, should always succeed
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        data = response.json()
+        assert "job_id" in data
+        assert data["status"] == "accepted"
     
     def test_upload_file_size_limit(self, client, auth_headers):
         """Test file size limit validation (100MB)."""
@@ -576,7 +602,7 @@ class TestLicenseValidation:
             "jti": str(uuid4())
         }
         
-        token = jwt_service._encode_token(claims)
+        token = jwt_service.create_test_token(claims)
         headers = {"Authorization": f"Bearer {token}"}
         
         request_body = {
@@ -632,7 +658,7 @@ class TestLicenseValidation:
             "jti": str(uuid4())
         }
         
-        token = jwt_service._encode_token(claims)
+        token = jwt_service.create_test_token(claims)
         headers = {"Authorization": f"Bearer {token}"}
         
         request_body = {

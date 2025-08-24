@@ -216,6 +216,29 @@ class JWTService:
                 {'error_type': type(e).__name__}
             )
     
+    def create_test_token(self, claims: dict) -> str:
+        """
+        Create a JWT token with custom claims for testing purposes.
+        
+        Args:
+            claims: Dictionary of JWT claims
+            
+        Returns:
+            Encoded JWT token string
+            
+        Note:
+            This method is intended for testing only and should not be used
+            in production code. It bypasses normal validation and database checks.
+        """
+        # Encode JWT with PyJWT 2.8
+        token = jwt.encode(
+            claims,
+            self.secret_key,
+            algorithm=self.algorithm
+        )
+        
+        return token
+    
     def verify_access_token(
         self,
         token: str,
