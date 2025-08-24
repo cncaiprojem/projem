@@ -1,6 +1,6 @@
 # Task ID: 2
 # Title: Database Schema and Migrations
-# Status: pending
+# Status: done
 # Dependencies: 1
 # Priority: high
 # Description: Implement PostgreSQL schema per PRD with indices, constraints, and seed data (tools). Add audit hash-chain capability and idempotency constraints.
@@ -28,7 +28,7 @@ Pseudocode (Alembic example):
 Run alembic upgrade head on clean DB. Verify constraints by attempting duplicates (expect errors). Confirm FK behaviors. Check hash-chain creation by inserting two audit logs and verifying deterministic chain. Query plans show indexes used. Unit tests for models; migration downgrade/upgrade cycle validated.
 
 # Subtasks:
-## 1. Finalize ERD, enums, and canonicalization rules [pending]
+## 1. Finalize ERD, enums, and canonicalization rules [done]
 ### Dependencies: None
 ### Description: Produce the final PostgreSQL ERD and enum/type definitions per PRD, and define canonical JSON and audit hash-chain scopes.
 ### Details:
@@ -40,7 +40,7 @@ Run alembic upgrade head on clean DB. Verify constraints by attempting duplicate
 - Canonical JSON rules: UTF-8; stable key sort; no whitespace; numbers as strings with fixed precision if required or use JSONB deterministic dumps; exclude non-deterministic fields; nulls explicit.
 - Idempotency key policy for jobs (string length, charset, uniqueness, retry semantics).
 
-## 2. Alembic setup and base migration [pending]
+## 2. Alembic setup and base migration [done]
 ### Dependencies: 2.1
 ### Description: Set up Alembic for PostgreSQL 17.6 with SQLAlchemy 2.0 models and naming conventions; create base revision.
 ### Details:
@@ -50,7 +50,7 @@ Run alembic upgrade head on clean DB. Verify constraints by attempting duplicate
 - Create initial empty base revision ("base") to anchor subsequent DDL.
 - Add helper utilities for creating enums, GIN indexes, and check constraints.
 
-## 3. Create core tables: users, sessions, licenses, models, jobs [pending]
+## 3. Create core tables: users, sessions, licenses, models, jobs [done]
 ### Dependencies: 2.2
 ### Description: Implement Alembic migration to create core domain tables with required PKs, FKs, uniques, and base indexes.
 ### Details:
@@ -60,7 +60,7 @@ Run alembic upgrade head on clean DB. Verify constraints by attempting duplicate
 - models: id, user_id FK (RESTRICT), type, params JSONB, metrics JSONB, created_at; optional GIN on params if filtered.
 - jobs: id, user_id FK (RESTRICT), type, status, params JSONB, metrics JSONB, idempotency_key (unique), created_at, updated_at; indexes: (status, created_at), user_id, type; GIN on metrics (and params if needed).
 
-## 4. Create operational tables: cam_runs, sim_runs, artefacts, notifications, erp_mes_sync [pending]
+## 4. Create operational tables: cam_runs, sim_runs, artefacts, notifications, erp_mes_sync [done]
 ### Dependencies: 2.3
 ### Description: Add execution/operations-related tables with correct FKs and cascade behaviors.
 ### Details:
@@ -70,7 +70,7 @@ Run alembic upgrade head on clean DB. Verify constraints by attempting duplicate
 - notifications: id, user_id FK (RESTRICT), type, payload JSONB, read_at, created_at; indexes: user_id, type, read_at.
 - erp_mes_sync: id, external_id, entity_type, entity_id, status, last_sync_at, payload JSONB; indexes: entity_type, status.
 
-## 5. Create billing tables: invoices and payments [pending]
+## 5. Create billing tables: invoices and payments [done]
 ### Dependencies: 2.3
 ### Description: Implement billing-related tables with monetary and provider references and currency checks.
 ### Details:
@@ -79,7 +79,7 @@ Run alembic upgrade head on clean DB. Verify constraints by attempting duplicate
 - Currency check constraint: currency in allowed set; allow multi-currency when current_setting('app.multi_currency', true) = 'on' else enforce 'TRY'.
 - Ensure consistent money precision and non-negative checks.
 
-## 6. Create security and audit tables with hash-chain [pending]
+## 6. Create security and audit tables with hash-chain [done]
 ### Dependencies: 2.2
 ### Description: Add audit_logs (hash-chain) and security_events tables and supporting constraints/indexes.
 ### Details:
@@ -89,7 +89,7 @@ Run alembic upgrade head on clean DB. Verify constraints by attempting duplicate
 - App responsibility: compute chain_hash = sha256(prev_chain_hash || canonical_json(payload)) within the same transaction; store prev_chain_hash from last scope record (or global) as per ERD rules.
 - security_events: id, user_id FK (RESTRICT), type, ip, ua, created_at; indexes: user_id, type, created_at.
 
-## 7. Apply global constraints and performance indexes [pending]
+## 7. Apply global constraints and performance indexes [done]
 ### Dependencies: 2.3, 2.4, 2.5, 2.6
 ### Description: Ensure all uniques, FKs with correct ON DELETE rules, JSONB GIN, and check constraints are in place.
 ### Details:
@@ -100,7 +100,7 @@ Run alembic upgrade head on clean DB. Verify constraints by attempting duplicate
 - Check constraints: currency rules; non-negative amounts; any domain-specific checks per PRD.
 - Add comments to schema objects for maintainability.
 
-## 8. Seed data via data migration [pending]
+## 8. Seed data via data migration [done]
 ### Dependencies: 2.7
 ### Description: Create idempotent data migration to seed machines, materials, and tools.
 ### Details:
@@ -109,7 +109,7 @@ Run alembic upgrade head on clean DB. Verify constraints by attempting duplicate
 - Use INSERT ... ON CONFLICT DO NOTHING or upsert on natural key to make seeding idempotent.
 - Wrap in a separate migration file; provide downgrade that deletes only seeded rows by natural key.
 
-## 9. Migration and integrity test suite [pending]
+## 9. Migration and integrity test suite [done]
 ### Dependencies: 2.6, 2.7, 2.8
 ### Description: Implement tests for upgrade/downgrade, constraints, FK behaviors, audit-chain determinism, and query plans.
 ### Details:
@@ -119,7 +119,7 @@ Run alembic upgrade head on clean DB. Verify constraints by attempting duplicate
 - Audit chain: insert two audit_logs within a tx; verify chain_hash = sha256(prev || canonical_json(payload)) deterministically.
 - Query plans: EXPLAIN (ANALYZE, BUFFERS) on key queries to confirm index usage (jobs status+created_at; licenses status+ends_at; JSONB GIN probe).
 
-## 10. SQLAlchemy model parity and documentation [pending]
+## 10. SQLAlchemy model parity and documentation [done]
 ### Dependencies: 2.7, 2.9
 ### Description: Ensure SQLAlchemy models mirror the DB schema and document idempotency, canonical JSON, and rollback strategy.
 ### Details:

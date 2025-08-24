@@ -1,6 +1,6 @@
 # Task ID: 1
 # Title: Monorepo, Containers and CI/CD Setup
-# Status: pending
+# Status: done
 # Dependencies: None
 # Priority: high
 # Description: Initialize monorepo and containerized dev stack for backend (FastAPI), workers (Celery), frontend (Next.js), DB (PostgreSQL), queue (RabbitMQ), cache/rate-limit (Redis), object storage (MinIO), FreeCAD/CAMotics/FFmpeg utilities. Configure secure env, base logging, and CI/CD.
@@ -29,14 +29,14 @@ Pseudocode (compose excerpt):
   - api: build apps/api, env_file .env, depends on postgres redis rabbitmq minio
   - workers: build apps/workers, command: celery -A app.celery_app worker -Q default,cam,sim -O fair
   - beat: celery beat for schedules
-  - postgres, redis, rabbitmq (with DLX), minio (MINIO_ROOT_USER/PASS), freecad image (FROM freecad/freecad:0.21), camotics (FROM camotics/camotics:1.2)
+  - postgres, redis, rabbitmq (with DLX), minio (MINIO_ROOT_USER/PASS), freecad image (FROM freecad/freecad:1.1.x), camotics (FROM camotics/camotics:1.2)
 
 
 # Test Strategy:
 Smoke boot all containers locally; health endpoints return 200; verify MinIO bucket creation and presigned URL generation in a dry run. CI runs lint/tests on PR. Validate FreeCADCmd, CAMotics, FFmpeg versions available in containers. Security: Trivy scan images, check no secrets in repo. E2E: Playwright hits login page and fetches health.
 
 # Subtasks:
-## 1. Monorepo scaffolding, conventions, pre-commit and onboarding [pending]
+## 1. Monorepo scaffolding, conventions, pre-commit and onboarding [done]
 ### Dependencies: None
 ### Description: Initialize monorepo structure (/apps, /infra), repository conventions, pre-commit hooks, EditorConfig, Makefile/Taskfile, and onboarding docs.
 ### Details:
@@ -73,7 +73,7 @@ Verification commands:
 - tree -L 3
 - make help
 
-## 2. .env templates and secret handling strategy [pending]
+## 2. .env templates and secret handling strategy [done]
 ### Dependencies: 1.1
 ### Description: Provide environment variable templates, validation, and guidance for Doppler/Vault integration later.
 ### Details:
@@ -108,7 +108,7 @@ Verification commands:
 - python -c "from app.core.settings import Settings; print(Settings().model_dump())" (from /apps/api)
 - grep -R "SECRET" -n . to ensure no real secrets present
 
-## 3. FastAPI backend skeleton with health and DB/Alembic base [pending]
+## 3. FastAPI backend skeleton with health and DB/Alembic base [done]
 ### Dependencies: 1.1, 1.2
 ### Description: Create FastAPI app with /healthz, basic routes structure, SQLAlchemy/Alembic setup, Uvicorn config.
 ### Details:
@@ -143,7 +143,7 @@ Verification commands:
 - curl http://localhost:8000/healthz
 - alembic upgrade head
 
-## 4. Celery workers + Celery Beat wiring [pending]
+## 4. Celery workers + Celery Beat wiring [done]
 ### Dependencies: 1.1, 1.2, 1.3
 ### Description: Set up Celery app for workers and scheduled jobs (Beat), queues, and basic task placeholders.
 ### Details:
@@ -175,7 +175,7 @@ Acceptance criteria:
 Verification commands:
 - cd apps/workers && python -c "from app.celery_app import celery_app; print(celery_app.control.ping())"
 
-## 5. Next.js frontend skeleton with health page [pending]
+## 5. Next.js frontend skeleton with health page [done]
 ### Dependencies: 1.1, 1.2
 ### Description: Initialize Next.js 15.4.0 app with TypeScript, ESLint, TanStack Query, MUI, i18next, Zustand, and a /healthz route.
 ### Details:
@@ -205,7 +205,7 @@ Verification commands:
 - cd apps/web && npm install && npm run dev
 - curl -I http://localhost:3000/healthz
 
-## 6. Base logging (structlog JSON), request_id correlation, OpenTelemetry stubs [pending]
+## 6. Base logging (structlog JSON), request_id correlation, OpenTelemetry stubs [done]
 ### Dependencies: 1.3, 1.4
 ### Description: Implement JSON logging with structlog, request ID middleware, and OTel SDK stubs for api and workers.
 ### Details:
@@ -236,7 +236,7 @@ Verification commands:
 - Run API and curl a route with header X-Request-ID=abc; observe logs.
 - Trigger a Celery task and inspect stdout logs.
 
-## 7. Dockerfiles for API and Workers (Python 3.11) with hardening [pending]
+## 7. Dockerfiles for API and Workers (Python 3.11) with hardening [done]
 ### Dependencies: 1.3, 1.4, 1.6
 ### Description: Create secure, multi-stage Dockerfiles for FastAPI (Uvicorn) and Celery workers/beat.
 ### Details:
@@ -274,7 +274,7 @@ Verification commands:
 - docker run --rm -p 8000:8000 apps-api curl -s localhost:8000/healthz
 - docker build -t apps-workers ./apps/workers
 
-## 8. Dockerfile for Web (Next.js 15.4.0) with hardening [pending]
+## 8. Dockerfile for Web (Next.js 15.4.0) with hardening [done]
 ### Dependencies: 1.5
 ### Description: Create multi-stage Dockerfile for Next.js app with separate builder/runtime and non-root execution.
 ### Details:
@@ -305,7 +305,7 @@ Verification commands:
 - docker build -t apps-web ./apps/web
 - docker run --rm -p 3000:3000 apps-web curl -I localhost:3000/healthz
 
-## 9. Utility images: FreeCADCmd, CAMotics, FFmpeg, optional ClamAV [pending]
+## 9. Utility images: FreeCADCmd, CAMotics, FFmpeg, optional ClamAV [done]
 ### Dependencies: 1.1
 ### Description: Reference or wrap utility images for FreeCAD 1.1.x (FreeCADCmd), CAMotics 1.2.x, FFmpeg 6.x, and optional ClamAV.
 ### Details:
@@ -313,7 +313,7 @@ Goals:
 - Provide containerized tooling images accessible to workers via compose.
 
 Steps:
-- FreeCAD: Dockerfile FROM freecad/freecad:0.21; set ENTRYPOINT ["FreeCADCmd"]; include a non-root user; document usage.
+- FreeCAD: Dockerfile FROM freecad/freecad:1.1.x; set ENTRYPOINT ["FreeCADCmd"]; include a non-root user; document usage.
 - CAMotics: use camotics/camotics:1.2 directly or thin wrapper setting ENTRYPOINT ["camotics"]
 - FFmpeg: use jrottenberg/ffmpeg:6-slim; ensure hardware-agnostic; ENTRYPOINT ["ffmpeg"].
 - ClamAV (optional): clamav/clamav:1.3; expose freshclam and clamscan; mount DB volume.
@@ -324,7 +324,7 @@ Files to create/change:
 - /infra/docker/ffmpeg/Dockerfile (optional if using upstream)
 
 Images/tags:
-- freecad/freecad:0.21 (ENTRY FreeCADCmd)
+- freecad/freecad:1.1.x (ENTRY FreeCADCmd)
 - camotics/camotics:1.2
 - jrottenberg/ffmpeg:6-slim
 - clamav/clamav:1.3
@@ -339,12 +339,12 @@ Acceptance criteria:
 - Containers run and print version info.
 
 Verification commands:
-- docker run --rm freecad/freecad:0.21 FreeCADCmd --version
+- docker run --rm freecad/freecad:1.1.x FreeCADCmd --version
 - docker run --rm camotics/camotics:1.2 camotics --version
 - docker run --rm jrottenberg/ffmpeg:6-slim -version
 - docker run --rm clamav/clamav:1.3 clamscan --version
 
-## 10. docker-compose.dev.yml with services, networks, healthchecks, and smoke script [pending]
+## 10. docker-compose.dev.yml with services, networks, healthchecks, and smoke script [done]
 ### Dependencies: 1.2, 1.7, 1.8, 1.9, 1.11, 1.12
 ### Description: Compose file wiring all services with healthchecks, networks, volumes, and a smoke test script to validate the stack.
 ### Details:
@@ -392,7 +392,7 @@ Verification commands:
 - docker compose -f infra/compose/docker-compose.dev.yml up -d --build
 - ./scripts/smoke.sh
 
-## 11. RabbitMQ with DLX configuration for Celery queues [pending]
+## 11. RabbitMQ with DLX configuration for Celery queues [done]
 ### Dependencies: 1.1, 1.2
 ### Description: Configure RabbitMQ policies/definitions for dead-letter exchanges and Celery queues.
 ### Details:
@@ -427,7 +427,7 @@ Verification commands:
 - docker compose exec rabbitmq rabbitmqctl list_queues name arguments
 - Publish a test message with x-death by rejecting and see it in *_dlq
 
-## 12. MinIO and bucket bootstrap job [pending]
+## 12. MinIO and bucket bootstrap job [done]
 ### Dependencies: 1.1, 1.2
 ### Description: Set up MinIO service and a bootstrap job to create buckets and policies, verify presigned URL generation.
 ### Details:
@@ -464,7 +464,7 @@ Verification commands:
 - docker compose exec minio mc ls local/
 - python -c "from app.services.s3 import client; print(client.presign_put('artefacts','smoke.txt',60))" (adjust path)
 
-## 13. GitHub Actions: Backend CI/CD with SBOM, signing, and scanning [pending]
+## 13. GitHub Actions: Backend CI/CD with SBOM, signing, and scanning [done]
 ### Dependencies: 1.3, 1.4, 1.7
 ### Description: Set up backend workflows: lint (ruff), format check (black), typecheck (mypy), tests (pytest) with coverage gate, build/push images, generate SBOM (syft), sign (cosign), scan (Trivy).
 ### Details:
@@ -498,7 +498,7 @@ Verification commands:
 - gh run watch (from PR)
 - cosign verify ghcr.io/ORG/api:SHA
 
-## 14. GitHub Actions: Frontend CI with lint, typecheck, tests, and Playwright smoke [pending]
+## 14. GitHub Actions: Frontend CI with lint, typecheck, tests, and Playwright smoke [done]
 ### Dependencies: 1.5, 1.8
 ### Description: Set up frontend workflow: ESLint, typecheck, vitest, build, and Playwright e2e smoke using service containers.
 ### Details:

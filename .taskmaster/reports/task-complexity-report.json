@@ -1,53 +1,133 @@
 {
 	"meta": {
-		"generatedAt": "2025-08-16T14:46:16.258Z",
-		"tasksAnalyzed": 5,
+		"generatedAt": "2025-08-24T15:53:21.336Z",
+		"tasksAnalyzed": 1,
 		"totalTasks": 10,
-		"analysisCount": 5,
+		"analysisCount": 15,
 		"thresholdScore": 5,
 		"projectName": "Taskmaster",
 		"usedResearch": true
 	},
 	"complexityAnalysis": [
 		{
-			"taskId": 6,
-			"taskTitle": "Job Orchestration, Idempotency, DLQ and Audit Chain",
-			"complexityScore": 9,
-			"recommendedSubtasks": 12,
-			"expansionPrompt": "Expand this into ~12 subtasks covering: (1) Celery/RabbitMQ topology (primary/DLX/DLQ, quorum vs classic, publisher confirms, QoS/prefetch) and routing; (2) Retry/backoff with jitter per task type, error taxonomy, time limits; (3) Job type enums, payload contracts, schema validation and routing; (4) POST /jobs with transactional idempotency (unique key, insert-on-conflict), enqueue, and rate limiting; (5) GET /jobs/:id with ETag and artefact listing; (6) Cancellation API and cooperative worker checks (Redis-backed flag) and semantics; (7) Progress update helpers and job.status.changed event publishing (internal exchange + ERP bridge); (8) Append-only audit log with hash-chain, canonical JSON, verification tool; (9) Admin DLQ inspection/replay with MFA, justification logging, rate limits; (10) Observability (structlog, Prometheus metrics, OpenTelemetry tracing, dashboards); (11) Schema/migrations and DB constraints for jobs/audit/artefacts; (12) Test plan: unit, concurrency/race, integration (DLQ replay), performance, and failure drills. For each subtask produce: scope, interfaces (HTTP/AMQP/DB), acceptance criteria, security controls, rollout plan, risks, and effort estimate.",
-			"reasoning": "Touches infra, APIs, reliability, security, and tamper-evident auditing with strong concurrency/race conditions; multiple components must work coherently."
-		},
-		{
 			"taskId": 7,
 			"taskTitle": "Model Generation Flows (Prompt, Parametric, Upload, Assembly4) with FreeCAD",
 			"complexityScore": 10,
-			"recommendedSubtasks": 17,
-			"expansionPrompt": "Decompose into ~17 subtasks spanning: (1) API contracts/guards (JWT, licenseGuard, RBAC, rate limits, idempotency); (2) Provider-agnostic AI adapter (OpenAI/Azure) with Turkish locale, PII masking, timeouts/retries/circuit breaker; (3) Deterministic normalize()/validate() engine incl. script-mode AST normalization and security policy; (4) Celery job wiring and lifecycle; (5) FreeCAD worker container and execution harness with cgroups/ulimits; (6) Parametric modeling pipeline; (7) Upload normalization/validation (units/orientation/manifold repair); (8) Assembly4 JSON parser and constraint placement + collision checks; (9) Unified, deterministic export pipeline (FCStd/STEP/STL/GLB) with version pinning; (10) Metrics extraction and telemetry; (11) Artefact storage/linking (S3/MinIO, metadata, presigned URLs); (12) Error taxonomy and user suggestions; (13) Performance tuning & caching strategy (params/prompt/AI caches, warm-ups); (14) Golden artefacts/test corpus and CI integration tests in containers; (15) Security hardening (sandboxing, script linting, PII masking verification); (16) Operational runbooks and troubleshooting; (17) Non-functional tests (determinism, reproducible hashes). Provide interfaces, acceptance tests, and guardrails for determinism and safety.",
-			"reasoning": "Combines AI preprocessing, strict deterministic normalization, CAD scripting security, multiple flows, containerized FreeCAD, exports, caching, and extensive testing."
+			"recommendedSubtasks": 18,
+			"expansionPrompt": "Decompose the end-to-end model generation capability into coherent implementation work packages. Include: (1) API and guards (JWT, licenseGuard, RBAC, rate limiting, idempotency), (2) AI adapter with locale-aware preprocessing and PII masking, (3) deterministic normalize()/validate() including script security/AST allowlist and unit handling, (4) Celery orchestration and lifecycle, (5) FreeCAD worker container and resource sandboxing (ulimit/cgroups), (6) parametric modeling pipeline, (7) upload normalization/validation, (8) Assembly4 parser/placement/collision, (9) unified export pipeline with version pinning, (10) metrics/telemetry, (11) artefact storage and linking, (12) error taxonomy and suggestions, (13) performance and caching, (14) deterministic CI/e2e tests and golden artefacts, (15) observability (structured logs, tracing), (16) security reviews and SBoM, (17) configuration/feature flags, (18) docs/runbooks. For each subtask specify: scope, inputs/outputs, interfaces, data models, non-functional requirements (determinism, security, performance), acceptance tests, rollout/backout plan. Align with FastAPI + Pydantic v2, Celery 5.4, RabbitMQ DLQ, Redis, MinIO, OpenAPI 3.1, and FreeCADCmd 1.1.x. Enforce determinism, reproducibility, PII masking, and clear error codes.",
+			"reasoning": "Highly cross-cutting system: secure APIs, AI preprocessing, deterministic rules, CAD execution in sandboxed containers, multi-format exports, and CI determinism. Complexity is driven by security, performance, reproducibility, and multiple flows converging on a unified pipeline."
+		},
+		{
+			"taskId": 1,
+			"taskTitle": "Define API contracts and guards for model generation endpoints",
+			"complexityScore": 7,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Break down into: (1) OpenAPI 3.1 schemas and Pydantic v2 models, (2) authZ/authN guards (JWT, licenseGuard, RBAC scopes), (3) per-user rate limits and AI-specific limits with Retry-After, (4) idempotency-key handling and conflict detection, (5) jobs/artefacts polling endpoints and pagination, (6) integration tests and negative cases (401/403/409/429). Ensure consistent error schema, request_id propagation, and structured logs.",
+			"reasoning": "Standard API and gateway concerns with idempotency and rate limiting; non-trivial due to multiple endpoints and guard layers but follows well-known FastAPI and OpenAPI patterns."
+		},
+		{
+			"taskId": 2,
+			"taskTitle": "Implement AI adapter (OpenAI/Azure) with timeouts, retries, PII masking, storage",
+			"complexityScore": 8,
+			"recommendedSubtasks": 7,
+			"expansionPrompt": "Decompose into: (1) provider-agnostic interface and config, (2) OpenAI and Azure providers with timeout/backoff/jitter and circuit breaker, (3) locale-aware system prompt and JSON-only enforcement, (4) PII masking pipeline (emails/phones/names/addresses) before logging/storage, (5) response parser/normalizer returning deterministic schema or explicit Ambiguous/Missing errors, (6) per-user adapter-side rate limiting and audit storage (masked), (7) unit/integration tests incl. Turkish scenarios and failure modes.",
+			"reasoning": "Involves third-party API robustness, compliance (PII masking), deterministic output parsing, and resilience patterns like retries and circuit breaking."
+		},
+		{
+			"taskId": 3,
+			"taskTitle": "Build normalize() and validate() deterministic rules engine",
+			"complexityScore": 9,
+			"recommendedSubtasks": 9,
+			"expansionPrompt": "Plan sub-work: (1) canonicalization rules (units→mm, rounding, key ordering), (2) validation rules for required fields/ranges and material↔machine matrix, (3) AI script-mode AST parser and security allowlist/denylist, (4) unit conversion in scripts (suffixes, helpers, comments), (5) API compatibility checks against FreeCAD 1.1.x with deprecation map, (6) dimension extraction and limits, (7) deterministic error codes/messages (TR templates), (8) canonical_script hashing and metadata extraction, (9) comprehensive test matrix and golden snapshots for idempotence.",
+			"reasoning": "Requires deterministic transformations, AST-level security, and strict validation with stable outputs and error semantics; high risk without exhaustive tests."
+		},
+		{
+			"taskId": 4,
+			"taskTitle": "Celery job orchestration and lifecycle for model flows",
+			"complexityScore": 7,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Split into: (1) queue topology and routing (models.* and assemblies.a4), (2) task signatures and context propagation (job_id, request_id, user_id), (3) idempotency and retry policy (transient only) with DLQ, (4) time limits/visibility timeouts and acks_late, (5) structured logging and progress/status transitions, (6) integration tests incl. DLQ and poisoned message handling.",
+			"reasoning": "Well-understood Celery patterns but multi-queue coordination, idempotency, and DLQ correctness need careful configuration and tests."
+		},
+		{
+			"taskId": 5,
+			"taskTitle": "FreeCAD worker container image and execution harness",
+			"complexityScore": 8,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Organize: (1) Dockerfile for FreeCADCmd 1.1.x and Python deps, (2) non-root runtime and filesystem layout, (3) worker harness (arg parsing, temp workspace, cleanup), (4) resource controls (ulimit, cgroups, nice/ionice) and violation handling, (5) observability (stdout/stderr capture, request_id log correlation), (6) CI build and smoke tests ensuring determinism and exit codes.",
+			"reasoning": "Containerizing GUI-less FreeCAD with strict resource controls and reliable harnessing is non-trivial; build reproducibility and isolation are critical."
+		},
+		{
+			"taskId": 6,
+			"taskTitle": "Implement parametric modeling pipeline (example prism with hole)",
+			"complexityScore": 7,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Define: (1) mapping canonical params→FreeCAD geometry with deterministic recompute, (2) material/machine compatibility checks, (3) export FCStd/STEP/STL/GLB via unified exporter, (4) preview generation via trimesh and quality controls, (5) tests verifying artefacts and stable hashes on sample params.",
+			"reasoning": "Moderately complex CAD scripting plus export orchestration; determinism and compatibility checks add constraints but scope is bounded."
+		},
+		{
+			"taskId": 7,
+			"taskTitle": "Upload flow normalization and validation",
+			"complexityScore": 7,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Break into: (1) object storage ingestion and format detection (STEP/IGES/STL), (2) unit and orientation normalization (Z-up, mm), (3) optional mesh repair (trimesh) and weld/merge steps, (4) geometry validation (manifoldness, basic wall checks where inferable), (5) error reporting with remediation hints for corrupted files, (6) outputs and previews with tests covering corrupted/valid cases.",
+			"reasoning": "Multiple CAD formats and geometric robustness tasks; clear validation and remediation guidance are key to usability."
 		},
 		{
 			"taskId": 8,
-			"taskTitle": "CAM Pipeline with FreeCAD Path WB, Tool Library, Post-Processing and Static G-code Validation",
-			"complexityScore": 9,
-			"recommendedSubtasks": 15,
-			"expansionPrompt": "Structure ~15 subtasks: (1) CAM API design/OpenAPI and validation; (2) Tool library schema, seed, and tool↔strategy/geometry validation; (3) Machine→post mapping and file extension rules; (4) Path WB headless harness (Job/WCS/stock/heights) and op sequencing; (5) Machine limits enforcement with remediation; (6) Keep-out AABB intersection and revision; (7) Post-processing to G-code with metadata and SHA256/version rev; (8) Static G-code validator (modal consistency, forbidden codes, caps) + report; (9) Artefact persistence with tags/metadata; (10) Timeouts/resource limits/cancellation; (11) Failure taxonomy and uniform error envelope; (12) Observability (logs/metrics/tracing) and persisted logs; (13) Test fixtures and CI integration E2E; (14) Performance targets and tuning; (15) Documentation and operator guidelines. For each, define inputs/outputs, deterministic settings, acceptance, and safety limits.",
-			"reasoning": "End-to-end CAM involves geometric correctness, machine constraints, deterministic posts, static validation, and robust storage/observability."
+			"taskTitle": "Assembly4 JSON parser and constraint handling",
+			"complexityScore": 8,
+			"recommendedSubtasks": 7,
+			"expansionPrompt": "Plan: (1) input JSON schema and validation, (2) part loading (FCStd/STEP) and caching, (3) LCS resolution and placements, (4) constraint application (Attachment, AxisCoincident, Angle, Offset), (5) collision checks (AABB first) and conflict reporting, (6) assembly export (FCStd/STEP/STL/GLB), (7) sample assemblies and regression tests.",
+			"reasoning": "Complex constraint resolution and placement logic with potential edge cases; correctness and predictable collision reporting require careful design."
 		},
 		{
 			"taskId": 9,
-			"taskTitle": "CAMotics Simulation Integration and Reporting",
-			"complexityScore": 8,
-			"recommendedSubtasks": 10,
-			"expansionPrompt": "Plan ~10 subtasks: (1) Config/schema baseline and observability; (2) Simulation APIs with auth/licenseGuard and queuing; (3) CMX project builder (units/WCS/tools/stock); (4) CAMotics CLI runner with timeout/retry/log tailing; (5) Output parser mapped to sim_report v1 (schema validation); (6) Media capture and FFmpeg encoding (MP4/GIF/snapshot); (7) Artefact storage and DB persistence with idempotency; (8) Progress streaming and alert publishing; (9) Robust error classification, cleanup, and messaging; (10) Test matrix and CI in containers. Specify acceptance criteria, performance budgets, and retry policies.",
-			"reasoning": "Sim orchestration is IO/CPU heavy with media processing, but narrower in scope than full CAM/ERP; requires reliable tooling, parsing, and UX feedback."
+			"taskTitle": "Unified export pipeline with version pinning (FCStd, STEP, STL, GLB)",
+			"complexityScore": 7,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Split into: (1) exporter configuration per format with pinned versions and tolerances, (2) deterministic export settings and transforms, (3) artefact metadata (versions, tolerances, sha256), (4) reproducibility tests across runs in CI, (5) guardrails to avoid redundant exports when cache valid.",
+			"reasoning": "Ensuring deterministic exports across toolchains requires careful parameter pinning and repeatability tests."
 		},
 		{
 			"taskId": 10,
-			"taskTitle": "ERP/MES Integration, Reporting/Analytics, Admin Panel, SIEM & Forensics",
-			"complexityScore": 10,
-			"recommendedSubtasks": 20,
-			"expansionPrompt": "Break into ~20 subtasks: (1) Data models/migrations/config/secrets; (2) Outbound ERP publisher with HMAC and idempotency; (3) Outbound retry scheduler and DLQ/replay; (4) Inbound ERP progress API with signature/IP allowlist; (5) Reconciliation and health checks; (6) Mock ERP server container; (7) Reporting backend summary/detail and aggregates; (8) Report export jobs with signed URLs and TTL; (9) Frontend dashboards (tr-TR) and filters; (10) Alerting quiet hours and repeat policies; (11) RBAC and permissions; (12) Admin modules (users/licenses/catalog/jobs/logs/integrations); (13) Admin security: MFA and IP allowlist; (14) Incident lock and key rotation (dual-key window); (15) SIEM log shipping with masking, DLQ, replay; (16) Audit trail hash-chain and forensic export + verifier; (17) Observability dashboards and SLOs; (18) Data retention/GDPR flows; (19) E2E tests and failure drills; (20) Rollout/change management and runbooks. Include security/compliance requirements, acceptance tests, and operational SLAs for each.",
-			"reasoning": "Spans multiple domains (integrations, analytics, admin UX, security/compliance, SIEM) with strict reliability and governance requirements."
+			"taskTitle": "Metrics extraction and runtime telemetry",
+			"complexityScore": 6,
+			"recommendedSubtasks": 4,
+			"expansionPrompt": "Define: (1) metrics computation (topology counts, triangles, bbox, volume/mass), (2) worker runtime stats capture (CPU/RAM peaks) and duration, (3) persistence and structured logging with request_id, (4) validation tests against golden tolerances.",
+			"reasoning": "Straightforward extraction and logging with some geometric nuance; primarily plumbing and consistency checks."
+		},
+		{
+			"taskId": 11,
+			"taskTitle": "Artefact storage and linking to jobs",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Organize: (1) S3/MinIO client and bucket policy, (2) path scheme and metadata (content-type, sha256, exporter version, request_id), (3) DB persistence with FK and cascade, (4) presigned URLs with TTL and validations, (5) integration tests including failure injection and log verification.",
+			"reasoning": "Standard object storage integration with metadata and referential integrity; needs careful consistency between storage and DB."
+		},
+		{
+			"taskId": 12,
+			"taskTitle": "Error handling, code mapping, and user suggestions",
+			"complexityScore": 6,
+			"recommendedSubtasks": 5,
+			"expansionPrompt": "Break down: (1) unified error taxonomy and code-to-HTTP mapping, (2) worker exception translation with suggestions and remediation links, (3) PII-safe logging with request_id correlation, (4) client-facing error schema and i18n for messages, (5) tests covering all mappings and edge cases.",
+			"reasoning": "Cross-cutting error model design; essential for UX and support, but implementation is manageable with a clear schema."
+		},
+		{
+			"taskId": 13,
+			"taskTitle": "Performance tuning and caching strategy",
+			"complexityScore": 8,
+			"recommendedSubtasks": 6,
+			"expansionPrompt": "Plan: (1) cache keys from canonical params/script hashes and TTL policies, (2) AI suggestion cache keyed by masked prompt, (3) FreeCAD pre-warm and concurrency tuning (prefetch=1, limits), (4) export/artefact reuse and idempotent job short-circuiting, (5) instrumentation for latency and hit rate, (6) load tests and p95 targets without changing outputs.",
+			"reasoning": "Performance gains must not compromise determinism; requires careful cache design, concurrency controls, and thorough measurements."
+		},
+		{
+			"taskId": 14,
+			"taskTitle": "Test data, golden artefacts, and CI integration tests (FreeCAD in container)",
+			"complexityScore": 8,
+			"recommendedSubtasks": 8,
+			"expansionPrompt": "Decompose: (1) deterministic test corpus (prompts, params, uploads, assemblies), (2) golden artefact generation and hash locking, (3) docker-compose CI stack (API, Celery, FreeCAD, MinIO, RabbitMQ, Redis), (4) e2e tests for each endpoint, (5) negative tests (425/422/429/idempotency), (6) reproducibility checks across runs, (7) container version pinning and provenance, (8) reporting on flakiness with automated triage logs.",
+			"reasoning": "End-to-end determinism across containers and CAD exports is challenging; requires curated data, stable environments, and rigorous CI orchestration."
 		}
 	]
 }

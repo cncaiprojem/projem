@@ -8,7 +8,8 @@ FreeCAD-based CNC/CAM/CAD production platform with Turkish UI/UX. Users generate
 
 **Tech Stack**: FastAPI + Celery + Next.js + PostgreSQL + Redis + MinIO + RabbitMQ + FreeCAD  
 **Repository**: https://github.com/cncaiprojem/projem  
-**Development**: Docker Compose orchestration with hot-reload
+**Development**: Docker Compose orchestration with hot-reload  
+**Current Branch Strategy**: Feature branches from main, PRs always created with `--base main`
 
 ## Commands
 
@@ -29,6 +30,8 @@ docker compose -f infra/compose/docker-compose.dev.yml up postgres redis minio r
 make test                                    # All tests
 pytest apps/api/tests -v                    # API tests verbose
 pytest apps/api/tests/test_file.py::test_name  # Single test
+pytest apps/api/tests/integration -v        # Integration tests
+pytest apps/api/tests/performance -v        # Performance tests
 cd apps/web && pnpm test                    # Web unit tests
 cd apps/web && pnpm test:e2e               # Web E2E tests
 
@@ -42,6 +45,9 @@ cd apps/web && pnpm typecheck              # TypeScript type checking
 make run-freecad-smoke                      # Test FreeCAD integration
 make run-s3-smoke                          # Test MinIO/S3 functionality
 make test-celery-rabbitmq                   # Test queue configuration
+
+# Task 6.10 Observability tests
+python apps/api/scripts/test_task_6_10_coverage.py  # Verify observability coverage
 ```
 
 ### Database Operations
@@ -96,8 +102,8 @@ make pre-commit-run                        # Run hooks on all files
 - **Web**: http://localhost:3000 (Next.js)
 - **PostgreSQL**: localhost:5432
 - **Redis**: localhost:6379
-- **MinIO**: http://localhost:9000 (Console: 9001)
-- **RabbitMQ**: localhost:5672 (Management: http://localhost:15672)
+- **MinIO**: http://localhost:9000 (Console: 9001, User: minioadmin, Pass: minioadmin)
+- **RabbitMQ**: localhost:5672 (Management: http://localhost:15672, User: freecad, Pass: freecad_dev_pass)
 
 ### Project Structure
 ```
@@ -142,6 +148,7 @@ infra/
 - Each queue has its own DLX: `{queue}.dlx`
 - Each DLX routes to a DLQ: `{queue}_dlq`
 - DLQs use classic lazy queues for efficient storage
+- Retry configuration: exponential backoff with jitter, queue-specific retry limits
 
 **MinIO Buckets**:
 - `artefacts`: CAD models, G-code files (versioned)
@@ -396,6 +403,15 @@ class MonetaryAmount(BaseModel):
 - Financial precision maintained for regulatory compliance
 - Tax calculations use Decimal with ROUND_HALF_UP for consistency
 
+## Git Workflow & PR Strategy
+
+**IMPORTANT**: Follow this exact workflow for all changes:
+1. All git operations handled by main agent, code changes by subagents
+2. Always checkout from main: `git checkout main && git pull && git checkout -b fix/issue-name`
+3. PRs must be created with `--base main` to ensure proper merging
+4. Subagents MUST read ALL feedback using `gh api --paginate` before making fixes
+5. Use context7 MCP for searching latest examples when stuck
+
 ## Task Management Integration
 
 This project uses Task Master for task tracking. Common commands:
@@ -408,7 +424,32 @@ mcp__task-master__next_task --projectRoot "$(pwd)"
 
 # Update task status
 mcp__task-master__set_task_status --id "1.10" --status "done" --projectRoot "$(pwd)"
+
+# Expand task into subtasks
+mcp__task-master__expand_task --id "7" --projectRoot "$(pwd)"
 ```
+
+### Observability Stack (Task 6.10)
+
+**Structured Logging** (`app/core/logging_config.py`):
+- TurkishCompliantFormatter with PII masking
+- Request context binding
+- Performance log filtering
+
+**Prometheus Metrics** (`app/core/metrics.py`):
+- Job orchestration metrics: creation, progress, duration
+- Queue depth and DLQ monitoring
+- Idempotency and audit chain tracking
+
+**OpenTelemetry Tracing** (`app/core/telemetry.py`):
+- Span creation with job context
+- FastAPI and Celery instrumentation
+- Job lifecycle tracing
+
+**Grafana Dashboard** (`infra/grafana/task-6-10-job-orchestration-dashboard.json`):
+- 16 panels for comprehensive monitoring
+- Queue depths, job rates, error distributions
+- DLQ replay and cancellation tracking
 
 ## Important Instruction Reminders
 

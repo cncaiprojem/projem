@@ -1,6 +1,6 @@
 # Task ID: 3
 # Title: Auth, Sessions, RBAC, MFA, OIDC, Magic Link + Frontend Guards
-# Status: pending
+# Status: done
 # Dependencies: 1, 2
 # Priority: high
 # Description: Implement registration, login (email/password, Google OIDC, magic link), JWT access (30m) and refresh tokens (7d with rotation/revocation), MFA (TOTP for admin/critical actions), RBAC (user/admin). Frontend route guards, CSRF/XSS protections, rate limiting, session idle logout.
@@ -33,7 +33,7 @@ Pseudocode (refresh rotation):
 Unit: password policy, JWT create/verify, refresh rotation, MFA verification, CSRF checks. Integration: OIDC login flow with mocked Google, magic link single-use. Rate limit enforced (429). Frontend: Playwright tests for route guard redirects, idle logout, Turkish UI strings. Security: ZAP scan for XSS/CSRF; brute-force throttling verified.
 
 # Subtasks:
-## 1. Password Authentication (Argon2 + Pepper + Policy) [pending]
+## 1. Password Authentication (Argon2 + Pepper + Policy) [done]
 ### Dependencies: None
 ### Description: Implement email/password registration and login with Argon2 hashing, pepper, unique salts, and strong password policy enforcement.
 ### Details:
@@ -57,7 +57,7 @@ Logging:
 - audit_logs: user_registered, login_succeeded, login_failed (mask email), password_reset_requested, password_reset_completed.
 - security_events: excessive_login_failures, account_locked.
 
-## 2. Sessions Table and Device Fingerprint [pending]
+## 2. Sessions Table and Device Fingerprint [done]
 ### Dependencies: None
 ### Description: Create sessions persistence for refresh rotation with hashed refresh_token, device metadata, and revocation fields.
 ### Details:
@@ -75,7 +75,7 @@ Logging:
 - audit_logs: session_created, session_rotated, session_revoked (with session_id, masked ua/ip).
 - security_events: refresh_reuse_detected, anomalous_device_detected.
 
-## 3. JWT Access/Refresh Tokens with Rotation & Revocation [pending]
+## 3. JWT Access/Refresh Tokens with Rotation & Revocation [done]
 ### Dependencies: 3.1, 3.2
 ### Description: Issue 30m JWT access tokens and 7d refresh tokens stored in httpOnly cookies; implement refresh rotation, revocation, and logout endpoints.
 ### Details:
@@ -99,7 +99,7 @@ Logging:
 - audit_logs: token_refreshed, logout, logout_all.
 - security_events: refresh_reuse, invalid_refresh_cookie, suspicious_refresh_ip_change.
 
-## 4. RBAC Enforcement via FastAPI Dependencies [pending]
+## 4. RBAC Enforcement via FastAPI Dependencies [done]
 ### Dependencies: 3.3
 ### Description: Add role- and scope-based authorization using dependency injectors that read JWT claims.
 ### Details:
@@ -117,7 +117,7 @@ Acceptance:
 Logging:
 - security_events: rbac_forbidden (endpoint, required, provided), missing_auth_header.
 
-## 5. Google OIDC (Authlib) with PKCE/State [pending]
+## 5. Google OIDC (Authlib) with PKCE/State [done]
 ### Dependencies: 3.3, 3.2
 ### Description: Integrate Google OIDC sign-in with PKCE and state validation; map oidc sub to user and issue session/tokens.
 ### Details:
@@ -138,7 +138,7 @@ Logging:
 - audit_logs: oidc_login_started, oidc_login_succeeded, oidc_login_linked.
 - security_events: oidc_state_mismatch, oidc_token_exchange_failed.
 
-## 6. Magic Link Issuance and Consumption [pending]
+## 6. Magic Link Issuance and Consumption [done]
 ### Dependencies: 3.3
 ### Description: Provide passwordless login via single-use, 15-minute signed magic links with issuance and consumption endpoints.
 ### Details:
@@ -159,7 +159,7 @@ Logging:
 - audit_logs: magic_link_issued, magic_link_consumed.
 - security_events: magic_link_invalid, magic_link_reuse_attempt.
 
-## 7. TOTP MFA (pyotp) Setup, Verify, and Backup Codes [pending]
+## 7. TOTP MFA (pyotp) Setup, Verify, and Backup Codes [done]
 ### Dependencies: 3.1, 3.3
 ### Description: Implement TOTP MFA for admins/sensitive actions with setup, verification during login, and optional backup codes.
 ### Details:
@@ -183,7 +183,7 @@ Logging:
 - audit_logs: mfa_enabled, mfa_challenge_succeeded, mfa_disabled.
 - security_events: mfa_challenge_failed, backup_code_used.
 
-## 8. CSRF Double-Submit Protection [pending]
+## 8. CSRF Double-Submit Protection [done]
 ### Dependencies: 3.3
 ### Description: Add double-submit CSRF for browser POST/PUT/PATCH/DELETE when Authorization header present.
 ### Details:
@@ -202,7 +202,7 @@ Acceptance:
 Logging:
 - security_events: csrf_missing, csrf_mismatch (method, path, ua masked).
 
-## 9. Rate Limiting with Redis [pending]
+## 9. Rate Limiting with Redis [done]
 ### Dependencies: None
 ### Description: Configure fastapi-limiter with Redis and apply per-route policies, including login 5/min and AI prompt 30/min.
 ### Details:
@@ -218,7 +218,7 @@ Acceptance:
 Logging:
 - security_events: rate_limited (route, key), potential_bruteforce_detected.
 
-## 10. Security Headers and Input Sanitization [pending]
+## 10. Security Headers and Input Sanitization [done]
 ### Dependencies: None
 ### Description: Add Starlette middleware for CSP, HSTS, frame-ancestors deny, and sanitize inputs to mitigate XSS/Injection.
 ### Details:
@@ -234,7 +234,7 @@ Acceptance:
 Logging:
 - security_events: csp_violation_report (if enabled), xss_attempt_detected.
 
-## 11. Audit and Security Event Logging with PII Masking [pending]
+## 11. Audit and Security Event Logging with PII Masking [done]
 ### Dependencies: None
 ### Description: Implement structured audit and security logs with masking and correlation IDs; persist to audit_logs and security_events.
 ### Details:
@@ -252,7 +252,7 @@ Acceptance:
 Logging:
 - Applies across all other subtasks; provides emitters/utilities for consistent logging.
 
-## 12. Dev-Mode Toggles and Production Hardening [pending]
+## 12. Dev-Mode Toggles and Production Hardening [done]
 ### Dependencies: 3.3
 ### Description: Introduce dev-mode behaviors and enforce production-only security settings.
 ### Details:
@@ -270,7 +270,7 @@ Logging:
 - audit_logs: config_loaded (env summary sans secrets).
 - security_events: insecure_config_detected (prod with insecure flags).
 
-## 13. Frontend Auth Pages and Turkish i18n [pending]
+## 13. Frontend Auth Pages and Turkish i18n [done]
 ### Dependencies: 3.1, 3.3, 3.5, 3.6, 3.8
 ### Description: Build Next.js pages for login/register, OIDC callback, and magic link; integrate React Hook Form and i18next (TR default).
 ### Details:
@@ -289,7 +289,7 @@ Acceptance:
 Logging:
 - Client console/info logs minimized; no PII; send client telemetry (optional) with correlation ID if enabled.
 
-## 14. Frontend Route Guards and Idle Logout [pending]
+## 14. Frontend Route Guards and Idle Logout [done]
 ### Dependencies: 3.3, 3.13
 ### Description: Implement Next.js middleware and client guards to enforce auth and license checks; add idle timer auto-logout and banner.
 ### Details:
@@ -308,7 +308,7 @@ Acceptance:
 Logging:
 - Client-side event logs (non-PII) for guard redirects and idle logout (optional analytics).
 
-## 15. End-to-End and Security Tests [pending]
+## 15. End-to-End and Security Tests [done]
 ### Dependencies: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.14
 ### Description: Automate E2E and security tests: Playwright flows, mocked OIDC, ZAP scan, CSRF/XSS/rate-limit verification.
 ### Details:
@@ -324,7 +324,7 @@ Acceptance:
 Logging:
 - Verify audit/security events emitted for key actions and correlate via test-specific correlation IDs.
 
-## 16. Documentation and Operational Playbooks [pending]
+## 16. Documentation and Operational Playbooks [done]
 ### Dependencies: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7, 3.8, 3.9, 3.10, 3.11, 3.12, 3.13, 3.14, 3.15
 ### Description: Produce API docs, security notes, and runbooks for keys rotation, incidents, and day-2 operations.
 ### Details:

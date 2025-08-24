@@ -36,6 +36,12 @@ Unit: normalize/validate for several sample prompts/params; ambiguous prompt ret
 ### Description: Design and document POST /designs/prompt, /designs/params, /designs/upload, /assemblies/a4 with JWT, licenseGuard, RBAC scope checks, and per-user rate limits.
 ### Details:
 Deliver OpenAPI schemas and Pydantic models for inputs/outputs; apply guards: JWT Bearer, licenseGuard (active license), RBAC scope 'models:write'; rate limits: global 60/min per user and AI prompt-specific 30/min; support Idempotency-Key header (stored to jobs.idempotency_key) returning 409 on reuse with conflicting body; responses: 202 Accepted with job_id and request_id; error codes include 401/403/429; content types: application/json (prompt, params, a4) and application/json with object storage reference for upload; include GET /jobs/:id and GET /jobs/:id/artefacts to poll status and list artefacts; acceptance: OpenAPI generated, guards enforced in integration stub, rate limit returns 429 with Retry-After, idempotency validated.
+<info added on 2025-08-24T15:55:59.641Z>
+- JWT payload requirements: user_id (UUID), license_id (UUID), tenant_id (UUID), scopes (array; must include models:write or models:read as appropriate), exp (Unix timestamp seconds), iat (Unix timestamp seconds), jti (UUID used for revocation). Tokens must be rejected if jti is present in the revocation store; tenant_id is enforced in downstream access checks.
+- Rate limiting implementation: Redis sliding window using Lua for atomic prune-count-increment. Keys: rate:{user_id}:{endpoint}:{window}. Use sorted sets with millisecond timestamps; prune older-than-window, count current, compare against limit, then add current event and set key TTL to window seconds. Endpoints identifiers: global and prompt. Limits enforced as specified (global 60/min, prompt 30/min). 429 includes Retry-After with seconds until window elapses and X-RateLimit headers (limit, remaining, reset).
+- API versioning: all endpoints under /api/v1/designs/*; support version negotiation via Accept header. Supported formats: application/json; version=1 and application/vnd.designs.v1+json. If an unsupported version is requested, return 406. Include API-Version: 1 in responses.
+- Pydantic v2: use Pydantic v2 models with field validators and constrained types for dimensions, units, and materials; strict types for UUIDs and enums for units/materials. Design input models use a discriminated union with discriminator field type having values prompt, params, upload, a4. OpenAPI must reflect oneOf with discriminator mapping. Add validators to normalize units, ensure positive dimensions, and cross-field checks (e.g., material compatible with process).
+</info added on 2025-08-24T15:55:59.641Z>
 
 ## 2. Implement AI adapter (OpenAI/Azure) with timeouts, retries, PII masking, storage [pending]
 ### Dependencies: 7.1
@@ -219,6 +225,35 @@ Queues: models.prompt, models.params, models.upload, assemblies.a4; task signatu
 ### Description: Create container with FreeCADCmd 1.1.x and a harness that executes modeling tasks under resource limits.
 ### Details:
 Dockerfile installs FreeCADCmd 1.1.x, Python 3.11, packages: numpy, trimesh, pygltflib (if used), minio SDK; non-root user; execution harness worker_script.py parses args, sets ulimit (CPU seconds) and cgroups (RAM), sets nice/ionice; invocation: FreeCADCmd -c /app/worker_script.py --flow {prompt|params|upload|a4} --input /work/input.json --outdir /work/out --request-id {uuid}; temp workspace isolated per job; acceptance: container builds in CI, FreeCADCmd available, harness enforces time/memory limits and exits with non-zero on violation.
+<info added on 2025-08-24T15:57:18.229Z>
+- Pin exact FreeCAD version: FreeCADCmd 1.1.0 (no wildcard). Lock via package manager pin or artifact checksum; verify at build with FreeCADCmd --version == 1.1.0.
+- requirements.txt (pinned):
+  - numpy==1.24.3
+  - trimesh==4.0.1
+  - pygltflib==1.16.1
+  - minio==7.2.0
+  - psutil==5.9.8
+- Health check server: lightweight HTTP endpoint exposed by the harness (threaded) on PORT (default 8080). GET /health/freecad returns 200 JSON including:
+  - freecad_version: “1.1.0” (from FreeCADCmd --version or FreeCAD.Version())
+  - python_version
+  - packages: {numpy, trimesh, pygltflib, minio, psutil} with installed versions
+  - status: “ok”
+  Enable with --health-server flag or HEALTH_SERVER=1; container EXPOSE 8080 for k8s liveness/readiness.
+- Resource monitoring: integrate psutil to sample per-process CPU percentage and RSS memory (MB) at a configurable interval (default 2s). Emit metrics into:
+  - periodic progress updates (jobs.progress.meta.resource: cpu_pct, rss_mb)
+  - final job metrics blob
+  Respect cgroup limits; if RSS approaches limit, emit WARN and throttle if configured; always include a final peak_rss_mb and avg_cpu_pct.
+- Multi-stage Docker build for size optimization:
+  - Stage “builder”: install build deps, fetch/install FreeCAD 1.1.0, build Python wheels (pip wheel -r requirements.txt).
+  - Stage “runtime” (slim base): copy FreeCAD runtime, site-packages from wheels, worker_script.py, and minimal shared libs; run as non-root.
+  - Use pip --no-cache-dir, remove *.a, tests, __pycache__, docs; apt-get clean and rm -rf /var/lib/apt/lists/*; strip binaries where safe.
+  - CI step asserts no compiler/build tools present in final image and validates FreeCADCmd --version == 1.1.0.
+- Acceptance additions:
+  - requirements.txt matches pinned versions above; pip freeze in CI contains those exact versions.
+  - GET /health/freecad returns 200 with freecad_version “1.1.0” and package versions.
+  - Logs/progress include psutil metrics cpu_pct and rss_mb (MB) during runs; final metrics include peak_rss_mb.
+  - Final image built via multi-stage; FreeCADCmd available; size reduced vs single-stage and contains no build toolchain.
+</info added on 2025-08-24T15:57:18.229Z>
 
 ## 6. Implement parametric modeling pipeline (example prism with hole) [pending]
 ### Dependencies: 7.3, 7.5
@@ -273,4 +308,28 @@ Caching: Redis keyed by canonical_params hash for params/prompt flows to reuse a
 ### Description: Create deterministic test corpus and wire end-to-end tests in CI to validate all flows.
 ### Details:
 Test data: sample prompts (clear/ambiguous), param sets, corrupted and valid STEP/STL, Assembly4 JSON; generate golden outputs (FCStd/STEP/STL/GLB) and metrics with locked versions and store hashes; CI: run docker-compose to bring up API, Celery, FreeCAD worker, MinIO, RabbitMQ, Redis; pytest integration suite triggers each endpoint, polls /jobs/:id until done, verifies artefacts exist and sha256 match golden, metrics within tolerance; checks: 425 on ambiguous prompt, 422 on corrupted STEP with hints, rate limit 429, idempotency behavior; acceptance: CI passes deterministically on clean runners.
+
+## 15. Database migrations and schema setup for model flows [pending]
+### Dependencies: None
+### Description: Create and migrate database tables for models, ai_suggestions, artefacts with proper relationships and constraints
+### Details:
+Implement database layer:\n- Create 'models' table with job_id FK, canonical_params JSON, script_hash, status enum (pending/processing/completed/failed)\n- Create 'ai_suggestions' table with prompt (masked), response JSON, user_id, request_id, created_at\n- Create 'artefacts' table with job_id FK, file_type enum (fcstd/step/stl/glb), s3_key, sha256, metadata JSON\n- Add idempotency_key unique constraint on jobs table\n- Implement job state machine transitions with audit logging\n- Add indexes for performance: job_id, user_id, status, created_at\n- Turkish KVKK compliance: PII columns marked, retention policies\nAcceptance: Migrations run cleanly up/down, constraints enforced, queries optimized with EXPLAIN ANALYZE
+
+## 16. Real-time progress updates via WebSocket/SSE [pending]
+### Dependencies: None
+### Description: Implement WebSocket or Server-Sent Events for real-time job progress updates to clients
+### Details:
+Real-time communication layer:\n- WebSocket endpoint: ws://localhost:8000/ws/jobs/{job_id}/progress\n- Alternative SSE endpoint: GET /jobs/{job_id}/progress/stream\n- Progress message schema: {job_id, status, progress_pct, current_step, message, timestamp}\n- Progress throttling: max 1 update per 500ms per job to prevent spam\n- Client reconnection handling with last_event_id for SSE\n- Redis pub/sub for worker→API progress propagation\n- Authentication via JWT token in query params or Authorization header\n- Graceful degradation: polling fallback if WebSocket fails\n- Integration with Celery task update_state() for progress reporting\nAcceptance: Real-time updates flow from worker to client, reconnection works, throttling prevents overload
+
+## 17. Observability integration for model generation flows [pending]
+### Dependencies: None
+### Description: Integrate structured logging, metrics, and distributed tracing for all model generation operations
+### Details:
+Observability stack integration:\n- Structured logging: bind job_id, request_id, user_id to all log entries\n- Prometheus metrics:\n  - model_generation_total{type, status}\n  - model_generation_duration_seconds{type}\n  - ai_adapter_latency_seconds{provider}\n  - freecad_worker_duration_seconds{operation}\n  - export_duration_seconds{format}\n- OpenTelemetry tracing:\n  - Span per endpoint with job context\n  - Span linking: API→Celery→FreeCAD subprocess\n  - Baggage propagation for request_id\n- Grafana dashboards:\n  - Model generation success rate\n  - P95 latencies per flow\n  - AI provider performance\n  - Worker resource usage\n- Alert rules:\n  - High failure rate (>10%)\n  - Slow generation (>5min)\n  - Worker OOM/timeout\nAcceptance: Traces flow end-to-end, metrics exported, dashboards show real data
+
+## 18. Security review and configuration management [pending]
+### Dependencies: None
+### Description: Implement security hardening, SBOM generation, and feature flags for model generation flows
+### Details:
+Security and configuration layer:\n- Security review:\n  - OWASP API Security Top 10 checklist\n  - Input validation audit (path traversal, command injection)\n  - FreeCAD script sandboxing verification\n  - Secret scanning in code and configs\n  - Dependency vulnerability scan (safety, bandit)\n- SBOM (Software Bill of Materials):\n  - Generate with syft or similar\n  - Include FreeCAD, Python deps, system libs\n  - CVE tracking and alerts\n- Feature flags (via environment or DB):\n  - ENABLE_AI_PROMPT_FLOW (default: true)\n  - ENABLE_UPLOAD_FLOW (default: true)\n  - ENABLE_ASSEMBLY4 (default: false, experimental)\n  - MAX_CONCURRENT_FREECAD_WORKERS (default: 4)\n  - ENABLE_PREVIEW_GENERATION (default: true)\n- Configuration management:\n  - Pydantic Settings with validation\n  - Environment-specific configs (dev/staging/prod)\n  - Secrets via vault or K8s secrets\n  - Health check endpoint with config visibility\nAcceptance: Security scan passes, SBOM generated, feature flags toggle flows, configs validated at startup
 

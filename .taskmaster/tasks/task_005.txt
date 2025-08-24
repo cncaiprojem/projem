@@ -1,6 +1,6 @@
 # Task ID: 5
 # Title: S3/MinIO File Service, Signed URLs, Upload Validation and Artefacts
-# Status: pending
+# Status: done
 # Dependencies: 1, 2, 3
 # Priority: high
 # Description: Implement file service for uploads/downloads with MinIO presigned URLs, type/size/sha256 validation, optional malware scan, and artefact management tied to jobs.
@@ -32,7 +32,7 @@ Pseudocode (finalize):
 Integration: init→upload→finalize happy path; wrong sha256 rejected; wrong MIME rejected; oversize rejected; presigned URLs expire. Malware scan mock returns detection gets blocked. Artefact rows created with correct metadata. Download presigned GET works and is short-lived.
 
 # Subtasks:
-## 1. MinIO client configuration and credentials management [pending]
+## 1. MinIO client configuration and credentials management [done]
 ### Dependencies: None
 ### Description: Set up secure MinIO client, environment config, credentials rotation, and connection hardening.
 ### Details:
@@ -46,7 +46,7 @@ Integration: init→upload→finalize happy path; wrong sha256 rejected; wrong M
   - Network failures retry and surface clear 503 STORAGE_UNAVAILABLE.
   - TLS misconfig results in 502 STORAGE_TLS_ERROR with safe message.
 
-## 2. Buckets, policies, versioning, lifecycle and object lock [pending]
+## 2. Buckets, policies, versioning, lifecycle and object lock [done]
 ### Dependencies: 5.1
 ### Description: Create buckets with versioning and lifecycle hot→cold, set policies and object lock for invoices.
 ### Details:
@@ -63,7 +63,7 @@ Integration: init→upload→finalize happy path; wrong sha256 rejected; wrong M
   - Invoices cannot be deleted due to object lock (expect 403/AccessDenied).
   - Upload >200MB rejected at presign or PUT stage.
 
-## 3. Upload init/finalize and download APIs with presigned URLs [pending]
+## 3. Upload init/finalize and download APIs with presigned URLs [done]
 ### Dependencies: 5.1, 5.2
 ### Description: Implement POST /files/upload/init, POST /files/upload/finalize, GET /files/:id with least-privilege presigned URLs.
 ### Details:
@@ -85,7 +85,7 @@ Integration: init→upload→finalize happy path; wrong sha256 rejected; wrong M
   - Happy path: init→PUT→finalize→GET works; TTLs honored (PUT 5m, GET 2m).
   - Unauthorized user gets 401/403; wrong job_id cannot access artefacts; expired URL fails with 403 SignatureDoesNotMatch.
 
-## 4. Server-side validation for type, MIME, size, and double-extension guard [pending]
+## 4. Server-side validation for type, MIME, size, and double-extension guard [done]
 ### Dependencies: 5.3
 ### Description: Enforce strict validation for uploads including allowed types/MIME, size limit, and extension checks.
 ### Details:
@@ -100,7 +100,7 @@ Integration: init→upload→finalize happy path; wrong sha256 rejected; wrong M
   - MIME mismatch (e.g., .stl with video/mp4) rejected with 415.
   - >200MB rejected at init (413) and finalize (413).
 
-## 5. Streaming SHA256 computation and comparison [pending]
+## 5. Streaming SHA256 computation and comparison [done]
 ### Dependencies: 5.3, 5.4
 ### Description: Compute SHA256 server-side by streaming from MinIO, compare to client-provided hash, and handle mismatches.
 ### Details:
@@ -114,7 +114,7 @@ Integration: init→upload→finalize happy path; wrong sha256 rejected; wrong M
   - Altered upload triggers deletion and 422.
   - Finalize called twice returns 200 idempotently.
 
-## 6. Optional ClamAV integration and failure handling [pending]
+## 6. Optional ClamAV integration and failure handling [done]
 ### Dependencies: 5.3, 5.5
 ### Description: Integrate ClamAV (clamd) to scan uploaded objects post-hash with robust error handling.
 ### Details:
@@ -127,7 +127,7 @@ Integration: init→upload→finalize happy path; wrong sha256 rejected; wrong M
   - clamd down → finalize returns 503 SCAN_UNAVAILABLE when scan_enabled.
   - scan_enabled=false → finalize succeeds without scan.
 
-## 7. Artefact persistence, tagging, and audit logging [pending]
+## 7. Artefact persistence, tagging, and audit logging [done]
 ### Dependencies: 5.3, 5.5, 5.6
 ### Description: Persist artefact metadata in DB, apply S3 object tags, and audit all access events.
 ### Details:
@@ -141,7 +141,7 @@ Integration: init→upload→finalize happy path; wrong sha256 rejected; wrong M
   - Download presign issues audit entry; unauthorized access denied with 403.
   - Invoice artefact shows retention/lock metadata.
 
-## 8. Frontend uploader with Web Worker SHA256 and progress [pending]
+## 8. Frontend uploader with Web Worker SHA256 and progress [done]
 ### Dependencies: 5.3, 5.4
 ### Description: Build uploader UI that computes SHA256 client-side via Web Worker, performs presigned PUT, and finalizes.
 ### Details:
