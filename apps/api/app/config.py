@@ -36,7 +36,8 @@ class Settings(BaseSettings):
 
     database_url: str
     redis_url: str = "redis://redis:6379/0"
-    rabbitmq_url: str = "amqp://freecad:freecad@rabbitmq:5672/"
+    rabbitmq_url: str = "amqp://freecad:freecad_dev_pass@rabbitmq:5672/"
+    rabbitmq_management_url: str = "http://rabbitmq:15672"
 
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
