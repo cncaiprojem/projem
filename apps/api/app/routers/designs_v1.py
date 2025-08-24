@@ -435,11 +435,16 @@ async def create_design_from_prompt(
         )
         
         set_version_headers(response)
+        
+        # Correctly determine queue from existing job's type
+        routing_config = get_routing_config_for_job_type(existing_job.type)
+        
         return DesignJobResponse(
             job_id=existing_job.id,
-            request_id=f"req_{existing_job.id}",
+            # Use original request_id from metadata, not regenerated
+            request_id=existing_job.metadata.get("request_id", f"req_{existing_job.id}"),
             status="duplicate",
-            queue="model",
+            queue=routing_config["queue"],  # Correctly determined from job type
             estimated_duration=120,
             created_at=existing_job.created_at
         )
@@ -524,11 +529,16 @@ async def create_design_from_params(
         )
         
         set_version_headers(response)
+        
+        # Correctly determine queue from existing job's type
+        routing_config = get_routing_config_for_job_type(existing_job.type)
+        
         return DesignJobResponse(
             job_id=existing_job.id,
-            request_id=f"req_{existing_job.id}",
+            # Use original request_id from metadata, not regenerated
+            request_id=existing_job.metadata.get("request_id", f"req_{existing_job.id}"),
             status="duplicate",
-            queue="model",
+            queue=routing_config["queue"],  # Correctly determined from job type
             estimated_duration=60,
             created_at=existing_job.created_at
         )
@@ -601,8 +611,17 @@ async def create_design_from_upload(
         current_user, db, ["file_import", "model_creation"]
     )
     
-    # Verify file exists in S3
-    if not s3_service.object_exists(body.design.s3_key):
+    # Verify file exists in S3 with proper error handling
+    try:
+        exists = s3_service.object_exists(body.design.s3_key)
+    except Exception as e:
+        logger.error("S3 service error during object_exists", error=str(e), s3_key=body.design.s3_key)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="S3 servisi ile iletişim kurulamadı. Lütfen daha sonra tekrar deneyin."
+        )
+    
+    if not exists:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=f"Dosya bulunamadı: {body.design.s3_key}"
@@ -621,11 +640,16 @@ async def create_design_from_upload(
         )
         
         set_version_headers(response)
+        
+        # Correctly determine queue from existing job's type
+        routing_config = get_routing_config_for_job_type(existing_job.type)
+        
         return DesignJobResponse(
             job_id=existing_job.id,
-            request_id=f"req_{existing_job.id}",
+            # Use original request_id from metadata, not regenerated
+            request_id=existing_job.metadata.get("request_id", f"req_{existing_job.id}"),
             status="duplicate",
-            queue="model",
+            queue=routing_config["queue"],  # Correctly determined from job type
             estimated_duration=30,
             created_at=existing_job.created_at
         )
@@ -714,11 +738,16 @@ async def create_assembly4(
         )
         
         set_version_headers(response)
+        
+        # Correctly determine queue from existing job's type
+        routing_config = get_routing_config_for_job_type(existing_job.type)
+        
         return DesignJobResponse(
             job_id=existing_job.id,
-            request_id=f"req_{existing_job.id}",
+            # Use original request_id from metadata, not regenerated
+            request_id=existing_job.metadata.get("request_id", f"req_{existing_job.id}"),
             status="duplicate",
-            queue="model",
+            queue=routing_config["queue"],  # Correctly determined from job type
             estimated_duration=180,
             created_at=existing_job.created_at
         )
