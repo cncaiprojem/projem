@@ -717,7 +717,7 @@ class TestCrossEndpointIdempotency:
                 ],
                 "constraints": [
                     {
-                        "type": "coaxial",
+                        "type": "concentric",
                         "part1": "part1",
                         "part2": "part2",
                         "element1": "Edge1",

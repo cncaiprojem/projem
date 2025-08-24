@@ -72,6 +72,27 @@ JOB_TYPE_TO_ROUTING_KEY: Dict[JobType, str] = {
 }
 
 
+def _normalize_job_type(job_type: Union[JobType, str]) -> JobType:
+    """
+    Normalize job type from string or enum.
+    
+    Args:
+        job_type: Job type as string or JobType enum
+        
+    Returns:
+        JobType enum value
+        
+    Raises:
+        ValueError: If job type is not recognized
+    """
+    if isinstance(job_type, str):
+        try:
+            return JobType(job_type)
+        except ValueError:
+            raise ValueError(f"Unknown job type: {job_type}")
+    return job_type
+
+
 def get_queue_for_job_type(job_type: Union[JobType, str]) -> str:
     """
     İş türü için hedef kuyruğu döndürür.
@@ -86,13 +107,7 @@ def get_queue_for_job_type(job_type: Union[JobType, str]) -> str:
     Raises:
         ValueError: If job type is not recognized
     """
-    # Convert string to JobType if necessary
-    if isinstance(job_type, str):
-        try:
-            job_type = JobType(job_type)
-        except ValueError:
-            raise ValueError(f"Unknown job type: {job_type}")
-    
+    job_type = _normalize_job_type(job_type)
     queue = JOB_TYPE_TO_QUEUE.get(job_type)
     if queue is None:
         raise ValueError(f"Unknown job type: {job_type}")
@@ -114,13 +129,7 @@ def get_routing_key_for_job_type(job_type: Union[JobType, str]) -> str:
     Raises:
         ValueError: If job type is not recognized
     """
-    # Convert string to JobType if necessary
-    if isinstance(job_type, str):
-        try:
-            job_type = JobType(job_type)
-        except ValueError:
-            raise ValueError(f"Unknown job type: {job_type}")
-    
+    job_type = _normalize_job_type(job_type)
     routing_key = JOB_TYPE_TO_ROUTING_KEY.get(job_type)
     if routing_key is None:
         raise ValueError(f"Unknown job type: {job_type}")

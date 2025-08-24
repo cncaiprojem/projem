@@ -279,6 +279,59 @@ def set_version_headers(response: Response) -> None:
     response.headers["X-API-Version"] = "1"
 
 
+def handle_integrity_error_with_idempotency(
+    e: IntegrityError,
+    db: Session,
+    idempotency_key: Optional[str],
+    body: DesignCreateRequest,
+    job_type: JobType,
+    current_user: AuthenticatedUser,
+    response: Response,
+    estimated_duration: int
+) -> Optional[DesignJobResponse]:
+    """
+    Handle IntegrityError with idempotency key conflict detection.
+    
+    Args:
+        e: The IntegrityError exception
+        db: Database session
+        idempotency_key: Optional idempotency key
+        body: Request body
+        job_type: Job type enum
+        current_user: Authenticated user
+        response: Response object for headers
+        estimated_duration: Estimated job duration
+        
+    Returns:
+        DesignJobResponse if duplicate found, None otherwise
+        
+    Raises:
+        HTTPException: For database errors
+    """
+    db.rollback()
+    
+    # Check if it's a unique constraint violation on the idempotency key
+    if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
+        # This is a unique constraint violation - likely idempotency race condition
+        logger.warning(
+            "Idempotency race condition detected, re-fetching job",
+            idempotency_key=idempotency_key,
+            user_id=current_user.user_id
+        )
+        # Re-fetch the job created by the other request
+        existing_job = handle_idempotency(
+            db, idempotency_key, body.model_dump(), job_type, current_user
+        )
+        if existing_job:
+            return create_duplicate_response(existing_job, response, estimated_duration)
+    
+    logger.error("Database integrity error", error=str(e))
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="Veritabanı hatası oluştu"
+    )
+
+
 def create_job_from_design(
     db: Session,
     current_user: AuthenticatedUser,
@@ -506,27 +559,12 @@ async def create_design_from_prompt(
         )
         
     except IntegrityError as e:
-        db.rollback()
-        # Check if it's a unique constraint violation on the idempotency key
-        if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
-            # This is a unique constraint violation - likely idempotency race condition
-            logger.warning(
-                "Idempotency race condition detected, re-fetching job",
-                idempotency_key=idempotency_key,
-                user_id=current_user.user_id
-            )
-            # Re-fetch the job created by the other request
-            existing_job = handle_idempotency(
-                db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
-            )
-            if existing_job:
-                return create_duplicate_response(existing_job, response, 120)
-        
-        logger.error("Database integrity error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Veritabanı hatası oluştu"
+        result = handle_integrity_error_with_idempotency(
+            e, db, idempotency_key, body, JobType.MODEL, 
+            current_user, response, 120
         )
+        if result:
+            return result
 
 
 @router.post(
@@ -602,27 +640,12 @@ async def create_design_from_params(
         )
         
     except IntegrityError as e:
-        db.rollback()
-        # Check if it's a unique constraint violation on the idempotency key
-        if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
-            # This is a unique constraint violation - likely idempotency race condition
-            logger.warning(
-                "Idempotency race condition detected, re-fetching job",
-                idempotency_key=idempotency_key,
-                user_id=current_user.user_id
-            )
-            # Re-fetch the job created by the other request
-            existing_job = handle_idempotency(
-                db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
-            )
-            if existing_job:
-                return create_duplicate_response(existing_job, response, 60)
-        
-        logger.error("Database integrity error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Veritabanı hatası oluştu"
+        result = handle_integrity_error_with_idempotency(
+            e, db, idempotency_key, body, JobType.MODEL, 
+            current_user, response, 60
         )
+        if result:
+            return result
 
 
 @router.post(
@@ -717,27 +740,12 @@ async def create_design_from_upload(
         )
         
     except IntegrityError as e:
-        db.rollback()
-        # Check if it's a unique constraint violation on the idempotency key
-        if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
-            # This is a unique constraint violation - likely idempotency race condition
-            logger.warning(
-                "Idempotency race condition detected, re-fetching job",
-                idempotency_key=idempotency_key,
-                user_id=current_user.user_id
-            )
-            # Re-fetch the job created by the other request
-            existing_job = handle_idempotency(
-                db, idempotency_key, body.model_dump(), JobType.CAD_IMPORT, current_user
-            )
-            if existing_job:
-                return create_duplicate_response(existing_job, response, 90)
-        
-        logger.error("Database integrity error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Veritabanı hatası oluştu"
+        result = handle_integrity_error_with_idempotency(
+            e, db, idempotency_key, body, JobType.CAD_IMPORT, 
+            current_user, response, 90
         )
+        if result:
+            return result
 
 
 @router.post(
@@ -816,24 +824,9 @@ async def create_assembly4(
         )
         
     except IntegrityError as e:
-        db.rollback()
-        # Check if it's a unique constraint violation on the idempotency key
-        if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
-            # This is a unique constraint violation - likely idempotency race condition
-            logger.warning(
-                "Idempotency race condition detected, re-fetching job",
-                idempotency_key=idempotency_key,
-                user_id=current_user.user_id
-            )
-            # Re-fetch the job created by the other request
-            existing_job = handle_idempotency(
-                db, idempotency_key, body.model_dump(), JobType.ASSEMBLY, current_user
-            )
-            if existing_job:
-                return create_duplicate_response(existing_job, response, 180)
-        
-        logger.error("Database integrity error", error=str(e))
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Veritabanı hatası oluştu"
+        result = handle_integrity_error_with_idempotency(
+            e, db, idempotency_key, body, JobType.ASSEMBLY, 
+            current_user, response, 180
         )
+        if result:
+            return result

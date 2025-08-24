@@ -229,12 +229,37 @@ class Assembly4Constraint(BaseModel):
         return self
 
 
+class AssemblyPart(BaseModel):
+    """Assembly part definition with type safety."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+    
+    name: str = Field(..., description="Part name/identifier", min_length=1, max_length=100)
+    path: Optional[str] = Field(None, description="Path to existing part file")
+    type: Optional[str] = Field(None, description="Part type (e.g., cylinder, box, sphere)")
+    dimensions: Optional[Dict[str, Union[float, int]]] = Field(
+        None, 
+        description="Part dimensions (depends on type)"
+    )
+    material: Optional[str] = Field(None, description="Part material")
+    quantity: int = Field(1, description="Number of instances", ge=1, le=100)
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional part metadata")
+    
+    @model_validator(mode="after")
+    def validate_part_definition(self) -> "AssemblyPart":
+        """Validate that part has either path or type+dimensions."""
+        if not self.path and not (self.type and self.dimensions):
+            raise ValueError(
+                "Part must have either 'path' for existing part or 'type' with 'dimensions' for new part"
+            )
+        return self
+
+
 class Assembly4Input(BaseModel):
     """Assembly4 assembly generation input."""
     model_config = ConfigDict(str_strip_whitespace=True)
     
     type: Literal["a4"] = Field("a4", description="Input type discriminator")
-    parts: List[Dict[str, Any]] = Field(
+    parts: List[AssemblyPart] = Field(
         ..., 
         description="Part definitions or references",
         min_length=2,
