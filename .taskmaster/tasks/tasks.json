@@ -809,7 +809,7 @@
           3,
           5
         ],
-        "status": "in-progress",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -901,7 +901,7 @@
               "6.7"
             ],
             "details": "On each state change (created, queued, started, progress, retrying, cancelled, failed, succeeded, dlq_replayed), write an audit_logs row with fields: id, job_id, event_type, actor (system/user id), ts, payload (canonical JSON), prev_hash, chain_hash. Compute chain_hash=sha256(prev_hash || canonical_json(payload)) using stable key ordering and normalized floats/ints. prev_hash is the chain_hash of the last audit entry for the job, or 32 zero-bytes for the first. Enforce append-only at application level; never update existing rows. Provide a verification routine to recompute and validate the chain for a job. Acceptance: inserting two consecutive audit events yields deterministic chain_hash; modifying any prior audit row causes verification to fail; all API and worker transitions create corresponding audit entries.",
-            "status": "in-progress",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -933,7 +933,7 @@
               "6.9"
             ],
             "details": "Logging: structlog with fields request_id, trace_id, job_id, idempotency_key, attempt, queue, routing_key, error_code; ensure PII masking. Metrics (Prometheus): job_create_total (labels type, status), job_in_progress gauge, job_duration_seconds (histogram), retries_total (labels type, error_code), dlq_depth (gauge per queue), dlq_replay_total, cancellation_total, progress_update_total. Tracing: OpenTelemetry for FastAPI and Celery (link spans via job_id); export to OTLP. Dashboards: Grafana panels for queue depths, success/failure rates, retry distribution, DLQ replay outcomes. Tests: unit tests for idempotent creation race (simulated concurrent POST with same idempotency_key), audit chain determinism and tamper detection, cancellation behavior, progress throttling, error taxonomy routing to retry/DLQ; integration tests that enqueue tasks, force failures into DLQ, and verify admin replay; performance test for 1k concurrent job creates meeting rate-limit behavior. Acceptance: >=90% coverage for job orchestration module; dashboards show live metrics; traces link API request to worker execution; all specified test scenarios pass.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           }
         ]
@@ -957,7 +957,7 @@
             "title": "Define API contracts and guards for model generation endpoints",
             "description": "Design and document POST /designs/prompt, /designs/params, /designs/upload, /assemblies/a4 with JWT, licenseGuard, RBAC scope checks, and per-user rate limits.",
             "dependencies": [],
-            "details": "Deliver OpenAPI schemas and Pydantic models for inputs/outputs; apply guards: JWT Bearer, licenseGuard (active license), RBAC scope 'models:write'; rate limits: global 60/min per user and AI prompt-specific 30/min; support Idempotency-Key header (stored to jobs.idempotency_key) returning 409 on reuse with conflicting body; responses: 202 Accepted with job_id and request_id; error codes include 401/403/429; content types: application/json (prompt, params, a4) and application/json with object storage reference for upload; include GET /jobs/:id and GET /jobs/:id/artefacts to poll status and list artefacts; acceptance: OpenAPI generated, guards enforced in integration stub, rate limit returns 429 with Retry-After, idempotency validated.",
+            "details": "Deliver OpenAPI schemas and Pydantic models for inputs/outputs; apply guards: JWT Bearer, licenseGuard (active license), RBAC scope 'models:write'; rate limits: global 60/min per user and AI prompt-specific 30/min; support Idempotency-Key header (stored to jobs.idempotency_key) returning 409 on reuse with conflicting body; responses: 202 Accepted with job_id and request_id; error codes include 401/403/429; content types: application/json (prompt, params, a4) and application/json with object storage reference for upload; include GET /jobs/:id and GET /jobs/:id/artefacts to poll status and list artefacts; acceptance: OpenAPI generated, guards enforced in integration stub, rate limit returns 429 with Retry-After, idempotency validated.\n<info added on 2025-08-24T15:55:59.641Z>\n- JWT payload requirements: user_id (UUID), license_id (UUID), tenant_id (UUID), scopes (array; must include models:write or models:read as appropriate), exp (Unix timestamp seconds), iat (Unix timestamp seconds), jti (UUID used for revocation). Tokens must be rejected if jti is present in the revocation store; tenant_id is enforced in downstream access checks.\n- Rate limiting implementation: Redis sliding window using Lua for atomic prune-count-increment. Keys: rate:{user_id}:{endpoint}:{window}. Use sorted sets with millisecond timestamps; prune older-than-window, count current, compare against limit, then add current event and set key TTL to window seconds. Endpoints identifiers: global and prompt. Limits enforced as specified (global 60/min, prompt 30/min). 429 includes Retry-After with seconds until window elapses and X-RateLimit headers (limit, remaining, reset).\n- API versioning: all endpoints under /api/v1/designs/*; support version negotiation via Accept header. Supported formats: application/json; version=1 and application/vnd.designs.v1+json. If an unsupported version is requested, return 406. Include API-Version: 1 in responses.\n- Pydantic v2: use Pydantic v2 models with field validators and constrained types for dimensions, units, and materials; strict types for UUIDs and enums for units/materials. Design input models use a discriminated union with discriminator field type having values prompt, params, upload, a4. OpenAPI must reflect oneOf with discriminator mapping. Add validators to normalize units, ensure positive dimensions, and cross-field checks (e.g., material compatible with process).\n</info added on 2025-08-24T15:55:59.641Z>",
             "status": "pending",
             "testStrategy": ""
           },
@@ -1001,7 +1001,7 @@
             "dependencies": [
               "7.4"
             ],
-            "details": "Dockerfile installs FreeCADCmd 1.1.x, Python 3.11, packages: numpy, trimesh, pygltflib (if used), minio SDK; non-root user; execution harness worker_script.py parses args, sets ulimit (CPU seconds) and cgroups (RAM), sets nice/ionice; invocation: FreeCADCmd -c /app/worker_script.py --flow {prompt|params|upload|a4} --input /work/input.json --outdir /work/out --request-id {uuid}; temp workspace isolated per job; acceptance: container builds in CI, FreeCADCmd available, harness enforces time/memory limits and exits with non-zero on violation.",
+            "details": "Dockerfile installs FreeCADCmd 1.1.x, Python 3.11, packages: numpy, trimesh, pygltflib (if used), minio SDK; non-root user; execution harness worker_script.py parses args, sets ulimit (CPU seconds) and cgroups (RAM), sets nice/ionice; invocation: FreeCADCmd -c /app/worker_script.py --flow {prompt|params|upload|a4} --input /work/input.json --outdir /work/out --request-id {uuid}; temp workspace isolated per job; acceptance: container builds in CI, FreeCADCmd available, harness enforces time/memory limits and exits with non-zero on violation.\n<info added on 2025-08-24T15:57:18.229Z>\n- Pin exact FreeCAD version: FreeCADCmd 1.1.0 (no wildcard). Lock via package manager pin or artifact checksum; verify at build with FreeCADCmd --version == 1.1.0.\n- requirements.txt (pinned):\n  - numpy==1.24.3\n  - trimesh==4.0.1\n  - pygltflib==1.16.1\n  - minio==7.2.0\n  - psutil==5.9.8\n- Health check server: lightweight HTTP endpoint exposed by the harness (threaded) on PORT (default 8080). GET /health/freecad returns 200 JSON including:\n  - freecad_version: “1.1.0” (from FreeCADCmd --version or FreeCAD.Version())\n  - python_version\n  - packages: {numpy, trimesh, pygltflib, minio, psutil} with installed versions\n  - status: “ok”\n  Enable with --health-server flag or HEALTH_SERVER=1; container EXPOSE 8080 for k8s liveness/readiness.\n- Resource monitoring: integrate psutil to sample per-process CPU percentage and RSS memory (MB) at a configurable interval (default 2s). Emit metrics into:\n  - periodic progress updates (jobs.progress.meta.resource: cpu_pct, rss_mb)\n  - final job metrics blob\n  Respect cgroup limits; if RSS approaches limit, emit WARN and throttle if configured; always include a final peak_rss_mb and avg_cpu_pct.\n- Multi-stage Docker build for size optimization:\n  - Stage “builder”: install build deps, fetch/install FreeCAD 1.1.0, build Python wheels (pip wheel -r requirements.txt).\n  - Stage “runtime” (slim base): copy FreeCAD runtime, site-packages from wheels, worker_script.py, and minimal shared libs; run as non-root.\n  - Use pip --no-cache-dir, remove *.a, tests, __pycache__, docs; apt-get clean and rm -rf /var/lib/apt/lists/*; strip binaries where safe.\n  - CI step asserts no compiler/build tools present in final image and validates FreeCADCmd --version == 1.1.0.\n- Acceptance additions:\n  - requirements.txt matches pinned versions above; pip freeze in CI contains those exact versions.\n  - GET /health/freecad returns 200 with freecad_version “1.1.0” and package versions.\n  - Logs/progress include psutil metrics cpu_pct and rss_mb (MB) during runs; final metrics include peak_rss_mb.\n  - Final image built via multi-stage; FreeCADCmd available; size reduced vs single-stage and contains no build toolchain.\n</info added on 2025-08-24T15:57:18.229Z>",
             "status": "pending",
             "testStrategy": ""
           },
@@ -1124,6 +1124,42 @@
             "details": "Test data: sample prompts (clear/ambiguous), param sets, corrupted and valid STEP/STL, Assembly4 JSON; generate golden outputs (FCStd/STEP/STL/GLB) and metrics with locked versions and store hashes; CI: run docker-compose to bring up API, Celery, FreeCAD worker, MinIO, RabbitMQ, Redis; pytest integration suite triggers each endpoint, polls /jobs/:id until done, verifies artefacts exist and sha256 match golden, metrics within tolerance; checks: 425 on ambiguous prompt, 422 on corrupted STEP with hints, rate limit 429, idempotency behavior; acceptance: CI passes deterministically on clean runners.",
             "status": "pending",
             "testStrategy": ""
+          },
+          {
+            "id": 15,
+            "title": "Database migrations and schema setup for model flows",
+            "description": "Create and migrate database tables for models, ai_suggestions, artefacts with proper relationships and constraints",
+            "details": "Implement database layer:\\n- Create 'models' table with job_id FK, canonical_params JSON, script_hash, status enum (pending/processing/completed/failed)\\n- Create 'ai_suggestions' table with prompt (masked), response JSON, user_id, request_id, created_at\\n- Create 'artefacts' table with job_id FK, file_type enum (fcstd/step/stl/glb), s3_key, sha256, metadata JSON\\n- Add idempotency_key unique constraint on jobs table\\n- Implement job state machine transitions with audit logging\\n- Add indexes for performance: job_id, user_id, status, created_at\\n- Turkish KVKK compliance: PII columns marked, retention policies\\nAcceptance: Migrations run cleanly up/down, constraints enforced, queries optimized with EXPLAIN ANALYZE",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 7
+          },
+          {
+            "id": 16,
+            "title": "Real-time progress updates via WebSocket/SSE",
+            "description": "Implement WebSocket or Server-Sent Events for real-time job progress updates to clients",
+            "details": "Real-time communication layer:\\n- WebSocket endpoint: ws://localhost:8000/ws/jobs/{job_id}/progress\\n- Alternative SSE endpoint: GET /jobs/{job_id}/progress/stream\\n- Progress message schema: {job_id, status, progress_pct, current_step, message, timestamp}\\n- Progress throttling: max 1 update per 500ms per job to prevent spam\\n- Client reconnection handling with last_event_id for SSE\\n- Redis pub/sub for worker→API progress propagation\\n- Authentication via JWT token in query params or Authorization header\\n- Graceful degradation: polling fallback if WebSocket fails\\n- Integration with Celery task update_state() for progress reporting\\nAcceptance: Real-time updates flow from worker to client, reconnection works, throttling prevents overload",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 7
+          },
+          {
+            "id": 17,
+            "title": "Observability integration for model generation flows",
+            "description": "Integrate structured logging, metrics, and distributed tracing for all model generation operations",
+            "details": "Observability stack integration:\\n- Structured logging: bind job_id, request_id, user_id to all log entries\\n- Prometheus metrics:\\n  - model_generation_total{type, status}\\n  - model_generation_duration_seconds{type}\\n  - ai_adapter_latency_seconds{provider}\\n  - freecad_worker_duration_seconds{operation}\\n  - export_duration_seconds{format}\\n- OpenTelemetry tracing:\\n  - Span per endpoint with job context\\n  - Span linking: API→Celery→FreeCAD subprocess\\n  - Baggage propagation for request_id\\n- Grafana dashboards:\\n  - Model generation success rate\\n  - P95 latencies per flow\\n  - AI provider performance\\n  - Worker resource usage\\n- Alert rules:\\n  - High failure rate (>10%)\\n  - Slow generation (>5min)\\n  - Worker OOM/timeout\\nAcceptance: Traces flow end-to-end, metrics exported, dashboards show real data",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 7
+          },
+          {
+            "id": 18,
+            "title": "Security review and configuration management",
+            "description": "Implement security hardening, SBOM generation, and feature flags for model generation flows",
+            "details": "Security and configuration layer:\\n- Security review:\\n  - OWASP API Security Top 10 checklist\\n  - Input validation audit (path traversal, command injection)\\n  - FreeCAD script sandboxing verification\\n  - Secret scanning in code and configs\\n  - Dependency vulnerability scan (safety, bandit)\\n- SBOM (Software Bill of Materials):\\n  - Generate with syft or similar\\n  - Include FreeCAD, Python deps, system libs\\n  - CVE tracking and alerts\\n- Feature flags (via environment or DB):\\n  - ENABLE_AI_PROMPT_FLOW (default: true)\\n  - ENABLE_UPLOAD_FLOW (default: true)\\n  - ENABLE_ASSEMBLY4 (default: false, experimental)\\n  - MAX_CONCURRENT_FREECAD_WORKERS (default: 4)\\n  - ENABLE_PREVIEW_GENERATION (default: true)\\n- Configuration management:\\n  - Pydantic Settings with validation\\n  - Environment-specific configs (dev/staging/prod)\\n  - Secrets via vault or K8s secrets\\n  - Health check endpoint with config visibility\\nAcceptance: Security scan passes, SBOM generated, feature flags toggle flows, configs validated at startup",
+            "status": "pending",
+            "dependencies": [],
+            "parentTaskId": 7
           }
         ]
       },
@@ -1708,7 +1744,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-24T11:55:50.763Z",
+      "updated": "2025-08-24T15:41:53.172Z",
       "description": "Tasks for master context"
     }
   }
