@@ -211,7 +211,8 @@ def handle_idempotency(
     db: Session,
     idempotency_key: Optional[str],
     request_body: Dict[str, Any],
-    job_type: JobType
+    job_type: JobType,
+    current_user: AuthenticatedUser
 ) -> Optional[Job]:
     """
     Handle idempotency key checking and validation.
@@ -221,6 +222,7 @@ def handle_idempotency(
         idempotency_key: Idempotency key from header
         request_body: Request body for comparison
         job_type: Type of job being created
+        current_user: The authenticated user making the request
         
     Returns:
         Existing job if found, None otherwise
@@ -231,9 +233,11 @@ def handle_idempotency(
     if not idempotency_key:
         return None
     
-    # Check for existing job with same idempotency key
+    # CRITICAL: Check for existing job with same idempotency key FOR THE SAME USER
+    # This prevents data leakage between users
     existing_job = db.query(Job).filter(
-        Job.idempotency_key == idempotency_key
+        Job.idempotency_key == idempotency_key,
+        Job.user_id == current_user.user_id
     ).first()
     
     if existing_job:
@@ -250,7 +254,8 @@ def handle_idempotency(
             logger.warning(
                 "Idempotency conflict detected",
                 idempotency_key=idempotency_key,
-                existing_job_id=existing_job.id
+                existing_job_id=existing_job.id,
+                user_id=current_user.user_id
             )
             
             raise HTTPException(
@@ -328,6 +333,50 @@ def create_job_from_design(
     db.commit()
     
     return job
+
+
+def create_duplicate_response(
+    existing_job: Job,
+    response: Response,
+    estimated_duration: int
+) -> DesignJobResponse:
+    """
+    Create response for duplicate idempotent request.
+    
+    Args:
+        existing_job: Existing job from idempotency check
+        response: FastAPI response object
+        estimated_duration: Estimated duration for this job type
+        
+    Returns:
+        Design job response for duplicate request
+    """
+    set_version_headers(response)
+    
+    # Correctly determine queue from existing job's type
+    routing_config = get_routing_config_for_job_type(existing_job.type)
+    
+    # Safely get request_id from metadata
+    request_id = None
+    if existing_job.metadata and isinstance(existing_job.metadata, dict):
+        request_id = existing_job.metadata.get("request_id")
+    
+    # Use fallback if request_id not found
+    if not request_id:
+        logger.warning(
+            "Missing request_id in job metadata, using fallback",
+            job_id=existing_job.id
+        )
+        request_id = f"req_{existing_job.id}"
+    
+    return DesignJobResponse(
+        job_id=existing_job.id,
+        request_id=request_id,
+        status="duplicate",
+        queue=routing_config["queue"],
+        estimated_duration=estimated_duration,
+        created_at=existing_job.created_at
+    )
 
 
 def publish_job_and_respond(
@@ -424,7 +473,7 @@ async def create_design_from_prompt(
     
     # Handle idempotency
     existing_job = handle_idempotency(
-        db, idempotency_key, body.model_dump(), JobType.MODEL_GENERATION
+        db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
     )
     
     if existing_job:
@@ -433,21 +482,7 @@ async def create_design_from_prompt(
             job_id=existing_job.id,
             user_id=current_user.user_id
         )
-        
-        set_version_headers(response)
-        
-        # Correctly determine queue from existing job's type
-        routing_config = get_routing_config_for_job_type(existing_job.type)
-        
-        return DesignJobResponse(
-            job_id=existing_job.id,
-            # Use original request_id from metadata, not regenerated
-            request_id=existing_job.metadata.get("request_id", f"req_{existing_job.id}"),
-            status="duplicate",
-            queue=routing_config["queue"],  # Correctly determined from job type
-            estimated_duration=120,
-            created_at=existing_job.created_at
-        )
+        return create_duplicate_response(existing_job, response, 120)
     
     # Create new job using shared helper
     try:
@@ -457,7 +492,7 @@ async def create_design_from_prompt(
             license=license,
             body=body,
             idempotency_key=idempotency_key,
-            job_type=JobType.MODEL_GENERATION,
+            job_type=JobType.MODEL,
             input_type="prompt"
         )
         
@@ -518,7 +553,7 @@ async def create_design_from_params(
     
     # Handle idempotency
     existing_job = handle_idempotency(
-        db, idempotency_key, body.model_dump(), JobType.MODEL_GENERATION
+        db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
     )
     
     if existing_job:
@@ -527,21 +562,7 @@ async def create_design_from_params(
             job_id=existing_job.id,
             user_id=current_user.user_id
         )
-        
-        set_version_headers(response)
-        
-        # Correctly determine queue from existing job's type
-        routing_config = get_routing_config_for_job_type(existing_job.type)
-        
-        return DesignJobResponse(
-            job_id=existing_job.id,
-            # Use original request_id from metadata, not regenerated
-            request_id=existing_job.metadata.get("request_id", f"req_{existing_job.id}"),
-            status="duplicate",
-            queue=routing_config["queue"],  # Correctly determined from job type
-            estimated_duration=60,
-            created_at=existing_job.created_at
-        )
+        return create_duplicate_response(existing_job, response, 60)
     
     # Create new job using shared helper
     try:
@@ -551,7 +572,7 @@ async def create_design_from_params(
             license=license,
             body=body,
             idempotency_key=idempotency_key,
-            job_type=JobType.MODEL_GENERATION,
+            job_type=JobType.MODEL,
             input_type="params",
             extra_metadata={"template_id": body.design.template_id}
         )
@@ -629,7 +650,7 @@ async def create_design_from_upload(
     
     # Handle idempotency
     existing_job = handle_idempotency(
-        db, idempotency_key, body.model_dump(), JobType.MODEL_GENERATION
+        db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
     )
     
     if existing_job:
@@ -638,21 +659,7 @@ async def create_design_from_upload(
             job_id=existing_job.id,
             user_id=current_user.user_id
         )
-        
-        set_version_headers(response)
-        
-        # Correctly determine queue from existing job's type
-        routing_config = get_routing_config_for_job_type(existing_job.type)
-        
-        return DesignJobResponse(
-            job_id=existing_job.id,
-            # Use original request_id from metadata, not regenerated
-            request_id=existing_job.metadata.get("request_id", f"req_{existing_job.id}"),
-            status="duplicate",
-            queue=routing_config["queue"],  # Correctly determined from job type
-            estimated_duration=30,
-            created_at=existing_job.created_at
-        )
+        return create_duplicate_response(existing_job, response, 90)
     
     # Create new job using shared helper
     try:
@@ -662,7 +669,7 @@ async def create_design_from_upload(
             license=license,
             body=body,
             idempotency_key=idempotency_key,
-            job_type=JobType.MODEL_GENERATION,
+            job_type=JobType.MODEL,
             input_type="upload",
             extra_metadata={
                 "s3_key": body.design.s3_key,
@@ -727,7 +734,7 @@ async def create_assembly4(
     
     # Handle idempotency
     existing_job = handle_idempotency(
-        db, idempotency_key, body.model_dump(), JobType.MODEL_GENERATION
+        db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
     )
     
     if existing_job:
@@ -736,21 +743,7 @@ async def create_assembly4(
             job_id=existing_job.id,
             user_id=current_user.user_id
         )
-        
-        set_version_headers(response)
-        
-        # Correctly determine queue from existing job's type
-        routing_config = get_routing_config_for_job_type(existing_job.type)
-        
-        return DesignJobResponse(
-            job_id=existing_job.id,
-            # Use original request_id from metadata, not regenerated
-            request_id=existing_job.metadata.get("request_id", f"req_{existing_job.id}"),
-            status="duplicate",
-            queue=routing_config["queue"],  # Correctly determined from job type
-            estimated_duration=180,
-            created_at=existing_job.created_at
-        )
+        return create_duplicate_response(existing_job, response, 180)
     
     # Create new job using shared helper
     try:
@@ -760,7 +753,7 @@ async def create_assembly4(
             license=license,
             body=body,
             idempotency_key=idempotency_key,
-            job_type=JobType.MODEL_GENERATION,
+            job_type=JobType.MODEL,
             input_type="assembly4",
             extra_metadata={
                 "part_count": len(body.design.parts),
