@@ -196,7 +196,7 @@ class EventPublisherService:
             # If result is None, key exists = duplicate
             return result is None
             
-        except Exception as e:
+        except redis.exceptions.RedisError as e:
             logger.debug(f"Redis deduplication check failed: {e}")
             # On error, assume not duplicate to avoid losing events
             return False

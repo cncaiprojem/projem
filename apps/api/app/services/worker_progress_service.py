@@ -359,10 +359,26 @@ class WorkerProgressService:
                 "coalesced": bool(coalesced_data)
             }
             
-        except Exception as e:
+        except (IntegrityError, OperationalError) as e:
             db.rollback()
             logger.error(
-                f"Failed to update progress for job {job_id}: {e}",
+                f"Database error updating progress for job {job_id}: {e}",
+                extra={
+                    "job_id": job_id,
+                    "percent": percent,
+                    "error": str(e)
+                }
+            )
+            
+            return {
+                "success": False,
+                "error": str(e),
+                "job_id": job_id
+            }
+        except redis.exceptions.RedisError as e:
+            db.rollback()
+            logger.error(
+                f"Redis error updating progress for job {job_id}: {e}",
                 extra={
                     "job_id": job_id,
                     "percent": percent,
@@ -514,10 +530,10 @@ class WorkerProgressService:
                 "event_published": True
             }
             
-        except Exception as e:
+        except (IntegrityError, OperationalError) as e:
             db.rollback()
             logger.error(
-                f"Failed to update status for job {job_id}: {e}",
+                f"Database error updating status for job {job_id}: {e}",
                 extra={
                     "job_id": job_id,
                     "status": status.value,
@@ -573,9 +589,9 @@ class WorkerProgressService:
             
             return progress_info
             
-        except Exception as e:
+        except (IntegrityError, OperationalError) as e:
             logger.error(
-                f"Failed to get progress for job {job_id}: {e}",
+                f"Database error getting progress for job {job_id}: {e}",
                 extra={"job_id": job_id, "error": str(e)}
             )
             return None

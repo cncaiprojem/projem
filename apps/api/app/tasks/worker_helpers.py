@@ -77,37 +77,21 @@ def progress(
         >>>     finally:
         >>>         db.close()
     """
-    try:
-        # Run async function in sync context (Celery tasks are sync)
-        # Use asyncio.run() for better efficiency - creates and properly cleans up event loop
-        result = asyncio.run(
-            worker_progress_service.update_progress(
-                db=db,
-                job_id=job_id,
-                percent=percent,
-                step=step,
-                message=message,
-                metrics=metrics,
-                force=False  # Allow throttling
-            )
+    # Run async function in sync context (Celery tasks are sync)
+    # Use asyncio.run() for better efficiency - creates and properly cleans up event loop
+    # Let exceptions propagate to Celery for proper retry handling
+    result = asyncio.run(
+        worker_progress_service.update_progress(
+            db=db,
+            job_id=job_id,
+            percent=percent,
+            step=step,
+            message=message,
+            metrics=metrics,
+            force=False  # Allow throttling
         )
-        return result
-            
-    except Exception as e:
-        logger.error(
-            f"Failed to update progress for job {job_id}: {e}",
-            extra={
-                "job_id": job_id,
-                "percent": percent,
-                "step": step,
-                "error": str(e)
-            }
-        )
-        return {
-            "success": False,
-            "error": str(e),
-            "job_id": job_id
-        }
+    )
+    return result
 
 
 def force_progress(
@@ -135,40 +119,20 @@ def force_progress(
     Returns:
         Dict with update result
     """
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(
-                worker_progress_service.update_progress(
-                    db=db,
-                    job_id=job_id,
-                    percent=percent,
-                    step=step,
-                    message=message,
-                    metrics=metrics,
-                    force=True  # Bypass throttling
-                )
-            )
-            return result
-        finally:
-            loop.close()
-            
-    except Exception as e:
-        logger.error(
-            f"Failed to force progress update for job {job_id}: {e}",
-            extra={
-                "job_id": job_id,
-                "percent": percent,
-                "step": step,
-                "error": str(e)
-            }
+    # Use asyncio.run() for consistency and better performance
+    # Let exceptions propagate to Celery for proper retry handling
+    result = asyncio.run(
+        worker_progress_service.update_progress(
+            db=db,
+            job_id=job_id,
+            percent=percent,
+            step=step,
+            message=message,
+            metrics=metrics,
+            force=True  # Bypass throttling
         )
-        return {
-            "success": False,
-            "error": str(e),
-            "job_id": job_id
-        }
+    )
+    return result
 
 
 def update_status(
@@ -212,38 +176,19 @@ def update_status(
         >>>     output_data={"file_url": "s3://bucket/output.stl", "size": 1024}
         >>> )
     """
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(
-                worker_progress_service.update_job_status(
-                    db=db,
-                    job_id=job_id,
-                    status=status,
-                    error_code=error_code,
-                    error_message=error_message,
-                    output_data=output_data
-                )
-            )
-            return result
-        finally:
-            loop.close()
-            
-    except Exception as e:
-        logger.error(
-            f"Failed to update status for job {job_id}: {e}",
-            extra={
-                "job_id": job_id,
-                "status": status.value,
-                "error": str(e)
-            }
+    # Use asyncio.run() for consistency and better performance
+    # Let exceptions propagate to Celery for proper retry handling
+    result = asyncio.run(
+        worker_progress_service.update_job_status(
+            db=db,
+            job_id=job_id,
+            status=status,
+            error_code=error_code,
+            error_message=error_message,
+            output_data=output_data
         )
-        return {
-            "success": False,
-            "error": str(e),
-            "job_id": job_id
-        }
+    )
+    return result
 
 
 def get_progress(
@@ -260,23 +205,12 @@ def get_progress(
     Returns:
         Dict with progress information or None if not found
     """
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(
-                worker_progress_service.get_progress(db, job_id)
-            )
-            return result
-        finally:
-            loop.close()
-            
-    except Exception as e:
-        logger.error(
-            f"Failed to get progress for job {job_id}: {e}",
-            extra={"job_id": job_id, "error": str(e)}
-        )
-        return None
+    # Use asyncio.run() for consistency and better performance
+    # Let exceptions propagate to Celery for proper retry handling
+    result = asyncio.run(
+        worker_progress_service.get_progress(db, job_id)
+    )
+    return result
 
 
 # Convenience functions with common patterns

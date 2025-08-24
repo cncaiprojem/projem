@@ -96,7 +96,7 @@ class EventExchangeInitializer:
                 logger.error(f"✗ Failed to create exchange '{name}': {response.status_code} - {response.text}")
                 return False
                 
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             logger.error(f"✗ Error creating exchange '{name}': {e}")
             return False
     
@@ -126,7 +126,7 @@ class EventExchangeInitializer:
                 logger.error(f"✗ Failed to bind exchanges: {response.status_code} - {response.text}")
                 return False
                 
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             logger.error(f"✗ Error binding exchanges: {e}")
             return False
     
@@ -205,7 +205,7 @@ class EventExchangeInitializer:
             logger.info("✓ Event exchange verification successful!")
             return True
             
-        except Exception as e:
+        except requests.exceptions.RequestException as e:
             logger.error(f"✗ Event exchange verification failed: {e}")
             return False
     
@@ -272,6 +272,9 @@ def main():
     except KeyboardInterrupt:
         logger.info("Setup interrupted by user")
         sys.exit(130)
+    except requests.exceptions.RequestException as e:
+        logger.error(f"RabbitMQ API error: {e}")
+        sys.exit(1)
     except Exception as e:
         logger.error(f"Unexpected error: {e}")
         sys.exit(1)
