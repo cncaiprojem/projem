@@ -79,4 +79,6 @@ opentelemetry-instrumentation-dbapi==0.46b0
 clamd==1.0.2
 # Async RabbitMQ client for non-blocking event publishing
 aio-pika==9.4.1
+# HTTP client for RabbitMQ Management API (Task 6.9)
+aiohttp==3.9.5
 

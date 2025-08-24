@@ -567,6 +567,119 @@ class JobAuditService:
             raise
     
     @staticmethod
+    async def audit_dlq_action(
+        db: Session,
+        actor_id: int,
+        action: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> AuditLog:
+        """
+        Audit DLQ management action (Task 6.9).
+        
+        Args:
+            db: Database session
+            actor_id: Admin user performing the action
+            action: DLQ action type (list_dlq_queues, peek_dlq_messages, replay_failed)
+            metadata: Action metadata
+            
+        Returns:
+            Created audit log entry
+        """
+        try:
+            audit_entry = AuditLog(
+                user_id=actor_id,
+                event_type=f"dlq_{action}",
+                scope_type="dlq_management",
+                scope_id=0,  # No specific resource ID for DLQ management
+                payload=metadata or {},
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+            db.add(audit_entry)
+            db.commit()
+            
+            logger.info(
+                "dlq_action_audited",
+                actor_id=actor_id,
+                action=action,
+                audit_id=audit_entry.id
+            )
+            
+            return audit_entry
+            
+        except Exception as e:
+            logger.error(
+                "dlq_audit_failed",
+                actor_id=actor_id,
+                action=action,
+                error=str(e)
+            )
+            raise
+    
+    @staticmethod
+    async def audit_dlq_replay(
+        db: Session,
+        actor_id: int,
+        queue_name: str,
+        messages_replayed: int,
+        justification: str,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> AuditLog:
+        """
+        Audit DLQ message replay action (Task 6.9).
+        
+        Args:
+            db: Database session
+            actor_id: Admin user performing the replay
+            queue_name: DLQ queue name
+            messages_replayed: Number of messages replayed
+            justification: Admin's justification for replay
+            metadata: Additional replay metadata
+            
+        Returns:
+            Created audit log entry
+        """
+        try:
+            payload = {
+                "queue_name": queue_name,
+                "messages_replayed": messages_replayed,
+                "justification": justification,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                **(metadata or {})
+            }
+            
+            audit_entry = AuditLog(
+                user_id=actor_id,
+                event_type="dlq_replay",
+                scope_type="dlq_management",
+                scope_id=0,
+                payload=payload,
+                timestamp=datetime.now(timezone.utc)
+            )
+            
+            db.add(audit_entry)
+            db.commit()
+            
+            logger.info(
+                "dlq_replay_audited",
+                actor_id=actor_id,
+                queue_name=queue_name,
+                messages_replayed=messages_replayed,
+                audit_id=audit_entry.id
+            )
+            
+            return audit_entry
+            
+        except Exception as e:
+            logger.error(
+                "dlq_replay_audit_failed",
+                actor_id=actor_id,
+                queue_name=queue_name,
+                error=str(e)
+            )
+            raise
+    
+    @staticmethod
     async def verify_job_audit_chain(
         db: Session,
         job_id: int

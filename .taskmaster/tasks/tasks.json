@@ -914,7 +914,7 @@
               "6.8"
             ],
             "details": "Endpoints: GET /admin/dlq lists *_dlq queues with depths; GET /admin/dlq/{queue}/peek?limit=n previews messages (headers include original routing key, job_id if present); POST /admin/dlq/{queue}/replay re-publishes up to N messages to their original exchange/routing key. Security: admin role + enforced MFA check; rate limit 30/min; require justification string recorded in audit. Replay policy: only messages whose original exchange/routing key match known routes; preserve headers; backoff between batches to avoid thundering herd. Errors: unauthorized (ERR-DLQ-401), invalid queue (ERR-DLQ-404), replay limit exceeded (ERR-DLQ-429). Acceptance: replayed messages land on primary queues and are processed; all admin actions are written to audit_logs with event_type=dlq_replayed; MFA is required for access.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-24T10:25:29.142Z",
+      "updated": "2025-08-24T11:55:50.763Z",
       "description": "Tasks for master context"
     }
   }
