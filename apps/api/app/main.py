@@ -38,6 +38,7 @@ from .routers import jobs as jobs_router
 from .routers import admin_dlq as admin_dlq_router
 from .routers import admin_unmask as admin_unmask_router
 from .routers import designs as designs_router  # Re-enabled with RBAC protection
+from .routers import designs_v1 as designs_v1_router  # Task 7.1: Design API v1 with discriminated unions
 from .routers import admin_users as admin_users_router  # New admin router
 from .routers import me as me_router  # New user profile router
 from .routers import security as security_router  # Security endpoints (Task 3.10)
@@ -189,6 +190,7 @@ app.include_router(jobs_router.router)
 app.include_router(admin_dlq_router.router)
 app.include_router(admin_unmask_router.router)
 app.include_router(designs_router.router)  # Re-enabled with RBAC protection
+app.include_router(designs_v1_router.router)  # Task 7.1: Design API v1 with guards
 app.include_router(admin_users_router.router)  # New admin router with RBAC
 app.include_router(me_router.router)  # New user profile router with RBAC
 app.include_router(security_router.router)  # Security endpoints (Task 3.10)
