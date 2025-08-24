@@ -293,6 +293,7 @@ class TestDLQReplayEndpoint:
                 
                 # Create replay request
                 request = DLQReplayRequest(
+                    mfa_code="123456",
                     max_messages=10,
                     backoff_ms=100,
                     justification="Fixing database connection issue #1234"
@@ -320,6 +321,7 @@ class TestDLQReplayEndpoint:
     async def test_replay_messages_invalid_justification(self, admin_user, mock_db):
         """Test replay with invalid justification."""
         request = DLQReplayRequest(
+            mfa_code="123456",
             max_messages=10,
             backoff_ms=100,
             justification="test"  # Too short
@@ -353,6 +355,7 @@ class TestDLQReplayEndpoint:
                 
                 # Create request with backoff
                 request = DLQReplayRequest(
+                    mfa_code="123456",
                     max_messages=5,
                     backoff_ms=500,  # 500ms backoff
                     justification="Testing backoff timing for thundering herd prevention"

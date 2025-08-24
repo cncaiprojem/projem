@@ -137,8 +137,6 @@ async def verify_mfa_code(
                 }
             )
             
-    except HTTPException:
-        raise
     except Exception as e:
         logger.error(
             "MFA verification error",
@@ -384,17 +382,6 @@ async def replay_dlq_messages(
     
     # Verify MFA from request body
     await verify_mfa_code(request.mfa_code, current_user, db)
-    
-    # Validate justification length
-    if len(request.justification) < 10:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error_code": "ERR-DLQ-400",
-                "message": "Justification must be at least 10 characters",
-                "message_tr": "Gerekçe en az 10 karakter olmalıdır"
-            }
-        )
     
     try:
         # Replay messages with backoff

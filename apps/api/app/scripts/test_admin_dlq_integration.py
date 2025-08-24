@@ -75,6 +75,7 @@ async def test_dlq_management_service():
         print("\n4. Testing replay request validation...")
         try:
             valid_request = DLQReplayRequest(
+                mfa_code="123456",
                 max_messages=10,
                 backoff_ms=100,
                 justification="Testing DLQ replay after fixing connection issue #1234"
@@ -85,6 +86,7 @@ async def test_dlq_management_service():
         
         try:
             invalid_request = DLQReplayRequest(
+                mfa_code="123456",
                 max_messages=10,
                 backoff_ms=100,
                 justification="test"  # Too short
@@ -165,6 +167,7 @@ async def test_dlq_schemas():
         
         # Test DLQReplayRequest
         replay_request = DLQReplayRequest(
+            mfa_code="123456",
             max_messages=10,
             backoff_ms=100,
             justification="Replaying messages after fixing database connection issue #1234"

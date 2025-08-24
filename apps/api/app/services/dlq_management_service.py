@@ -17,6 +17,7 @@ import json
 import time
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
+from urllib.parse import urlparse
 
 import aiohttp
 import aio_pika
@@ -44,11 +45,14 @@ class DLQManagementService:
     Integrates with RabbitMQ Management API for advanced operations.
     """
     
+    # Parse RabbitMQ credentials from URL
+    _parsed_url = urlparse(settings.rabbitmq_url)
+    
     # RabbitMQ Management API configuration
     RABBITMQ_MGMT_URL = settings.rabbitmq_management_url or "http://localhost:15672"
-    RABBITMQ_USER = settings.rabbitmq_user or "freecad"
-    RABBITMQ_PASS = settings.rabbitmq_pass or "freecad_dev_pass"
-    RABBITMQ_VHOST = settings.rabbitmq_vhost or "/"
+    RABBITMQ_USER = _parsed_url.username or "freecad"
+    RABBITMQ_PASS = _parsed_url.password or "freecad_dev_pass"
+    RABBITMQ_VHOST = _parsed_url.path.lstrip('/') or "/"
     
     # Known queue mappings for Task 6.1 topology
     QUEUE_MAPPINGS = {
@@ -305,10 +309,8 @@ class DLQManagementService:
         
         try:
             # Use aio-pika for async consuming and republishing
-            conn_url = f"amqp://{self.RABBITMQ_USER}:{self.RABBITMQ_PASS}@{settings.rabbitmq_host}:{settings.rabbitmq_port}/{self.RABBITMQ_VHOST}"
-            
             # Connect using aio-pika
-            connection = await connect_robust(conn_url)
+            connection = await connect_robust(settings.rabbitmq_url)
             
             try:
                 # Create channel
