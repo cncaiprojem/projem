@@ -66,6 +66,8 @@ complete_job(db, job_id, {"output": "result.stl"}, "Success!")
 fail_job(db, job_id, "ERR_001", "Something went wrong", progress_percent=75)
 ```
 
+**Performance Note**: The `progress()` function implements intelligent throttling to prevent excessive database updates during rapid progress reporting. While this optimizes database performance, be aware that very frequent progress updates (e.g., in tight loops) may be coalesced, and only the most recent update within the throttling window will be persisted. For optimal performance, call `progress()` at meaningful intervals (e.g., every 5-10% of progress) rather than on every iteration of high-frequency loops.
+
 ### 4. Updated CAD Worker (`app/tasks/cad.py`)
 
 Example integration showing progress reporting throughout task execution:

@@ -8,6 +8,7 @@ This service provides:
 - Exactly-once delivery for state transitions
 - Fanout to ERP outbound bridge
 - Idempotent event publishing
+- ASYNC/NON-BLOCKING operations using aio-pika
 """
 
 from __future__ import annotations
@@ -16,9 +17,11 @@ import json
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any
+import asyncio
 
-import pika
-from pika.exceptions import AMQPError, ConnectionClosed, ChannelClosed
+import aio_pika
+from aio_pika.exceptions import AMQPConnectionError, AMQPChannelError, AMQPError
+from aio_pika import Message, DeliveryMode, ExchangeType
 import redis.exceptions
 
 from ..core.logging import get_logger
@@ -29,7 +32,7 @@ logger = get_logger(__name__)
 
 
 class EventPublisherService:
-    """Service for publishing events to RabbitMQ topic exchanges."""
+    """Service for publishing events to RabbitMQ topic exchanges using async/await."""
     
     # Exchange configuration
     EVENTS_EXCHANGE = "events.jobs"
@@ -48,10 +51,12 @@ class EventPublisherService:
     
     def __init__(self):
         """Initialize event publisher service."""
-        self._connection = None
-        self._channel = None
+        self._connection: Optional[aio_pika.abc.AbstractRobustConnection] = None
+        self._channel: Optional[aio_pika.abc.AbstractChannel] = None
         self._redis_client = None
-        self._setup_exchanges()
+        self._events_exchange: Optional[aio_pika.abc.AbstractExchange] = None
+        self._erp_exchange: Optional[aio_pika.abc.AbstractExchange] = None
+        self._lock = asyncio.Lock()
     
     @property
     def redis_client(self):
@@ -66,77 +71,80 @@ class EventPublisherService:
                 self._redis_client = None
         return self._redis_client
     
-    def _get_connection(self) -> pika.BlockingConnection:
+    async def _get_connection(self) -> aio_pika.abc.AbstractRobustConnection:
         """
-        Get or create RabbitMQ connection.
+        Get or create RabbitMQ connection using aio-pika.
         
         Returns:
-            pika.BlockingConnection: RabbitMQ connection
+            aio_pika.abc.AbstractRobustConnection: Async RabbitMQ connection
         """
-        if not self._connection or self._connection.is_closed:
-            try:
-                # Parse RabbitMQ URL
-                parameters = pika.URLParameters(settings.rabbitmq_url)
-                parameters.heartbeat = 30
-                parameters.blocked_connection_timeout = 10
-                
-                self._connection = pika.BlockingConnection(parameters)
-                logger.debug("Established RabbitMQ connection for event publishing")
-                
-            except Exception as e:
-                logger.error(f"Failed to connect to RabbitMQ: {e}")
-                raise
-        
-        return self._connection
+        async with self._lock:
+            if not self._connection or self._connection.is_closed:
+                try:
+                    # Create robust connection (auto-reconnects)
+                    self._connection = await aio_pika.connect_robust(
+                        settings.rabbitmq_url,
+                        heartbeat=30,
+                        connection_attempts=3,
+                        retry_delay=2.0
+                    )
+                    logger.debug("Established async RabbitMQ connection for event publishing")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to connect to RabbitMQ: {e}")
+                    raise
+            
+            return self._connection
     
-    def _get_channel(self) -> pika.channel.Channel:
+    async def _get_channel(self) -> aio_pika.abc.AbstractChannel:
         """
-        Get or create RabbitMQ channel.
+        Get or create RabbitMQ channel using aio-pika.
         
         Returns:
-            pika.channel.Channel: RabbitMQ channel
+            aio_pika.abc.AbstractChannel: Async RabbitMQ channel
         """
-        connection = self._get_connection()
+        connection = await self._get_connection()
         
-        if not self._channel or self._channel.is_closed:
-            try:
-                self._channel = connection.channel()
-                
-                # Enable publisher confirms for reliability
-                self._channel.confirm_delivery()
-                
-                logger.debug("Created RabbitMQ channel for event publishing")
-                
-            except Exception as e:
-                logger.error(f"Failed to create RabbitMQ channel: {e}")
-                raise
-        
-        return self._channel
+        async with self._lock:
+            if not self._channel or self._channel.is_closed:
+                try:
+                    self._channel = await connection.channel()
+                    
+                    # Set prefetch count for flow control
+                    await self._channel.set_qos(prefetch_count=100)
+                    
+                    logger.debug("Created async RabbitMQ channel for event publishing")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to create RabbitMQ channel: {e}")
+                    raise
+            
+            return self._channel
     
-    def _setup_exchanges(self):
+    async def _setup_exchanges(self):
         """
-        Setup required exchanges for event publishing.
+        Setup required exchanges for event publishing using aio-pika.
         
         Creates:
         - events.jobs topic exchange for internal events
         - erp.outbound fanout exchange for ERP bridge
         """
         try:
-            channel = self._get_channel()
+            channel = await self._get_channel()
             
             # Declare events.jobs topic exchange
-            channel.exchange_declare(
-                exchange=self.EVENTS_EXCHANGE,
-                exchange_type=self.EVENTS_EXCHANGE_TYPE,
+            self._events_exchange = await channel.declare_exchange(
+                name=self.EVENTS_EXCHANGE,
+                type=ExchangeType.TOPIC,
                 durable=True,
                 auto_delete=False
             )
             logger.info(f"Declared exchange: {self.EVENTS_EXCHANGE}")
             
             # Declare ERP bridge fanout exchange
-            channel.exchange_declare(
-                exchange=self.ERP_BRIDGE_EXCHANGE,
-                exchange_type=self.ERP_BRIDGE_EXCHANGE_TYPE,
+            self._erp_exchange = await channel.declare_exchange(
+                name=self.ERP_BRIDGE_EXCHANGE,
+                type=ExchangeType.FANOUT,
                 durable=True,
                 auto_delete=False
             )
@@ -145,9 +153,8 @@ class EventPublisherService:
             # Bind ERP bridge to events exchange for job.status.* events
             # This creates the fanout pattern: events.jobs -> erp.outbound
             # Note: Exchange-to-exchange binding requires RabbitMQ 3.0+
-            channel.exchange_bind(
-                destination=self.ERP_BRIDGE_EXCHANGE,
-                source=self.EVENTS_EXCHANGE,
+            await self._erp_exchange.bind(
+                self._events_exchange,
                 routing_key="job.status.#"  # Match all job.status.* events
             )
             logger.info(f"Bound {self.ERP_BRIDGE_EXCHANGE} to {self.EVENTS_EXCHANGE} for job.status.# events")
@@ -215,7 +222,7 @@ class EventPublisherService:
         error_message: Optional[str] = None
     ) -> bool:
         """
-        Publish job.status.changed event to RabbitMQ.
+        Publish job.status.changed event to RabbitMQ using async/await.
         
         Ensures exactly-once delivery per state transition through deduplication.
         Events are published to events.jobs topic exchange and fanout to ERP bridge.
@@ -276,31 +283,41 @@ class EventPublisherService:
                     payload["error_message"] = error_message
                 
                 # Serialize payload
-                message_body = json.dumps(payload)
+                message_body = json.dumps(payload).encode()
                 
-                # Get channel for publishing
-                channel = self._get_channel()
+                # Ensure exchanges are set up
+                if not self._events_exchange:
+                    await self._setup_exchanges()
+                
+                # Create message with properties
+                message = Message(
+                    body=message_body,
+                    delivery_mode=DeliveryMode.PERSISTENT,
+                    content_type="application/json",
+                    message_id=event_id,
+                    timestamp=datetime.now(timezone.utc),
+                    headers={
+                        "x-job-id": str(job_id),
+                        "x-event-type": "job.status.changed",
+                        "x-status": status,
+                        "x-attempt": str(attempt)
+                    }
+                )
                 
                 # Publish to events.jobs exchange with job.status.changed routing key
                 # This will automatically fanout to ERP bridge via exchange binding
-                channel.basic_publish(
-                    exchange=self.EVENTS_EXCHANGE,
-                    routing_key=self.JOB_STATUS_CHANGED_KEY,
-                    body=message_body,
-                    properties=pika.BasicProperties(
-                        delivery_mode=2,  # Persistent message
-                        content_type="application/json",
-                        message_id=event_id,
-                        timestamp=int(datetime.now(timezone.utc).timestamp()),
-                        headers={
-                            "x-job-id": str(job_id),
-                            "x-event-type": "job.status.changed",
-                            "x-status": status,
-                            "x-attempt": str(attempt)
-                        }
-                    ),
-                    mandatory=False  # Don't require queue binding
-                )
+                if self._events_exchange:
+                    await self._events_exchange.publish(
+                        message,
+                        routing_key=self.JOB_STATUS_CHANGED_KEY
+                    )
+                else:
+                    # Fallback: publish directly via channel if exchange not cached
+                    channel = await self._get_channel()
+                    await channel.default_exchange.publish(
+                        message,
+                        routing_key=self.JOB_STATUS_CHANGED_KEY
+                    )
                 
                 logger.info(
                     f"Published job.status.changed event for job {job_id}",
@@ -316,16 +333,18 @@ class EventPublisherService:
                 
                 return True
                 
-            except (ConnectionClosed, ChannelClosed) as e:
+            except (AMQPConnectionError, AMQPChannelError) as e:
                 # Connection issues - reset and retry if not last attempt
                 logger.warning(f"RabbitMQ connection lost, resetting: {e}")
                 self._connection = None
                 self._channel = None
+                self._events_exchange = None
+                self._erp_exchange = None
                 
                 if retry_num < max_retries - 1:
                     # Try to reconnect before next iteration
                     try:
-                        self._setup_exchanges()
+                        await self._setup_exchanges()
                         logger.info(f"Reconnected to RabbitMQ, retrying (attempt {retry_num + 2}/{max_retries})")
                         continue  # Try again in next iteration
                     except Exception as setup_error:
@@ -337,114 +356,104 @@ class EventPublisherService:
                     extra={"job_id": job_id, "status": status}
                 )
                 return False
-                    
-            except pika.exceptions.AMQPError as e:
+            
+            except aio_pika.exceptions.MessageProcessError as e:
+                # Message processing error (e.g., routing issues)
                 logger.error(
-                    f"Failed to publish job.status.changed event for job {job_id}: {e}",
+                    f"Message processing error while publishing job.status.changed event for job {job_id}: {e}",
                     extra={
                         "job_id": job_id,
                         "status": status,
                         "error": str(e)
                     }
                 )
-                # Don't retry on general exceptions, return failure
+                return False
+            
+            except aio_pika.exceptions.AuthenticationError as e:
+                # Authentication error - don't retry
+                logger.error(
+                    f"Authentication error while publishing job.status.changed event for job {job_id}: {e}",
+                    extra={
+                        "job_id": job_id,
+                        "status": status,
+                        "error": str(e)
+                    }
+                )
+                return False
+            
+            except aio_pika.exceptions.ChannelAccessRefused as e:
+                # Access denied error - don't retry
+                logger.error(
+                    f"Access denied error while publishing job.status.changed event for job {job_id}: {e}",
+                    extra={
+                        "job_id": job_id,
+                        "status": status,
+                        "error": str(e)
+                    }
+                )
+                return False
+                    
+            except AMQPError as e:
+                # Other AMQP errors - log and don't retry
+                logger.error(
+                    f"AMQP error while publishing job.status.changed event for job {job_id}: {e}",
+                    extra={
+                        "job_id": job_id,
+                        "status": status,
+                        "error": str(e)
+                    }
+                )
+                return False
+            
+            except Exception as e:
+                # Unexpected errors
+                logger.error(
+                    f"Unexpected error while publishing job.status.changed event for job {job_id}: {e}",
+                    extra={
+                        "job_id": job_id,
+                        "status": status,
+                        "error": str(e)
+                    }
+                )
                 return False
         
-        # If we exhausted all retries without success, return False
+        # Should not reach here, but return False if we do
         return False
     
-    async def publish_custom_event(
-        self,
-        event_type: str,
-        routing_key: str,
-        payload: Dict[str, Any],
-        exchange: Optional[str] = None
-    ) -> bool:
-        """
-        Publish a custom event to RabbitMQ.
-        
-        Args:
-            event_type: Type of event
-            routing_key: Routing key for the event
-            payload: Event payload
-            exchange: Exchange to publish to (default: events.jobs)
-            
-        Returns:
-            True if event was published successfully
-        """
-        try:
-            # Add standard fields
-            event_id = str(uuid.uuid4())
-            timestamp = datetime.now(timezone.utc).isoformat()
-            
-            full_payload = {
-                "event_id": event_id,
-                "event_type": event_type,
-                "timestamp": timestamp,
-                **payload
-            }
-            
-            # Serialize payload
-            message_body = json.dumps(full_payload)
-            
-            # Get channel
-            channel = self._get_channel()
-            
-            # Use default exchange if not specified
-            target_exchange = exchange or self.EVENTS_EXCHANGE
-            
-            # Publish event
-            channel.basic_publish(
-                exchange=target_exchange,
-                routing_key=routing_key,
-                body=message_body,
-                properties=pika.BasicProperties(
-                    delivery_mode=2,  # Persistent
-                    content_type="application/json",
-                    message_id=event_id,
-                    timestamp=int(datetime.now(timezone.utc).timestamp()),
-                    headers={"x-event-type": event_type}
-                ),
-                mandatory=False
-            )
-            
-            logger.info(
-                f"Published {event_type} event",
-                extra={
-                    "event_id": event_id,
-                    "event_type": event_type,
-                    "routing_key": routing_key,
-                    "exchange": target_exchange
-                }
-            )
-            
-            return True
-            
-        except pika.exceptions.AMQPError as e:
-            logger.error(
-                f"Failed to publish {event_type} event: {e}",
-                extra={
-                    "event_type": event_type,
-                    "routing_key": routing_key,
-                    "error": str(e)
-                }
-            )
-            return False
-    
-    def close(self):
-        """Close RabbitMQ connection."""
+    async def close(self):
+        """Close the connection and channel gracefully."""
         try:
             if self._channel and not self._channel.is_closed:
-                self._channel.close()
+                await self._channel.close()
+                logger.debug("Closed RabbitMQ channel")
+            
             if self._connection and not self._connection.is_closed:
-                self._connection.close()
-            logger.debug("Closed RabbitMQ connections for event publisher")
+                await self._connection.close()
+                logger.debug("Closed RabbitMQ connection")
         except Exception as e:
-            logger.debug(f"Error closing RabbitMQ connections: {e}")
-    
-    # Note: __del__ method removed as it's unreliable for cleanup
-    # Users should explicitly call close() when done with the service
+            logger.warning(f"Error closing RabbitMQ connections: {e}")
+        finally:
+            self._channel = None
+            self._connection = None
+            self._events_exchange = None
+            self._erp_exchange = None
 
 
-# Global service instance
-event_publisher_service = EventPublisherService()
+# Global instance for reuse
+_event_publisher: Optional[EventPublisherService] = None
+
+
+def get_event_publisher() -> EventPublisherService:
+    """Get or create a singleton EventPublisherService instance."""
+    global _event_publisher
+    if _event_publisher is None:
+        _event_publisher = EventPublisherService()
+    return _event_publisher
+
+
+async def cleanup_event_publisher():
+    """Clean up the global event publisher instance."""
+    global _event_publisher
+    if _event_publisher:
+        await _event_publisher.close()
+        _event_publisher = None
