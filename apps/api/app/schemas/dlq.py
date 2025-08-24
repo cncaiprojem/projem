@@ -10,7 +10,7 @@ import re
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class DLQQueueInfo(BaseModel):
@@ -130,7 +130,7 @@ class DLQReplayRequest(BaseModel):
     backoff_ms: int = Field(100, ge=0, le=5000, description="Backoff between messages in ms")
     justification: str = Field(..., min_length=10, max_length=500, description="Justification for replay")
     
-    @validator("mfa_code")
+    @field_validator("mfa_code")
     def validate_mfa_code(cls, v):
         """Sanitize and validate MFA code (must be 6 digits)."""
         sanitized = re.sub(r"\D", "", v)
@@ -138,7 +138,7 @@ class DLQReplayRequest(BaseModel):
             raise ValueError("MFA code must be exactly 6 digits")
         return sanitized
     
-    @validator("justification")
+    @field_validator("justification")
     def validate_justification(cls, v):
         """Ensure justification is meaningful."""
         if len(v.strip()) < 10:
