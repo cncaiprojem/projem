@@ -335,7 +335,7 @@ class DLQManagementService:
                             break
                         
                         try:
-                            async with message.process(requeue=True):
+                            async with message.process(requeue=False):
                                 # Extract original routing information
                                 headers = message.headers or {}
                                 x_death = headers.get("x-death", [])
@@ -402,7 +402,7 @@ class DLQManagementService:
                                 error=str(e)
                             )
                             failed_count += 1
-                            # Message will be requeued due to requeue=True in process()
+                            # Message will not be requeued (requeue=False) to prevent infinite loops
                 
             finally:
                 # Clean up connection

@@ -64,6 +64,97 @@ router = APIRouter(
 )
 
 
+async def verify_admin_only(
+    current_user: User = Depends(get_current_user)
+) -> User:
+    """
+    Verify admin role only (without MFA check).
+    Used for endpoints that handle MFA verification separately.
+    
+    Args:
+        current_user: Current authenticated user
+        
+    Returns:
+        Verified admin user
+        
+    Raises:
+        HTTPException: 401 for non-admin
+    """
+    # Check admin role
+    if current_user.role != UserRole.ADMIN:
+        logger.warning(
+            "Non-admin user attempted DLQ access",
+            user_id=current_user.id,
+            role=current_user.role.value
+        )
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "error_code": "ERR-DLQ-401",
+                "message": "Admin role required for DLQ management",
+                "message_tr": "DLQ yönetimi için admin rolü gerekli"
+            }
+        )
+    
+    return current_user
+
+
+async def verify_mfa_code(
+    mfa_code: str,
+    user: User,
+    db: Session
+) -> None:
+    """
+    Helper function to verify MFA code from request body.
+    
+    Args:
+        mfa_code: TOTP MFA code from request body
+        user: User to verify MFA for
+        db: Database session
+        
+    Raises:
+        HTTPException: 403 for failed MFA verification
+    """
+    totp_service = TOTPService()
+    try:
+        is_valid = await totp_service.verify_totp(
+            db=db,
+            user=user,
+            totp_code=mfa_code
+        )
+        
+        if not is_valid:
+            logger.warning(
+                "Invalid MFA code for DLQ access",
+                user_id=user.id
+            )
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error_code": "ERR-DLQ-403",
+                    "message": "MFA verification failed",
+                    "message_tr": "MFA doğrulaması başarısız"
+                }
+            )
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            "MFA verification error",
+            user_id=user.id,
+            error=str(e)
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "ERR-DLQ-403",
+                "message": "MFA verification failed",
+                "message_tr": "MFA doğrulaması başarısız"
+            }
+        )
+
+
 async def verify_admin_with_mfa(
     current_user: User = Depends(get_current_user),
     mfa_code: str = Query(..., description="6-digit TOTP MFA code"),
@@ -99,43 +190,8 @@ async def verify_admin_with_mfa(
             }
         )
     
-    # Verify MFA
-    totp_service = TOTPService()
-    try:
-        is_valid = await totp_service.verify_totp(
-            db=db,
-            user=current_user,
-            totp_code=mfa_code
-        )
-        
-        if not is_valid:
-            logger.warning(
-                "Invalid MFA code for DLQ access",
-                user_id=current_user.id
-            )
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_code": "ERR-DLQ-403",
-                    "message": "MFA verification failed",
-                    "message_tr": "MFA doğrulaması başarısız"
-                }
-            )
-            
-    except Exception as e:
-        logger.error(
-            "MFA verification error",
-            user_id=current_user.id,
-            error=str(e)
-        )
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "error_code": "ERR-DLQ-403",
-                "message": "MFA verification failed",
-                "message_tr": "MFA doğrulaması başarısız"
-            }
-        )
+    # Verify MFA using helper function
+    await verify_mfa_code(mfa_code, current_user, db)
     
     return current_user
 
@@ -149,6 +205,7 @@ async def verify_admin_with_mfa(
 async def list_dlq_queues(
     current_user: User = Depends(verify_admin_with_mfa),
     db: Session = Depends(get_db),
+    dlq_service: DLQManagementService = Depends(get_dlq_service),
     _: None = Depends(RateLimitDependency(RateLimitType.ADMIN))
 ) -> DLQListResponse:
     """
@@ -211,6 +268,7 @@ async def peek_dlq_messages(
     limit: int = Query(10, ge=1, le=100, description="Number of messages to preview"),
     current_user: User = Depends(verify_admin_with_mfa),
     db: Session = Depends(get_db),
+    dlq_service: DLQManagementService = Depends(get_dlq_service),
     _: None = Depends(RateLimitDependency(RateLimitType.ADMIN))
 ) -> List[DLQMessagePreview]:
     """
