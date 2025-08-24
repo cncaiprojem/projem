@@ -701,7 +701,7 @@
           2,
           3
         ],
-        "status": "pending",
+        "status": "done",
         "subtasks": [
           {
             "id": 1,
@@ -863,7 +863,7 @@
               "6.4"
             ],
             "details": "FastAPI endpoint: GET /jobs/:id returns {id, type, status, progress: {percent, step, message, updated_at}, attempts, cancel_requested, created_at, updated_at, artefacts: [{id, kind, s3_key, sha256, size}], last_error: {code, message}}. Authorize access by owner or admin. Support ETag/If-None-Match to reduce polling bandwidth. Acceptance: progress updates issued by workers are visible within 1s; artefact list reflects persisted outputs; 404 for missing or unauthorized jobs; ETag changes when progress changes.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -889,7 +889,7 @@
               "6.6"
             ],
             "details": "Provide a worker helper progress(job_id, percent, step, message, metrics) that updates jobs.progress fields and emits a job.status.changed event with payload {job_id, status, progress, attempt, timestamp}. Throttle writes to at most once per 2s per job to reduce DB load (coalesce). On state transitions (queued, started, running, retrying, succeeded, failed, cancelled), publish the event to an internal topic exchange events.jobs with routing key job.status.changed and fanout to ERP outbound bridge. Acceptance: progress in DB advances monotonically and is visible via GET; events for each transition are published exactly once per transition and consumed by ERP bridge.",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-23T15:07:20.173Z",
+      "updated": "2025-08-24T10:19:54.640Z",
       "description": "Tasks for master context"
     }
   }
