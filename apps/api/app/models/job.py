@@ -251,5 +251,8 @@ class Job(Base, TimestampMixin):
         if message and not self.metrics:
             self.metrics = {}
         if message:
-            self.metrics['last_progress_message'] = message
-            self.metrics['last_progress_update'] = datetime.now(timezone.utc).isoformat()
+            # SQLAlchemy JSONB change tracking: reassign modified dict
+            updated_metrics = self.metrics.copy() if self.metrics else {}
+            updated_metrics['last_progress_message'] = message
+            updated_metrics['last_progress_update'] = datetime.now(timezone.utc).isoformat()
+            self.metrics = updated_metrics

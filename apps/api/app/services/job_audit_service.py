@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any, Dict, List, Optional, Union
@@ -624,10 +625,10 @@ class JobAuditService:
                     if k not in ["chain_hash", "prev_hash"]
                 }
                 
-                # Use reverse mapping to get short event type safely
+                # Use reverse mapping to get short event type safely with robust regex fallback
                 short_event_type = JOB_EVENT_TYPE_REVERSE_MAP.get(
-                    entry.event_type, 
-                    entry.event_type.replace("job_", "")  # Fallback for unknown types
+                    entry.event_type,
+                    re.match(r"^job_(.+)$", entry.event_type).group(1) if re.match(r"^job_(.+)$", entry.event_type) else entry.event_type  # Robust fallback
                 )
                 
                 expected_hash = JobAuditService.compute_job_chain_hash(

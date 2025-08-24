@@ -312,7 +312,10 @@ class TestJobAuditChain:
         
         # Modify the payload (simulating tampering)
         original_payload = audit_entry.payload.copy()
-        audit_entry.payload["tampered"] = True
+        # SQLAlchemy JSONB change tracking: reassign modified dict to trigger change detection
+        tampered_payload = audit_entry.payload.copy()
+        tampered_payload["tampered"] = True
+        audit_entry.payload = tampered_payload
         db_session.commit()
         
         # Verify chain integrity - should detect tampering
