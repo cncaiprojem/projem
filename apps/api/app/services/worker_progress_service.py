@@ -28,6 +28,7 @@ from ..core.redis_config import get_redis_client
 from ..models.job import Job
 from ..models.enums import JobStatus
 from .event_publisher_service import EventPublisherService
+from .job_audit_service import job_audit_service
 
 logger = get_logger(__name__)
 
@@ -314,6 +315,32 @@ class WorkerProgressService:
             # Commit database changes
             db.commit()
             
+            # Create audit log for significant progress updates (Task 6.8)
+            if percent in [25, 50, 75, 100] or new_status != previous_status:
+                try:
+                    await job_audit_service.audit_job_progress(
+                        db=db,
+                        job_id=job_id,
+                        progress=percent,
+                        message=message,
+                        metadata={
+                            "step": step,
+                            "previous_progress": previous_progress,
+                            "status_changed": new_status != previous_status,
+                            "metrics": metrics
+                        }
+                    )
+                    db.commit()
+                except Exception as audit_error:
+                    logger.error(
+                        f"Failed to create audit log for job {job_id} progress update",
+                        extra={
+                            "job_id": job_id,
+                            "percent": percent,
+                            "error": str(audit_error)
+                        }
+                    )
+            
             # Publish event if status changed or significant progress change
             should_publish_event = (
                 new_status != previous_status or
@@ -495,6 +522,56 @@ class WorkerProgressService:
             
             # Commit changes
             db.commit()
+            
+            # Create audit log for job state transition (Task 6.8)
+            try:
+                if status == JobStatus.RUNNING:
+                    await job_audit_service.audit_job_started(
+                        db=db,
+                        job_id=job_id,
+                        worker_id=None,  # TODO: Get worker ID from context
+                        task_id=job.task_id,
+                        metadata={"previous_status": previous_status.value if previous_status else None}
+                    )
+                elif status == JobStatus.COMPLETED:
+                    duration_ms = None
+                    if job.started_at and job.finished_at:
+                        duration_ms = int((job.finished_at - job.started_at).total_seconds() * 1000)
+                    await job_audit_service.audit_job_succeeded(
+                        db=db,
+                        job_id=job_id,
+                        output_data=output_data,
+                        duration_ms=duration_ms,
+                        metadata={"previous_status": previous_status.value if previous_status else None}
+                    )
+                elif status == JobStatus.FAILED:
+                    await job_audit_service.audit_job_failed(
+                        db=db,
+                        job_id=job_id,
+                        error_code=error_code or "UNKNOWN",
+                        error_message=error_message or "Unknown error",
+                        metadata={"previous_status": previous_status.value if previous_status else None}
+                    )
+                elif status == JobStatus.RETRYING:
+                    await job_audit_service.audit_job_retrying(
+                        db=db,
+                        job_id=job_id,
+                        retry_count=job.retry_count,
+                        error_code=error_code,
+                        error_message=error_message,
+                        metadata={"previous_status": previous_status.value if previous_status else None}
+                    )
+                db.commit()
+            except Exception as audit_error:
+                # Log but don't fail the status update if audit fails
+                logger.error(
+                    f"Failed to create audit log for job {job_id} status change to {status.value}",
+                    extra={
+                        "job_id": job_id,
+                        "status": status.value,
+                        "error": str(audit_error)
+                    }
+                )
             
             # Always publish event for status changes
             await self.event_publisher.publish_job_status_changed(
