@@ -242,30 +242,34 @@ class TestEventPublisherService:
         # First call returns True (not duplicate), second returns None (duplicate)
         mock_redis.set.side_effect = [True, None]
         
+        # Mock the _events_exchange directly
+        mock_events_exchange = AsyncMock()
+        mock_events_exchange.publish = AsyncMock(return_value=None)
+        
         with patch.object(event_publisher_service, '_redis_client', mock_redis):
-            with patch.object(event_publisher_service, '_get_channel') as mock_channel:
-                mock_channel.return_value.basic_publish.return_value = None
-                
+            with patch.object(event_publisher_service, '_events_exchange', mock_events_exchange):
                 # First publish - should succeed
                 result1 = await event_publisher_service.publish_job_status_changed(
                     job_id=123, status="running", progress=50, attempt=1
                 )
                 assert result1 is True
-                assert mock_channel.return_value.basic_publish.call_count == 1
+                assert mock_events_exchange.publish.call_count == 1
                 
                 # Second publish with same params - should be deduplicated
                 result2 = await event_publisher_service.publish_job_status_changed(
                     job_id=123, status="running", progress=50, attempt=1
                 )
                 assert result2 is True  # Still returns True (considered success)
-                assert mock_channel.return_value.basic_publish.call_count == 1  # Not called again
+                assert mock_events_exchange.publish.call_count == 1  # Not called again
     
     @pytest.mark.asyncio
     async def test_event_payload_structure(self, event_publisher_service):
         """Test that event payload has correct structure."""
-        with patch.object(event_publisher_service, '_get_channel') as mock_channel:
-            mock_channel.return_value.basic_publish.return_value = None
-            
+        # Mock the _events_exchange directly
+        mock_events_exchange = AsyncMock()
+        mock_events_exchange.publish = AsyncMock(return_value=None)
+        
+        with patch.object(event_publisher_service, '_events_exchange', mock_events_exchange):
             await event_publisher_service.publish_job_status_changed(
                 job_id=123,
                 status="completed",
@@ -278,8 +282,12 @@ class TestEventPublisherService:
             )
             
             # Get the published message
-            call_args = mock_channel.return_value.basic_publish.call_args
-            body = json.loads(call_args.kwargs["body"])
+            assert mock_events_exchange.publish.called
+            call_args = mock_events_exchange.publish.call_args
+            
+            # The first argument is the Message object
+            message = call_args[0][0]
+            body = json.loads(message.body.decode())
             
             # Verify payload structure
             assert body["event_type"] == "job.status.changed"

@@ -162,21 +162,24 @@ class EventExchangeInitializer:
                 timeout=10
             )
             
-            if response.status_code == 200:
-                exchanges = response.json()
-                exchange_names = [ex["name"] for ex in exchanges]
-                
-                # Check events.jobs exchange
-                if "events.jobs" not in exchange_names:
-                    logger.error("✗ events.jobs exchange not found!")
-                    return False
-                logger.info("✓ events.jobs exchange found")
-                
-                # Check erp.outbound exchange
-                if "erp.outbound" not in exchange_names:
-                    logger.error("✗ erp.outbound exchange not found!")
-                    return False
-                logger.info("✓ erp.outbound exchange found")
+            if response.status_code != 200:
+                logger.error(f"✗ Failed to fetch exchanges: HTTP {response.status_code}")
+                return False
+            
+            exchanges = response.json()
+            exchange_names = [ex["name"] for ex in exchanges]
+            
+            # Check events.jobs exchange
+            if "events.jobs" not in exchange_names:
+                logger.error("✗ events.jobs exchange not found!")
+                return False
+            logger.info("✓ events.jobs exchange found")
+            
+            # Check erp.outbound exchange
+            if "erp.outbound" not in exchange_names:
+                logger.error("✗ erp.outbound exchange not found!")
+                return False
+            logger.info("✓ erp.outbound exchange found")
             
             # Check bindings
             response = requests.get(
@@ -185,22 +188,25 @@ class EventExchangeInitializer:
                 timeout=10
             )
             
-            if response.status_code == 200:
-                bindings = response.json()
-                
-                # Look for exchange-to-exchange binding
-                binding_found = False
-                for binding in bindings:
-                    if (binding.get("source") == "events.jobs" and
-                        binding.get("destination") == "erp.outbound" and
-                        binding.get("destination_type") == "exchange"):
-                        binding_found = True
-                        break
-                
-                if not binding_found:
-                    logger.error("✗ Exchange binding events.jobs -> erp.outbound not found!")
-                    return False
-                logger.info("✓ Exchange binding found")
+            if response.status_code != 200:
+                logger.error(f"✗ Failed to fetch bindings: HTTP {response.status_code}")
+                return False
+            
+            bindings = response.json()
+            
+            # Look for exchange-to-exchange binding
+            binding_found = False
+            for binding in bindings:
+                if (binding.get("source") == "events.jobs" and
+                    binding.get("destination") == "erp.outbound" and
+                    binding.get("destination_type") == "exchange"):
+                    binding_found = True
+                    break
+            
+            if not binding_found:
+                logger.error("✗ Exchange binding events.jobs -> erp.outbound not found!")
+                return False
+            logger.info("✓ Exchange binding events.jobs -> erp.outbound found")
             
             logger.info("✓ Event exchange verification successful!")
             return True

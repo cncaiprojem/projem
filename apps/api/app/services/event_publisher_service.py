@@ -312,13 +312,14 @@ class EventPublisherService:
                         routing_key=self.JOB_STATUS_CHANGED_KEY
                     )
                 else:
-                    # Fallback is not safe. If exchange setup fails, we should not silently drop messages.
-                    # It's better to log an error and return False.
+                    # It's better to log an error and raise an exception to break out of any retry loop.
                     logger.error(
                         f"Cannot publish event for job {job_id}: events exchange is not available.",
                         extra={"job_id": job_id, "status": status}
                     )
-                    return False
+                    raise RuntimeError(
+                        f"Cannot publish event for job {job_id}: events exchange is not available."
+                    )
                 
                 logger.info(
                     f"Published job.status.changed event for job {job_id}",
