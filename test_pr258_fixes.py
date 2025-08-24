@@ -11,6 +11,7 @@ This script verifies:
 
 import sys
 import ast
+import re
 from pathlib import Path
 
 
@@ -44,15 +45,15 @@ def test_totp_service_fix():
         return False
     print("[PASS] Using correct parameter name 'code=mfa_code'")
     
-    # Verify the fix was applied (checking essential parts)
-    essential_patterns = [
-        "totp_service.verify_totp_code(",
-        "db=db",
-        "user=user",
-        "code=mfa_code"
+    # Use regex patterns to allow for whitespace variations
+    essential_regexes = [
+        r"totp_service\s*\.\s*verify_totp_code\s*\(",
+        r"db\s*=\s*db",
+        r"user\s*=\s*user",
+        r"code\s*=\s*mfa_code"
     ]
     
-    all_found = all(pattern in content.replace(" ", "").replace("\n", "") for pattern in essential_patterns)
+    all_found = all(re.search(pattern, content) for pattern in essential_regexes)
     if not all_found:
         print("[FAIL] Essential fix patterns not found")
         return False

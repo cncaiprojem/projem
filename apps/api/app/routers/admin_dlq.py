@@ -64,11 +64,11 @@ router = APIRouter(
 )
 
 
-async def verify_admin_only(
+async def verify_admin_role(
     current_user: User = Depends(get_current_user)
 ) -> User:
     """
-    Verify admin role only (without MFA check).
+    Verify that the current user has the admin role (without MFA check).
     Used for endpoints that handle MFA verification separately.
     
     Args:
@@ -122,21 +122,6 @@ async def verify_mfa_code(
             user=user,
             code=mfa_code
         )
-        
-        if not is_valid:
-            logger.warning(
-                "Invalid MFA code for DLQ access",
-                user_id=user.id
-            )
-            raise HTTPException(
-                status_code=403,
-                detail={
-                    "error_code": "ERR-DLQ-403",
-                    "message": "MFA verification failed",
-                    "message_tr": "MFA doğrulaması başarısız"
-                }
-            )
-            
     except Exception as e:
         logger.error(
             "Unexpected MFA verification error",
@@ -149,6 +134,20 @@ async def verify_mfa_code(
                 "error_code": "ERR-DLQ-500",
                 "message": "An unexpected error occurred during MFA verification",
                 "message_tr": "MFA doğrulaması sırasında beklenmedik bir hata oluştu"
+            }
+        )
+    
+    if not is_valid:
+        logger.warning(
+            "Invalid MFA code for DLQ access",
+            user_id=user.id
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "error_code": "ERR-DLQ-403",
+                "message": "MFA verification failed",
+                "message_tr": "MFA doğrulaması başarısız"
             }
         )
 
@@ -354,7 +353,7 @@ async def peek_dlq_messages(
 async def replay_dlq_messages(
     queue_name: str,
     request: DLQReplayRequest,
-    current_user: User = Depends(verify_admin_only),
+    current_user: User = Depends(verify_admin_role),
     db: Session = Depends(get_db),
     dlq_service: DLQManagementService = Depends(get_dlq_service),
     _: None = Depends(RateLimitDependency(RateLimitType.ADMIN))

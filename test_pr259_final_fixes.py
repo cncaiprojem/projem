@@ -27,11 +27,11 @@ def test_totp_mock_fix():
     with open(test_file, 'r', encoding='utf-8') as f:
         content = f.read()
     
-    # Check that we're mocking the correct method
-    if "totp_service.verify_totp_code = MagicMock(return_value=True)" not in content:
-        print("[FAIL] Not using correct mock for verify_totp_code")
+    # Use regex to check for assignment of MagicMock to totp_service.verify_totp_code
+    if not re.search(r"totp_service\.verify_totp_code\s*=\s*MagicMock\(", content):
+        print("[FAIL] Not using correct mock setup for verify_totp_code")
         return False
-    print("[PASS] Using correct mock: verify_totp_code with MagicMock")
+    print("[PASS] Using correct mock setup: verify_totp_code with MagicMock")
     
     # Check that we're NOT using AsyncMock (it's synchronous)
     if "totp_service.verify_totp = AsyncMock" in content:
