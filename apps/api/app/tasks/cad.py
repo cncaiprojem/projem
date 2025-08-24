@@ -27,6 +27,9 @@ from ..core.dlq_handler import handle_task_failure
 # Task 6.6: Import cancellation support
 from ..services.job_cancellation_service import check_cancel, mark_cancelled, JobCancelledError
 
+# Task 6.7: Import progress helpers
+from .worker_helpers import progress, start_job, complete_job, fail_job
+
 logger = logging.getLogger(__name__)
 
 
@@ -96,6 +99,9 @@ def cad_build_task(self, project_id: int):
     
     db = SessionLocal()
     try:
+        # Task 6.7: Report job starting with progress helper
+        start_job(db, project_id, f"Starting CAD build task {task_id}")
+        
         # Task 6.6: Check for cancellation at start
         cancellation_result = _handle_cancellation_check(
             db, project_id, task_id, "start", 
@@ -119,10 +125,20 @@ def cad_build_task(self, project_id: int):
         if not plan:
             raise ValidationError(f"Project {project_id} has empty plan")
         
+        # Task 6.7: Report progress before FreeCAD processing
+        progress(db, project_id, 10, "preprocessing", "Preparing FreeCAD environment")
+        
         # CAD processing with proper error classification
         with tempfile.TemporaryDirectory() as d:
             try:
+                # Task 6.7: Report progress before building
+                progress(db, project_id, 20, "building", "Building CAD model from plan")
+                
                 paths, stats = build_from_plan(plan, d)
+                
+                # Task 6.7: Report progress after successful build
+                progress(db, project_id, 50, "build_complete", f"CAD model built successfully")
+                
             except ConnectionError as e:
                 # Network issues with FreeCAD subprocess - retryable
                 raise NetworkError(f"FreeCAD connection failed: {str(e)}") from e
@@ -145,13 +161,37 @@ def cad_build_task(self, project_id: int):
             if cancellation_result:
                 return cancellation_result
             
+            # Task 6.7: Report progress for file processing
+            progress(db, project_id, 60, "uploading", "Uploading CAD artifacts to storage")
+            
             # Process results
             out = {}
+            total_files = len([p for p in paths.values() if p])
+            processed_files = 0
+            
             for kind, path in paths.items():
                 if not path:
                     continue
                 
                 try:
+                    # Task 6.7: Report progress for each file
+                    processed_files += 1
+                    # Calculate progress (60-90% range), only if there are files to process
+                    if total_files > 0:
+                        file_progress = 60 + int((processed_files / total_files) * 30)  # 60-90% range
+                        progress(
+                            db, project_id, file_progress, 
+                            "uploading", 
+                            f"Uploading {kind} file ({processed_files}/{total_files})"
+                        )
+                    else:
+                        # No files to process, stay at 60%
+                        progress(
+                            db, project_id, 60, 
+                            "uploading", 
+                            "No files to upload"
+                        )
+                    
                     art = upload_and_sign(path, type=f"cad/{kind}")
                 except ConnectionError as e:
                     # S3 upload network issues - retryable
@@ -186,6 +226,9 @@ def cad_build_task(self, project_id: int):
                 
                 out[kind] = art.get("signed_url")
             
+            # Task 6.7: Report finalizing progress
+            progress(db, project_id, 95, "finalizing", "Finalizing CAD build results")
+            
             # Update project status
             try:
                 p.status = ProjectStatus.cad_ready if stats.get("ok") else ProjectStatus.error
@@ -195,6 +238,10 @@ def cad_build_task(self, project_id: int):
                 db.rollback()
                 raise TransientExternalError(f"Failed to update project status: {str(e)}") from e
             
+            # Task 6.7: Mark job as completed with output data
+            output_data = {"artifacts": out, "stats": stats}
+            complete_job(db, project_id, output_data, "CAD build completed successfully")
+            
             # Task 6.2: Log successful completion
             logger.info(f"CAD build task {task_id} completed successfully for project {project_id} after {attempt_count} attempts")
             
@@ -203,6 +250,15 @@ def cad_build_task(self, project_id: int):
     except Exception as exc:
         # Task 6.2: Enhanced error handling with retry strategy
         logger.error(f"CAD build task {task_id} failed (attempt {attempt_count}): {exc}", exc_info=True)
+        
+        # Task 6.7: Report failure with progress helper
+        error_metadata = get_error_metadata(exc)
+        fail_job(
+            db, project_id,
+            error_code=error_metadata.get("error_type", "UNKNOWN_ERROR"),
+            error_message=str(exc)[:500],  # Truncate long error messages
+            progress_percent=None  # Keep current progress
+        )
         
         # Let the handle_task_failure function decide retry vs DLQ
         handle_task_failure(

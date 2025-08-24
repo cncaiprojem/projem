@@ -490,7 +490,7 @@ def _build_job_status_response(
         - last_error: Optional[JobLastErrorResponse]
         - queue_position: Optional[int]
     """
-    # Build progress information
+    # Build progress information - Task 6.7: Updated to use new progress fields
     # Extract progress update timestamp for cleaner logic with safe parsing
     progress_update_str = job.metrics.get('last_progress_update') if job.metrics else None
     
@@ -505,10 +505,11 @@ def _build_job_status_response(
         )
         progress_updated_at = job.updated_at
     
+    # Task 6.7: Use progress_step and progress_message fields set by worker_progress_service
     progress_info = JobProgressResponse(
         percent=job.progress,
-        step=job.metrics.get('current_step') if job.metrics else None,
-        message=job.metrics.get('last_progress_message') if job.metrics else None,
+        step=(job.metrics.get('progress_step') or job.metrics.get('current_step')) if job.metrics else None,
+        message=(job.metrics.get('progress_message') or job.metrics.get('last_progress_message')) if job.metrics else None,
         updated_at=progress_updated_at,
     )
     
