@@ -678,5 +678,128 @@ class TestLicenseValidation:
         assert "ai_generation" in response.json().get("detail", "").lower()
 
 
+class TestCrossEndpointIdempotency:
+    """Test that idempotency keys are properly scoped by job type."""
+    
+    def test_same_idempotency_key_different_endpoints(self, client, auth_headers, db_session):
+        """
+        Test that the same idempotency key can be used across different endpoints.
+        This verifies the fix for HIGH severity feedback where idempotency was not
+        properly scoped by job type.
+        """
+        idempotency_key = str(uuid4())
+        headers = {**auth_headers, "Idempotency-Key": idempotency_key}
+        
+        # 1. Create a job via prompt endpoint (JobType.MODEL)
+        prompt_body = {
+            "design": {
+                "type": "prompt",
+                "prompt": "Create a simple cube"
+            },
+            "priority": 5
+        }
+        
+        prompt_response = client.post(
+            "/api/v1/designs/prompt",
+            json=prompt_body,
+            headers=headers
+        )
+        assert prompt_response.status_code == status.HTTP_202_ACCEPTED
+        prompt_job_id = prompt_response.json()["job_id"]
+        
+        # 2. Use the SAME idempotency key for assembly endpoint (JobType.ASSEMBLY)
+        assembly_body = {
+            "design": {
+                "type": "assembly4",
+                "parts": [
+                    {"name": "part1", "path": "models/part1.FCStd"},
+                    {"name": "part2", "path": "models/part2.FCStd"}
+                ],
+                "constraints": [
+                    {
+                        "type": "coaxial",
+                        "part1": "part1",
+                        "part2": "part2",
+                        "element1": "Edge1",
+                        "element2": "Edge1"
+                    }
+                ]
+            },
+            "priority": 5
+        }
+        
+        assembly_response = client.post(
+            "/api/v1/assemblies/a4",
+            json=assembly_body,
+            headers=headers
+        )
+        
+        # Should succeed because it's a different job type (ASSEMBLY vs MODEL)
+        assert assembly_response.status_code == status.HTTP_202_ACCEPTED
+        assembly_job_id = assembly_response.json()["job_id"]
+        
+        # Verify they created different jobs
+        assert prompt_job_id != assembly_job_id
+        
+        # 3. Verify idempotency still works within same endpoint
+        prompt_retry = client.post(
+            "/api/v1/designs/prompt",
+            json=prompt_body,
+            headers=headers
+        )
+        assert prompt_retry.status_code == status.HTTP_202_ACCEPTED
+        assert prompt_retry.json()["job_id"] == prompt_job_id
+        assert prompt_retry.json()["status"] == "duplicate"
+        
+        assembly_retry = client.post(
+            "/api/v1/assemblies/a4",
+            json=assembly_body,
+            headers=headers
+        )
+        assert assembly_retry.status_code == status.HTTP_202_ACCEPTED
+        assert assembly_retry.json()["job_id"] == assembly_job_id
+        assert assembly_retry.json()["status"] == "duplicate"
+        
+        # 4. Verify database has correct job types
+        from ..models import Job
+        prompt_job = db_session.query(Job).filter_by(id=prompt_job_id).first()
+        assert prompt_job.type == JobType.MODEL
+        
+        assembly_job = db_session.query(Job).filter_by(id=assembly_job_id).first()
+        assert assembly_job.type == JobType.ASSEMBLY
+    
+    def test_upload_endpoint_uses_correct_job_type(self, client, auth_headers, db_session):
+        """Test that upload endpoint uses CAD_IMPORT job type."""
+        idempotency_key = str(uuid4())
+        headers = {**auth_headers, "Idempotency-Key": idempotency_key}
+        
+        upload_body = {
+            "design": {
+                "type": "upload",
+                "s3_key": "uploads/test.step",
+                "file_format": "STEP",
+                "process_options": {
+                    "validate": True,
+                    "repair": False
+                }
+            },
+            "priority": 5
+        }
+        
+        response = client.post(
+            "/api/v1/designs/upload",
+            json=upload_body,
+            headers=headers
+        )
+        
+        assert response.status_code == status.HTTP_202_ACCEPTED
+        job_id = response.json()["job_id"]
+        
+        # Verify job type in database
+        from ..models import Job
+        job = db_session.query(Job).filter_by(id=job_id).first()
+        assert job.type == JobType.CAD_IMPORT
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

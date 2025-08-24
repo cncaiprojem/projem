@@ -679,9 +679,9 @@ async def create_design_from_upload(
             detail=f"Dosya bulunamadı: {body.design.s3_key}"
         )
     
-    # Handle idempotency
+    # Handle idempotency - upload uses CAD_IMPORT job type
     existing_job = handle_idempotency(
-        db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
+        db, idempotency_key, body.model_dump(), JobType.CAD_IMPORT, current_user
     )
     
     if existing_job:
@@ -700,7 +700,7 @@ async def create_design_from_upload(
             license=license,
             body=body,
             idempotency_key=idempotency_key,
-            job_type=JobType.MODEL,
+            job_type=JobType.CAD_IMPORT,
             input_type="upload",
             extra_metadata={
                 "s3_key": body.design.s3_key,
@@ -728,7 +728,7 @@ async def create_design_from_upload(
             )
             # Re-fetch the job created by the other request
             existing_job = handle_idempotency(
-                db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
+                db, idempotency_key, body.model_dump(), JobType.CAD_IMPORT, current_user
             )
             if existing_job:
                 return create_duplicate_response(existing_job, response, 90)
@@ -778,9 +778,9 @@ async def create_assembly4(
         current_user, db, ["assembly_design", "model_creation"]
     )
     
-    # Handle idempotency
+    # Handle idempotency - assembly4 uses ASSEMBLY job type
     existing_job = handle_idempotency(
-        db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
+        db, idempotency_key, body.model_dump(), JobType.ASSEMBLY, current_user
     )
     
     if existing_job:
@@ -799,7 +799,7 @@ async def create_assembly4(
             license=license,
             body=body,
             idempotency_key=idempotency_key,
-            job_type=JobType.MODEL,
+            job_type=JobType.ASSEMBLY,
             input_type="assembly4",
             extra_metadata={
                 "part_count": len(body.design.parts),
@@ -827,7 +827,7 @@ async def create_assembly4(
             )
             # Re-fetch the job created by the other request
             existing_job = handle_idempotency(
-                db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
+                db, idempotency_key, body.model_dump(), JobType.ASSEMBLY, current_user
             )
             if existing_job:
                 return create_duplicate_response(existing_job, response, 180)
