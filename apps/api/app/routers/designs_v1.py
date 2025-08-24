@@ -323,9 +323,9 @@ def create_job_from_design(
         type=job_type,
         status=JobStatus.PENDING,
         params=body.model_dump(),
-        user_id=current_user.user_id,  # Already an int from User model
-        license_id=license.id,  # Already an int from License model
-        tenant_id=current_user.tenant_id,  # String UUID from JWT claims
+        user_id=current_user.user_id,
+        license_id=license.id,
+        tenant_id=current_user.tenant_id,
         priority=body.priority,
         metadata=metadata
     )
@@ -767,7 +767,7 @@ async def create_assembly4(
     if not isinstance(body.design, Assembly4Input):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Bu endpoint sadece 'a4' tipi girdi kabul eder"
+            detail="Bu endpoint sadece 'Assembly4Input' tipi girdi kabul eder"
         )
     
     # Apply rate limits

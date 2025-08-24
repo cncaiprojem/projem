@@ -710,7 +710,7 @@ class TestCrossEndpointIdempotency:
         # 2. Use the SAME idempotency key for assembly endpoint (JobType.ASSEMBLY)
         assembly_body = {
             "design": {
-                "type": "assembly4",
+                "type": "a4",
                 "parts": [
                     {"name": "part1", "path": "models/part1.FCStd"},
                     {"name": "part2", "path": "models/part2.FCStd"}
@@ -777,11 +777,9 @@ class TestCrossEndpointIdempotency:
             "design": {
                 "type": "upload",
                 "s3_key": "uploads/test.step",
-                "file_format": "STEP",
-                "process_options": {
-                    "validate": True,
-                    "repair": False
-                }
+                "file_format": ".step",
+                "file_size": 12345,
+                "sha256": "a" * 64  # Valid 64-character SHA256 hash
             },
             "priority": 5
         }
