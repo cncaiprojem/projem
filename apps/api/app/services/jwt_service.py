@@ -65,7 +65,9 @@ class JWTClaims:
         exp: int,  # Expiration timestamp
         iss: str = None,
         aud: str = None,
-        jti: str = None  # JWT ID for tracking
+        jti: str = None,  # JWT ID for tracking
+        license_id: str = None,  # License ID for Task 7.1
+        tenant_id: str = None  # Tenant ID for Task 7.1
     ):
         self.sub = sub
         self.role = role
@@ -76,10 +78,12 @@ class JWTClaims:
         self.iss = iss or settings.jwt_issuer
         self.aud = aud or settings.jwt_audience
         self.jti = jti or str(uuid.uuid4())
+        self.license_id = license_id  # Task 7.1: License tracking
+        self.tenant_id = tenant_id  # Task 7.1: Multi-tenancy support
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert claims to dictionary for JWT encoding."""
-        return {
+        result = {
             'sub': self.sub,
             'role': self.role,
             'scopes': self.scopes,
@@ -90,6 +94,12 @@ class JWTClaims:
             'aud': self.aud,
             'jti': self.jti
         }
+        # Task 7.1: Include optional claims if present
+        if self.license_id:
+            result['license_id'] = self.license_id
+        if self.tenant_id:
+            result['tenant_id'] = self.tenant_id
+        return result
     
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "JWTClaims":
@@ -103,7 +113,9 @@ class JWTClaims:
             exp=payload.get('exp'),
             iss=payload.get('iss'),
             aud=payload.get('aud'),
-            jti=payload.get('jti')
+            jti=payload.get('jti'),
+            license_id=payload.get('license_id'),  # Task 7.1
+            tenant_id=payload.get('tenant_id')  # Task 7.1
         )
 
 
