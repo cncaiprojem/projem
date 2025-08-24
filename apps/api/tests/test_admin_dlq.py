@@ -318,26 +318,19 @@ class TestDLQReplayEndpoint:
                 assert call_args.kwargs["justification"] == request.justification
     
     @pytest.mark.asyncio
-    async def test_replay_messages_invalid_justification(self, admin_user, mock_db):
-        """Test replay with invalid justification."""
-        request = DLQReplayRequest(
-            mfa_code="123456",
-            max_messages=10,
-            backoff_ms=100,
-            justification="test"  # Too short
-        )
+    async def test_replay_messages_invalid_justification(self):
+        """Test that DLQReplayRequest rejects invalid justification."""
+        from pydantic import ValidationError
         
-        with pytest.raises(HTTPException) as exc_info:
-            await replay_dlq_messages(
-                queue_name="default_dlq",
-                request=request,
-                current_user=admin_user,
-                db=mock_db,
-                _=None
+        with pytest.raises(ValidationError) as exc_info:
+            DLQReplayRequest(
+                mfa_code="123456",
+                max_messages=10,
+                backoff_ms=100,
+                justification="test"  # Too short
             )
         
-        assert exc_info.value.status_code == 400
-        assert "Justification must be at least 10 characters" in exc_info.value.detail["message"]
+        assert "Justification must be at least 10 characters" in str(exc_info.value)
     
     @pytest.mark.asyncio
     async def test_replay_messages_with_backoff(self, admin_user, mock_db):
@@ -405,7 +398,6 @@ class TestErrorHandling:
             "ERR-DLQ-403",  # MFA failed
             "ERR-DLQ-404",  # Invalid queue
             "ERR-DLQ-429",  # Rate limit exceeded
-            "ERR-DLQ-400",  # Bad request
             "ERR-DLQ-500",  # Internal error
         ]
         

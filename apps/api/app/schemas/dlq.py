@@ -6,6 +6,7 @@ Data validation and serialization schemas for Dead Letter Queue operations.
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 
@@ -124,10 +125,18 @@ class DLQMessagePreview(BaseModel):
 class DLQReplayRequest(BaseModel):
     """Request to replay messages from DLQ."""
     
-    mfa_code: str = Field(..., pattern="^[0-9]{6}$", description="6-digit TOTP MFA code")
+    mfa_code: str = Field(..., description="6-digit TOTP MFA code")
     max_messages: int = Field(10, ge=1, le=100, description="Maximum messages to replay")
     backoff_ms: int = Field(100, ge=0, le=5000, description="Backoff between messages in ms")
     justification: str = Field(..., min_length=10, max_length=500, description="Justification for replay")
+    
+    @validator("mfa_code")
+    def validate_mfa_code(cls, v):
+        """Sanitize and validate MFA code (must be 6 digits)."""
+        sanitized = re.sub(r"\D", "", v)
+        if len(sanitized) != 6 or not sanitized.isdigit():
+            raise ValueError("MFA code must be exactly 6 digits")
+        return sanitized
     
     @validator("justification")
     def validate_justification(cls, v):

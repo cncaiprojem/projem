@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test script to verify all PR #254 critical fixes have been applied.
+Test script to verify all PR #255 critical fixes have been applied.
 Tests for NameErrors and infinite loop prevention.
 """
 

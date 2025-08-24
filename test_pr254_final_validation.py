@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Final validation script for PR #254 critical fixes.
-Ensures all NameErrors and infinite loop issues are resolved.
+Final validation script for PR #255 feedback and critical fixes.
+Ensures all feedback from PR #255 and related NameErrors/infinite loop issues are resolved.
 """
 
 import ast
