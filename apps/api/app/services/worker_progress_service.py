@@ -17,7 +17,6 @@ import json
 import time
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
-from decimal import Decimal
 
 from sqlalchemy.orm import Session
 from sqlalchemy import select, update
@@ -53,7 +52,6 @@ class WorkerProgressService:
         """Initialize worker progress service."""
         self.event_publisher = EventPublisherService()
         self._redis_client = None
-        self._coalesce_tasks = {}  # Track async coalescing tasks
     
     @property
     def redis_client(self):

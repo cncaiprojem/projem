@@ -176,13 +176,21 @@ def cad_build_task(self, project_id: int):
                 try:
                     # Task 6.7: Report progress for each file
                     processed_files += 1
-                    # Calculate progress (60-90% range), handling edge case where total_files is 0
-                    file_progress = 60 + int((processed_files / max(total_files, 1)) * 30)  # 60-90% range
-                    progress(
-                        db, project_id, file_progress, 
-                        "uploading", 
-                        f"Uploading {kind} file ({processed_files}/{total_files})"
-                    )
+                    # Calculate progress (60-90% range), only if there are files to process
+                    if total_files > 0:
+                        file_progress = 60 + int((processed_files / total_files) * 30)  # 60-90% range
+                        progress(
+                            db, project_id, file_progress, 
+                            "uploading", 
+                            f"Uploading {kind} file ({processed_files}/{total_files})"
+                        )
+                    else:
+                        # No files to process, stay at 60%
+                        progress(
+                            db, project_id, 60, 
+                            "uploading", 
+                            "No files to upload"
+                        )
                     
                     art = upload_and_sign(path, type=f"cad/{kind}")
                 except ConnectionError as e:

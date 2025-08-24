@@ -312,12 +312,13 @@ class EventPublisherService:
                         routing_key=self.JOB_STATUS_CHANGED_KEY
                     )
                 else:
-                    # Fallback: publish directly via channel if exchange not cached
-                    channel = await self._get_channel()
-                    await channel.default_exchange.publish(
-                        message,
-                        routing_key=self.JOB_STATUS_CHANGED_KEY
+                    # Fallback is not safe. If exchange setup fails, we should not silently drop messages.
+                    # It's better to log an error and return False.
+                    logger.error(
+                        f"Cannot publish event for job {job_id}: events exchange is not available.",
+                        extra={"job_id": job_id, "status": status}
                     )
+                    return False
                 
                 logger.info(
                     f"Published job.status.changed event for job {job_id}",

@@ -297,17 +297,23 @@ class TestEventPublisherService:
     @pytest.mark.asyncio
     async def test_exchange_binding(self, event_publisher_service):
         """Test that events.jobs exchange is bound to ERP bridge."""
-        with patch.object(event_publisher_service, '_get_channel') as mock_channel:
-            # Reinitialize to trigger setup
-            event_publisher_service._setup_exchanges()
+        mock_channel = AsyncMock()
+        mock_events_exchange = AsyncMock()
+        mock_erp_exchange = AsyncMock()
+        
+        # Configure mocks to return the exchange mocks
+        mock_channel.declare_exchange.side_effect = [mock_events_exchange, mock_erp_exchange]
+        
+        with patch.object(event_publisher_service, '_get_channel', return_value=mock_channel):
+            # Reinitialize to trigger setup - MUST be awaited
+            await event_publisher_service._setup_exchanges()
             
             # Verify exchanges were declared
-            assert mock_channel.return_value.exchange_declare.call_count >= 2
+            assert mock_channel.declare_exchange.call_count == 2
             
             # Verify exchange binding for ERP fanout
-            mock_channel.return_value.exchange_bind.assert_called_with(
-                destination="erp.outbound",
-                source="events.jobs",
+            mock_erp_exchange.bind.assert_awaited_once_with(
+                mock_events_exchange,
                 routing_key="job.status.#"
             )
 
