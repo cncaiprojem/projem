@@ -901,7 +901,7 @@
               "6.7"
             ],
             "details": "On each state change (created, queued, started, progress, retrying, cancelled, failed, succeeded, dlq_replayed), write an audit_logs row with fields: id, job_id, event_type, actor (system/user id), ts, payload (canonical JSON), prev_hash, chain_hash. Compute chain_hash=sha256(prev_hash || canonical_json(payload)) using stable key ordering and normalized floats/ints. prev_hash is the chain_hash of the last audit entry for the job, or 32 zero-bytes for the first. Enforce append-only at application level; never update existing rows. Provide a verification routine to recompute and validate the chain for a job. Acceptance: inserting two consecutive audit events yields deterministic chain_hash; modifying any prior audit row causes verification to fail; all API and worker transitions create corresponding audit entries.",
-            "status": "pending",
+            "status": "in-progress",
             "testStrategy": ""
           },
           {
@@ -1708,7 +1708,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-24T10:19:54.640Z",
+      "updated": "2025-08-24T10:25:29.142Z",
       "description": "Tasks for master context"
     }
   }

@@ -23,6 +23,7 @@ from ..core.logging import get_logger
 from ..core.redis_config import get_redis_client
 from ..models.job import Job
 from ..services.audit_service import AuditService
+from ..services.job_audit_service import job_audit_service
 from .pii_masking_service import DataClassification
 
 logger = get_logger(__name__)
@@ -496,24 +497,39 @@ class JobCancellationService:
         user_agent: Optional[str] = None,
         metadata: Optional[Dict[str, Any]] = None
     ):
-        """Create audit log entry for cancellation event."""
+        """Create audit log entry for cancellation event using job audit service."""
         try:
-            await self.audit_service.create_audit_entry(
-                db=db,
-                event_type=f"job.cancellation.{action}",
-                user_id=user_id,
-                scope_type="job",
-                scope_id=job_id,
-                resource=f"job/{job_id}",
-                ip_address=ip_address,
-                user_agent=user_agent,
-                payload={
-                    "action": action,
-                    "reason": reason,
-                    **(metadata or {})
-                },
-                classification=DataClassification.INTERNAL
-            )
+            # Use job_audit_service for Task 6.8 hash-chain integrity
+            if action == "cancel_requested":
+                await job_audit_service.audit_job_cancelled(
+                    db=db,
+                    job_id=job_id,
+                    actor_id=user_id,
+                    reason=reason,
+                    metadata={
+                        "ip_address": ip_address,
+                        "user_agent": user_agent,
+                        **(metadata or {})
+                    }
+                )
+            else:
+                # For other actions, use generic audit service
+                await self.audit_service.create_audit_entry(
+                    db=db,
+                    event_type=f"job.cancellation.{action}",
+                    user_id=user_id,
+                    scope_type="job",
+                    scope_id=job_id,
+                    resource=f"job/{job_id}",
+                    ip_address=ip_address,
+                    user_agent=user_agent,
+                    payload={
+                        "action": action,
+                        "reason": reason,
+                        **(metadata or {})
+                    },
+                    classification=DataClassification.INTERNAL
+                )
         except Exception as e:
             logger.error(
                 f"Failed to create cancellation audit for job {job_id}: {e}",

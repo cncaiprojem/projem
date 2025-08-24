@@ -138,7 +138,10 @@ class CamRun(Base, TimestampMixin):
         """Set CAM parameter value safely."""
         if self.params is None:
             self.params = {}
-        self.params[key] = value
+        # SQLAlchemy JSONB change tracking: reassign modified dict
+        updated_params = self.params.copy()
+        updated_params[key] = value
+        self.params = updated_params
     
     def get_metric(self, key: str, default=None):
         """Get metric value safely."""
@@ -148,7 +151,10 @@ class CamRun(Base, TimestampMixin):
         """Set metric value safely."""
         if self.metrics is None:
             self.metrics = {}
-        self.metrics[key] = value
+        # SQLAlchemy JSONB change tracking: reassign modified dict
+        updated_metrics = self.metrics.copy()
+        updated_metrics[key] = value
+        self.metrics = updated_metrics
     
     def add_execution_metrics(
         self, 

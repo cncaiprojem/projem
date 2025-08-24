@@ -44,6 +44,7 @@ from ..core.rate_limiter import RateLimiter
 from ..core.auth import get_current_user
 from ..core.config import settings
 from kombu.exceptions import OperationalError
+from ..services.job_audit_service import job_audit_service
 
 logger = structlog.get_logger(__name__)
 
@@ -272,6 +273,27 @@ async def create_job(
         # Commit the transaction before publishing
         db.commit()
         
+        # Audit log the job creation (Task 6.8)
+        try:
+            await job_audit_service.audit_job_created(
+                db=db,
+                job=new_job,
+                actor_id=getattr(current_user, "id", None),
+                metadata={
+                    "queue": routing_config["queue"],
+                    "routing_key": routing_config["routing_key"],
+                    "priority": job_request.priority or 0,
+                }
+            )
+            db.commit()
+        except Exception as audit_error:
+            # Log but don't fail the request if audit fails
+            logger.error(
+                "Failed to create audit log for job creation",
+                job_id=new_job.id,
+                error=str(audit_error),
+            )
+        
         logger.info(
             "Job created successfully",
             job_id=new_job.id,
@@ -287,6 +309,27 @@ async def create_job(
             new_job.task_id = publish_result.job_id
             new_job.status = JobStatus.QUEUED
             db.commit()
+            
+            # Audit log the job queued event (Task 6.8)
+            try:
+                await job_audit_service.audit_job_queued(
+                    db=db,
+                    job_id=new_job.id,
+                    queue_name=routing_config["queue"],
+                    routing_key=routing_config["routing_key"],
+                    actor_id=None,  # System action
+                    metadata={
+                        "task_id": publish_result.job_id,
+                        "exchange": routing_config.get("exchange", "jobs"),
+                    }
+                )
+                db.commit()
+            except Exception as audit_error:
+                logger.error(
+                    "Failed to create audit log for job queued",
+                    job_id=new_job.id,
+                    error=str(audit_error),
+                )
             
             logger.info(
                 "Job task published successfully",
