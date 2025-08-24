@@ -45,14 +45,8 @@ class DLQManagementService:
     Integrates with RabbitMQ Management API for advanced operations.
     """
     
-    # Parse RabbitMQ credentials from URL
-    _parsed_url = urlparse(settings.rabbitmq_url)
-    
     # RabbitMQ Management API configuration
     RABBITMQ_MGMT_URL = settings.rabbitmq_management_url or "http://localhost:15672"
-    RABBITMQ_USER = _parsed_url.username or "freecad"
-    RABBITMQ_PASS = _parsed_url.password or "freecad_dev_pass"
-    RABBITMQ_VHOST = _parsed_url.path.lstrip('/') or "/"
     
     # Known queue mappings for Task 6.1 topology
     QUEUE_MAPPINGS = {
@@ -76,6 +70,12 @@ class DLQManagementService:
     
     def __init__(self):
         """Initialize DLQ Management Service."""
+        # Parse RabbitMQ credentials from URL
+        parsed_url = urlparse(settings.rabbitmq_url)
+        self.RABBITMQ_USER = parsed_url.username or "freecad"
+        self.RABBITMQ_PASS = parsed_url.password or "freecad_dev_pass"
+        self.RABBITMQ_VHOST = parsed_url.path.lstrip('/') or "/"
+        
         self.auth = aiohttp.BasicAuth(self.RABBITMQ_USER, self.RABBITMQ_PASS)
         self._session: Optional[aiohttp.ClientSession] = None
         self._amqp_connection: Optional[aio_pika.RobustConnection] = None

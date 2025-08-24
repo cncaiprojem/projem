@@ -16,13 +16,46 @@ def test_attribute_error_fix():
     with open("apps/api/app/routers/admin_dlq.py", "r") as f:
         content = f.read()
     
-    # Check that we're using dict access instead of attribute access
-    if 'q["message_count"]' in content and 'q.message_count' not in content:
-        print("✓ Test 1 PASSED: AttributeError fix applied - using q['message_count']")
-        return True
-    else:
-        print("✗ Test 1 FAILED: AttributeError not fixed properly")
-        return False
+    # Use AST parsing for more reliable checking
+    try:
+        tree = ast.parse(content)
+        has_dict_access = False
+        has_attr_access = False
+        
+        for node in ast.walk(tree):
+            # Check for q["message_count"] pattern
+            if isinstance(node, ast.Subscript):
+                if (isinstance(node.value, ast.Name) and node.value.id == "q"):
+                    # Check if accessing "message_count"
+                    if hasattr(node.slice, 'value'):  # Python 3.8 compatibility
+                        if (isinstance(node.slice.value, ast.Constant) and 
+                            node.slice.value.value == "message_count"):
+                            has_dict_access = True
+                    elif isinstance(node.slice, ast.Constant) and node.slice.value == "message_count":
+                        has_dict_access = True
+            
+            # Check for q.message_count pattern (should not exist)
+            if isinstance(node, ast.Attribute):
+                if (isinstance(node.value, ast.Name) and 
+                    node.value.id == "q" and 
+                    node.attr == "message_count"):
+                    has_attr_access = True
+        
+        if has_dict_access and not has_attr_access:
+            print("✓ Test 1 PASSED: AttributeError fix applied - using q['message_count']")
+            return True
+        else:
+            print("✗ Test 1 FAILED: AttributeError not fixed properly")
+            return False
+            
+    except (SyntaxError, ValueError):
+        # Fallback to string-based check if AST parsing fails
+        if 'q["message_count"]' in content and 'q.message_count' not in content:
+            print("✓ Test 1 PASSED: AttributeError fix applied - using q['message_count']")
+            return True
+        else:
+            print("✗ Test 1 FAILED: AttributeError not fixed properly")
+            return False
 
 def test_aio_pika_import():
     """Test 2: Check aio-pika is imported instead of Kombu"""

@@ -93,13 +93,41 @@ def test_amqp_connection_optimization():
     
     print("[PASS] No new connection creation in replay_messages")
     
-    # Check that connection is not closed in replay_messages
-    if "await connection.close()" in content and "# Note: Connection is not closed here" not in content:
-        # Make sure this close() is not in replay_messages
-        replay_section = content[content.find("async def replay_messages"):content.find("async def get_queue_depth")]
-        if "await connection.close()" in replay_section:
-            print("[FAIL] Connection being closed in replay_messages")
-            return False
+    # Check that connection is not closed in replay_messages using safer approach
+    # Parse the AST to find replay_messages function and check for connection.close()
+    try:
+        tree = ast.parse(content)
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "replay_messages":
+                # Walk through the function body looking for connection.close()
+                for subnode in ast.walk(node):
+                    if isinstance(subnode, ast.Expr):
+                        value = subnode.value
+                        if isinstance(value, ast.Await):
+                            call = value.value
+                            if isinstance(call, ast.Call):
+                                if (isinstance(call.func, ast.Attribute) and 
+                                    call.func.attr == "close" and
+                                    isinstance(call.func.value, ast.Name) and
+                                    call.func.value.id == "connection"):
+                                    print("[FAIL] Connection being closed in replay_messages")
+                                    return False
+                break
+    except (SyntaxError, ValueError) as e:
+        # Fallback to simpler string-based check with better bounds handling
+        replay_start = content.find("async def replay_messages")
+        if replay_start != -1:
+            # Find the next function definition after replay_messages
+            next_func_start = content.find("\nasync def ", replay_start + 1)
+            if next_func_start == -1:
+                next_func_start = content.find("\ndef ", replay_start + 1)
+            if next_func_start == -1:
+                next_func_start = len(content)
+            
+            replay_section = content[replay_start:next_func_start]
+            if "await connection.close()" in replay_section:
+                print("[FAIL] Connection being closed in replay_messages")
+                return False
     
     print("[PASS] Connection properly managed by service lifecycle")
     

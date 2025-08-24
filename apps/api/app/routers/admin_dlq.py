@@ -117,10 +117,10 @@ async def verify_mfa_code(
     """
     totp_service = TOTPService()
     try:
-        is_valid = await totp_service.verify_totp(
+        is_valid = totp_service.verify_totp_code(
             db=db,
             user=user,
-            totp_code=mfa_code
+            code=mfa_code
         )
         
         if not is_valid:
