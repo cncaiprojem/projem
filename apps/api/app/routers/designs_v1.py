@@ -507,7 +507,8 @@ async def create_design_from_prompt(
     except IntegrityError as e:
         db.rollback()
         # Check if it's a unique constraint violation on the idempotency key
-        if "jobs_idempotency_key_key" in str(e.orig) or "idempotency_key" in str(e.orig).lower():
+        if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
+            # This is a unique constraint violation - likely idempotency race condition
             logger.warning(
                 "Idempotency race condition detected, re-fetching job",
                 idempotency_key=idempotency_key,
@@ -601,6 +602,21 @@ async def create_design_from_params(
         
     except IntegrityError as e:
         db.rollback()
+        # Check if it's a unique constraint violation on the idempotency key
+        if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
+            # This is a unique constraint violation - likely idempotency race condition
+            logger.warning(
+                "Idempotency race condition detected, re-fetching job",
+                idempotency_key=idempotency_key,
+                user_id=current_user.user_id
+            )
+            # Re-fetch the job created by the other request
+            existing_job = handle_idempotency(
+                db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
+            )
+            if existing_job:
+                return create_duplicate_response(existing_job, response, 60)
+        
         logger.error("Database integrity error", error=str(e))
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -702,7 +718,8 @@ async def create_design_from_upload(
     except IntegrityError as e:
         db.rollback()
         # Check if it's a unique constraint violation on the idempotency key
-        if "jobs_idempotency_key_key" in str(e.orig) or "idempotency_key" in str(e.orig).lower():
+        if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
+            # This is a unique constraint violation - likely idempotency race condition
             logger.warning(
                 "Idempotency race condition detected, re-fetching job",
                 idempotency_key=idempotency_key,
@@ -800,7 +817,8 @@ async def create_assembly4(
     except IntegrityError as e:
         db.rollback()
         # Check if it's a unique constraint violation on the idempotency key
-        if "jobs_idempotency_key_key" in str(e.orig) or "idempotency_key" in str(e.orig).lower():
+        if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
+            # This is a unique constraint violation - likely idempotency race condition
             logger.warning(
                 "Idempotency race condition detected, re-fetching job",
                 idempotency_key=idempotency_key,
@@ -808,7 +826,7 @@ async def create_assembly4(
             )
             # Re-fetch the job created by the other request
             existing_job = handle_idempotency(
-                db, idempotency_key, body.model_dump(), JobType.ASSEMBLY, current_user
+                db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
             )
             if existing_job:
                 return create_duplicate_response(existing_job, response, 180)
