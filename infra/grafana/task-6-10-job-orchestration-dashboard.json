@@ -1,0 +1,379 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Task 6.10 - Job Orchestration Observability",
+    "tags": ["freecad", "job-orchestration", "task-6.10"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Job Creation Rate",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {"displayMode": "list", "orientation": "horizontal"},
+            "unit": "reqps"
+          }
+        },
+        "targets": [
+          {
+            "expr": "rate(job_create_total[5m])",
+            "legendFormat": "{{type}} - {{status}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"],
+            "fields": ""
+          }
+        }
+      },
+      {
+        "id": 2,
+        "title": "Jobs in Progress",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "red", "value": 50}
+              ]
+            }
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(job_in_progress) by (type)",
+            "legendFormat": "{{type}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Job Duration Distribution",
+        "type": "heatmap",
+        "gridPos": {"h": 10, "w": 24, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "rate(job_duration_seconds_bucket[5m])",
+            "legendFormat": "{{le}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "calculation": {"xBuckets": {"mode": "count", "value": "50"}},
+          "cellGap": 2,
+          "color": {"mode": "spectrum", "scheme": "Spectral"}
+        }
+      },
+      {
+        "id": 4,
+        "title": "Queue Depths",
+        "type": "timeseries",
+        "gridPos": {"h": 10, "w": 12, "x": 0, "y": 18},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 0,
+              "gradientMode": "none",
+              "hideFrom": {"graph": false, "legend": false, "tooltip": false},
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {"type": "linear"},
+              "showPoints": "auto",
+              "spanNulls": false,
+              "stacking": {"group": "A", "mode": "none"},
+              "thresholdsStyle": {"mode": "off"}
+            },
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "queue_depth",
+            "legendFormat": "{{queue}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 5,
+        "title": "DLQ Depths",
+        "type": "timeseries",
+        "gridPos": {"h": 10, "w": 12, "x": 12, "y": 18},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "opacity"
+            },
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1},
+                {"color": "red", "value": 10}
+              ]
+            },
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "dlq_depth",
+            "legendFormat": "{{queue}} DLQ",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Success vs Failure Rate",
+        "type": "piechart",
+        "gridPos": {"h": 10, "w": 12, "x": 0, "y": 28},
+        "targets": [
+          {
+            "expr": "sum(rate(job_create_total{status=\"success\"}[5m]))",
+            "legendFormat": "Success",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(job_create_total{status=\"failed\"}[5m]))",
+            "legendFormat": "Failed",
+            "refId": "B"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"],
+            "fields": ""
+          },
+          "pieType": "pie",
+          "tooltip": {"mode": "single"},
+          "legend": {
+            "displayMode": "visible",
+            "placement": "right",
+            "values": ["value", "percent"]
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "Retry Distribution",
+        "type": "barchart",
+        "gridPos": {"h": 10, "w": 12, "x": 12, "y": 28},
+        "targets": [
+          {
+            "expr": "sum(rate(retries_total[5m])) by (error_code)",
+            "legendFormat": "{{error_code}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "orientation": "horizontal",
+          "xField": "Time",
+          "colorMode": "value"
+        }
+      },
+      {
+        "id": 8,
+        "title": "DLQ Replay Operations",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 38},
+        "targets": [
+          {
+            "expr": "rate(dlq_replay_total[5m])",
+            "legendFormat": "{{queue}} - {{status}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 9,
+        "title": "Job Cancellations",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 38},
+        "targets": [
+          {
+            "expr": "rate(cancellation_total[5m])",
+            "legendFormat": "{{reason}} by {{initiator}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 10,
+        "title": "Progress Updates",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 8, "x": 0, "y": 46},
+        "targets": [
+          {
+            "expr": "sum(rate(progress_update_total[5m]))",
+            "legendFormat": "Updates/sec",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "color": {"mode": "thresholds"}
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Throttled Updates",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 8, "x": 8, "y": 46},
+        "targets": [
+          {
+            "expr": "sum(rate(progress_update_total{throttled=\"true\"}[5m]))",
+            "legendFormat": "Throttled/sec",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "reqps",
+            "color": {"mode": "thresholds"},
+            "thresholds": {
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 0.1},
+                {"color": "red", "value": 1}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Active Workers",
+        "type": "stat",
+        "gridPos": {"h": 6, "w": 8, "x": 16, "y": 46},
+        "targets": [
+          {
+            "expr": "sum(active_workers) by (queue)",
+            "legendFormat": "{{queue}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 13,
+        "title": "Idempotency Operations",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 52},
+        "targets": [
+          {
+            "expr": "rate(idempotency_operations_total[5m])",
+            "legendFormat": "{{operation}} - key_exists: {{key_exists}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 14,
+        "title": "Audit Chain Operations",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 52},
+        "targets": [
+          {
+            "expr": "rate(audit_chain_operations_total[5m])",
+            "legendFormat": "{{operation_type}} - {{status}}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 15,
+        "title": "Request Duration P95",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 60},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(request_duration_seconds_bucket[5m]))",
+            "legendFormat": "{{endpoint}} P95",
+            "refId": "A"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "color": {"mode": "palette-classic"}
+          }
+        }
+      },
+      {
+        "id": 16,
+        "title": "Trace Spans Created",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 60},
+        "targets": [
+          {
+            "expr": "rate(trace_spans_total[5m])",
+            "legendFormat": "{{operation_type}} - linked: {{linked_to_job}}",
+            "refId": "A"
+          }
+        ]
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "templating": {
+      "list": [
+        {
+          "name": "job_type",
+          "type": "query",
+          "query": "label_values(job_create_total, type)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true
+        },
+        {
+          "name": "queue",
+          "type": "query", 
+          "query": "label_values(queue_depth, queue)",
+          "refresh": 1,
+          "includeAll": true,
+          "multi": true
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "name": "Deployments",
+          "type": "query",
+          "query": "changes(up[1h]) > 0",
+          "iconColor": "green"
+        }
+      ]
+    },
+    "refresh": "30s",
+    "schemaVersion": 35,
+    "version": 1,
+    "weekStart": ""
+  }
+}
