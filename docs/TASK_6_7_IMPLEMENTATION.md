@@ -169,7 +169,7 @@ erp.outbound (new - fanout exchange)
 
 ```python
 from celery import shared_task
-from app.tasks.worker_helpers import progress, start_job, complete_job
+from app.tasks.worker_helpers import progress, start_job, complete_job, fail_job
 
 @shared_task(bind=True)
 def process_model_task(self, job_id: int):

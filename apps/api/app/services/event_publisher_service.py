@@ -338,7 +338,7 @@ class EventPublisherService:
                 )
                 return False
                     
-            except Exception as e:
+            except pika.exceptions.AMQPError as e:
                 logger.error(
                     f"Failed to publish job.status.changed event for job {job_id}: {e}",
                     extra={
@@ -420,7 +420,7 @@ class EventPublisherService:
             
             return True
             
-        except Exception as e:
+        except pika.exceptions.AMQPError as e:
             logger.error(
                 f"Failed to publish {event_type} event: {e}",
                 extra={
