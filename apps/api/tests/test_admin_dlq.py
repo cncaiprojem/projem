@@ -82,9 +82,9 @@ class TestAdminMFAVerification:
     async def test_verify_admin_with_valid_mfa(self, admin_user, mock_db):
         """Test successful admin verification with valid MFA."""
         with patch('app.routers.admin_dlq.TOTPService') as MockTOTPService:
-            # Mock TOTP verification
+            # Mock TOTP verification - verify_totp_code is synchronous, not async
             totp_service = MockTOTPService.return_value
-            totp_service.verify_totp = AsyncMock(return_value=True)
+            totp_service.verify_totp_code = MagicMock(return_value=True)
             
             # Test verification
             result = await verify_admin_with_mfa(
@@ -94,10 +94,10 @@ class TestAdminMFAVerification:
             )
             
             assert result == admin_user
-            totp_service.verify_totp.assert_called_once_with(
+            totp_service.verify_totp_code.assert_called_once_with(
                 db=mock_db,
                 user=admin_user,
-                totp_code="123456"
+                code="123456"
             )
     
     @pytest.mark.asyncio
@@ -118,9 +118,9 @@ class TestAdminMFAVerification:
     async def test_verify_admin_rejects_invalid_mfa(self, admin_user, mock_db):
         """Test that invalid MFA codes are rejected."""
         with patch('app.routers.admin_dlq.TOTPService') as MockTOTPService:
-            # Mock TOTP verification failure
+            # Mock TOTP verification failure - verify_totp_code is synchronous
             totp_service = MockTOTPService.return_value
-            totp_service.verify_totp = AsyncMock(return_value=False)
+            totp_service.verify_totp_code = MagicMock(return_value=False)
             
             with pytest.raises(HTTPException) as exc_info:
                 await verify_admin_with_mfa(

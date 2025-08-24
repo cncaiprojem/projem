@@ -139,16 +139,16 @@ async def verify_mfa_code(
             
     except Exception as e:
         logger.error(
-            "MFA verification error",
+            "Unexpected MFA verification error",
             user_id=user.id,
             error=str(e)
         )
         raise HTTPException(
-            status_code=403,
+            status_code=500,
             detail={
-                "error_code": "ERR-DLQ-403",
-                "message": "MFA verification failed",
-                "message_tr": "MFA doğrulaması başarısız"
+                "error_code": "ERR-DLQ-500",
+                "message": "An unexpected error occurred during MFA verification",
+                "message_tr": "MFA doğrulaması sırasında beklenmedik bir hata oluştu"
             }
         )
 

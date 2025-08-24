@@ -82,15 +82,16 @@ def test_rabbitmq_password():
         return False
 
 def test_mfa_in_body():
-    """Test 4: Check MFA code is in request body for POST endpoints"""
+    """Test 4: Check MFA code field validator is properly defined"""
     with open("apps/api/app/schemas/dlq.py", "r") as f:
         content = f.read()
     
-    if 'mfa_code: str = Field(..., regex="^[0-9]{6}$"' in content:
-        print("✓ Test 4 PASSED: MFA code moved to request body")
+    # Check for Pydantic v2 field_validator decorator
+    if '@field_validator("mfa_code")' in content:
+        print("✓ Test 4 PASSED: MFA code using @field_validator decorator")
         return True
     else:
-        print("✗ Test 4 FAILED: MFA code not in request body")
+        print("✗ Test 4 FAILED: MFA code field_validator not found")
         return False
 
 def test_audit_service_usage():

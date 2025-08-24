@@ -244,15 +244,29 @@ class DLQManagementService:
                     if not job_id and headers:
                         job_id = headers.get("job_id")
                     
+                    # Extract original routing key safely
+                    x_death_list = headers.get("x-death")
+                    original_routing_key = None
+                    original_exchange = None
+                    first_death_reason = None
+                    
+                    if x_death_list and len(x_death_list) > 0:
+                        first_death = x_death_list[0]
+                        routing_keys = first_death.get("routing-keys")
+                        if routing_keys and len(routing_keys) > 0:
+                            original_routing_key = routing_keys[0]
+                        original_exchange = first_death.get("exchange")
+                        first_death_reason = first_death.get("reason")
+                    
                     message_preview = {
                         "message_id": properties.get("message_id"),
                         "job_id": job_id,
                         "routing_key": msg_data.get("routing_key"),
                         "exchange": msg_data.get("exchange"),
-                        "original_routing_key": headers.get("x-death", [{}])[0].get("routing-keys", [""])[0] if headers.get("x-death") else None,
-                        "original_exchange": headers.get("x-death", [{}])[0].get("exchange") if headers.get("x-death") else None,
-                        "death_count": len(headers.get("x-death", [])),
-                        "first_death_reason": headers.get("x-death", [{}])[0].get("reason") if headers.get("x-death") else None,
+                        "original_routing_key": original_routing_key,
+                        "original_exchange": original_exchange,
+                        "death_count": len(x_death_list) if x_death_list else 0,
+                        "first_death_reason": first_death_reason,
                         "timestamp": properties.get("timestamp"),
                         "headers": headers,
                         "payload": payload,

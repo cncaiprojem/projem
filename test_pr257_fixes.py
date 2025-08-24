@@ -10,6 +10,7 @@ This script verifies:
 
 import sys
 import ast
+import re
 import importlib.util
 from pathlib import Path
 
@@ -114,17 +115,14 @@ def test_amqp_connection_optimization():
                                     return False
                 break
     except (SyntaxError, ValueError) as e:
-        # Fallback to simpler string-based check with better bounds handling
-        replay_start = content.find("async def replay_messages")
-        if replay_start != -1:
-            # Find the next function definition after replay_messages
-            next_func_start = content.find("\nasync def ", replay_start + 1)
-            if next_func_start == -1:
-                next_func_start = content.find("\ndef ", replay_start + 1)
-            if next_func_start == -1:
-                next_func_start = len(content)
-            
-            replay_section = content[replay_start:next_func_start]
+        # Fallback to regex-based function extraction for replay_messages
+        match = re.search(
+            r'async\s+def\s+replay_messages\s*\(.*?\):([\s\S]*?)(?=\n(?:async\s+)?def\s+|\Z)',
+            content,
+            re.MULTILINE
+        )
+        if match:
+            replay_section = match.group(0)
             if "await connection.close()" in replay_section:
                 print("[FAIL] Connection being closed in replay_messages")
                 return False

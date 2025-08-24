@@ -97,12 +97,18 @@ def test_url_parsing_optimization():
                 if isinstance(item, ast.FunctionDef) and item.name == "__init__":
                     init_source = ast.unparse(item) if hasattr(ast, 'unparse') else ""
                     if not init_source:
-                        # Fallback to string search
-                        init_start = content.find("def __init__(self):")
-                        init_end = content.find("\n    def ", init_start + 1)
-                        if init_end == -1:
-                            init_end = content.find("\n    async def ", init_start + 1)
-                        init_source = content[init_start:init_end] if init_end != -1 else content[init_start:]
+                        # Fallback: use AST node line numbers to extract source
+                        if hasattr(item, 'lineno') and hasattr(item, 'end_lineno'):
+                            lines = content.splitlines()
+                            # AST line numbers are 1-based
+                            init_source = "\n".join(lines[item.lineno - 1:item.end_lineno])
+                        else:
+                            # If end_lineno is not available, fallback to string search (legacy)
+                            init_start = content.find("def __init__(self):")
+                            init_end = content.find("\n    def ", init_start + 1)
+                            if init_end == -1:
+                                init_end = content.find("\n    async def ", init_start + 1)
+                            init_source = content[init_start:init_end] if init_end != -1 else content[init_start:]
                     
                     if "parsed_url = urlparse(settings.rabbitmq_url)" in init_source:
                         print("[PASS] URL parsing moved to __init__ method")
