@@ -720,8 +720,8 @@ class TestCrossEndpointIdempotency:
                         "type": "concentric",
                         "part1": "part1",
                         "part2": "part2",
-                        "element1": "Edge1",
-                        "element2": "Edge1"
+                        "feature1": "Edge1",
+                        "feature2": "Edge1"
                     }
                 ]
             },

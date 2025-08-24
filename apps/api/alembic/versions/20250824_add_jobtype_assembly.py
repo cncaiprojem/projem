@@ -1,7 +1,7 @@
 """Add JobType.ASSEMBLY enum value for Task 7.1
 
 Revision ID: add_jobtype_assembly_001
-Revises: 
+Revises: task_65_queue_indexes
 Create Date: 2025-08-24
 
 """
