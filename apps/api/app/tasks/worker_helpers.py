@@ -79,23 +79,19 @@ def progress(
     """
     try:
         # Run async function in sync context (Celery tasks are sync)
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        try:
-            result = loop.run_until_complete(
-                worker_progress_service.update_progress(
-                    db=db,
-                    job_id=job_id,
-                    percent=percent,
-                    step=step,
-                    message=message,
-                    metrics=metrics,
-                    force=False  # Allow throttling
-                )
+        # Use asyncio.run() for better efficiency - creates and properly cleans up event loop
+        result = asyncio.run(
+            worker_progress_service.update_progress(
+                db=db,
+                job_id=job_id,
+                percent=percent,
+                step=step,
+                message=message,
+                metrics=metrics,
+                force=False  # Allow throttling
             )
-            return result
-        finally:
-            loop.close()
+        )
+        return result
             
     except Exception as e:
         logger.error(

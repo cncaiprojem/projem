@@ -17,6 +17,7 @@ from typing import Optional
 
 import requests
 from requests.auth import HTTPBasicAuth
+import requests.exceptions
 
 # Add API module to Python path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
@@ -60,7 +61,7 @@ class EventExchangeInitializer:
                     logger.info(f"✓ RabbitMQ ready! (Attempt: {attempt}/{max_attempts})")
                     return True
                     
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 logger.debug(f"RabbitMQ connection error: {e}")
                 
             logger.warning(f"RabbitMQ not ready yet, waiting... ({attempt}/{max_attempts})")

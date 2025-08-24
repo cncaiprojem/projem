@@ -12,6 +12,7 @@ This script tests:
 
 import asyncio
 import json
+import reprlib
 import time
 from datetime import datetime, timezone
 
@@ -383,7 +384,8 @@ async def test_integration():
         print(f"\n✓ Job completed successfully:")
         print(f"  - Final status: {job.status.value}")
         print(f"  - Final progress: {job.progress}%")
-        print(f"  - Metrics: {json.dumps(job.metrics, indent=2)[:200]}...")
+        # Use reprlib.repr() for safe truncation that won't break JSON structure
+        print(f"  - Metrics: {reprlib.repr(json.dumps(job.metrics, indent=2))}")
         
     finally:
         db.close()

@@ -19,6 +19,7 @@ from typing import Optional, Dict, Any
 
 import pika
 from pika.exceptions import AMQPError, ConnectionClosed, ChannelClosed
+import redis.exceptions
 
 from ..core.logging import get_logger
 from ..core.config import settings
@@ -60,7 +61,7 @@ class EventPublisherService:
                 self._redis_client = get_redis_client()
                 # Test connection
                 self._redis_client.ping()
-            except Exception as e:
+            except redis.exceptions.RedisError as e:
                 logger.warning(f"Redis unavailable for event deduplication: {e}")
                 self._redis_client = None
         return self._redis_client
@@ -234,122 +235,123 @@ class EventPublisherService:
         Returns:
             True if event was published successfully
         """
-        try:
-            # Check for duplicate events (exactly-once delivery)
-            if self._is_duplicate_event(job_id, status, attempt):
-                logger.debug(
-                    f"Skipping duplicate event for job {job_id} "
-                    f"(status: {status}, attempt: {attempt})"
-                )
-                return True  # Consider it success (already published)
-            
-            # Build event payload
-            timestamp = datetime.now(timezone.utc).isoformat()
-            event_id = str(uuid.uuid4())
-            
-            payload = {
-                "event_id": event_id,
-                "event_type": "job.status.changed",
-                "timestamp": timestamp,
-                "job_id": job_id,
-                "status": status,
-                "progress": progress,
-                "attempt": attempt,
-            }
-            
-            # Add optional fields if provided
-            if previous_status is not None:
-                payload["previous_status"] = previous_status
-            if previous_progress is not None:
-                payload["previous_progress"] = previous_progress
-            if step:
-                payload["step"] = step
-            if message:
-                payload["message"] = message
-            if error_code:
-                payload["error_code"] = error_code
-            if error_message:
-                payload["error_message"] = error_message
-            
-            # Serialize payload
-            message_body = json.dumps(payload)
-            
-            # Get channel for publishing
-            channel = self._get_channel()
-            
-            # Publish to events.jobs exchange with job.status.changed routing key
-            # This will automatically fanout to ERP bridge via exchange binding
-            channel.basic_publish(
-                exchange=self.EVENTS_EXCHANGE,
-                routing_key=self.JOB_STATUS_CHANGED_KEY,
-                body=message_body,
-                properties=pika.BasicProperties(
-                    delivery_mode=2,  # Persistent message
-                    content_type="application/json",
-                    message_id=event_id,
-                    timestamp=int(datetime.now(timezone.utc).timestamp()),
-                    headers={
-                        "x-job-id": str(job_id),
-                        "x-event-type": "job.status.changed",
-                        "x-status": status,
-                        "x-attempt": str(attempt)
-                    }
-                ),
-                mandatory=False  # Don't require queue binding
-            )
-            
-            logger.info(
-                f"Published job.status.changed event for job {job_id}",
-                extra={
+        # Use for loop for retry logic instead of recursion
+        max_retries = 2
+        for retry_num in range(max_retries):
+            try:
+                # Check for duplicate events (exactly-once delivery)
+                if self._is_duplicate_event(job_id, status, attempt):
+                    logger.debug(
+                        f"Skipping duplicate event for job {job_id} "
+                        f"(status: {status}, attempt: {attempt})"
+                    )
+                    return True  # Consider it success (already published)
+                
+                # Build event payload
+                timestamp = datetime.now(timezone.utc).isoformat()
+                event_id = str(uuid.uuid4())
+                
+                payload = {
                     "event_id": event_id,
+                    "event_type": "job.status.changed",
+                    "timestamp": timestamp,
                     "job_id": job_id,
                     "status": status,
                     "progress": progress,
                     "attempt": attempt,
-                    "routing_key": self.JOB_STATUS_CHANGED_KEY
                 }
-            )
-            
-            return True
-            
-        except (ConnectionClosed, ChannelClosed) as e:
-            # Connection issues - reset and retry once
-            logger.warning(f"RabbitMQ connection lost, resetting: {e}")
-            self._connection = None
-            self._channel = None
-            
-            # Try once more
-            try:
-                self._setup_exchanges()
-                return await self.publish_job_status_changed(
-                    job_id=job_id,
-                    status=status,
-                    progress=progress,
-                    attempt=attempt,
-                    previous_status=previous_status,
-                    previous_progress=previous_progress,
-                    step=step,
-                    message=message,
-                    error_code=error_code,
-                    error_message=error_message
+                
+                # Add optional fields if provided
+                if previous_status is not None:
+                    payload["previous_status"] = previous_status
+                if previous_progress is not None:
+                    payload["previous_progress"] = previous_progress
+                if step:
+                    payload["step"] = step
+                if message:
+                    payload["message"] = message
+                if error_code:
+                    payload["error_code"] = error_code
+                if error_message:
+                    payload["error_message"] = error_message
+                
+                # Serialize payload
+                message_body = json.dumps(payload)
+                
+                # Get channel for publishing
+                channel = self._get_channel()
+                
+                # Publish to events.jobs exchange with job.status.changed routing key
+                # This will automatically fanout to ERP bridge via exchange binding
+                channel.basic_publish(
+                    exchange=self.EVENTS_EXCHANGE,
+                    routing_key=self.JOB_STATUS_CHANGED_KEY,
+                    body=message_body,
+                    properties=pika.BasicProperties(
+                        delivery_mode=2,  # Persistent message
+                        content_type="application/json",
+                        message_id=event_id,
+                        timestamp=int(datetime.now(timezone.utc).timestamp()),
+                        headers={
+                            "x-job-id": str(job_id),
+                            "x-event-type": "job.status.changed",
+                            "x-status": status,
+                            "x-attempt": str(attempt)
+                        }
+                    ),
+                    mandatory=False  # Don't require queue binding
                 )
-            except Exception as retry_error:
+                
+                logger.info(
+                    f"Published job.status.changed event for job {job_id}",
+                    extra={
+                        "event_id": event_id,
+                        "job_id": job_id,
+                        "status": status,
+                        "progress": progress,
+                        "attempt": attempt,
+                        "routing_key": self.JOB_STATUS_CHANGED_KEY
+                    }
+                )
+                
+                return True
+                
+            except (ConnectionClosed, ChannelClosed) as e:
+                # Connection issues - reset and retry if not last attempt
+                logger.warning(f"RabbitMQ connection lost, resetting: {e}")
+                self._connection = None
+                self._channel = None
+                
+                if retry_num < max_retries - 1:
+                    # Try to reconnect before next iteration
+                    try:
+                        self._setup_exchanges()
+                        logger.info(f"Reconnected to RabbitMQ, retrying (attempt {retry_num + 2}/{max_retries})")
+                        continue  # Try again in next iteration
+                    except Exception as setup_error:
+                        logger.error(f"Failed to reconnect to RabbitMQ: {setup_error}")
+                
+                # If we're here, it's the last retry or reconnection failed
                 logger.error(
-                    f"Failed to publish event after retry for job {job_id}: {retry_error}",
+                    f"Failed to publish event after {max_retries} attempts for job {job_id}",
                     extra={"job_id": job_id, "status": status}
                 )
                 return False
-                
-        except Exception as e:
-            logger.error(
-                f"Failed to publish job.status.changed event for job {job_id}: {e}",
-                extra={
-                    "job_id": job_id,
-                    "status": status,
-                    "error": str(e)
-                }
-            )
-            return False
+                    
+            except Exception as e:
+                logger.error(
+                    f"Failed to publish job.status.changed event for job {job_id}: {e}",
+                    extra={
+                        "job_id": job_id,
+                        "status": status,
+                        "error": str(e)
+                    }
+                )
+                # Don't retry on general exceptions, return failure
+                return False
+        
+        # If we exhausted all retries without success, return False
+        return False
     
     async def publish_custom_event(
         self,
@@ -440,9 +442,8 @@ class EventPublisherService:
         except Exception as e:
             logger.debug(f"Error closing RabbitMQ connections: {e}")
     
-    def __del__(self):
-        """Cleanup on deletion."""
-        self.close()
+    # Note: __del__ method removed as it's unreliable for cleanup
+    # Users should explicitly call close() when done with the service
 
 
 # Global service instance

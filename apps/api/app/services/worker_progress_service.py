@@ -22,6 +22,7 @@ from decimal import Decimal
 from sqlalchemy.orm import Session
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError, OperationalError
+import redis.exceptions
 
 from ..core.logging import get_logger
 from ..core.redis_config import get_redis_client
@@ -62,7 +63,7 @@ class WorkerProgressService:
                 self._redis_client = get_redis_client()
                 # Test connection
                 self._redis_client.ping()
-            except Exception as e:
+            except redis.exceptions.RedisError as e:
                 logger.warning(f"Redis unavailable for progress service: {e}")
                 self._redis_client = None
         return self._redis_client
@@ -326,7 +327,7 @@ class WorkerProgressService:
                 # Publish job.status.changed event
                 await self.event_publisher.publish_job_status_changed(
                     job_id=job_id,
-                    status=str(job.status.value if new_status else job.status.value),
+                    status=str(job.status.value),
                     progress=percent,
                     attempt=job.attempts,
                     previous_status=str(previous_status.value) if previous_status else None,
@@ -474,8 +475,9 @@ class WorkerProgressService:
             
             # Handle retry scenarios
             if status == JobStatus.RETRYING:
+                # Only increment retry_count for RETRYING status
+                # attempts is already incremented when job is initially processed
                 job.retry_count = (job.retry_count or 0) + 1
-                job.attempts = (job.attempts or 0) + 1
             
             # Commit changes
             db.commit()

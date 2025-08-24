@@ -508,8 +508,8 @@ def _build_job_status_response(
     # Task 6.7: Use progress_step and progress_message fields set by worker_progress_service
     progress_info = JobProgressResponse(
         percent=job.progress,
-        step=job.metrics.get('progress_step') or job.metrics.get('current_step') if job.metrics else None,
-        message=job.metrics.get('progress_message') or job.metrics.get('last_progress_message') if job.metrics else None,
+        step=(job.metrics.get('progress_step') or job.metrics.get('current_step')) if job.metrics else None,
+        message=(job.metrics.get('progress_message') or job.metrics.get('last_progress_message')) if job.metrics else None,
         updated_at=progress_updated_at,
     )
     

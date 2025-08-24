@@ -176,7 +176,11 @@ def cad_build_task(self, project_id: int):
                 try:
                     # Task 6.7: Report progress for each file
                     processed_files += 1
-                    file_progress = 60 + int((processed_files / total_files) * 30)  # 60-90% range
+                    # Check for zero division before calculating progress
+                    if total_files > 0:
+                        file_progress = 60 + int((processed_files / total_files) * 30)  # 60-90% range
+                    else:
+                        file_progress = 90  # Default to 90% if no files to process
                     progress(
                         db, project_id, file_progress, 
                         "uploading", 
