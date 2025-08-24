@@ -312,14 +312,12 @@ class EventPublisherService:
                         routing_key=self.JOB_STATUS_CHANGED_KEY
                     )
                 else:
-                    # It's better to log an error and raise an exception to break out of any retry loop.
+                    # Exchange not available - log error and return False to exit retry loop
                     logger.error(
-                        f"Cannot publish event for job {job_id}: events exchange is not available.",
+                        "Cannot publish event: events exchange is not available.",
                         extra={"job_id": job_id, "status": status}
                     )
-                    raise RuntimeError(
-                        f"Cannot publish event for job {job_id}: events exchange is not available."
-                    )
+                    return False
                 
                 logger.info(
                     f"Published job.status.changed event for job {job_id}",

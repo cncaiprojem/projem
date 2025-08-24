@@ -248,24 +248,21 @@ def complete_job(
     """
     Mark a job as completed (100% progress, COMPLETED status).
     
+    This is an atomic operation that updates both status and progress in a single
+    database transaction. The update_status function automatically sets progress
+    to 100% when status is COMPLETED.
+    
     Args:
         db: Database session
         job_id: Job ID
         output_data: Output data from job
-        message: Optional completion message
+        message: Optional completion message (currently unused but kept for API compatibility)
         
     Returns:
         Dict with update result
     """
-    # First update progress to 100%
-    force_progress(
-        db, job_id,
-        percent=100,
-        step="completed",
-        message=message or "Job completed successfully"
-    )
-    
-    # Then update status to completed
+    # Single atomic operation - update_status automatically sets progress to 100%
+    # when status is COMPLETED (see WorkerProgressService.update_job_status line 460-461)
     return update_status(
         db, job_id,
         JobStatus.COMPLETED,
