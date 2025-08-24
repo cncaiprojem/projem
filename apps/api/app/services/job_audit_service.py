@@ -586,17 +586,17 @@ class JobAuditService:
             Created audit log entry
         """
         try:
-            audit_entry = AuditLog(
+            # Use the existing audit_service for consistency and PII masking
+            audit_entry = await audit_service.create_audit_entry(
+                db=db,
                 user_id=actor_id,
                 event_type=f"dlq_{action}",
-                scope_type="dlq_management",
-                scope_id=0,  # No specific resource ID for DLQ management
-                payload=metadata or {},
-                timestamp=datetime.now(timezone.utc)
+                entity_type="dlq_management",
+                entity_id=0,  # No specific resource ID for DLQ management
+                details=metadata or {},
+                ip_address=None,  # Not available in this context
+                user_agent=None   # Not available in this context
             )
-            
-            db.add(audit_entry)
-            db.commit()
             
             logger.info(
                 "dlq_action_audited",
@@ -648,17 +648,17 @@ class JobAuditService:
                 **(metadata or {})
             }
             
-            audit_entry = AuditLog(
+            # Use the existing audit_service for consistency and PII masking
+            audit_entry = await audit_service.create_audit_entry(
+                db=db,
                 user_id=actor_id,
                 event_type="dlq_replay",
-                scope_type="dlq_management",
-                scope_id=0,
-                payload=payload,
-                timestamp=datetime.now(timezone.utc)
+                entity_type="dlq_management",
+                entity_id=0,
+                details=payload,
+                ip_address=None,  # Not available in this context
+                user_agent=None   # Not available in this context
             )
-            
-            db.add(audit_entry)
-            db.commit()
             
             logger.info(
                 "dlq_replay_audited",

@@ -124,6 +124,7 @@ class DLQMessagePreview(BaseModel):
 class DLQReplayRequest(BaseModel):
     """Request to replay messages from DLQ."""
     
+    mfa_code: str = Field(..., regex="^[0-9]{6}$", description="6-digit TOTP MFA code")
     max_messages: int = Field(10, ge=1, le=100, description="Maximum messages to replay")
     backoff_ms: int = Field(100, ge=0, le=5000, description="Backoff between messages in ms")
     justification: str = Field(..., min_length=10, max_length=500, description="Justification for replay")
@@ -140,6 +141,7 @@ class DLQReplayRequest(BaseModel):
     class Config:
         json_schema_extra = {
             "example": {
+                "mfa_code": "123456",
                 "max_messages": 10,
                 "backoff_ms": 100,
                 "justification": "Replaying messages after fixing database connection issue #1234"

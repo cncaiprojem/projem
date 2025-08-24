@@ -38,6 +38,20 @@ from ..core.logging import get_logger
 
 logger = get_logger(__name__)
 
+
+# Dependency for DLQ Management Service
+async def get_dlq_service() -> DLQManagementService:
+    """
+    Dependency injection for DLQ Management Service.
+    Creates and manages service lifecycle.
+    """
+    service = DLQManagementService()
+    try:
+        yield service
+    finally:
+        await service.close()
+
+
 router = APIRouter(
     prefix="/api/v1/admin/dlq",
     tags=["Admin - DLQ Management"],
@@ -144,8 +158,6 @@ async def list_dlq_queues(
         DLQListResponse with queue information
     """
     try:
-        dlq_service = DLQManagementService()
-        
         # Get DLQ queue list from RabbitMQ
         queues = await dlq_service.list_dlq_queues()
         
@@ -168,7 +180,7 @@ async def list_dlq_queues(
         
         return DLQListResponse(
             queues=queues,
-            total_messages=sum(q.message_count for q in queues),
+            total_messages=sum(q["message_count"] for q in queues),
             timestamp=datetime.now(timezone.utc)
         )
         
@@ -223,8 +235,6 @@ async def peek_dlq_messages(
         )
     
     try:
-        dlq_service = DLQManagementService()
-        
         # Peek messages from the queue
         messages = await dlq_service.peek_messages(
             queue_name=queue_name,
@@ -288,8 +298,9 @@ async def peek_dlq_messages(
 async def replay_dlq_messages(
     queue_name: str,
     request: DLQReplayRequest,
-    current_user: User = Depends(verify_admin_with_mfa),
+    current_user: User = Depends(verify_admin_only),
     db: Session = Depends(get_db),
+    dlq_service: DLQManagementService = Depends(get_dlq_service),
     _: None = Depends(RateLimitDependency(RateLimitType.ADMIN))
 ) -> DLQReplayResponse:
     """
@@ -313,6 +324,9 @@ async def replay_dlq_messages(
             }
         )
     
+    # Verify MFA from request body
+    await verify_mfa_code(request.mfa_code, current_user, db)
+    
     # Validate justification length
     if len(request.justification) < 10:
         raise HTTPException(
@@ -325,8 +339,6 @@ async def replay_dlq_messages(
         )
     
     try:
-        dlq_service = DLQManagementService()
-        
         # Replay messages with backoff
         replay_result = await dlq_service.replay_messages(
             queue_name=queue_name,

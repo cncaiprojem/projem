@@ -19,7 +19,8 @@ from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional
 
 import aiohttp
-from kombu import Connection, Queue
+import aio_pika
+from aio_pika import connect_robust, Message, DeliveryMode
 
 from ..core.logging import get_logger
 from ..core.queue_constants import (
@@ -73,6 +74,8 @@ class DLQManagementService:
         """Initialize DLQ Management Service."""
         self.auth = aiohttp.BasicAuth(self.RABBITMQ_USER, self.RABBITMQ_PASS)
         self._session: Optional[aiohttp.ClientSession] = None
+        self._amqp_connection: Optional[aio_pika.RobustConnection] = None
+        self._amqp_channel: Optional[aio_pika.RobustChannel] = None
     
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create aiohttp session."""
@@ -80,10 +83,23 @@ class DLQManagementService:
             self._session = aiohttp.ClientSession(auth=self.auth)
         return self._session
     
+    async def __aenter__(self):
+        """Context manager entry."""
+        await self._get_session()
+        return self
+
+    async def __aexit__(self, exc_type, exc, tb):
+        """Context manager exit."""
+        await self.close()
+    
     async def close(self):
-        """Close the aiohttp session."""
+        """Close the aiohttp session and AMQP connection."""
         if self._session and not self._session.closed:
             await self._session.close()
+        if self._amqp_channel:
+            await self._amqp_channel.close()
+        if self._amqp_connection:
+            await self._amqp_connection.close()
     
     async def list_dlq_queues(self) -> List[Dict[str, Any]]:
         """
@@ -198,7 +214,7 @@ class DLQManagementService:
                             payload = base64.b64decode(payload).decode("utf-8")
                             # Try to parse as JSON
                             payload = json.loads(payload)
-                        except:
+                        except (ValueError, json.JSONDecodeError, UnicodeDecodeError) as e:
                             # Keep as string if not JSON
                             pass
                     
@@ -258,7 +274,7 @@ class DLQManagementService:
         backoff_ms: int = 100
     ) -> Dict[str, Any]:
         """
-        Replay messages from DLQ back to their origin queues.
+        Replay messages from DLQ back to their origin queues using aio-pika.
         
         Args:
             queue_name: Name of the DLQ queue
@@ -288,81 +304,96 @@ class DLQManagementService:
         details = []
         
         try:
-            # Use Kombu for consuming and republishing
+            # Use aio-pika for async consuming and republishing
             conn_url = f"amqp://{self.RABBITMQ_USER}:{self.RABBITMQ_PASS}@{settings.rabbitmq_host}:{settings.rabbitmq_port}/{self.RABBITMQ_VHOST}"
             
-            with Connection(conn_url) as conn:
-                # Create queue binding
-                dlq_queue = Queue(queue_name, durable=True)
+            # Connect using aio-pika
+            connection = await connect_robust(conn_url)
+            
+            try:
+                # Create channel
+                channel = await connection.channel()
                 
-                # Get messages and replay them
-                with conn.Consumer(dlq_queue, no_ack=False) as consumer:
-                    for _ in range(max_messages):
+                # Declare the DLQ queue
+                dlq_queue = await channel.declare_queue(
+                    queue_name,
+                    durable=True,
+                    passive=True  # Don't create, it should exist
+                )
+                
+                # Declare the target exchange
+                target_exchange = await channel.declare_exchange(
+                    exchange_name,
+                    passive=True  # Don't create, it should exist
+                )
+                
+                # Process messages
+                messages_processed = 0
+                async with dlq_queue.iterator() as queue_iter:
+                    async for message in queue_iter:
+                        if messages_processed >= max_messages:
+                            break
+                        
                         try:
-                            # Get one message
-                            message = consumer.fetch(limit=1, timeout=1)
-                            if not message:
-                                break  # No more messages
-                            
-                            msg = message[0] if isinstance(message, list) else message
-                            
-                            # Extract original routing information
-                            headers = msg.headers or {}
-                            x_death = headers.get("x-death", [])
-                            
-                            # Determine routing
-                            if x_death and len(x_death) > 0:
-                                # Use original routing from x-death header
-                                death_info = x_death[0]
-                                replay_exchange = death_info.get("exchange", exchange_name)
-                                replay_routing_key = death_info.get("routing-keys", [default_routing_key])[0]
-                            else:
-                                # Use default routing
-                                replay_exchange = exchange_name
-                                replay_routing_key = default_routing_key
-                            
-                            # Remove x-death header to prevent re-death
-                            clean_headers = {k: v for k, v in headers.items() if k != "x-death"}
-                            
-                            # Add replay metadata
-                            clean_headers["x-dlq-replayed"] = True
-                            clean_headers["x-dlq-replay-timestamp"] = datetime.now(timezone.utc).isoformat()
-                            clean_headers["x-dlq-replay-queue"] = queue_name
-                            
-                            # Publish to origin exchange/queue
-                            producer = conn.Producer()
-                            producer.publish(
-                                msg.body,
-                                exchange=replay_exchange,
-                                routing_key=replay_routing_key,
-                                headers=clean_headers,
-                                content_type=msg.content_type,
-                                content_encoding=msg.content_encoding,
-                                priority=msg.priority,
-                                correlation_id=msg.correlation_id,
-                                reply_to=msg.reply_to,
-                                expiration=msg.expiration,
-                                message_id=msg.message_id,
-                                timestamp=msg.timestamp,
-                                type=msg.type,
-                                user_id=msg.user_id,
-                                app_id=msg.app_id
-                            )
-                            
-                            # Acknowledge the message (remove from DLQ)
-                            msg.ack()
-                            
-                            replayed_count += 1
-                            
-                            details.append({
-                                "message_id": msg.message_id,
-                                "replayed_to": f"{replay_exchange}/{replay_routing_key}",
-                                "timestamp": datetime.now(timezone.utc).isoformat()
-                            })
-                            
-                            # Apply backoff to prevent thundering herd
-                            if backoff_ms > 0:
-                                await asyncio.sleep(backoff_ms / 1000.0)
+                            async with message.process(requeue=True):
+                                # Extract original routing information
+                                headers = message.headers or {}
+                                x_death = headers.get("x-death", [])
+                                
+                                # Determine routing
+                                if x_death and len(x_death) > 0:
+                                    # Use original routing from x-death header
+                                    death_info = x_death[0]
+                                    replay_routing_key = death_info.get("routing-keys", [default_routing_key])[0]
+                                else:
+                                    # Use default routing
+                                    replay_routing_key = default_routing_key
+                                
+                                # Remove x-death header to prevent re-death
+                                clean_headers = {k: v for k, v in headers.items() if k != "x-death"}
+                                
+                                # Add replay metadata
+                                clean_headers["x-dlq-replayed"] = True
+                                clean_headers["x-dlq-replay-timestamp"] = datetime.now(timezone.utc).isoformat()
+                                clean_headers["x-dlq-replay-queue"] = queue_name
+                                
+                                # Create new message for replay
+                                new_message = Message(
+                                    body=message.body,
+                                    headers=clean_headers,
+                                    content_type=message.content_type,
+                                    content_encoding=message.content_encoding,
+                                    priority=message.priority,
+                                    correlation_id=message.correlation_id,
+                                    reply_to=message.reply_to,
+                                    expiration=message.expiration,
+                                    message_id=message.message_id,
+                                    timestamp=message.timestamp,
+                                    type=message.type,
+                                    user_id=message.user_id,
+                                    app_id=message.app_id,
+                                    delivery_mode=DeliveryMode.PERSISTENT
+                                )
+                                
+                                # Publish to origin exchange/queue
+                                await target_exchange.publish(
+                                    new_message,
+                                    routing_key=replay_routing_key
+                                )
+                                
+                                # Message will be acknowledged when context exits
+                                replayed_count += 1
+                                messages_processed += 1
+                                
+                                details.append({
+                                    "message_id": message.message_id,
+                                    "replayed_to": f"{exchange_name}/{replay_routing_key}",
+                                    "timestamp": datetime.now(timezone.utc).isoformat()
+                                })
+                                
+                                # Apply backoff to prevent thundering herd
+                                if backoff_ms > 0:
+                                    await asyncio.sleep(backoff_ms / 1000.0)
                             
                         except Exception as e:
                             logger.error(
@@ -371,10 +402,11 @@ class DLQManagementService:
                                 error=str(e)
                             )
                             failed_count += 1
-                            
-                            # Reject message back to DLQ
-                            if msg:
-                                msg.reject(requeue=True)
+                            # Message will be requeued due to requeue=True in process()
+                
+            finally:
+                # Clean up connection
+                await connection.close()
             
             logger.info(
                 "Replayed DLQ messages",
