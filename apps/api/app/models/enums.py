@@ -41,6 +41,7 @@ class JobType(str, enum.Enum):
     # Task 6.3 primary job types
     AI = "ai"  # AI/ML tasks
     MODEL = "model"  # 3D model generation
+    ASSEMBLY = "assembly"  # Assembly generation (Task 7.1)
     CAM = "cam"  # CAM path generation
     SIM = "sim"  # Simulation tasks
     REPORT = "report"  # Report generation
