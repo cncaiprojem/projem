@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
@@ -68,6 +67,7 @@ from ..services.license_service import LicenseService
 from ..storage import s3_service
 from ..core.job_routing import get_routing_config_for_job_type
 from ..core.job_validator import validate_job_payload, publish_job_task
+from .contexts import JobRequestContext, JobResponseContext
 
 logger = structlog.get_logger(__name__)
 
@@ -272,31 +272,6 @@ def handle_idempotency(
         return existing_job
     
     return None
-
-
-@dataclass
-class JobRequestContext:
-    """Context object for job request handling.
-    
-    Groups related input parameters for better code organization and maintainability.
-    This follows enterprise best practices for reducing function parameter counts.
-    """
-    db: Session
-    idempotency_key: Optional[str]
-    body: DesignCreateRequest
-    job_type: JobType
-    current_user: AuthenticatedUser
-
-
-@dataclass
-class JobResponseContext:
-    """Output context object for job response handling.
-    
-    Separates output-related fields from input context for clearer separation of concerns,
-    as recommended by Copilot PR review.
-    """
-    response: Response
-    estimated_duration: int
 
 
 def set_version_headers(response: Response) -> None:

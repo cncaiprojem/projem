@@ -229,29 +229,98 @@ class Assembly4Constraint(BaseModel):
         return self
 
 
-class AssemblyPart(BaseModel):
-    """Assembly part definition with type safety."""
+# Part type specific models with dimension validation
+class CylinderPart(BaseModel):
+    """Cylinder part with specific dimension requirements."""
     model_config = ConfigDict(str_strip_whitespace=True)
     
     name: str = Field(..., description="Part name/identifier", min_length=1, max_length=100)
-    path: Optional[str] = Field(None, description="Path to existing part file")
-    type: Optional[str] = Field(None, description="Part type (e.g., cylinder, box, sphere)")
-    dimensions: Optional[Dict[str, Union[float, int]]] = Field(
-        None, 
-        description="Part dimensions (depends on type)"
-    )
+    part_type: Literal["cylinder"] = Field("cylinder", description="Part type discriminator")
+    radius: PositiveFloat = Field(..., description="Cylinder radius", gt=0)
+    height: PositiveFloat = Field(..., description="Cylinder height", gt=0)
     material: Optional[str] = Field(None, description="Part material")
     quantity: int = Field(1, description="Number of instances", ge=1, le=100)
     metadata: Optional[Dict[str, Any]] = Field(None, description="Additional part metadata")
     
-    @model_validator(mode="after")
-    def validate_part_definition(self) -> "AssemblyPart":
-        """Validate that part has either path or type+dimensions."""
-        if not self.path and not (self.type and self.dimensions):
-            raise ValueError(
-                "Part must have either 'path' for existing part or 'type' with 'dimensions' for new part"
-            )
-        return self
+    @field_validator("radius", "height")
+    @classmethod
+    def validate_dimensions(cls, v: float) -> float:
+        """Validate dimension bounds."""
+        if v > 10000:  # 10 meters
+            raise ValueError("Boyut çok büyük (maksimum 10m)")
+        if v < 0.1:  # 0.1mm
+            raise ValueError("Boyut çok küçük (minimum 0.1mm)")
+        return v
+
+
+class BoxPart(BaseModel):
+    """Box part with specific dimension requirements."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+    
+    name: str = Field(..., description="Part name/identifier", min_length=1, max_length=100)
+    part_type: Literal["box"] = Field("box", description="Part type discriminator")
+    width: PositiveFloat = Field(..., description="Box width", gt=0)
+    height: PositiveFloat = Field(..., description="Box height", gt=0)
+    depth: PositiveFloat = Field(..., description="Box depth", gt=0)
+    material: Optional[str] = Field(None, description="Part material")
+    quantity: int = Field(1, description="Number of instances", ge=1, le=100)
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional part metadata")
+    
+    @field_validator("width", "height", "depth")
+    @classmethod
+    def validate_dimensions(cls, v: float) -> float:
+        """Validate dimension bounds."""
+        if v > 10000:  # 10 meters
+            raise ValueError("Boyut çok büyük (maksimum 10m)")
+        if v < 0.1:  # 0.1mm
+            raise ValueError("Boyut çok küçük (minimum 0.1mm)")
+        return v
+
+
+class SpherePart(BaseModel):
+    """Sphere part with specific dimension requirements."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+    
+    name: str = Field(..., description="Part name/identifier", min_length=1, max_length=100)
+    part_type: Literal["sphere"] = Field("sphere", description="Part type discriminator")
+    radius: PositiveFloat = Field(..., description="Sphere radius", gt=0)
+    material: Optional[str] = Field(None, description="Part material")
+    quantity: int = Field(1, description="Number of instances", ge=1, le=100)
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional part metadata")
+    
+    @field_validator("radius")
+    @classmethod
+    def validate_dimensions(cls, v: float) -> float:
+        """Validate dimension bounds."""
+        if v > 10000:  # 10 meters
+            raise ValueError("Boyut çok büyük (maksimum 10m)")
+        if v < 0.1:  # 0.1mm
+            raise ValueError("Boyut çok küçük (minimum 0.1mm)")
+        return v
+
+
+class ExistingPart(BaseModel):
+    """Reference to an existing part file."""
+    model_config = ConfigDict(str_strip_whitespace=True)
+    
+    name: str = Field(..., description="Part name/identifier", min_length=1, max_length=100)
+    part_type: Literal["existing"] = Field("existing", description="Part type discriminator")
+    path: str = Field(..., description="Path to existing part file", min_length=1)
+    material: Optional[str] = Field(None, description="Part material")
+    quantity: int = Field(1, description="Number of instances", ge=1, le=100)
+    metadata: Optional[Dict[str, Any]] = Field(None, description="Additional part metadata")
+
+
+# Discriminated union for assembly parts
+AssemblyPart = Annotated[
+    Union[
+        CylinderPart,
+        BoxPart,
+        SpherePart,
+        ExistingPart,
+    ],
+    Field(discriminator="part_type")
+]
 
 
 class Assembly4Input(BaseModel):
@@ -261,7 +330,7 @@ class Assembly4Input(BaseModel):
     type: Literal["a4"] = Field("a4", description="Input type discriminator")
     parts: List[AssemblyPart] = Field(
         ..., 
-        description="Part definitions or references",
+        description="Part definitions or references (discriminated union of CylinderPart, BoxPart, SpherePart, ExistingPart)",
         min_length=2,
         max_length=100
     )
@@ -280,7 +349,9 @@ class Assembly4Input(BaseModel):
         
         This validation prevents runtime errors by ensuring referential integrity
         at the schema level, as recommended by Gemini Code Assist.
+        Works with the discriminated union part types.
         """
+        # Extract names from all part types (they all have 'name' field)
         part_names = {part.name for part in self.parts}
         
         for i, constraint in enumerate(self.constraints):
