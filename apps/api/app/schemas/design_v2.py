@@ -273,6 +273,29 @@ class Assembly4Input(BaseModel):
     )
     validate_assembly: bool = Field(True, description="Validate assembly after creation")
     generate_bom: bool = Field(True, description="Generate bill of materials")
+    
+    @model_validator(mode="after")
+    def validate_constraint_part_references(self) -> "Assembly4Input":
+        """Ensure all constraint part references exist in the parts list.
+        
+        This validation prevents runtime errors by ensuring referential integrity
+        at the schema level, as recommended by Gemini Code Assist.
+        """
+        part_names = {part.name for part in self.parts}
+        
+        for i, constraint in enumerate(self.constraints):
+            if constraint.part1 not in part_names:
+                raise ValueError(
+                    f"Kısıt {i+1}: part1 '{constraint.part1}' tanımlı parçalarda bulunamadı. "
+                    f"Mevcut parçalar: {', '.join(sorted(part_names))}"
+                )
+            if constraint.part2 not in part_names:
+                raise ValueError(
+                    f"Kısıt {i+1}: part2 '{constraint.part2}' tanımlı parçalarda bulunamadı. "
+                    f"Mevcut parçalar: {', '.join(sorted(part_names))}"
+                )
+        
+        return self
 
 
 # Discriminated union type

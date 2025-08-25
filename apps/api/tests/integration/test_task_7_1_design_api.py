@@ -452,8 +452,16 @@ class TestAssembly4Endpoint:
             "design": {
                 "type": "a4",
                 "parts": [
-                    {"name": "part1"},
-                    {"name": "part2"}
+                    {
+                        "name": "part1",
+                        "type": "cylinder",
+                        "dimensions": {"radius": 10, "height": 50}
+                    },
+                    {
+                        "name": "part2",
+                        "type": "box",
+                        "dimensions": {"width": 20, "length": 30, "height": 15}
+                    }
                 ],
                 "constraints": [
                     {
@@ -480,7 +488,12 @@ class TestAssembly4Endpoint:
         request_body = {
             "design": {
                 "type": "a4",
-                "parts": [{"name": "single_part"}],  # Only one part
+                "parts": [
+                    {
+                        "name": "single_part",
+                        "path": "models/single_part.FCStd"
+                    }
+                ],  # Only one part
                 "constraints": []
             }
         }
@@ -552,7 +565,18 @@ class TestCrossEndpointValidation:
                 body = {
                     "design": {
                         "type": "a4",
-                        "parts": [{"name": "p1"}, {"name": "p2"}],
+                        "parts": [
+                            {
+                                "name": "p1",
+                                "type": "cylinder",
+                                "dimensions": {"radius": 5, "height": 20}
+                            },
+                            {
+                                "name": "p2",
+                                "type": "box",
+                                "dimensions": {"width": 10, "length": 10, "height": 10}
+                            }
+                        ],
                         "constraints": [
                             {"type": "parallel", "part1": "p1", "part2": "p2"}
                         ]

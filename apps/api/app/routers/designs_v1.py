@@ -278,7 +278,7 @@ def handle_idempotency(
 class JobRequestContext:
     """Context object for job request handling.
     
-    Groups related parameters for better code organization and maintainability.
+    Groups related input parameters for better code organization and maintainability.
     This follows enterprise best practices for reducing function parameter counts.
     """
     db: Session
@@ -286,6 +286,15 @@ class JobRequestContext:
     body: DesignCreateRequest
     job_type: JobType
     current_user: AuthenticatedUser
+
+
+@dataclass
+class JobResponseContext:
+    """Output context object for job response handling.
+    
+    Separates output-related fields from input context for clearer separation of concerns,
+    as recommended by Copilot PR review.
+    """
     response: Response
     estimated_duration: int
 
@@ -298,17 +307,19 @@ def set_version_headers(response: Response) -> None:
 
 def handle_integrity_error_with_idempotency(
     e: IntegrityError,
-    context: JobRequestContext
+    request_context: JobRequestContext,
+    response_context: JobResponseContext
 ) -> Optional[DesignJobResponse]:
     """
     Handle IntegrityError with idempotency key conflict detection.
     
-    Uses JobRequestContext to reduce parameter count and improve maintainability
-    as recommended by code review feedback.
+    Uses separate JobRequestContext and JobResponseContext for better separation of concerns
+    as recommended by Copilot code review feedback.
     
     Args:
         e: The IntegrityError exception
-        context: JobRequestContext containing all request context data
+        request_context: JobRequestContext containing request input data
+        response_context: JobResponseContext containing response output data
         
     Returns:
         DesignJobResponse if duplicate found, None otherwise
@@ -316,23 +327,23 @@ def handle_integrity_error_with_idempotency(
     Raises:
         HTTPException: For database errors
     """
-    context.db.rollback()
+    request_context.db.rollback()
     
     # Check if it's a unique constraint violation on the idempotency key
     if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
         # This is a unique constraint violation - likely idempotency race condition
         logger.warning(
             "Idempotency race condition detected, re-fetching job",
-            idempotency_key=context.idempotency_key,
-            user_id=context.current_user.user_id
+            idempotency_key=request_context.idempotency_key,
+            user_id=request_context.current_user.user_id
         )
         # Re-fetch the job created by the other request
         existing_job = handle_idempotency(
-            context.db, context.idempotency_key, context.body.model_dump(), 
-            context.job_type, context.current_user
+            request_context.db, request_context.idempotency_key, request_context.body.model_dump(), 
+            request_context.job_type, request_context.current_user
         )
         if existing_job:
-            return create_duplicate_response(existing_job, context.response, context.estimated_duration)
+            return create_duplicate_response(existing_job, response_context.response, response_context.estimated_duration)
     
     logger.error("Database integrity error", error=str(e))
     raise HTTPException(
@@ -568,16 +579,18 @@ async def create_design_from_prompt(
         )
         
     except IntegrityError as e:
-        context = JobRequestContext(
+        request_context = JobRequestContext(
             db=db,
             idempotency_key=idempotency_key,
             body=body,
             job_type=JobType.MODEL,
-            current_user=current_user,
+            current_user=current_user
+        )
+        response_context = JobResponseContext(
             response=response,
             estimated_duration=120
         )
-        result = handle_integrity_error_with_idempotency(e, context)
+        result = handle_integrity_error_with_idempotency(e, request_context, response_context)
         if result:
             return result
 
@@ -655,16 +668,18 @@ async def create_design_from_params(
         )
         
     except IntegrityError as e:
-        context = JobRequestContext(
+        request_context = JobRequestContext(
             db=db,
             idempotency_key=idempotency_key,
             body=body,
             job_type=JobType.MODEL,
-            current_user=current_user,
+            current_user=current_user
+        )
+        response_context = JobResponseContext(
             response=response,
             estimated_duration=60
         )
-        result = handle_integrity_error_with_idempotency(e, context)
+        result = handle_integrity_error_with_idempotency(e, request_context, response_context)
         if result:
             return result
 
@@ -761,16 +776,18 @@ async def create_design_from_upload(
         )
         
     except IntegrityError as e:
-        context = JobRequestContext(
+        request_context = JobRequestContext(
             db=db,
             idempotency_key=idempotency_key,
             body=body,
             job_type=JobType.CAD_IMPORT,
-            current_user=current_user,
+            current_user=current_user
+        )
+        response_context = JobResponseContext(
             response=response,
             estimated_duration=90
         )
-        result = handle_integrity_error_with_idempotency(e, context)
+        result = handle_integrity_error_with_idempotency(e, request_context, response_context)
         if result:
             return result
 
@@ -851,15 +868,17 @@ async def create_assembly4(
         )
         
     except IntegrityError as e:
-        context = JobRequestContext(
+        request_context = JobRequestContext(
             db=db,
             idempotency_key=idempotency_key,
             body=body,
             job_type=JobType.ASSEMBLY,
-            current_user=current_user,
+            current_user=current_user
+        )
+        response_context = JobResponseContext(
             response=response,
             estimated_duration=180
         )
-        result = handle_integrity_error_with_idempotency(e, context)
+        result = handle_integrity_error_with_idempotency(e, request_context, response_context)
         if result:
             return result
