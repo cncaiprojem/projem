@@ -69,6 +69,9 @@ class AuthenticatedUser:
         self.role = user.role
         self.session_id = session.id
         self.scopes = claims.scopes
+        # Task 7.1: Add license and tenant tracking
+        self.license_id = claims.license_id
+        self.tenant_id = claims.tenant_id
     
     def has_scope(self, scope: str) -> bool:
         """Check if user has specific scope permission."""

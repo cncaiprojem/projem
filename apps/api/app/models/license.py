@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from .user import User
     from .license_audit import LicenseAudit
     from .invoice import Invoice
+    from .job import Job
 
 
 class License(Base, TimestampMixin):
@@ -128,6 +129,13 @@ class License(Base, TimestampMixin):
         back_populates="license",
         lazy="select",
         order_by="desc(Invoice.issued_at)"
+    )
+    
+    # Jobs relationship - Task 7.1
+    jobs: Mapped[list["Job"]] = relationship(
+        "Job",
+        back_populates="license",
+        lazy="select"
     )
     
     # Ultra-enterprise constraints and indexes

@@ -44,6 +44,7 @@ class Settings(BaseSettings):
     aws_s3_endpoint: str | None = None
     aws_s3_region: str | None = "us-east-1"
     s3_bucket_name: str = "artefacts"
+    s3_max_workers: int = 5  # Thread pool workers for S3 operations
 
     otel_exporter_otlp_endpoint: str | None = None
     otel_service_name: str = "freecad-api"

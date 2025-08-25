@@ -40,7 +40,10 @@ class JobType(str, enum.Enum):
     """Types of processing jobs - Task 6.3 specification."""
     # Task 6.3 primary job types
     AI = "ai"  # AI/ML tasks
-    MODEL = "model"  # 3D model generation
+    MODEL = "model"  # 3D model generation (individual part or component)
+    # ASSEMBLY job type is used for generating or processing assemblies, which are collections of multiple parts/components combined into a single structure.
+    # Use MODEL for single-part 3D model generation; use ASSEMBLY when the job involves multiple parts organized together, such as creating, validating, or exporting an assembly (see Task 7.1).
+    ASSEMBLY = "assembly"  # Assembly generation and processing (multi-part structures)
     CAM = "cam"  # CAM path generation
     SIM = "sim"  # Simulation tasks
     REPORT = "report"  # Report generation

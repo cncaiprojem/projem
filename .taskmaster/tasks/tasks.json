@@ -950,7 +950,7 @@
           5,
           6
         ],
-        "status": "pending",
+        "status": "in-progress",
         "subtasks": [
           {
             "id": 1,
@@ -958,7 +958,7 @@
             "description": "Design and document POST /designs/prompt, /designs/params, /designs/upload, /assemblies/a4 with JWT, licenseGuard, RBAC scope checks, and per-user rate limits.",
             "dependencies": [],
             "details": "Deliver OpenAPI schemas and Pydantic models for inputs/outputs; apply guards: JWT Bearer, licenseGuard (active license), RBAC scope 'models:write'; rate limits: global 60/min per user and AI prompt-specific 30/min; support Idempotency-Key header (stored to jobs.idempotency_key) returning 409 on reuse with conflicting body; responses: 202 Accepted with job_id and request_id; error codes include 401/403/429; content types: application/json (prompt, params, a4) and application/json with object storage reference for upload; include GET /jobs/:id and GET /jobs/:id/artefacts to poll status and list artefacts; acceptance: OpenAPI generated, guards enforced in integration stub, rate limit returns 429 with Retry-After, idempotency validated.\n<info added on 2025-08-24T15:55:59.641Z>\n- JWT payload requirements: user_id (UUID), license_id (UUID), tenant_id (UUID), scopes (array; must include models:write or models:read as appropriate), exp (Unix timestamp seconds), iat (Unix timestamp seconds), jti (UUID used for revocation). Tokens must be rejected if jti is present in the revocation store; tenant_id is enforced in downstream access checks.\n- Rate limiting implementation: Redis sliding window using Lua for atomic prune-count-increment. Keys: rate:{user_id}:{endpoint}:{window}. Use sorted sets with millisecond timestamps; prune older-than-window, count current, compare against limit, then add current event and set key TTL to window seconds. Endpoints identifiers: global and prompt. Limits enforced as specified (global 60/min, prompt 30/min). 429 includes Retry-After with seconds until window elapses and X-RateLimit headers (limit, remaining, reset).\n- API versioning: all endpoints under /api/v1/designs/*; support version negotiation via Accept header. Supported formats: application/json; version=1 and application/vnd.designs.v1+json. If an unsupported version is requested, return 406. Include API-Version: 1 in responses.\n- Pydantic v2: use Pydantic v2 models with field validators and constrained types for dimensions, units, and materials; strict types for UUIDs and enums for units/materials. Design input models use a discriminated union with discriminator field type having values prompt, params, upload, a4. OpenAPI must reflect oneOf with discriminator mapping. Add validators to normalize units, ensure positive dimensions, and cross-field checks (e.g., material compatible with process).\n</info added on 2025-08-24T15:55:59.641Z>",
-            "status": "pending",
+            "status": "done",
             "testStrategy": ""
           },
           {
@@ -1744,7 +1744,7 @@
     ],
     "metadata": {
       "created": "2025-08-15T19:56:57.780Z",
-      "updated": "2025-08-24T15:41:53.172Z",
+      "updated": "2025-08-24T16:31:49.604Z",
       "description": "Tasks for master context"
     }
   }

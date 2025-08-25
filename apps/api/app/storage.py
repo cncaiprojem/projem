@@ -243,3 +243,111 @@ def list_files(prefix: str = None, bucket: str = None) -> list:
         return []
 
 
+# Create a shared thread pool executor for S3 operations
+# This improves throughput for concurrent S3 checks
+_s3_executor = None
+
+def get_s3_executor():
+    """Get or create the shared S3 thread pool executor."""
+    global _s3_executor
+    if _s3_executor is None:
+        from concurrent.futures import ThreadPoolExecutor
+        # Use configurable workers to allow tuning based on deployment requirements
+        _s3_executor = ThreadPoolExecutor(max_workers=settings.s3_max_workers, thread_name_prefix="s3_async")
+    return _s3_executor
+
+
+def shutdown_s3_executor():
+    """Shutdown the shared S3 thread pool executor during application shutdown."""
+    global _s3_executor
+    if _s3_executor:
+        logger.info("Shutting down S3 thread pool executor", extra={
+            'operation': 's3_executor_shutdown'
+        })
+        _s3_executor.shutdown(wait=True)
+        _s3_executor = None
+
+async def object_exists_async(key: str, bucket: str = None) -> bool:
+    """
+    Check if object exists in S3 bucket (async version).
+    
+    This is an async wrapper that performs the S3 check in a thread pool
+    to avoid blocking the event loop.
+    
+    Args:
+        key: S3 object key to check
+        bucket: Source bucket (defaults to artefacts bucket)
+        
+    Returns:
+        bool: True if object exists, False otherwise
+    """
+    import asyncio
+    
+    if bucket is None:
+        bucket = settings.s3_bucket_name
+    
+    def _check_exists():
+        try:
+            s3_service = get_s3_service()
+            # Try to get object metadata (head_object)
+            info = s3_service.get_object_info(bucket, key)
+            return info is not None
+        except Exception:
+            # Object doesn't exist or error occurred
+            return False
+    
+    # Use shared thread pool for better throughput with concurrent checks
+    loop = asyncio.get_event_loop()
+    return await loop.run_in_executor(get_s3_executor(), _check_exists)
+
+
+def object_exists(key: str, bucket: str = None) -> bool:
+    """
+    Check if object exists in S3 bucket (synchronous version).
+    
+    Note: Consider using object_exists_async for better performance in async contexts.
+    
+    Args:
+        key: S3 object key to check
+        bucket: Source bucket (defaults to artefacts bucket)
+        
+    Returns:
+        bool: True if object exists, False otherwise
+    """
+    if bucket is None:
+        bucket = settings.s3_bucket_name
+    
+    try:
+        s3_service = get_s3_service()
+        # Try to get object metadata (head_object)
+        info = s3_service.get_object_info(bucket, key)
+        return info is not None
+    except Exception:
+        # Object doesn't exist or error occurred
+        return False
+
+
+# Export singleton instance for backward compatibility
+# This allows `from ..storage import s3_service` to work
+class S3ServiceProxy:
+    """Proxy class that delegates all calls to the actual S3Service instance."""
+    
+    def __getattr__(self, name):
+        """Delegate all attribute access to the actual S3Service."""
+        service = get_s3_service()
+        return getattr(service, name)
+    
+    # Add async object_exists method for convenience
+    async def object_exists_async(self, key: str, bucket: str = None) -> bool:
+        """Async version of object_exists."""
+        return await object_exists_async(key, bucket)
+    
+    def object_exists(self, key: str, bucket: str = None) -> bool:
+        """Sync version of object_exists."""
+        return object_exists(key, bucket)
+
+
+# Create singleton instance
+s3_service = S3ServiceProxy()
+
+
