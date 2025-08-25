@@ -51,12 +51,14 @@ logger.info(
 # Default processing time estimates in seconds for each job type
 # Used when no historical data is available for wait time calculation
 DEFAULT_JOB_TIME_ESTIMATES: Mapping[JobType, int] = MappingProxyType({
-    JobType.MODEL: 120,  # 2 minutes
-    JobType.CAM: 180,    # 3 minutes
-    JobType.SIM: 300,    # 5 minutes
-    JobType.AI: 30,      # 30 seconds
-    JobType.REPORT: 60,  # 1 minute
-    JobType.ERP: 45,     # 45 seconds
+    JobType.MODEL: 120,      # 2 minutes - FreeCAD model generation
+    JobType.CAM: 180,        # 3 minutes - CAM path generation
+    JobType.SIM: 300,        # 5 minutes - Simulation processing
+    JobType.AI: 30,          # 30 seconds - AI tasks
+    JobType.REPORT: 60,      # 1 minute - Report generation
+    JobType.ERP: 45,         # 45 seconds - ERP integration
+    JobType.CAD_IMPORT: 90,  # 1.5 minutes - CAD file import/processing
+    JobType.ASSEMBLY: 150,   # 2.5 minutes - Assembly4 operations
 })
 
 
