@@ -253,14 +253,19 @@ def handle_idempotency(
     ).first()
     
     if existing_job:
-        # Compare request body hash
+        # Compare request body hash with stored hash (PR #281 performance optimization)
         request_hash = hashlib.sha256(
             json.dumps(request_body, sort_keys=True).encode()
         ).hexdigest()
         
-        existing_hash = hashlib.sha256(
-            json.dumps(existing_job.params, sort_keys=True).encode()
-        ).hexdigest()
+        # Use stored params_hash if available, otherwise calculate for backward compatibility
+        if existing_job.params_hash:
+            existing_hash = existing_job.params_hash
+        else:
+            # Fallback for jobs created before params_hash was added
+            existing_hash = hashlib.sha256(
+                json.dumps(existing_job.params, sort_keys=True).encode()
+            ).hexdigest()
         
         if request_hash != existing_hash:
             logger.warning(
@@ -315,7 +320,9 @@ def handle_integrity_error_with_idempotency(
     request_context.db.rollback()
     
     # Check if it's a unique constraint violation on the idempotency key
-    if hasattr(e, 'orig') and hasattr(e.orig, 'pgcode') and e.orig.pgcode == '23505':
+    # Database-agnostic approach: check constraint name instead of pgcode (PR #281)
+    error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+    if 'uq_jobs_idempotency_key' in error_msg.lower():
         # This is a unique constraint violation - likely idempotency race condition
         logger.warning(
             "Idempotency race condition detected, re-fetching job",
@@ -376,11 +383,18 @@ def create_job_from_design(
     if extra_metadata:
         metadata.update(extra_metadata)
     
+    # Calculate params hash for efficient idempotency checks (PR #281)
+    params_dict = body.model_dump()
+    params_hash = hashlib.sha256(
+        json.dumps(params_dict, sort_keys=True).encode()
+    ).hexdigest() if idempotency_key else None
+    
     job = Job(
         idempotency_key=idempotency_key,
         type=job_type,
         status=JobStatus.PENDING,
-        params=body.model_dump(),
+        params=params_dict,
+        params_hash=params_hash,  # Store hash for performance optimization
         user_id=current_user.user_id,
         license_id=license.id,
         tenant_id=current_user.tenant_id,

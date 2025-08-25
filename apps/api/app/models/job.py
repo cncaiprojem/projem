@@ -7,7 +7,7 @@ from typing import Optional, List
 
 from sqlalchemy import (
     String, Integer, ForeignKey, Index, Boolean,
-    DateTime, CheckConstraint, Enum as SQLEnum
+    DateTime, CheckConstraint, Enum as SQLEnum, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,8 +27,15 @@ class Job(Base, TimestampMixin):
     # Idempotency
     idempotency_key: Mapped[Optional[str]] = mapped_column(
         String(255),
-        unique=True,
-        index=True
+        index=True  # Unique constraint defined in __table_args__ for database-agnostic handling
+    )
+    
+    # Performance optimization: Store hash of params for idempotency checks (PR #281)
+    params_hash: Mapped[Optional[str]] = mapped_column(
+        String(64),  # SHA-256 produces 64 character hex string
+        nullable=True,
+        index=True,
+        comment="SHA-256 hash of params for efficient idempotency checks"
     )
     
     # Foreign keys
@@ -161,8 +168,10 @@ class Job(Base, TimestampMixin):
         back_populates="job"
     )
     
-    # Constraints and indexes (Task 2.3 requirements + Task 6.4 + Task 6.5 queue performance)
+    # Constraints and indexes (Task 2.3 requirements + Task 6.4 + Task 6.5 queue performance + PR #281)
     __table_args__ = (
+        # Named unique constraint for database-agnostic error handling (PR #281)
+        UniqueConstraint('idempotency_key', name='uq_jobs_idempotency_key'),
         CheckConstraint('progress >= 0 AND progress <= 100',
                        name='ck_jobs_progress_valid'),
         CheckConstraint('retry_count >= 0', name='ck_jobs_retry_count_non_negative'),
