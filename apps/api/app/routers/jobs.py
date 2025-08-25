@@ -378,8 +378,11 @@ async def create_job(
         
         # Handle unique constraint violation (race condition)
         # Database-agnostic approach: check constraint name instead of pgcode (PR #281)
+        # Enhanced specificity to avoid false positives as suggested by Gemini
         error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-        if "uq_jobs_idempotency_key" in error_msg.lower() or "idempotency_key" in error_msg.lower():
+        if ("uq_jobs_idempotency_key" in error_msg.lower() or 
+            ("unique" in error_msg.lower() and "idempotency_key" in error_msg.lower()) or
+            ("duplicate" in error_msg.lower() and "idempotency_key" in error_msg.lower())):
             # Try to fetch the job that was just created by another request
             existing_job = db.query(Job).filter(
                 Job.idempotency_key == job_request.idempotency_key

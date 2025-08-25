@@ -54,6 +54,42 @@ def get_constraint_name(connection, table_name: str, column_name: str) -> str:
     return row[0] if row else None
 
 
+def _execute_batch_update(connection, batch_updates):
+    """
+    Execute batch updates efficiently using PostgreSQL's UPDATE ... FROM (VALUES ...) syntax.
+    This significantly improves performance compared to individual UPDATE statements.
+    
+    Args:
+        connection: Database connection
+        batch_updates: List of (params_hash, job_id) tuples to update
+    """
+    if not batch_updates:
+        return
+    
+    # Build the VALUES clause for batch update
+    # Using PostgreSQL's UPDATE ... FROM (VALUES ...) syntax for efficiency
+    values_list = []
+    params = {}
+    
+    for i, (params_hash, job_id) in enumerate(batch_updates):
+        values_list.append(f"(:hash_{i}, :id_{i})")
+        params[f"hash_{i}"] = params_hash
+        params[f"id_{i}"] = job_id
+    
+    values_clause = ", ".join(values_list)
+    
+    # Execute batch update using UPDATE ... FROM (VALUES ...) syntax
+    # This is much more efficient than individual updates
+    sql = sa.text(f"""
+        UPDATE jobs 
+        SET params_hash = batch_data.hash
+        FROM (VALUES {values_clause}) AS batch_data(hash, id)
+        WHERE jobs.id = batch_data.id
+    """)
+    
+    connection.execute(sql, params)
+
+
 def upgrade() -> None:
     """
     Add params_hash column and named unique constraint for idempotency.
@@ -104,22 +140,27 @@ def upgrade() -> None:
     
     # Populate params_hash for existing jobs (optional, can be done separately)
     # This is a data migration that calculates hash for existing records
-    # CRITICAL: Using 'input_params' which is the ACTUAL database column name
-    # The SQLAlchemy model has: params: Mapped[dict] = mapped_column(..., name="input_params")
-    # This means the Python property is 'params' but the database column is 'input_params'
+    # CRITICAL: The database column is named 'input_params', while in the SQLAlchemy Job model,
+    # the Python property is 'params' and is mapped to 'input_params' via:
+    # params: Mapped[dict] = mapped_column(..., name="input_params")
+    # Be sure to use 'input_params' in raw SQL/database operations, and 'params' in Python code.
     # 
     # IMPORTANT: We need to match the application's canonical JSON format for consistency
     # The application uses: json.dumps(params, sort_keys=True, separators=(',', ':'))
     # PostgreSQL's jsonb_build_object with ordered keys approximates this behavior
     connection = op.get_bind()
     
-    # For PostgreSQL, use a Python-based approach to ensure exact hash match
+    # For PostgreSQL, use batch updates for performance optimization
     # This ensures existing jobs will have the same hash as newly created ones
     if connection.dialect.name == 'postgresql':
         # Fetch all jobs with idempotency keys
         result = connection.execute(sa.text(
             "SELECT id, input_params FROM jobs WHERE idempotency_key IS NOT NULL"
         ))
+        
+        # Collect all updates in batches for efficient processing
+        batch_size = 1000  # Process 1000 rows at a time
+        batch_updates = []
         
         for row in result:
             job_id = row[0]
@@ -131,10 +172,16 @@ def upgrade() -> None:
                 json.dumps(params, sort_keys=True, separators=(',', ':')).encode()
             ).hexdigest()
             
-            # Update the job with the calculated hash
-            connection.execute(sa.text(
-                "UPDATE jobs SET params_hash = :hash WHERE id = :id"
-            ), {'hash': params_hash, 'id': job_id})
+            batch_updates.append((params_hash, job_id))
+            
+            # Execute batch when it reaches the batch size
+            if len(batch_updates) >= batch_size:
+                _execute_batch_update(connection, batch_updates)
+                batch_updates = []
+        
+        # Execute any remaining updates
+        if batch_updates:
+            _execute_batch_update(connection, batch_updates)
     else:
         # For other databases, skip the data migration
         # The application will calculate hashes for new jobs going forward

@@ -343,8 +343,11 @@ def handle_integrity_error_with_idempotency(
     
     # Check if it's a unique constraint violation on the idempotency key
     # Database-agnostic approach: check constraint name instead of pgcode (PR #281)
+    # Enhanced error checking for consistency with jobs.py
     error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
-    if 'uq_jobs_idempotency_key' in error_msg.lower():
+    if ('uq_jobs_idempotency_key' in error_msg.lower() or 
+        ('unique' in error_msg.lower() and 'idempotency_key' in error_msg.lower()) or
+        ('duplicate' in error_msg.lower() and 'idempotency_key' in error_msg.lower())):
         # This is a unique constraint violation - likely idempotency race condition
         logger.warning(
             "Idempotency race condition detected, re-fetching job",

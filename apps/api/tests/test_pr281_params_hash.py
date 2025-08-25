@@ -17,7 +17,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db import Base
+from app.models.base import Base
 from app.models import Job
 from app.models.enums import JobStatus, JobType
 from app.routers.designs_v1 import (
