@@ -417,16 +417,27 @@ class TestAssembly4Endpoint:
             "design": {
                 "type": "a4",
                 "parts": [
-                    {"name": "shaft", "type": "cylinder", "dimensions": {"d": 10, "h": 50}},
-                    {"name": "bearing", "type": "ring", "dimensions": {"od": 20, "id": 10}}
+                    {
+                        "name": "shaft",
+                        "part_type": "cylinder",
+                        "radius": 5,
+                        "height": 50
+                    },
+                    {
+                        "name": "base_plate",
+                        "part_type": "box",
+                        "width": 30,
+                        "height": 5,
+                        "depth": 30
+                    }
                 ],
                 "constraints": [
                     {
-                        "type": "concentric",
+                        "type": "coincident",
                         "part1": "shaft",
-                        "part2": "bearing",
-                        "feature1": "axis",
-                        "feature2": "center"
+                        "part2": "base_plate",
+                        "feature1": "BottomFace",
+                        "feature2": "TopFace"
                     }
                 ],
                 "validate_assembly": True,
@@ -568,13 +579,16 @@ class TestCrossEndpointValidation:
                         "parts": [
                             {
                                 "name": "p1",
-                                "type": "cylinder",
-                                "dimensions": {"radius": 5, "height": 20}
+                                "part_type": "cylinder",
+                                "radius": 5,
+                                "height": 20
                             },
                             {
                                 "name": "p2",
-                                "type": "box",
-                                "dimensions": {"width": 10, "length": 10, "height": 10}
+                                "part_type": "box",
+                                "width": 10,
+                                "depth": 10,
+                                "height": 10
                             }
                         ],
                         "constraints": [
@@ -736,8 +750,16 @@ class TestCrossEndpointIdempotency:
             "design": {
                 "type": "a4",
                 "parts": [
-                    {"name": "part1", "path": "models/part1.FCStd"},
-                    {"name": "part2", "path": "models/part2.FCStd"}
+                    {
+                        "name": "part1",
+                        "part_type": "existing",
+                        "path": "models/part1.FCStd"
+                    },
+                    {
+                        "name": "part2", 
+                        "part_type": "existing",
+                        "path": "models/part2.FCStd"
+                    }
                 ],
                 "constraints": [
                     {

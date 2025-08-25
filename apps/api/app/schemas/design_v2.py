@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Annotated, Any, Dict, List, Literal, Optional, Union
+from typing import Annotated, Any, Dict, List, Literal, Optional, Union, ClassVar
 from uuid import UUID
 
 from pydantic import (
@@ -83,6 +83,10 @@ class DimensionSpec(BaseModel):
     """Dimension specification with units."""
     model_config = ConfigDict(str_strip_whitespace=True)
     
+    # Dimension limits as class constants
+    MAX_DIMENSION_MM: ClassVar[float] = 100_000  # 100 meters in mm
+    MIN_DIMENSION_MM: ClassVar[float] = 0.001    # 1 micrometer in mm
+    
     value: PositiveFloat = Field(..., description="Dimension value", gt=0)
     unit: DesignUnit = Field(DesignUnit.MILLIMETER, description="Measurement unit")
     tolerance: Optional[PositiveFloat] = Field(None, description="Tolerance value", gt=0)
@@ -91,10 +95,10 @@ class DimensionSpec(BaseModel):
     @classmethod
     def validate_reasonable_dimension(cls, v: float) -> float:
         """Ensure dimensions are within reasonable bounds."""
-        if v > 100000:  # 100 meters in mm
-            raise ValueError("Boyut çok büyük (maksimum 100m)")
-        if v < 0.001:  # Less than 1 micrometer in mm
-            raise ValueError("Boyut çok küçük (minimum 0.001mm)")
+        if v > cls.MAX_DIMENSION_MM:
+            raise ValueError(f"Boyut çok büyük (maksimum {cls.MAX_DIMENSION_MM}mm)")
+        if v < cls.MIN_DIMENSION_MM:
+            raise ValueError(f"Boyut çok küçük (minimum {cls.MIN_DIMENSION_MM}mm)")
         return v
     
     def to_mm(self) -> float:

@@ -26,6 +26,13 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 from uuid import UUID, uuid4
 
+try:
+    from botocore.exceptions import BotoCoreError
+except ImportError:
+    # Fallback if botocore is not available
+    BotoCoreError = Exception
+
+import requests.exceptions
 from fastapi import (
     APIRouter,
     Depends,
@@ -70,6 +77,9 @@ from ..core.job_validator import validate_job_payload, publish_job_task
 from .contexts import JobRequestContext, JobResponseContext
 
 logger = structlog.get_logger(__name__)
+
+# API version constant for centralized version management
+API_VERSION = "1"
 
 # Rate limiters for different endpoints
 global_rate_limiter = RateLimiter(
@@ -276,8 +286,8 @@ def handle_idempotency(
 
 def set_version_headers(response: Response) -> None:
     """Set API version headers."""
-    response.headers["API-Version"] = "1"
-    response.headers["X-API-Version"] = "1"
+    response.headers["API-Version"] = API_VERSION
+    response.headers["X-API-Version"] = API_VERSION
 
 
 def handle_integrity_error_with_idempotency(
@@ -700,11 +710,17 @@ async def create_design_from_upload(
     # Verify file exists in S3 with proper error handling
     try:
         exists = s3_service.object_exists(body.design.s3_key)
-    except Exception as e:
+    except (BotoCoreError, requests.exceptions.ConnectionError) as e:
         logger.error("S3 service error during object_exists", error=str(e), s3_key=body.design.s3_key)
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="S3 servisi ile iletişim kurulamadı. Lütfen daha sonra tekrar deneyin."
+        )
+    except Exception as e:
+        logger.error("Unexpected error during S3 object_exists check", error=str(e), s3_key=body.design.s3_key)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Dosya kontrol edilirken beklenmeyen hata oluştu"
         )
     
     if not exists:
