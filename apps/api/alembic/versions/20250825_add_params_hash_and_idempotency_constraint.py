@@ -12,6 +12,8 @@ This migration addresses PR #281 feedback:
 from alembic import op
 import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
+import json
+import hashlib
 
 
 # Revision identifiers
@@ -102,23 +104,41 @@ def upgrade() -> None:
     
     # Populate params_hash for existing jobs (optional, can be done separately)
     # This is a data migration that calculates hash for existing records
-    # IMPORTANT: Using 'input_params' which is the actual database column name
-    # (The SQLAlchemy model maps it to 'params' property via name="input_params")
-    op.execute("""
-        UPDATE jobs 
-        SET params_hash = encode(
-            digest(
-                CASE 
-                    WHEN input_params IS NOT NULL 
-                    THEN input_params::text 
-                    ELSE '{}'::text 
-                END, 
-                'sha256'
-            ), 
-            'hex'
-        )
-        WHERE idempotency_key IS NOT NULL
-    """)
+    # CRITICAL: Using 'input_params' which is the ACTUAL database column name
+    # The SQLAlchemy model has: params: Mapped[dict] = mapped_column(..., name="input_params")
+    # This means the Python property is 'params' but the database column is 'input_params'
+    # 
+    # IMPORTANT: We need to match the application's canonical JSON format for consistency
+    # The application uses: json.dumps(params, sort_keys=True, separators=(',', ':'))
+    # PostgreSQL's jsonb_build_object with ordered keys approximates this behavior
+    connection = op.get_bind()
+    
+    # For PostgreSQL, use a Python-based approach to ensure exact hash match
+    # This ensures existing jobs will have the same hash as newly created ones
+    if connection.dialect.name == 'postgresql':
+        # Fetch all jobs with idempotency keys
+        result = connection.execute(sa.text(
+            "SELECT id, input_params FROM jobs WHERE idempotency_key IS NOT NULL"
+        ))
+        
+        for row in result:
+            job_id = row[0]
+            params = row[1] if row[1] is not None else {}
+            
+            # Calculate hash using the same canonical format as the application
+            # This ensures consistency between migration and runtime
+            params_hash = hashlib.sha256(
+                json.dumps(params, sort_keys=True, separators=(',', ':')).encode()
+            ).hexdigest()
+            
+            # Update the job with the calculated hash
+            connection.execute(sa.text(
+                "UPDATE jobs SET params_hash = :hash WHERE id = :id"
+            ), {'hash': params_hash, 'id': job_id})
+    else:
+        # For other databases, skip the data migration
+        # The application will calculate hashes for new jobs going forward
+        print("Warning: Skipping params_hash backfill for non-PostgreSQL database")
 
 
 def downgrade() -> None:
@@ -130,7 +150,7 @@ def downgrade() -> None:
     # Use try-except in case the constraint doesn't exist
     try:
         op.drop_constraint('uq_jobs_idempotency_key', 'jobs', type_='unique')
-    except:
+    except sa.exc.ProgrammingError:
         # If the named constraint doesn't exist, try to find it programmatically
         connection = op.get_bind()
         constraint_name = get_constraint_name(connection, 'jobs', 'idempotency_key')

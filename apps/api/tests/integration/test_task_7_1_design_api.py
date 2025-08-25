@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.main import app
 from app.models import User, License, Job
-from app.models.enums import UserRole, JobStatus
+from app.models.enums import UserRole, JobStatus, JobType
 from app.services.jwt_service import jwt_service
 from app.db import get_db
 
@@ -336,7 +336,7 @@ class TestDesignUploadEndpoint:
     def test_create_design_from_upload_success(self, client, auth_headers, monkeypatch):
         """Test successful file upload processing."""
         # Mock S3 service to always return True for object existence
-        from ...storage import s3_service
+        from app.storage import s3_service
         
         def mock_object_exists(key):
             return True
@@ -821,7 +821,7 @@ class TestCrossEndpointIdempotency:
     def test_upload_endpoint_uses_correct_job_type(self, client, auth_headers, db_session, monkeypatch):
         """Test that upload endpoint uses CAD_IMPORT job type."""
         # Mock S3 service to prevent real network calls
-        from ...storage import s3_service
+        from app.storage import s3_service
         monkeypatch.setattr(s3_service, "object_exists", lambda key: True)
         
         idempotency_key = str(uuid4())
@@ -848,7 +848,7 @@ class TestCrossEndpointIdempotency:
         job_id = response.json()["job_id"]
         
         # Verify job type in database
-        from ..models import Job
+        # Use the already imported Job model from the top of the file
         job = db_session.query(Job).filter_by(id=job_id).first()
         assert job.type == JobType.CAD_IMPORT
 

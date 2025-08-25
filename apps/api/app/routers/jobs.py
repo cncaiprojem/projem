@@ -248,10 +248,12 @@ async def create_job(
     # Start database transaction for new job creation
     try:
         # Calculate params hash for efficient idempotency checks (PR #281)
+        # CRITICAL: Use canonical JSON format with separators=(',', ':') for consistency
+        # This must match the format used in migrations and idempotency checks
         params_hash = None
         if job_request.idempotency_key:
             params_hash = hashlib.sha256(
-                json.dumps(job_request.params, sort_keys=True).encode()
+                json.dumps(job_request.params, sort_keys=True, separators=(',', ':')).encode()
             ).hexdigest()
         
         # Create new job

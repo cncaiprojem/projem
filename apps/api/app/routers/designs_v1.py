@@ -406,9 +406,11 @@ def create_job_from_design(
         metadata.update(extra_metadata)
     
     # Calculate params hash for efficient idempotency checks (PR #281)
+    # CRITICAL: Use canonical JSON format with separators=(',', ':') for consistency
+    # This must match the format used in migrations and idempotency checks
     params_dict = body.model_dump()
     params_hash = hashlib.sha256(
-        json.dumps(params_dict, sort_keys=True).encode()
+        json.dumps(params_dict, sort_keys=True, separators=(',', ':')).encode()
     ).hexdigest() if idempotency_key else None
     
     job = Job(
