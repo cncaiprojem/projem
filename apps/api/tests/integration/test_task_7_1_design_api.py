@@ -811,7 +811,6 @@ class TestCrossEndpointIdempotency:
         assert assembly_retry.json()["status"] == "duplicate"
         
         # 4. Verify database has correct job types
-        from ..models import Job
         prompt_job = db_session.query(Job).filter_by(id=prompt_job_id).first()
         assert prompt_job.type == JobType.MODEL
         

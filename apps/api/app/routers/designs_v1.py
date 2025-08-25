@@ -839,5 +839,5 @@ async def create_assembly4(
         rate_limit_type="global",
         estimated_duration=180,
         extra_metadata=extra_metadata,
-        error_message="Bu endpoint sadece 'Assembly4Input' tipi girdi kabul eder"
+        error_message="Bu endpoint sadece 'assembly4' tipi girdi kabul eder"
     )

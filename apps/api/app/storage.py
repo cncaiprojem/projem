@@ -253,8 +253,7 @@ def get_s3_executor():
     if _s3_executor is None:
         from concurrent.futures import ThreadPoolExecutor
         # Use configurable workers to allow tuning based on deployment requirements
-        max_workers = getattr(settings, 's3_max_workers', 5)
-        _s3_executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="s3_async")
+        _s3_executor = ThreadPoolExecutor(max_workers=settings.s3_max_workers, thread_name_prefix="s3_async")
     return _s3_executor
 
 
