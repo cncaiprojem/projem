@@ -15,13 +15,8 @@ from sqlalchemy.dialects import postgresql
 import json
 import hashlib
 
-# Try to import the batch update utility
-try:
-    from alembic.utils.batch_update import execute_params_hash_batch_update
-    USE_BATCH_UTILITY = True
-except ImportError:
-    # Fallback to local implementation if utility not available
-    USE_BATCH_UTILITY = False
+# Note: We use a local safe implementation for batch updates to ensure
+# proper parameterization and prevent SQL injection vulnerabilities
 
 
 # Revision identifiers
@@ -191,12 +186,9 @@ def upgrade() -> None:
         
         # Execute any remaining updates
         if batch_updates:
-            if USE_BATCH_UTILITY:
-                # Use the utility module for better maintainability
-                execute_params_hash_batch_update(connection, batch_updates)
-            else:
-                # Use local implementation as fallback
-                _execute_batch_update(connection, batch_updates)
+            # Always use the local, safe implementation which is correctly parameterized
+            # and expects a list of tuples (params_hash, job_id)
+            _execute_batch_update(connection, batch_updates)
     else:
         # For other databases, skip the data migration
         # The application will calculate hashes for new jobs going forward

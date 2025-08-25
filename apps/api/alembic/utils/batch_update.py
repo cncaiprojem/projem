@@ -40,38 +40,48 @@ def execute_batch_update(
     # Process updates in batches
     for i in range(0, len(updates), batch_size):
         batch = updates[i:i + batch_size]
+        if not batch:
+            continue
         
-        # Get the fields to update (excluding 'id')
-        if batch:
-            fields = [k for k in batch[0].keys() if k != 'id']
+        # Get the fields to update (excluding 'id'), sort for consistency
+        fields = sorted([k for k in batch[0].keys() if k != 'id'])
+        if not fields:
+            continue
+        
+        # Build SET clause
+        set_clause = ', '.join([f"{field} = batch_data.{field}" for field in fields])
+        columns_clause = ', '.join(['id'] + fields)
+        
+        # Build VALUES clause with proper parameterization
+        values_list = []
+        params = {}
+        for j, update in enumerate(batch):
+            param_prefix = f"r{i + j}"  # Unique prefix for each row
             
-            # Build VALUES clause
-            values_parts = []
-            for update in batch:
-                value_items = [f"'{update.get(field, '')}'" if isinstance(update.get(field), str) 
-                              else str(update.get(field, 'NULL')) 
-                              for field in fields]
-                values_parts.append(f"({update['id']}, {', '.join(value_items)})")
+            # Create parameter names
+            id_param = f"id_{param_prefix}"
+            row_placeholders = [f":{id_param}"]
+            params[id_param] = update['id']
             
-            values_clause = ', '.join(values_parts)
+            # Add parameters for each field
+            for field in fields:
+                field_param = f"{field}_{param_prefix}"
+                row_placeholders.append(f":{field_param}")
+                params[field_param] = update.get(field)
             
-            # Build SET clause
-            set_parts = [f"{field} = batch_data.{field}" for field in fields]
-            set_clause = ', '.join(set_parts)
-            
-            # Build column names for VALUES alias
-            columns = ['id'] + fields
-            columns_clause = ', '.join(columns)
-            
-            # Execute batch update
-            sql = sa.text(f"""
-                UPDATE {table_name}
-                SET {set_clause}
-                FROM (VALUES {values_clause}) AS batch_data({columns_clause})
-                WHERE {table_name}.id = batch_data.id
-            """)
-            
-            connection.execute(sql)
+            values_list.append(f"({', '.join(row_placeholders)})")
+        
+        values_clause = ', '.join(values_list)
+        
+        # Execute batch update using parameterized query
+        sql = sa.text(f"""
+            UPDATE {table_name}
+            SET {set_clause}
+            FROM (VALUES {values_clause}) AS batch_data({columns_clause})
+            WHERE {table_name}.id = batch_data.id
+        """)
+        
+        connection.execute(sql, params)
 
 
 def execute_params_hash_batch_update(connection, batch_updates: List[Dict[str, Any]]) -> None:
@@ -95,16 +105,19 @@ def execute_params_hash_batch_update(connection, batch_updates: List[Dict[str, A
     if not batch_updates:
         return
     
-    # Build VALUES clause for batch update
-    values_parts = []
-    for update in batch_updates:
-        # Escape single quotes in hash values
-        hash_value = update['hash'].replace("'", "''") if update['hash'] else ''
-        values_parts.append(f"('{hash_value}', {update['id']})")
+    # Build VALUES clause with proper parameterization to prevent SQL injection
+    values_list = []
+    params = {}
+    for i, update in enumerate(batch_updates):
+        hash_param = f"hash_{i}"
+        id_param = f"id_{i}"
+        values_list.append(f"(:{hash_param}, :{id_param})")
+        params[hash_param] = update.get('hash')
+        params[id_param] = update.get('id')
     
-    values_clause = ', '.join(values_parts)
+    values_clause = ", ".join(values_list)
     
-    # Execute batch update using PostgreSQL's efficient syntax
+    # Execute batch update using parameterized query for security
     sql = sa.text(f"""
         UPDATE jobs 
         SET params_hash = batch_data.hash
@@ -112,4 +125,4 @@ def execute_params_hash_batch_update(connection, batch_updates: List[Dict[str, A
         WHERE jobs.id = batch_data.id
     """)
     
-    connection.execute(sql)
+    connection.execute(sql, params)

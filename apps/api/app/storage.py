@@ -243,6 +243,19 @@ def list_files(prefix: str = None, bucket: str = None) -> list:
         return []
 
 
+# Create a shared thread pool executor for S3 operations
+# This improves throughput for concurrent S3 checks
+_s3_executor = None
+
+def get_s3_executor():
+    """Get or create the shared S3 thread pool executor."""
+    global _s3_executor
+    if _s3_executor is None:
+        from concurrent.futures import ThreadPoolExecutor
+        # Use multiple workers to allow concurrent S3 operations
+        _s3_executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="s3_async")
+    return _s3_executor
+
 async def object_exists_async(key: str, bucket: str = None) -> bool:
     """
     Check if object exists in S3 bucket (async version).
@@ -258,7 +271,6 @@ async def object_exists_async(key: str, bucket: str = None) -> bool:
         bool: True if object exists, False otherwise
     """
     import asyncio
-    from concurrent.futures import ThreadPoolExecutor
     
     if bucket is None:
         bucket = settings.s3_bucket_name
@@ -273,10 +285,9 @@ async def object_exists_async(key: str, bucket: str = None) -> bool:
             # Object doesn't exist or error occurred
             return False
     
-    # Run in thread pool to avoid blocking
+    # Use shared thread pool for better throughput with concurrent checks
     loop = asyncio.get_event_loop()
-    with ThreadPoolExecutor(max_workers=1) as executor:
-        return await loop.run_in_executor(executor, _check_exists)
+    return await loop.run_in_executor(get_s3_executor(), _check_exists)
 
 
 def object_exists(key: str, bucket: str = None) -> bool:

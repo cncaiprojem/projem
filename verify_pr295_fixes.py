@@ -24,7 +24,7 @@ def check_file_contains(filepath: str, pattern: str, should_not_contain: bool = 
 def verify_fixes():
     """Verify all PR #295 fixes."""
     results = []
-    base_dir = Path("C:/Users/kafge/projem")
+    base_dir = Path(__file__).resolve().parent
     
     # 1. CRITICAL: PostgreSQL ALTER TYPE fix
     print("1. Checking PostgreSQL ALTER TYPE fix...")

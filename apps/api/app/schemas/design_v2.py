@@ -166,10 +166,15 @@ def get_design_settings(**overrides) -> DesignSettings:
     return DesignSettings(**overrides)
 
 
+# Thread-local storage for design settings to avoid concurrency issues
+import threading
+_design_settings_local = threading.local()
+
 # Context manager for temporary settings override (useful for testing)
 class design_settings_context:
     """
-    Context manager for temporarily overriding design settings.
+    Context manager for temporarily overriding design settings using thread-local storage.
+    This ensures thread safety in concurrent environments.
     
     Usage:
         with design_settings_context(max_dimension_mm=1000):
@@ -181,19 +186,30 @@ class design_settings_context:
         self.original_settings = None
         
     def __enter__(self):
-        global design_settings
-        self.original_settings = design_settings
-        design_settings = get_design_settings(**self.overrides)
-        return design_settings
+        self.original_settings = getattr(_design_settings_local, "settings", None)
+        _design_settings_local.settings = get_design_settings(**self.overrides)
+        return _design_settings_local.settings
         
     def __exit__(self, exc_type, exc_val, exc_tb):
-        global design_settings
-        design_settings = self.original_settings
+        if self.original_settings is not None:
+            _design_settings_local.settings = self.original_settings
+        else:
+            if hasattr(_design_settings_local, "settings"):
+                del _design_settings_local.settings
+
+
+def current_design_settings() -> DesignSettings:
+    """
+    Returns the current thread-local design settings, or the default singleton if not set.
+    This ensures thread safety when using the context manager.
+    """
+    return getattr(_design_settings_local, "settings", _default_design_settings)
 
 
 # Default singleton for backward compatibility
 # Prefer using get_design_settings() or dependency injection in new code
-design_settings = get_design_settings()
+_default_design_settings = get_design_settings()
+design_settings = _default_design_settings  # Backward compatibility alias
 
 # NOTE: To override settings in tests, you can use:
 # 1. Context manager for temporary override:
