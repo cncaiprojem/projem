@@ -7,7 +7,7 @@ from typing import Optional, List
 
 from sqlalchemy import (
     String, Integer, ForeignKey, Index, Boolean,
-    DateTime, CheckConstraint, Enum as SQLEnum
+    DateTime, CheckConstraint, Enum as SQLEnum, UniqueConstraint
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,14 +27,34 @@ class Job(Base, TimestampMixin):
     # Idempotency
     idempotency_key: Mapped[Optional[str]] = mapped_column(
         String(255),
-        unique=True,
-        index=True
+        index=True  # Unique constraint defined in __table_args__ for database-agnostic handling
+    )
+    
+    # Performance optimization: Store hash of params for idempotency checks (PR #281)
+    # Hash algorithm: SHA-256, stored as 64-character lowercase hexadecimal string
+    params_hash: Mapped[Optional[str]] = mapped_column(
+        String(64),  # SHA-256 produces 64 character hex string
+        nullable=True,
+        index=True,
+        comment="SHA-256 hash (hex format) of canonical JSON params for efficient idempotency checks"
     )
     
     # Foreign keys
     user_id: Mapped[Optional[int]] = mapped_column(
         ForeignKey("users.id", ondelete="RESTRICT"),
         index=True
+    )
+    
+    # Task 7.1: License and tenant tracking for job orchestration
+    license_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("licenses.id", ondelete="RESTRICT"),
+        index=True,
+        comment="License used for this job"
+    )
+    tenant_id: Mapped[Optional[str]] = mapped_column(
+        String(36),
+        index=True,
+        comment="Tenant UUID for multi-tenancy"
     )
     
     # Job type and status
@@ -131,6 +151,10 @@ class Job(Base, TimestampMixin):
     
     # Relationships
     user: Mapped[Optional["User"]] = relationship("User", back_populates="jobs")
+    license: Mapped[Optional["License"]] = relationship(
+        "License", 
+        back_populates="jobs"
+    )
     artefacts: Mapped[List["Artefact"]] = relationship(
         "Artefact",
         back_populates="job",
@@ -145,8 +169,10 @@ class Job(Base, TimestampMixin):
         back_populates="job"
     )
     
-    # Constraints and indexes (Task 2.3 requirements + Task 6.4 + Task 6.5 queue performance)
+    # Constraints and indexes (Task 2.3 requirements + Task 6.4 + Task 6.5 queue performance + PR #281)
     __table_args__ = (
+        # Named unique constraint for database-agnostic error handling (PR #281)
+        UniqueConstraint('idempotency_key', name='uq_jobs_idempotency_key'),
         CheckConstraint('progress >= 0 AND progress <= 100',
                        name='ck_jobs_progress_valid'),
         CheckConstraint('retry_count >= 0', name='ck_jobs_retry_count_non_negative'),
@@ -155,6 +181,10 @@ class Job(Base, TimestampMixin):
         CheckConstraint('attempts >= 0', name='ck_jobs_attempts_non_negative'),
         Index('idx_jobs_status_created_at', 'status', 'created_at'),
         Index('idx_jobs_user_id', 'user_id'),
+        Index('idx_jobs_license_id', 'license_id',
+              postgresql_where='license_id IS NOT NULL'),
+        Index('idx_jobs_tenant_id', 'tenant_id',
+              postgresql_where='tenant_id IS NOT NULL'),
         Index('idx_jobs_type', 'type'),
         Index('idx_jobs_idempotency_key', 'idempotency_key',
               postgresql_where='idempotency_key IS NOT NULL'),
