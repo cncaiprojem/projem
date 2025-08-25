@@ -24,8 +24,8 @@ def _validate_sql_identifier(identifier: str) -> None:
         ValueError: If identifier is invalid
     """
     # Check for valid SQL identifier pattern
-    # Allow: letters, numbers, underscores, but must start with letter or underscore
-    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', identifier):
+    # Allow: letters, numbers, underscores, but must start with a letter
+    if not re.match(r'^[a-zA-Z][a-zA-Z0-9_]*$', identifier):
         raise ValueError(
             f"Geçersiz SQL tanımlayıcı: '{identifier}'. "
             f"Sadece harf, rakam ve alt çizgi kullanılabilir."

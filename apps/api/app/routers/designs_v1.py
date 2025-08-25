@@ -246,6 +246,7 @@ def handle_idempotency(
     
     # CRITICAL: Check for existing job with same idempotency key FOR THE SAME USER AND JOB TYPE
     # This prevents data leakage between users and ensures idempotency is scoped per job type
+    # NOTE: The database has a composite index on (idempotency_key, user_id, type) for optimal query performance
     existing_job = db.query(Job).filter(
         Job.idempotency_key == idempotency_key,
         Job.user_id == current_user.user_id,

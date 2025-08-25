@@ -12,6 +12,7 @@ Features:
 
 from __future__ import annotations
 
+import threading
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -167,7 +168,6 @@ def get_design_settings(**overrides) -> DesignSettings:
 
 
 # Thread-local storage for design settings to avoid concurrency issues
-import threading
 _design_settings_local = threading.local()
 
 # Context manager for temporary settings override (useful for testing)

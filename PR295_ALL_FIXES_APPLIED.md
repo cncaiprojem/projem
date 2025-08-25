@@ -41,8 +41,8 @@ else:
 **Fix Applied**: Added complete implementation showing how values_clause is constructed
 
 ```python
-# Now includes the construction of values_clause:
-values_clause = ', '.join([f"('{update['hash']}', {update['id']})" for update in batch_updates])
+# The secure implementation uses parameterized queries to prevent SQL injection.
+# See the full, secure implementation in `apps/api/alembic/utils/batch_update.py`.
 ```
 
 ### 4. Corrected PR_284 Summary ✅

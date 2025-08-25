@@ -197,6 +197,7 @@ class TestOpenAPISchema:
         schema = response.json()
         
         # Check for Turkish words in descriptions
+        # NOTE: 'model' is an English word, but is commonly used in Turkish technical contexts
         turkish_words = ["model", "tasarım", "dosya", "montaj", "iş", "üretim"]
         
         schema_str = str(schema).lower()

@@ -249,7 +249,7 @@ class JWTService:
             os.getenv('ENV', '').lower() in ['production', 'prod'],
             os.getenv('ENVIRONMENT', '').lower() in ['production', 'prod'],
             settings.env.lower() in ['production', 'prod'],
-            os.getenv('DEV_AUTH_BYPASS', 'false').lower() == 'false'  # Fixed: == 'false' means production
+            os.getenv('DEV_AUTH_BYPASS', 'false').lower() != 'true'  # More explicit: only 'true' disables production check
         ])
         
         if is_production:
