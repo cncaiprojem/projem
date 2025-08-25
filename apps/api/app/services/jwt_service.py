@@ -218,6 +218,10 @@ class JWTService:
     
     def create_test_token(self, claims: dict) -> str:
         """
+        SECURITY WARNING: This method MUST NOT be used in production environments.
+        It bypasses normal validation and database checks, and can create arbitrary JWT tokens.
+        Use only for testing purposes. Misuse can lead to severe security vulnerabilities.
+        
         Create a JWT token with custom claims for testing purposes.
         
         Args:
@@ -226,9 +230,13 @@ class JWTService:
         Returns:
             Encoded JWT token string
             
-        Note:
-            This method is intended for testing only and should not be used
-            in production code. It bypasses normal validation and database checks.
+        CRITICAL: This method:
+        - Bypasses all authentication and authorization checks
+        - Does not validate user existence or credentials
+        - Can create tokens with any arbitrary claims or permissions
+        - Completely circumvents session management and audit logging
+        - Should NEVER be exposed through any API endpoint
+        - Must be disabled or removed in production builds
         """
         # Encode JWT with PyJWT 2.8
         token = jwt.encode(
