@@ -134,6 +134,19 @@ async def lifespan(app: FastAPI):
         'operation': 'application_shutdown'
     })
     
+    # Shutdown S3 thread pool executor
+    try:
+        from .storage import shutdown_s3_executor
+        shutdown_s3_executor()
+        logger.info("S3 thread pool executor shut down successfully", extra={
+            'operation': 's3_executor_shutdown'
+        })
+    except Exception as e:
+        logger.error("Failed to shutdown S3 thread pool executor", exc_info=True, extra={
+            'operation': 's3_executor_shutdown_failed',
+            'error_type': type(e).__name__
+        })
+    
     # Close Redis connection
     if hasattr(app.state, 'redis'):
         await close_redis_client(app.state.redis)

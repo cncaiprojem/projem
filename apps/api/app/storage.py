@@ -256,6 +256,15 @@ def get_s3_executor():
         _s3_executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="s3_async")
     return _s3_executor
 
+
+def shutdown_s3_executor():
+    """Shutdown the shared S3 thread pool executor during application shutdown."""
+    global _s3_executor
+    if _s3_executor:
+        logger.info("Shutting down S3 thread pool executor.")
+        _s3_executor.shutdown(wait=True)
+        _s3_executor = None
+
 async def object_exists_async(key: str, bucket: str = None) -> bool:
     """
     Check if object exists in S3 bucket (async version).
