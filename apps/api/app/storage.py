@@ -252,8 +252,9 @@ def get_s3_executor():
     global _s3_executor
     if _s3_executor is None:
         from concurrent.futures import ThreadPoolExecutor
-        # Use multiple workers to allow concurrent S3 operations
-        _s3_executor = ThreadPoolExecutor(max_workers=5, thread_name_prefix="s3_async")
+        # Use configurable workers to allow tuning based on deployment requirements
+        max_workers = getattr(settings, 's3_max_workers', 5)
+        _s3_executor = ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="s3_async")
     return _s3_executor
 
 
@@ -261,7 +262,9 @@ def shutdown_s3_executor():
     """Shutdown the shared S3 thread pool executor during application shutdown."""
     global _s3_executor
     if _s3_executor:
-        logger.info("Shutting down S3 thread pool executor.")
+        logger.info("Shutting down S3 thread pool executor", extra={
+            'operation': 's3_executor_shutdown'
+        })
         _s3_executor.shutdown(wait=True)
         _s3_executor = None
 

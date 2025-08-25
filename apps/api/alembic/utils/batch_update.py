@@ -144,7 +144,8 @@ def execute_params_hash_batch_update(connection, batch_updates: List[Dict[str, A
     Specialized batch update for params_hash column in jobs table.
     
     This is a convenience function specifically for updating params_hash values,
-    which is a common operation in migrations.
+    which is a common operation in migrations. It transforms the data format
+    and delegates to the generic execute_batch_update function.
     
     Args:
         connection: SQLAlchemy database connection
@@ -164,7 +165,8 @@ def execute_params_hash_batch_update(connection, batch_updates: List[Dict[str, A
     if not batch_updates:
         return
     
-    # Validate input structure
+    # Validate input structure and prepare data for the generic function
+    updates_for_generic = []
     for idx, update in enumerate(batch_updates):
         if not isinstance(update, dict):
             raise ValueError(
@@ -183,25 +185,12 @@ def execute_params_hash_batch_update(connection, batch_updates: List[Dict[str, A
                 f"Güncelleme #{idx} 'id' alanını içermiyor. "
                 f"Her güncelleme bir 'id' alanına sahip olmalıdır."
             )
+        
+        # Transform the data format to match the generic function's expectation
+        updates_for_generic.append({
+            'id': update['id'],
+            'params_hash': update['hash']
+        })
     
-    # Build VALUES clause with proper parameterization to prevent SQL injection
-    values_list = []
-    params = {}
-    for i, update in enumerate(batch_updates):
-        hash_param = f"hash_{i}"
-        id_param = f"id_{i}"
-        values_list.append(f"(:{hash_param}, :{id_param})")
-        params[hash_param] = update['hash']  # Use dict access since we validated
-        params[id_param] = update['id']  # Use dict access since we validated
-    
-    values_clause = ", ".join(values_list)
-    
-    # Execute batch update using parameterized query for security
-    sql = sa.text(f"""
-        UPDATE jobs 
-        SET params_hash = batch_data.hash
-        FROM (VALUES {values_clause}) AS batch_data(hash, id)
-        WHERE jobs.id = batch_data.id
-    """)
-    
-    connection.execute(sql, params)
+    # Call the generic function for the actual update
+    execute_batch_update(connection, 'jobs', updates_for_generic)
