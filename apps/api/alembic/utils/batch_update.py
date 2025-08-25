@@ -6,7 +6,43 @@ in database migrations, particularly for PostgreSQL.
 """
 
 from typing import List, Dict, Any
+import re
 import sqlalchemy as sa
+
+
+def _validate_sql_identifier(identifier: str) -> None:
+    """
+    Validate that SQL identifier (table/column name) is safe.
+    
+    Prevents SQL injection by ensuring identifiers only contain
+    allowed characters and are not SQL keywords.
+    
+    Args:
+        identifier: SQL identifier to validate
+        
+    Raises:
+        ValueError: If identifier is invalid
+    """
+    # Check for valid SQL identifier pattern
+    # Allow: letters, numbers, underscores, but must start with letter or underscore
+    if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', identifier):
+        raise ValueError(
+            f"Geçersiz SQL tanımlayıcı: '{identifier}'. "
+            f"Sadece harf, rakam ve alt çizgi kullanılabilir."
+        )
+    
+    # Block common SQL keywords that should never be table/column names
+    sql_keywords = {
+        'select', 'insert', 'update', 'delete', 'drop', 'create',
+        'alter', 'truncate', 'exec', 'execute', 'union', 'from',
+        'where', 'having', 'group', 'order', 'by', 'join',
+        'inner', 'outer', 'left', 'right', 'cross', 'full'
+    }
+    
+    if identifier.lower() in sql_keywords:
+        raise ValueError(
+            f"SQL anahtar kelime tablo/sütun adı olarak kullanılamaz: '{identifier}'"
+        )
 
 
 def execute_batch_update(
@@ -33,9 +69,24 @@ def execute_batch_update(
             {'id': 2, 'params_hash': 'def456...'},
         ]
         execute_batch_update(connection, 'jobs', updates)
+        
+    Raises:
+        ValueError: If table_name or field names are invalid
+        KeyError: If required 'id' field is missing
     """
     if not updates:
         return
+    
+    # Validate table name to prevent SQL injection
+    _validate_sql_identifier(table_name)
+    
+    # Validate that all updates have the 'id' field
+    for idx, update in enumerate(updates):
+        if 'id' not in update:
+            raise KeyError(
+                f"Güncelleme #{idx} 'id' alanını içermiyor. "
+                f"Her güncelleme bir 'id' alanına sahip olmalıdır."
+            )
     
     # Process updates in batches
     for i in range(0, len(updates), batch_size):
@@ -47,6 +98,10 @@ def execute_batch_update(
         fields = sorted([k for k in batch[0].keys() if k != 'id'])
         if not fields:
             continue
+        
+        # Validate all field names to prevent SQL injection
+        for field in fields:
+            _validate_sql_identifier(field)
         
         # Build SET clause
         set_clause = ', '.join([f"{field} = batch_data.{field}" for field in fields])
@@ -95,6 +150,10 @@ def execute_params_hash_batch_update(connection, batch_updates: List[Dict[str, A
         connection: SQLAlchemy database connection
         batch_updates: List of dictionaries with 'id' and 'hash' keys
         
+    Raises:
+        ValueError: If batch_updates contains invalid data
+        KeyError: If required 'id' or 'hash' fields are missing
+        
     Example:
         batch_updates = [
             {'id': 1, 'hash': 'abc123...'},
@@ -105,6 +164,26 @@ def execute_params_hash_batch_update(connection, batch_updates: List[Dict[str, A
     if not batch_updates:
         return
     
+    # Validate input structure
+    for idx, update in enumerate(batch_updates):
+        if not isinstance(update, dict):
+            raise ValueError(
+                f"Güncelleme #{idx} bir sözlük değil. "
+                f"Her güncelleme bir sözlük olmalıdır."
+            )
+        
+        if 'hash' not in update:
+            raise KeyError(
+                f"Güncelleme #{idx} 'hash' alanını içermiyor. "
+                f"params_hash güncellemesi için 'hash' alanı gereklidir."
+            )
+        
+        if 'id' not in update:
+            raise KeyError(
+                f"Güncelleme #{idx} 'id' alanını içermiyor. "
+                f"Her güncelleme bir 'id' alanına sahip olmalıdır."
+            )
+    
     # Build VALUES clause with proper parameterization to prevent SQL injection
     values_list = []
     params = {}
@@ -112,8 +191,8 @@ def execute_params_hash_batch_update(connection, batch_updates: List[Dict[str, A
         hash_param = f"hash_{i}"
         id_param = f"id_{i}"
         values_list.append(f"(:{hash_param}, :{id_param})")
-        params[hash_param] = update.get('hash')
-        params[id_param] = update.get('id')
+        params[hash_param] = update['hash']  # Use dict access since we validated
+        params[id_param] = update['id']  # Use dict access since we validated
     
     values_clause = ", ".join(values_list)
     

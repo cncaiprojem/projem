@@ -243,11 +243,13 @@ class JWTService:
         from ..config import settings
         
         # Check for production environment indicators
+        # FIXED: DEV_AUTH_BYPASS logic was inverted
+        # When DEV_AUTH_BYPASS=true, it's development mode (NOT production)
         is_production = any([
             os.getenv('ENV', '').lower() in ['production', 'prod'],
             os.getenv('ENVIRONMENT', '').lower() in ['production', 'prod'],
             settings.env.lower() in ['production', 'prod'],
-            os.getenv('DEV_AUTH_BYPASS', 'false').lower() != 'true'
+            os.getenv('DEV_AUTH_BYPASS', 'false').lower() == 'false'  # Fixed: == 'false' means production
         ])
         
         if is_production:

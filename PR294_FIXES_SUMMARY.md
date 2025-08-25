@@ -36,13 +36,27 @@ Key improvements:
 def _execute_batch_update(connection, batch_updates):
     """
     Execute batch updates efficiently using PostgreSQL's UPDATE ... FROM (VALUES ...) syntax.
-    This significantly improves performance compared to individual UPDATE statements.
+    Uses proper parameterized queries to prevent SQL injection.
     """
-    # Build VALUES clause for batch update
-    # Note: values_clause is constructed from batch_updates parameter like:
-    # values_clause = ', '.join([f"('{hash}', {id})" for hash, id in batch_updates])
-    values_clause = ', '.join([f"('{update['hash']}', {update['id']})" for update in batch_updates])
+    # Build parameterized VALUES clause
+    values_list = []
+    params = {}
     
+    for i, update in enumerate(batch_updates):
+        # Create unique parameter names for each row
+        hash_param = f"hash_{i}"
+        id_param = f"id_{i}"
+        
+        # Add placeholders to VALUES clause
+        values_list.append(f"(:{hash_param}, :{id_param})")
+        
+        # Add actual values to params dict
+        params[hash_param] = update['hash']
+        params[id_param] = update['id']
+    
+    values_clause = ', '.join(values_list)
+    
+    # SECURE: Using parameterized query with separated parameters
     sql = sa.text(f"""
         UPDATE jobs 
         SET params_hash = batch_data.hash
@@ -50,8 +64,8 @@ def _execute_batch_update(connection, batch_updates):
         WHERE jobs.id = batch_data.id
     """)
     
-    # Execute the batch update
-    connection.execute(sql)
+    # Execute with parameters passed separately (prevents SQL injection)
+    connection.execute(sql, params)
 ```
 
 ### 3. **Consistent Error Handling (Gemini Feedback - MEDIUM)**

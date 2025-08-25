@@ -54,6 +54,9 @@ for i, update in enumerate(batch_updates):
     params[hash_param] = update.get('hash')
     params[id_param] = update.get('id')
 
+# Define values_clause from the values_list we built
+values_clause = ', '.join(values_list)
+
 sql = sa.text(f"""
     UPDATE jobs 
     SET params_hash = batch_data.hash

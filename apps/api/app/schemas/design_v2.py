@@ -237,11 +237,13 @@ class DimensionSpec(BaseModel):
     @classmethod
     def validate_reasonable_dimension(cls, v: float) -> float:
         """Ensure dimensions are within configurable bounds."""
-        # Use configurable settings instead of hardcoded values
-        if v > design_settings.max_dimension_mm:
-            raise ValueError(f"Boyut çok büyük (maksimum {design_settings.max_dimension_mm}mm)")
-        if v < design_settings.min_dimension_mm:
-            raise ValueError(f"Boyut çok küçük (minimum {design_settings.min_dimension_mm}mm)")
+        # Use thread-safe current_design_settings() instead of global design_settings
+        # This prevents race conditions in multi-threaded environments
+        settings = current_design_settings()
+        if v > settings.max_dimension_mm:
+            raise ValueError(f"Boyut çok büyük (maksimum {settings.max_dimension_mm}mm)")
+        if v < settings.min_dimension_mm:
+            raise ValueError(f"Boyut çok küçük (minimum {settings.min_dimension_mm}mm)")
         return v
     
     def to_mm(self) -> float:
@@ -299,8 +301,10 @@ class DesignPromptInput(BaseModel):
         """Validate prompt contains meaningful content."""
         if len(v.split()) < 3:
             raise ValueError("Prompt en az 3 kelime içermelidir")
-        if len(v) > design_settings.max_prompt_length:
-            raise ValueError(f"Prompt çok uzun (maksimum {design_settings.max_prompt_length} karakter)")
+        # Use thread-safe current_design_settings()
+        settings = current_design_settings()
+        if len(v) > settings.max_prompt_length:
+            raise ValueError(f"Prompt çok uzun (maksimum {settings.max_prompt_length} karakter)")
         return v
 
 
@@ -395,10 +399,12 @@ class CylinderPart(BaseModel):
     @classmethod
     def validate_dimensions(cls, v: float) -> float:
         """Validate dimension bounds using configurable settings."""
-        if v > design_settings.max_dimension_mm:
-            raise ValueError(f"Boyut çok büyük (maksimum {design_settings.max_dimension_mm}mm)")
-        if v < design_settings.min_dimension_mm:
-            raise ValueError(f"Boyut çok küçük (minimum {design_settings.min_dimension_mm}mm)")
+        # Use thread-safe current_design_settings()
+        settings = current_design_settings()
+        if v > settings.max_dimension_mm:
+            raise ValueError(f"Boyut çok büyük (maksimum {settings.max_dimension_mm}mm)")
+        if v < settings.min_dimension_mm:
+            raise ValueError(f"Boyut çok küçük (minimum {settings.min_dimension_mm}mm)")
         return v
 
 
@@ -419,10 +425,12 @@ class BoxPart(BaseModel):
     @classmethod
     def validate_dimensions(cls, v: float) -> float:
         """Validate dimension bounds using configurable settings."""
-        if v > design_settings.max_dimension_mm:
-            raise ValueError(f"Boyut çok büyük (maksimum {design_settings.max_dimension_mm}mm)")
-        if v < design_settings.min_dimension_mm:
-            raise ValueError(f"Boyut çok küçük (minimum {design_settings.min_dimension_mm}mm)")
+        # Use thread-safe current_design_settings()
+        settings = current_design_settings()
+        if v > settings.max_dimension_mm:
+            raise ValueError(f"Boyut çok büyük (maksimum {settings.max_dimension_mm}mm)")
+        if v < settings.min_dimension_mm:
+            raise ValueError(f"Boyut çok küçük (minimum {settings.min_dimension_mm}mm)")
         return v
 
 
@@ -441,10 +449,12 @@ class SpherePart(BaseModel):
     @classmethod
     def validate_dimensions(cls, v: float) -> float:
         """Validate dimension bounds using configurable settings."""
-        if v > design_settings.max_dimension_mm:
-            raise ValueError(f"Boyut çok büyük (maksimum {design_settings.max_dimension_mm}mm)")
-        if v < design_settings.min_dimension_mm:
-            raise ValueError(f"Boyut çok küçük (minimum {design_settings.min_dimension_mm}mm)")
+        # Use thread-safe current_design_settings()
+        settings = current_design_settings()
+        if v > settings.max_dimension_mm:
+            raise ValueError(f"Boyut çok büyük (maksimum {settings.max_dimension_mm}mm)")
+        if v < settings.min_dimension_mm:
+            raise ValueError(f"Boyut çok küçük (minimum {settings.min_dimension_mm}mm)")
         return v
 
 

@@ -135,7 +135,9 @@ async def object_exists_async(key: str, bucket: str = None) -> bool:
         return info is not None
     
     loop = asyncio.get_event_loop()
-    with ThreadPoolExecutor(max_workers=1) as executor:
+    # Note: Actual implementation uses shared executor with max_workers=5
+    # for better performance (see apps/api/app/storage.py line 256)
+    with ThreadPoolExecutor(max_workers=5) as executor:
         return await loop.run_in_executor(executor, _check_exists)
 
 # Router now uses:
