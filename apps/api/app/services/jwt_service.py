@@ -65,7 +65,9 @@ class JWTClaims:
         exp: int,  # Expiration timestamp
         iss: str = None,
         aud: str = None,
-        jti: str = None  # JWT ID for tracking
+        jti: str = None,  # JWT ID for tracking
+        license_id: str = None,  # License ID for Task 7.1
+        tenant_id: str = None  # Tenant ID for Task 7.1
     ):
         self.sub = sub
         self.role = role
@@ -76,10 +78,12 @@ class JWTClaims:
         self.iss = iss or settings.jwt_issuer
         self.aud = aud or settings.jwt_audience
         self.jti = jti or str(uuid.uuid4())
+        self.license_id = license_id  # Task 7.1: License tracking
+        self.tenant_id = tenant_id  # Task 7.1: Multi-tenancy support
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert claims to dictionary for JWT encoding."""
-        return {
+        result = {
             'sub': self.sub,
             'role': self.role,
             'scopes': self.scopes,
@@ -90,6 +94,12 @@ class JWTClaims:
             'aud': self.aud,
             'jti': self.jti
         }
+        # Task 7.1: Include optional claims if present
+        if self.license_id:
+            result['license_id'] = self.license_id
+        if self.tenant_id:
+            result['tenant_id'] = self.tenant_id
+        return result
     
     @classmethod
     def from_dict(cls, payload: Dict[str, Any]) -> "JWTClaims":
@@ -103,7 +113,9 @@ class JWTClaims:
             exp=payload.get('exp'),
             iss=payload.get('iss'),
             aud=payload.get('aud'),
-            jti=payload.get('jti')
+            jti=payload.get('jti'),
+            license_id=payload.get('license_id'),  # Task 7.1
+            tenant_id=payload.get('tenant_id')  # Task 7.1
         )
 
 
@@ -203,6 +215,75 @@ class JWTService:
                 "JWT token oluşturma başarısız",
                 {'error_type': type(e).__name__}
             )
+    
+    def create_test_token(self, claims: dict) -> str:
+        """
+        SECURITY WARNING: This method MUST NOT be used in production environments.
+        It bypasses normal validation and database checks, and can create arbitrary JWT tokens.
+        Use only for testing purposes. Misuse can lead to severe security vulnerabilities.
+        
+        Create a JWT token with custom claims for testing purposes.
+        
+        Args:
+            claims: Dictionary of JWT claims
+            
+        Returns:
+            Encoded JWT token string
+            
+        CRITICAL: This method:
+        - Bypasses all authentication and authorization checks
+        - Does not validate user existence or credentials
+        - Can create tokens with any arbitrary claims or permissions
+        - Completely circumvents session management and audit logging
+        - Should NEVER be exposed through any API endpoint
+        - Must be disabled or removed in production builds
+        """
+        # Runtime production check
+        import os
+        from ..config import settings
+        
+        # Check for production environment indicators
+        # FIXED: DEV_AUTH_BYPASS logic was inverted
+        # When DEV_AUTH_BYPASS=true, it's development mode (NOT production)
+        is_production = any([
+            os.getenv('ENV', '').lower() in ['production', 'prod'],
+            os.getenv('ENVIRONMENT', '').lower() in ['production', 'prod'],
+            settings.env.lower() in ['production', 'prod'],
+            os.getenv('DEV_AUTH_BYPASS', 'false').lower() != 'true'  # More explicit: only 'true' disables production check
+        ])
+        
+        if is_production:
+            logger.critical(
+                "SECURITY VIOLATION: Attempted to use create_test_token in production environment",
+                extra={
+                    'operation': 'create_test_token_blocked',
+                    'env': settings.env,
+                    'dev_auth_bypass': os.getenv('DEV_AUTH_BYPASS', 'false')
+                }
+            )
+            raise RuntimeError(
+                "SECURITY: create_test_token is disabled in production environment. "
+                "This method must only be used for testing."
+            )
+        
+        # Log warning even in development
+        logger.warning(
+            "Creating test JWT token - This should NEVER occur in production",
+            extra={
+                'operation': 'create_test_token',
+                'claims_keys': list(claims.keys()),
+                'env': settings.env
+            }
+        )
+        
+        # Encode JWT with PyJWT 2.8
+        token = jwt.encode(
+            claims,
+            self.secret_key,
+            algorithm=self.algorithm
+        )
+        
+        return token
     
     def verify_access_token(
         self,

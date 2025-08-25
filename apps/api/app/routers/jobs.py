@@ -247,12 +247,22 @@ async def create_job(
     
     # Start database transaction for new job creation
     try:
+        # Calculate params hash for efficient idempotency checks (PR #281)
+        # CRITICAL: Use canonical JSON format with separators=(',', ':') for consistency
+        # This must match the format used in migrations and idempotency checks
+        params_hash = None
+        if job_request.idempotency_key:
+            params_hash = hashlib.sha256(
+                json.dumps(job_request.params, sort_keys=True, separators=(',', ':')).encode()
+            ).hexdigest()
+        
         # Create new job
         new_job = Job(
             idempotency_key=job_request.idempotency_key,
             type=job_request.type,
             status=JobStatus.PENDING,
             params=job_request.params,
+            params_hash=params_hash,  # Store hash for performance optimization
             user_id=getattr(current_user, "id", None),
             priority=job_request.priority or 0,
             progress=0,
@@ -367,7 +377,12 @@ async def create_job(
         db.rollback()
         
         # Handle unique constraint violation (race condition)
-        if "idempotency_key" in str(e):
+        # Database-agnostic approach: check constraint name instead of pgcode (PR #281)
+        # Enhanced specificity to avoid false positives as suggested by Gemini
+        error_msg = str(e.orig) if hasattr(e, 'orig') else str(e)
+        if ("uq_jobs_idempotency_key" in error_msg.lower() or 
+            ("unique" in error_msg.lower() and "idempotency_key" in error_msg.lower()) or
+            ("duplicate" in error_msg.lower() and "idempotency_key" in error_msg.lower())):
             # Try to fetch the job that was just created by another request
             existing_job = db.query(Job).filter(
                 Job.idempotency_key == job_request.idempotency_key
