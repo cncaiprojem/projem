@@ -452,6 +452,114 @@ def create_duplicate_response(
     )
 
 
+async def _process_design_endpoint(
+    request: Request,
+    response: Response,
+    body: DesignCreateRequest,
+    idempotency_key: Optional[str],
+    current_user: AuthenticatedUser,
+    db: Session,
+    expected_input_type: type,
+    input_type_name: str,
+    required_features: list[str],
+    job_type: JobType,
+    rate_limit_type: str = "global",
+    estimated_duration: int = 60,
+    extra_metadata: Optional[Dict[str, Any]] = None,
+    error_message: str = "Bu endpoint sadece belirtilen tip girdi kabul eder"
+) -> DesignJobResponse:
+    """
+    Generic handler for design endpoints to reduce code duplication.
+    
+    This function encapsulates the common pattern across all four design endpoints
+    as recommended by Gemini Code Assist for better maintainability.
+    
+    Args:
+        request: FastAPI request object
+        response: FastAPI response object
+        body: Design request body
+        idempotency_key: Optional idempotency key
+        current_user: Authenticated user
+        db: Database session
+        expected_input_type: Expected type of body.design (e.g., DesignPromptInput)
+        input_type_name: Name of input type for metadata
+        required_features: List of required license features
+        job_type: Type of job to create
+        rate_limit_type: Type of rate limiting ("global" or "prompt")
+        estimated_duration: Estimated job duration in seconds
+        extra_metadata: Additional metadata to include in job
+        error_message: Custom error message for type validation
+        
+    Returns:
+        DesignJobResponse for the created or existing job
+    """
+    # Validate input type
+    if not isinstance(body.design, expected_input_type):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=error_message
+        )
+    
+    # Apply rate limits
+    apply_rate_limits(request, current_user, rate_limit_type)
+    
+    # Check license validity and features
+    license = check_license_validity(current_user, db, required_features)
+    
+    # Handle idempotency
+    existing_job = handle_idempotency(
+        db, idempotency_key, body.model_dump(), job_type, current_user
+    )
+    
+    if existing_job:
+        logger.info(
+            "Returning existing job for idempotent request",
+            job_id=existing_job.id,
+            user_id=current_user.user_id,
+            input_type=input_type_name
+        )
+        return create_duplicate_response(existing_job, response, estimated_duration)
+    
+    # Create new job using shared helper
+    try:
+        job = create_job_from_design(
+            db=db,
+            current_user=current_user,
+            license=license,
+            body=body,
+            idempotency_key=idempotency_key,
+            job_type=job_type,
+            input_type=input_type_name,
+            extra_metadata=extra_metadata
+        )
+        
+        return publish_job_and_respond(
+            job=job,
+            current_user=current_user,
+            license=license,
+            response=response,
+            estimated_duration=estimated_duration
+        )
+        
+    except IntegrityError as e:
+        request_context = JobRequestContext(
+            db=db,
+            idempotency_key=idempotency_key,
+            body=body,
+            job_type=job_type,
+            current_user=current_user
+        )
+        response_context = JobResponseContext(
+            response=response,
+            estimated_duration=estimated_duration
+        )
+        result = handle_integrity_error_with_idempotency(e, request_context, response_context)
+        if result:
+            return result
+        # If no result, re-raise the exception
+        raise
+
+
 def publish_job_and_respond(
     job: Job,
     current_user: AuthenticatedUser,
@@ -529,69 +637,21 @@ async def create_design_from_prompt(
     - Valid license with AI generation feature
     - Rate limits: 60/min global, 30/min for prompts
     """
-    # Validate input type
-    if not isinstance(body.design, DesignPromptInput):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Bu endpoint sadece 'prompt' tipi girdi kabul eder"
-        )
-    
-    # Apply rate limits
-    apply_rate_limits(request, current_user, "prompt")
-    
-    # Check license validity and features
-    license = check_license_validity(
-        current_user, db, ["ai_generation", "model_creation"]
+    return await _process_design_endpoint(
+        request=request,
+        response=response,
+        body=body,
+        idempotency_key=idempotency_key,
+        current_user=current_user,
+        db=db,
+        expected_input_type=DesignPromptInput,
+        input_type_name="prompt",
+        required_features=["ai_generation", "model_creation"],
+        job_type=JobType.MODEL,
+        rate_limit_type="prompt",
+        estimated_duration=120,
+        error_message="Bu endpoint sadece 'prompt' tipi girdi kabul eder"
     )
-    
-    # Handle idempotency
-    existing_job = handle_idempotency(
-        db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
-    )
-    
-    if existing_job:
-        logger.info(
-            "Returning existing job for idempotent request",
-            job_id=existing_job.id,
-            user_id=current_user.user_id
-        )
-        return create_duplicate_response(existing_job, response, 120)
-    
-    # Create new job using shared helper
-    try:
-        job = create_job_from_design(
-            db=db,
-            current_user=current_user,
-            license=license,
-            body=body,
-            idempotency_key=idempotency_key,
-            job_type=JobType.MODEL,
-            input_type="prompt"
-        )
-        
-        return publish_job_and_respond(
-            job=job,
-            current_user=current_user,
-            license=license,
-            response=response,
-            estimated_duration=120
-        )
-        
-    except IntegrityError as e:
-        request_context = JobRequestContext(
-            db=db,
-            idempotency_key=idempotency_key,
-            body=body,
-            job_type=JobType.MODEL,
-            current_user=current_user
-        )
-        response_context = JobResponseContext(
-            response=response,
-            estimated_duration=120
-        )
-        result = handle_integrity_error_with_idempotency(e, request_context, response_context)
-        if result:
-            return result
 
 
 @router.post(
@@ -617,70 +677,27 @@ async def create_design_from_params(
     - Valid license with parametric design feature
     - Rate limit: 60/min global
     """
-    # Validate input type
-    if not isinstance(body.design, DesignParametricInput):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Bu endpoint sadece 'params' tipi girdi kabul eder"
-        )
+    # Extract template_id for metadata if it's a DesignParametricInput
+    extra_metadata = None
+    if isinstance(body.design, DesignParametricInput):
+        extra_metadata = {"template_id": body.design.template_id}
     
-    # Apply rate limits
-    apply_rate_limits(request, current_user, "global")
-    
-    # Check license validity and features
-    license = check_license_validity(
-        current_user, db, ["parametric_design", "model_creation"]
+    return await _process_design_endpoint(
+        request=request,
+        response=response,
+        body=body,
+        idempotency_key=idempotency_key,
+        current_user=current_user,
+        db=db,
+        expected_input_type=DesignParametricInput,
+        input_type_name="params",
+        required_features=["parametric_design", "model_creation"],
+        job_type=JobType.MODEL,
+        rate_limit_type="global",
+        estimated_duration=60,
+        extra_metadata=extra_metadata,
+        error_message="Bu endpoint sadece 'params' tipi girdi kabul eder"
     )
-    
-    # Handle idempotency
-    existing_job = handle_idempotency(
-        db, idempotency_key, body.model_dump(), JobType.MODEL, current_user
-    )
-    
-    if existing_job:
-        logger.info(
-            "Returning existing job for idempotent request",
-            job_id=existing_job.id,
-            user_id=current_user.user_id
-        )
-        return create_duplicate_response(existing_job, response, 60)
-    
-    # Create new job using shared helper
-    try:
-        job = create_job_from_design(
-            db=db,
-            current_user=current_user,
-            license=license,
-            body=body,
-            idempotency_key=idempotency_key,
-            job_type=JobType.MODEL,
-            input_type="params",
-            extra_metadata={"template_id": body.design.template_id}
-        )
-        
-        return publish_job_and_respond(
-            job=job,
-            current_user=current_user,
-            license=license,
-            response=response,
-            estimated_duration=60
-        )
-        
-    except IntegrityError as e:
-        request_context = JobRequestContext(
-            db=db,
-            idempotency_key=idempotency_key,
-            body=body,
-            job_type=JobType.MODEL,
-            current_user=current_user
-        )
-        response_context = JobResponseContext(
-            response=response,
-            estimated_duration=60
-        )
-        result = handle_integrity_error_with_idempotency(e, request_context, response_context)
-        if result:
-            return result
 
 
 @router.post(
@@ -705,23 +722,16 @@ async def create_design_from_upload(
     - JWT authentication with models:write scope
     - Valid license with file import feature
     - Rate limit: 60/min global
+    - Valid S3 object at specified key
     """
-    # Validate input type
+    # Pre-validate input type to access S3 key
     if not isinstance(body.design, DesignUploadInput):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Bu endpoint sadece 'upload' tipi girdi kabul eder"
         )
     
-    # Apply rate limits
-    apply_rate_limits(request, current_user, "global")
-    
-    # Check license validity and features
-    license = check_license_validity(
-        current_user, db, ["file_import", "model_creation"]
-    )
-    
-    # Verify file exists in S3 with proper error handling
+    # Verify file exists in S3 before processing (specific to upload endpoint)
     try:
         exists = s3_service.object_exists(body.design.s3_key)
     except (BotoCoreError, requests.exceptions.ConnectionError) as e:
@@ -743,58 +753,29 @@ async def create_design_from_upload(
             detail=f"Dosya bulunamadı: {body.design.s3_key}"
         )
     
-    # Handle idempotency - upload uses CAD_IMPORT job type
-    existing_job = handle_idempotency(
-        db, idempotency_key, body.model_dump(), JobType.CAD_IMPORT, current_user
+    # Prepare metadata for upload
+    extra_metadata = {
+        "s3_key": body.design.s3_key,
+        "file_format": body.design.file_format
+    }
+    
+    # Use the generic handler after S3 validation
+    return await _process_design_endpoint(
+        request=request,
+        response=response,
+        body=body,
+        idempotency_key=idempotency_key,
+        current_user=current_user,
+        db=db,
+        expected_input_type=DesignUploadInput,
+        input_type_name="upload",
+        required_features=["file_import", "model_creation"],
+        job_type=JobType.CAD_IMPORT,
+        rate_limit_type="global",
+        estimated_duration=90,
+        extra_metadata=extra_metadata,
+        error_message="Bu endpoint sadece 'upload' tipi girdi kabul eder"
     )
-    
-    if existing_job:
-        logger.info(
-            "Returning existing job for idempotent request",
-            job_id=existing_job.id,
-            user_id=current_user.user_id
-        )
-        return create_duplicate_response(existing_job, response, 90)
-    
-    # Create new job using shared helper
-    try:
-        job = create_job_from_design(
-            db=db,
-            current_user=current_user,
-            license=license,
-            body=body,
-            idempotency_key=idempotency_key,
-            job_type=JobType.CAD_IMPORT,
-            input_type="upload",
-            extra_metadata={
-                "s3_key": body.design.s3_key,
-                "file_format": body.design.file_format
-            }
-        )
-        
-        return publish_job_and_respond(
-            job=job,
-            current_user=current_user,
-            license=license,
-            response=response,
-            estimated_duration=90
-        )
-        
-    except IntegrityError as e:
-        request_context = JobRequestContext(
-            db=db,
-            idempotency_key=idempotency_key,
-            body=body,
-            job_type=JobType.CAD_IMPORT,
-            current_user=current_user
-        )
-        response_context = JobResponseContext(
-            response=response,
-            estimated_duration=90
-        )
-        result = handle_integrity_error_with_idempotency(e, request_context, response_context)
-        if result:
-            return result
 
 
 @router.post(
@@ -820,70 +801,27 @@ async def create_assembly4(
     - Valid license with assembly feature
     - Rate limit: 60/min global
     """
-    # Validate input type
-    if not isinstance(body.design, Assembly4Input):
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail="Bu endpoint sadece 'Assembly4Input' tipi girdi kabul eder"
-        )
+    # Extract part and constraint counts for metadata if it's an Assembly4Input
+    extra_metadata = None
+    if isinstance(body.design, Assembly4Input):
+        extra_metadata = {
+            "part_count": len(body.design.parts),
+            "constraint_count": len(body.design.constraints)
+        }
     
-    # Apply rate limits
-    apply_rate_limits(request, current_user, "global")
-    
-    # Check license validity and features
-    license = check_license_validity(
-        current_user, db, ["assembly_design", "model_creation"]
+    return await _process_design_endpoint(
+        request=request,
+        response=response,
+        body=body,
+        idempotency_key=idempotency_key,
+        current_user=current_user,
+        db=db,
+        expected_input_type=Assembly4Input,
+        input_type_name="assembly4",
+        required_features=["assembly_design", "model_creation"],
+        job_type=JobType.ASSEMBLY,
+        rate_limit_type="global",
+        estimated_duration=180,
+        extra_metadata=extra_metadata,
+        error_message="Bu endpoint sadece 'Assembly4Input' tipi girdi kabul eder"
     )
-    
-    # Handle idempotency - assembly4 uses ASSEMBLY job type
-    existing_job = handle_idempotency(
-        db, idempotency_key, body.model_dump(), JobType.ASSEMBLY, current_user
-    )
-    
-    if existing_job:
-        logger.info(
-            "Returning existing job for idempotent request",
-            job_id=existing_job.id,
-            user_id=current_user.user_id
-        )
-        return create_duplicate_response(existing_job, response, 180)
-    
-    # Create new job using shared helper
-    try:
-        job = create_job_from_design(
-            db=db,
-            current_user=current_user,
-            license=license,
-            body=body,
-            idempotency_key=idempotency_key,
-            job_type=JobType.ASSEMBLY,
-            input_type="assembly4",
-            extra_metadata={
-                "part_count": len(body.design.parts),
-                "constraint_count": len(body.design.constraints)
-            }
-        )
-        
-        return publish_job_and_respond(
-            job=job,
-            current_user=current_user,
-            license=license,
-            response=response,
-            estimated_duration=180
-        )
-        
-    except IntegrityError as e:
-        request_context = JobRequestContext(
-            db=db,
-            idempotency_key=idempotency_key,
-            body=body,
-            job_type=JobType.ASSEMBLY,
-            current_user=current_user
-        )
-        response_context = JobResponseContext(
-            response=response,
-            estimated_duration=180
-        )
-        result = handle_integrity_error_with_idempotency(e, request_context, response_context)
-        if result:
-            return result

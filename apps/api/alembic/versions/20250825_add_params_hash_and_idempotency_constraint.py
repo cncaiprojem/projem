@@ -101,14 +101,14 @@ def upgrade() -> None:
     
     # Populate params_hash for existing jobs (optional, can be done separately)
     # This is a data migration that calculates hash for existing records
-    # Fixed: Changed 'input_params' to 'params' (the actual column name)
+    # Using 'input_params' which is the actual database column name
     op.execute("""
         UPDATE jobs 
         SET params_hash = encode(
             digest(
                 CASE 
-                    WHEN params IS NOT NULL 
-                    THEN params::text 
+                    WHEN input_params IS NOT NULL 
+                    THEN input_params::text 
                     ELSE '{}'::text 
                 END, 
                 'sha256'

@@ -29,6 +29,7 @@ from pydantic import (
     constr,
     conint,
 )
+from pydantic_settings import BaseSettings
 
 
 # Enums for strict typing
@@ -77,15 +78,79 @@ class AssemblyConstraintType(str, Enum):
     CONCENTRIC = "concentric"
 
 
+# Design constraints configuration
+class DesignSettings(BaseSettings):
+    """
+    Configurable settings for design constraints.
+    
+    These settings can be overridden via environment variables or config files,
+    allowing different manufacturing constraints for different enterprise deployments.
+    """
+    model_config = ConfigDict(
+        env_prefix="DESIGN_",
+        case_sensitive=False,
+        extra="ignore"
+    )
+    
+    # Dimension limits (in millimeters)
+    max_dimension_mm: float = Field(
+        default=100_000,  # 100 meters in mm
+        description="Maximum allowed dimension in millimeters",
+        gt=0
+    )
+    min_dimension_mm: float = Field(
+        default=0.001,  # 1 micrometer in mm
+        description="Minimum allowed dimension in millimeters",
+        gt=0
+    )
+    
+    # Additional configurable constraints
+    max_assembly_parts: int = Field(
+        default=1000,
+        description="Maximum number of parts in an assembly",
+        gt=0
+    )
+    max_file_size_mb: int = Field(
+        default=500,
+        description="Maximum file upload size in megabytes",
+        gt=0
+    )
+    max_prompt_length: int = Field(
+        default=2000,
+        description="Maximum length of AI prompt",
+        gt=0
+    )
+    
+    # Tolerance settings
+    default_tolerance_percent: float = Field(
+        default=0.1,
+        description="Default tolerance as percentage of dimension",
+        ge=0,
+        le=10
+    )
+    
+    # Process-specific constraints
+    cnc_min_feature_size_mm: float = Field(
+        default=0.5,
+        description="Minimum feature size for CNC milling",
+        gt=0
+    )
+    printing_3d_layer_height_mm: float = Field(
+        default=0.1,
+        description="Default layer height for 3D printing",
+        gt=0
+    )
+
+
+# Singleton instance for settings - can be overridden in production
+design_settings = DesignSettings()
+
+
 # Base models with strict validation
 
 class DimensionSpec(BaseModel):
     """Dimension specification with units."""
     model_config = ConfigDict(str_strip_whitespace=True)
-    
-    # Dimension limits as class constants
-    MAX_DIMENSION_MM: ClassVar[float] = 100_000  # 100 meters in mm
-    MIN_DIMENSION_MM: ClassVar[float] = 0.001    # 1 micrometer in mm
     
     value: PositiveFloat = Field(..., description="Dimension value", gt=0)
     unit: DesignUnit = Field(DesignUnit.MILLIMETER, description="Measurement unit")
@@ -94,11 +159,12 @@ class DimensionSpec(BaseModel):
     @field_validator("value")
     @classmethod
     def validate_reasonable_dimension(cls, v: float) -> float:
-        """Ensure dimensions are within reasonable bounds."""
-        if v > cls.MAX_DIMENSION_MM:
-            raise ValueError(f"Boyut çok büyük (maksimum {cls.MAX_DIMENSION_MM}mm)")
-        if v < cls.MIN_DIMENSION_MM:
-            raise ValueError(f"Boyut çok küçük (minimum {cls.MIN_DIMENSION_MM}mm)")
+        """Ensure dimensions are within configurable bounds."""
+        # Use configurable settings instead of hardcoded values
+        if v > design_settings.max_dimension_mm:
+            raise ValueError(f"Boyut çok büyük (maksimum {design_settings.max_dimension_mm}mm)")
+        if v < design_settings.min_dimension_mm:
+            raise ValueError(f"Boyut çok küçük (minimum {design_settings.min_dimension_mm}mm)")
         return v
     
     def to_mm(self) -> float:
@@ -156,6 +222,8 @@ class DesignPromptInput(BaseModel):
         """Validate prompt contains meaningful content."""
         if len(v.split()) < 3:
             raise ValueError("Prompt en az 3 kelime içermelidir")
+        if len(v) > design_settings.max_prompt_length:
+            raise ValueError(f"Prompt çok uzun (maksimum {design_settings.max_prompt_length} karakter)")
         return v
 
 
@@ -249,11 +317,11 @@ class CylinderPart(BaseModel):
     @field_validator("radius", "height")
     @classmethod
     def validate_dimensions(cls, v: float) -> float:
-        """Validate dimension bounds."""
-        if v > 10000:  # 10 meters
-            raise ValueError("Boyut çok büyük (maksimum 10m)")
-        if v < 0.1:  # 0.1mm
-            raise ValueError("Boyut çok küçük (minimum 0.1mm)")
+        """Validate dimension bounds using configurable settings."""
+        if v > design_settings.max_dimension_mm:
+            raise ValueError(f"Boyut çok büyük (maksimum {design_settings.max_dimension_mm}mm)")
+        if v < design_settings.min_dimension_mm:
+            raise ValueError(f"Boyut çok küçük (minimum {design_settings.min_dimension_mm}mm)")
         return v
 
 
@@ -273,11 +341,11 @@ class BoxPart(BaseModel):
     @field_validator("width", "height", "depth")
     @classmethod
     def validate_dimensions(cls, v: float) -> float:
-        """Validate dimension bounds."""
-        if v > 10000:  # 10 meters
-            raise ValueError("Boyut çok büyük (maksimum 10m)")
-        if v < 0.1:  # 0.1mm
-            raise ValueError("Boyut çok küçük (minimum 0.1mm)")
+        """Validate dimension bounds using configurable settings."""
+        if v > design_settings.max_dimension_mm:
+            raise ValueError(f"Boyut çok büyük (maksimum {design_settings.max_dimension_mm}mm)")
+        if v < design_settings.min_dimension_mm:
+            raise ValueError(f"Boyut çok küçük (minimum {design_settings.min_dimension_mm}mm)")
         return v
 
 
@@ -295,11 +363,11 @@ class SpherePart(BaseModel):
     @field_validator("radius")
     @classmethod
     def validate_dimensions(cls, v: float) -> float:
-        """Validate dimension bounds."""
-        if v > 10000:  # 10 meters
-            raise ValueError("Boyut çok büyük (maksimum 10m)")
-        if v < 0.1:  # 0.1mm
-            raise ValueError("Boyut çok küçük (minimum 0.1mm)")
+        """Validate dimension bounds using configurable settings."""
+        if v > design_settings.max_dimension_mm:
+            raise ValueError(f"Boyut çok büyük (maksimum {design_settings.max_dimension_mm}mm)")
+        if v < design_settings.min_dimension_mm:
+            raise ValueError(f"Boyut çok küçük (minimum {design_settings.min_dimension_mm}mm)")
         return v
 
 
