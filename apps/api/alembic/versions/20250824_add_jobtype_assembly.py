@@ -21,7 +21,9 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     """Add ASSEMBLY to job_type enum."""
     # PostgreSQL enum alteration requires raw SQL
-    op.execute("ALTER TYPE job_type ADD VALUE IF NOT EXISTS 'assembly' AFTER 'model'")
+    # Note: PostgreSQL does not support the AFTER clause in ALTER TYPE ADD VALUE
+    # The new value will be added at the end of the enum list
+    op.execute("ALTER TYPE job_type ADD VALUE IF NOT EXISTS 'assembly'")
 
 
 def downgrade() -> None:

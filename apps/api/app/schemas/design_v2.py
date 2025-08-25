@@ -165,15 +165,46 @@ def get_design_settings(**overrides) -> DesignSettings:
     """
     return DesignSettings(**overrides)
 
+
+# Context manager for temporary settings override (useful for testing)
+class design_settings_context:
+    """
+    Context manager for temporarily overriding design settings.
+    
+    Usage:
+        with design_settings_context(max_dimension_mm=1000):
+            # Code here uses the overridden settings
+            validate_dimension(value)
+    """
+    def __init__(self, **overrides):
+        self.overrides = overrides
+        self.original_settings = None
+        
+    def __enter__(self):
+        global design_settings
+        self.original_settings = design_settings
+        design_settings = get_design_settings(**self.overrides)
+        return design_settings
+        
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        global design_settings
+        design_settings = self.original_settings
+
+
 # Default singleton for backward compatibility
-# Prefer using get_design_settings() in new code
+# Prefer using get_design_settings() or dependency injection in new code
 design_settings = get_design_settings()
 
-# NOTE: To override settings in tests, you can either:
-# 1. Use monkeypatch to replace design_settings:
+# NOTE: To override settings in tests, you can use:
+# 1. Context manager for temporary override:
+#    with design_settings_context(max_dimension_mm=1000):
+#        # test code here
+# 2. Monkeypatch to replace design_settings:
 #    monkeypatch.setattr('app.schemas.design_v2.design_settings', get_design_settings(max_dimension_mm=1000))
-# 2. Or replace individual attributes:
+# 3. Replace individual attributes:
 #    monkeypatch.setattr(design_settings, 'max_dimension_mm', 1000)
+# 4. Dependency injection in routers/services:
+#    def create_design(settings: DesignSettings = Depends(get_design_settings))
 
 
 # Base models with strict validation

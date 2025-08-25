@@ -15,12 +15,15 @@
   - Must NEVER be exposed through API endpoints
   - Should be disabled/removed in production builds
 
-### 2. Migration Column Name Fix (Copilot Feedback)
+### 2. Migration Column Name Clarification (Copilot Feedback)
 **File**: `apps/api/alembic/versions/20250825_add_params_hash_and_idempotency_constraint.py`
-**Issue**: Migration referenced non-existent column 'input_params' instead of 'params'
-**Fix Applied**:
-- Changed `input_params` to `params` in the UPDATE statement (lines 110-111)
-- Verified column name matches the Job model definition
+**Issue**: Confusion about column naming between SQLAlchemy model and database
+**Clarification**:
+- **Database column name**: `input_params` (the actual column in PostgreSQL)
+- **SQLAlchemy property name**: `params` (the Python attribute in the Job model)
+- The mapping is done via `mapped_column(..., name="input_params")` in the Job model
+- Migration correctly uses `input_params` for raw SQL operations
+- Python code uses `params` when working with SQLAlchemy models
 
 ### 3. Migration Constraint Name Robustness (Gemini Code Assist Feedback)
 **File**: `apps/api/alembic/versions/20250825_add_params_hash_and_idempotency_constraint.py`

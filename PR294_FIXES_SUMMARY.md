@@ -39,12 +39,19 @@ def _execute_batch_update(connection, batch_updates):
     This significantly improves performance compared to individual UPDATE statements.
     """
     # Build VALUES clause for batch update
+    # Note: values_clause is constructed from batch_updates parameter like:
+    # values_clause = ', '.join([f"('{hash}', {id})" for hash, id in batch_updates])
+    values_clause = ', '.join([f"('{update['hash']}', {update['id']})" for update in batch_updates])
+    
     sql = sa.text(f"""
         UPDATE jobs 
         SET params_hash = batch_data.hash
         FROM (VALUES {values_clause}) AS batch_data(hash, id)
         WHERE jobs.id = batch_data.id
     """)
+    
+    # Execute the batch update
+    connection.execute(sql)
 ```
 
 ### 3. **Consistent Error Handling (Gemini Feedback - MEDIUM)**

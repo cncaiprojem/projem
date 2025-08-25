@@ -238,6 +238,42 @@ class JWTService:
         - Should NEVER be exposed through any API endpoint
         - Must be disabled or removed in production builds
         """
+        # Runtime production check
+        import os
+        from ..config import settings
+        
+        # Check for production environment indicators
+        is_production = any([
+            os.getenv('ENV', '').lower() in ['production', 'prod'],
+            os.getenv('ENVIRONMENT', '').lower() in ['production', 'prod'],
+            settings.env.lower() in ['production', 'prod'],
+            not os.getenv('DEV_AUTH_BYPASS', 'false').lower() == 'true'
+        ])
+        
+        if is_production:
+            logger.critical(
+                "SECURITY VIOLATION: Attempted to use create_test_token in production environment",
+                extra={
+                    'operation': 'create_test_token_blocked',
+                    'env': settings.env,
+                    'dev_auth_bypass': os.getenv('DEV_AUTH_BYPASS', 'false')
+                }
+            )
+            raise RuntimeError(
+                "SECURITY: create_test_token is disabled in production environment. "
+                "This method must only be used for testing."
+            )
+        
+        # Log warning even in development
+        logger.warning(
+            "Creating test JWT token - This should NEVER occur in production",
+            extra={
+                'operation': 'create_test_token',
+                'claims_keys': list(claims.keys()),
+                'env': settings.env
+            }
+        )
+        
         # Encode JWT with PyJWT 2.8
         token = jwt.encode(
             claims,

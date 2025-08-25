@@ -15,6 +15,14 @@ from sqlalchemy.dialects import postgresql
 import json
 import hashlib
 
+# Try to import the batch update utility
+try:
+    from alembic.utils.batch_update import execute_params_hash_batch_update
+    USE_BATCH_UTILITY = True
+except ImportError:
+    # Fallback to local implementation if utility not available
+    USE_BATCH_UTILITY = False
+
 
 # Revision identifiers
 revision = 'pr281_params_hash'
@@ -140,10 +148,12 @@ def upgrade() -> None:
     
     # Populate params_hash for existing jobs (optional, can be done separately)
     # This is a data migration that calculates hash for existing records
-    # CRITICAL: The database column is named 'input_params', while in the SQLAlchemy Job model,
-    # the Python property is 'params' and is mapped to 'input_params' via:
-    # params: Mapped[dict] = mapped_column(..., name="input_params")
-    # Be sure to use 'input_params' in raw SQL/database operations, and 'params' in Python code.
+    # CRITICAL: Database column naming clarification:
+    # - The actual database column is named 'input_params'
+    # - The SQLAlchemy model property is named 'params' for Python code
+    # - The mapping is done via: params: Mapped[dict] = mapped_column(..., name="input_params")
+    # - Always use 'input_params' in raw SQL/database operations
+    # - Always use 'params' when working with SQLAlchemy ORM models in Python
     # 
     # IMPORTANT: We need to match the application's canonical JSON format for consistency
     # The application uses: json.dumps(params, sort_keys=True, separators=(',', ':'))
@@ -181,7 +191,12 @@ def upgrade() -> None:
         
         # Execute any remaining updates
         if batch_updates:
-            _execute_batch_update(connection, batch_updates)
+            if USE_BATCH_UTILITY:
+                # Use the utility module for better maintainability
+                execute_params_hash_batch_update(connection, batch_updates)
+            else:
+                # Use local implementation as fallback
+                _execute_batch_update(connection, batch_updates)
     else:
         # For other databases, skip the data migration
         # The application will calculate hashes for new jobs going forward

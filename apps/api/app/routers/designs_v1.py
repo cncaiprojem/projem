@@ -268,26 +268,13 @@ def handle_idempotency(
             # Database round-trip may change float precision, whitespace, or key order
             # Using separators=(',', ':') ensures minimal whitespace 
             # sort_keys=True ensures consistent key order
-            try:
-                # Attempt to normalize the stored params for comparison
-                normalized_params = json.loads(json.dumps(
-                    existing_job.params, 
-                    sort_keys=True, 
-                    separators=(',', ':')
-                ))
-                existing_hash = hashlib.sha256(
-                    json.dumps(normalized_params, sort_keys=True, separators=(',', ':')).encode()
-                ).hexdigest()
-            except (TypeError, ValueError) as e:
-                # If normalization fails, fall back to direct comparison
-                logger.warning(
-                    "Failed to normalize params for idempotency check",
-                    job_id=existing_job.id,
-                    error=str(e)
-                )
-                existing_hash = hashlib.sha256(
-                    json.dumps(existing_job.params, sort_keys=True, separators=(',', ':')).encode()
-                ).hexdigest()
+            logger.info(
+                "Calculating hash from params for backward compatibility",
+                job_id=existing_job.id
+            )
+            existing_hash = hashlib.sha256(
+                json.dumps(existing_job.params, sort_keys=True, separators=(',', ':')).encode()
+            ).hexdigest()
         
         if request_hash != existing_hash:
             logger.warning(
@@ -759,8 +746,9 @@ async def create_design_from_upload(
         )
     
     # Verify file exists in S3 before processing (specific to upload endpoint)
+    # Using async version for better performance
     try:
-        exists = s3_service.object_exists(body.design.s3_key)
+        exists = await s3_service.object_exists_async(body.design.s3_key)
     except (BotoCoreError, requests.exceptions.ConnectionError) as e:
         logger.error("S3 service error during object_exists", error=str(e), s3_key=body.design.s3_key)
         raise HTTPException(

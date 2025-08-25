@@ -31,11 +31,12 @@ class Job(Base, TimestampMixin):
     )
     
     # Performance optimization: Store hash of params for idempotency checks (PR #281)
+    # Hash algorithm: SHA-256, stored as 64-character lowercase hexadecimal string
     params_hash: Mapped[Optional[str]] = mapped_column(
         String(64),  # SHA-256 produces 64 character hex string
         nullable=True,
         index=True,
-        comment="SHA-256 hash of params for efficient idempotency checks"
+        comment="SHA-256 hash (hex format) of canonical JSON params for efficient idempotency checks"
     )
     
     # Foreign keys
