@@ -818,8 +818,12 @@ class TestCrossEndpointIdempotency:
         assembly_job = db_session.query(Job).filter_by(id=assembly_job_id).first()
         assert assembly_job.type == JobType.ASSEMBLY
     
-    def test_upload_endpoint_uses_correct_job_type(self, client, auth_headers, db_session):
+    def test_upload_endpoint_uses_correct_job_type(self, client, auth_headers, db_session, monkeypatch):
         """Test that upload endpoint uses CAD_IMPORT job type."""
+        # Mock S3 service to prevent real network calls
+        from ...storage import s3_service
+        monkeypatch.setattr(s3_service, "object_exists", lambda key: True)
+        
         idempotency_key = str(uuid4())
         headers = {**auth_headers, "Idempotency-Key": idempotency_key}
         

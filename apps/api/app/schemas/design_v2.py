@@ -142,8 +142,38 @@ class DesignSettings(BaseSettings):
     )
 
 
-# Singleton instance for settings - can be overridden in production
-design_settings = DesignSettings()
+# Factory function for settings - allows context-specific configuration
+def get_design_settings(**overrides) -> DesignSettings:
+    """
+    Returns a DesignSettings instance.
+    Pass overrides as keyword arguments for testing or context-specific configuration.
+    
+    This pattern allows for:
+    - Different settings in test environments
+    - Per-tenant configuration in multi-tenant deployments
+    - Easy mocking and dependency injection
+    
+    Examples:
+        # Default settings
+        settings = get_design_settings()
+        
+        # Test with specific limits
+        test_settings = get_design_settings(max_dimension_mm=1000)
+        
+        # Production override
+        prod_settings = get_design_settings(max_assembly_parts=5000)
+    """
+    return DesignSettings(**overrides)
+
+# Default singleton for backward compatibility
+# Prefer using get_design_settings() in new code
+design_settings = get_design_settings()
+
+# NOTE: To override settings in tests, you can either:
+# 1. Use monkeypatch to replace design_settings:
+#    monkeypatch.setattr('app.schemas.design_v2.design_settings', get_design_settings(max_dimension_mm=1000))
+# 2. Or replace individual attributes:
+#    monkeypatch.setattr(design_settings, 'max_dimension_mm', 1000)
 
 
 # Base models with strict validation

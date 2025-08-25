@@ -88,8 +88,9 @@ def upgrade() -> None:
         # Try PostgreSQL's default naming convention
         try:
             op.drop_constraint('jobs_idempotency_key_key', 'jobs', type_='unique')
-        except:
-            # If that fails, try other common patterns
+        except sa.exc.ProgrammingError as e:
+            # Constraint likely does not exist, which is acceptable. Log for visibility.
+            print(f"Warning: Could not drop constraint 'jobs_idempotency_key_key', it may not exist: {e}")
             pass
     
     # Create a named unique constraint for database-agnostic error handling
@@ -101,7 +102,8 @@ def upgrade() -> None:
     
     # Populate params_hash for existing jobs (optional, can be done separately)
     # This is a data migration that calculates hash for existing records
-    # Using 'input_params' which is the actual database column name
+    # IMPORTANT: Using 'input_params' which is the actual database column name
+    # (The SQLAlchemy model maps it to 'params' property via name="input_params")
     op.execute("""
         UPDATE jobs 
         SET params_hash = encode(

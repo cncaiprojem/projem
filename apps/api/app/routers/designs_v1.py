@@ -254,8 +254,9 @@ def handle_idempotency(
     
     if existing_job:
         # Compare request body hash with stored hash (PR #281 performance optimization)
+        # Use canonical JSON representation to ensure consistent comparison
         request_hash = hashlib.sha256(
-            json.dumps(request_body, sort_keys=True).encode()
+            json.dumps(request_body, sort_keys=True, separators=(',', ':')).encode()
         ).hexdigest()
         
         # Use stored params_hash if available, otherwise calculate for backward compatibility
@@ -263,9 +264,30 @@ def handle_idempotency(
             existing_hash = existing_job.params_hash
         else:
             # Fallback for jobs created before params_hash was added
-            existing_hash = hashlib.sha256(
-                json.dumps(existing_job.params, sort_keys=True).encode()
-            ).hexdigest()
+            # IMPORTANT: For backward compatibility with old jobs, we need canonical JSON
+            # Database round-trip may change float precision, whitespace, or key order
+            # Using separators=(',', ':') ensures minimal whitespace 
+            # sort_keys=True ensures consistent key order
+            try:
+                # Attempt to normalize the stored params for comparison
+                normalized_params = json.loads(json.dumps(
+                    existing_job.params, 
+                    sort_keys=True, 
+                    separators=(',', ':')
+                ))
+                existing_hash = hashlib.sha256(
+                    json.dumps(normalized_params, sort_keys=True, separators=(',', ':')).encode()
+                ).hexdigest()
+            except (TypeError, ValueError) as e:
+                # If normalization fails, fall back to direct comparison
+                logger.warning(
+                    "Failed to normalize params for idempotency check",
+                    job_id=existing_job.id,
+                    error=str(e)
+                )
+                existing_hash = hashlib.sha256(
+                    json.dumps(existing_job.params, sort_keys=True, separators=(',', ':')).encode()
+                ).hexdigest()
         
         if request_hash != existing_hash:
             logger.warning(
