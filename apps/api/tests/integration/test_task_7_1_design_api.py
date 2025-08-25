@@ -465,13 +465,16 @@ class TestAssembly4Endpoint:
                 "parts": [
                     {
                         "name": "part1",
-                        "type": "cylinder",
-                        "dimensions": {"radius": 10, "height": 50}
+                        "part_type": "cylinder",
+                        "radius": 10,
+                        "height": 50
                     },
                     {
                         "name": "part2",
-                        "type": "box",
-                        "dimensions": {"width": 20, "length": 30, "height": 15}
+                        "part_type": "box",
+                        "width": 20,
+                        "height": 15,
+                        "depth": 30
                     }
                 ],
                 "constraints": [
@@ -502,6 +505,7 @@ class TestAssembly4Endpoint:
                 "parts": [
                     {
                         "name": "single_part",
+                        "part_type": "existing",
                         "path": "models/single_part.FCStd"
                     }
                 ],  # Only one part
