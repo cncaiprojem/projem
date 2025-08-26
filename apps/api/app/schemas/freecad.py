@@ -124,3 +124,162 @@ class CircuitBreakerResetResponse(BaseModel):
                 "new_state": "CLOSED"
             }
         }
+
+
+# Document Manager Response Models for Task 7.19
+
+class DocumentMetadataResponse(BaseModel):
+    """Document metadata response."""
+    document_id: str = Field(description="Unique document identifier")
+    job_id: str = Field(description="Associated job ID")
+    version: int = Field(description="Document version number")
+    revision: str = Field(description="Document revision letter")
+    created_at: datetime = Field(description="Creation timestamp")
+    modified_at: datetime = Field(description="Last modification timestamp")
+    author: Optional[str] = Field(default=None, description="Document author")
+    description: Optional[str] = Field(default=None, description="Document description")
+    file_size_bytes: Optional[int] = Field(default=None, description="File size in bytes")
+    compressed: bool = Field(default=False, description="Whether document is compressed")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "document_id": "doc_job123",
+                "job_id": "job123",
+                "version": 1,
+                "revision": "A",
+                "created_at": "2024-01-15T10:30:00Z",
+                "modified_at": "2024-01-15T11:00:00Z",
+                "author": "user@example.com",
+                "description": "3D model for part A",
+                "file_size_bytes": 1048576,
+                "compressed": True
+            }
+        }
+
+
+class DocumentLockResponse(BaseModel):
+    """Document lock response."""
+    document_id: str = Field(description="Locked document ID")
+    lock_id: str = Field(description="Unique lock identifier")
+    owner_id: str = Field(description="Lock owner identifier")
+    acquired_at: datetime = Field(description="Lock acquisition time")
+    expires_at: Optional[datetime] = Field(default=None, description="Lock expiration time")
+    lock_type: str = Field(default="exclusive", description="Lock type")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "document_id": "doc_job123",
+                "lock_id": "lock_doc_job123_user1_1705315800000000",
+                "owner_id": "user1",
+                "acquired_at": "2024-01-15T10:30:00Z",
+                "expires_at": "2024-01-15T11:30:00Z",
+                "lock_type": "exclusive"
+            }
+        }
+
+
+class DocumentTransactionResponse(BaseModel):
+    """Document transaction response."""
+    transaction_id: str = Field(description="Unique transaction identifier")
+    document_id: str = Field(description="Document in transaction")
+    state: str = Field(description="Transaction state")
+    started_at: Optional[datetime] = Field(default=None, description="Transaction start time")
+    operations_count: int = Field(default=0, description="Number of operations in transaction")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "transaction_id": "txn_doc_job123_1705315800000000",
+                "document_id": "doc_job123",
+                "state": "active",
+                "started_at": "2024-01-15T10:30:00Z",
+                "operations_count": 5
+            }
+        }
+
+
+class DocumentStatusResponse(BaseModel):
+    """Comprehensive document status response."""
+    status: str = Field(description="Document status")
+    document_id: str = Field(description="Document identifier")
+    metadata: Optional[DocumentMetadataResponse] = Field(default=None, description="Document metadata")
+    lock: Optional[Dict[str, Any]] = Field(default=None, description="Lock information if locked")
+    transactions: List[Dict[str, Any]] = Field(default_factory=list, description="Active transactions")
+    undo_stack_size: int = Field(default=0, description="Number of undo operations available")
+    redo_stack_size: int = Field(default=0, description="Number of redo operations available")
+    assembly: Optional[Dict[str, Any]] = Field(default=None, description="Assembly coordination info")
+    backup_count: int = Field(default=0, description="Number of available backups")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "status": "open",
+                "document_id": "doc_job123",
+                "metadata": {
+                    "document_id": "doc_job123",
+                    "job_id": "job123",
+                    "version": 1,
+                    "revision": "B",
+                    "created_at": "2024-01-15T10:30:00Z",
+                    "modified_at": "2024-01-15T11:00:00Z"
+                },
+                "lock": None,
+                "transactions": [],
+                "undo_stack_size": 10,
+                "redo_stack_size": 2,
+                "assembly": None,
+                "backup_count": 3
+            }
+        }
+
+
+class DocumentBackupResponse(BaseModel):
+    """Document backup response."""
+    backup_id: str = Field(description="Backup identifier")
+    document_id: str = Field(description="Original document ID")
+    created_at: datetime = Field(description="Backup creation time")
+    size_bytes: int = Field(description="Backup size in bytes")
+    compressed: bool = Field(default=True, description="Whether backup is compressed")
+    retention_days: int = Field(default=30, description="Backup retention period")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "backup_id": "backup_doc_job123_20240115_103000",
+                "document_id": "doc_job123",
+                "created_at": "2024-01-15T10:30:00Z",
+                "size_bytes": 524288,
+                "compressed": True,
+                "retention_days": 30
+            }
+        }
+
+
+class DocumentMigrationResponse(BaseModel):
+    """Document migration response."""
+    migration_id: str = Field(description="Migration identifier")
+    source_version: str = Field(description="Source FreeCAD version")
+    target_version: str = Field(description="Target FreeCAD version")
+    status: str = Field(description="Migration status")
+    started_at: Optional[datetime] = Field(default=None, description="Migration start time")
+    completed_at: Optional[datetime] = Field(default=None, description="Migration completion time")
+    changes_applied: int = Field(default=0, description="Number of changes applied")
+    warnings: List[str] = Field(default_factory=list, description="Migration warnings")
+    errors: List[str] = Field(default_factory=list, description="Migration errors")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "migration_id": "mig_doc_job123_1705315800",
+                "source_version": "1.1.0",
+                "target_version": "1.2.0",
+                "status": "completed",
+                "started_at": "2024-01-15T10:30:00Z",
+                "completed_at": "2024-01-15T10:31:00Z",
+                "changes_applied": 5,
+                "warnings": [],
+                "errors": []
+            }
+        }

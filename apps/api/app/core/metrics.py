@@ -179,6 +179,54 @@ freecad_active_processes = Gauge(
     registry=REGISTRY
 )
 
+# FreeCAD Document Lifecycle Metrics for Task 7.19
+freecad_documents_total = Counter(
+    'freecad_documents_total',
+    'Total number of document operations',
+    ['operation'],  # create, open, close, save
+    registry=REGISTRY
+)
+
+freecad_document_locks_active = Gauge(
+    'freecad_document_locks_active',
+    'Number of active document locks',
+    registry=REGISTRY
+)
+
+freecad_transactions_total = Counter(
+    'freecad_transactions_total',
+    'Total number of document transactions',
+    ['operation'],  # start, commit, abort
+    registry=REGISTRY
+)
+
+freecad_document_saves_total = Counter(
+    'freecad_document_saves_total',
+    'Total number of document saves',
+    ['compressed'],  # true, false
+    registry=REGISTRY
+)
+
+freecad_backups_total = Counter(
+    'freecad_backups_total',
+    'Total number of document backups created',
+    registry=REGISTRY
+)
+
+freecad_backup_restores_total = Counter(
+    'freecad_backup_restores_total',
+    'Total number of backup restores',
+    ['status'],  # success, failed
+    registry=REGISTRY
+)
+
+freecad_document_migrations_total = Counter(
+    'freecad_document_migrations_total',
+    'Total number of document migrations',
+    ['status'],  # success, failed
+    registry=REGISTRY
+)
+
 # License-specific metrics
 license_operations_total = Counter(
     'license_operations_total',
