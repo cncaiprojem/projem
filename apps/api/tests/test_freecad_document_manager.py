@@ -453,6 +453,57 @@ class TestLockEnforcement:
             document_manager.close_document("doc_job123", owner_id="user2")
         
         assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+    
+    def test_save_fails_without_owner_id(self, document_manager):
+        """Test that save fails when owner_id is None or missing when lock exists."""
+        document_manager.create_document(job_id="job123")
+        
+        # Acquire lock as user1
+        lock = document_manager.acquire_lock("doc_job123", "user1")
+        
+        # Try to save without owner_id (None)
+        with pytest.raises(DocumentException) as exc_info:
+            document_manager.save_document("doc_job123", owner_id=None)
+        
+        assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+        
+        # Try to save without passing owner_id at all
+        with pytest.raises(DocumentException) as exc_info:
+            document_manager.save_document("doc_job123")
+        
+        assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+    
+    def test_close_fails_without_owner_id(self, document_manager):
+        """Test that close fails when owner_id is None or missing when lock exists."""
+        document_manager.create_document(job_id="job123")
+        
+        # Acquire lock as user1
+        lock = document_manager.acquire_lock("doc_job123", "user1")
+        
+        # Try to close without owner_id (None)
+        with pytest.raises(DocumentException) as exc_info:
+            document_manager.close_document("doc_job123", owner_id=None)
+        
+        assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+        
+        # Try to close without passing owner_id at all
+        with pytest.raises(DocumentException) as exc_info:
+            document_manager.close_document("doc_job123")
+        
+        assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+    
+    def test_operations_work_without_lock(self, document_manager):
+        """Test that operations work normally when no lock exists."""
+        document_manager.create_document(job_id="job123")
+        
+        # Without any lock, operations should work normally
+        path = document_manager.save_document("doc_job123")
+        assert path is not None
+        
+        # Close should also work without lock
+        document_manager.create_document(job_id="job456")
+        result = document_manager.close_document("doc_job456", save_before_close=False)
+        assert result is True
 
 
 class TestPathSanitization:

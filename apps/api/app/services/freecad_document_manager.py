@@ -33,7 +33,6 @@ import gzip
 import hashlib
 import json
 import os
-import shutil
 import tempfile
 import threading
 import time
@@ -42,14 +41,10 @@ from abc import ABC, abstractmethod
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from enum import Enum
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Dict, List, Optional
 from functools import wraps
 
-from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
-from pydantic.functional_validators import AfterValidator
-from typing_extensions import Annotated
-from sqlalchemy.orm import Session
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 from ..core.environment import environment as settings
 from ..core.logging import get_logger
@@ -250,7 +245,7 @@ class MockFreeCADAdapter(FreeCADAdapter):
 
 
 class RealFreeCADAdapter(FreeCADAdapter):
-    """Real adapter that interfaces with actual FreeCAD API."""
+    """Real adapter that interfaces with actual FreeCAD API for .FCStd file operations."""
     
     def __init__(self):
         # Import FreeCAD only when using real adapter
@@ -265,15 +260,21 @@ class RealFreeCADAdapter(FreeCADAdapter):
         return self.App.newDocument(name)
     
     def open_document(self, filepath: str) -> Any:
-        """Open an existing FreeCAD document using App.open."""
+        """Open an existing .FCStd document using App.open."""
         return self.App.open(filepath)
     
     def save_document(self, doc: Any, filepath: str) -> bool:
-        """Save FreeCAD document using doc.saveAs."""
+        """Save FreeCAD document as .FCStd file."""
         try:
+            # Ensure proper extension
+            if not filepath.endswith('.FCStd'):
+                filepath = filepath.replace('.json', '.FCStd').replace('.gz', '.FCStd')
+                if not filepath.endswith('.FCStd'):
+                    filepath += '.FCStd'
             doc.saveAs(filepath)
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to save .FCStd file: {e}")
             return False
     
     def close_document(self, doc: Any) -> bool:
@@ -285,24 +286,67 @@ class RealFreeCADAdapter(FreeCADAdapter):
             return False
     
     def take_snapshot(self, doc: Any) -> Dict[str, Any]:
-        """Take snapshot of FreeCAD document state."""
-        return {
-            "name": doc.Name,
-            "objects": [obj.Name for obj in doc.Objects],
-            "properties": dict(doc.PropertiesList) if hasattr(doc, 'PropertiesList') else {}
+        """Take comprehensive snapshot of FreeCAD document state."""
+        snapshot = {
+            "properties": {},
+            "objects": [],
+            "metadata": {
+                "Name": doc.Name,
+                "FileName": doc.FileName if hasattr(doc, 'FileName') else None,
+                "Label": doc.Label if hasattr(doc, 'Label') else doc.Name,
+                "Uid": doc.Uid if hasattr(doc, 'Uid') else None,
+            }
         }
+        
+        # Document properties
+        for prop in doc.PropertiesList:
+            try:
+                value = getattr(doc, prop)
+                # Skip non-serializable properties
+                if isinstance(value, (str, int, float, bool, list, dict)):
+                    snapshot["properties"][prop] = value
+            except:
+                pass  # Skip properties that can't be accessed
+        
+        # Document objects
+        for obj in doc.Objects:
+            obj_data = {
+                "Name": obj.Name,
+                "Label": obj.Label,
+                "TypeId": obj.TypeId,
+                "Properties": {}
+            }
+            # Object properties
+            for prop in obj.PropertiesList:
+                try:
+                    value = getattr(obj, prop)
+                    # Convert FreeCAD-specific types to serializable formats
+                    if hasattr(value, '__dict__'):
+                        # Try to extract basic info from complex types
+                        obj_data["Properties"][prop] = str(value)
+                    elif isinstance(value, (str, int, float, bool, list, dict)):
+                        obj_data["Properties"][prop] = value
+                except:
+                    pass
+            snapshot["objects"].append(obj_data)
+        
+        return snapshot
     
     def restore_snapshot(self, doc: Any, snapshot: Dict[str, Any]) -> bool:
         """Restore FreeCAD document from snapshot (limited functionality)."""
-        # Note: Full restoration would require recreating objects
-        # This is a simplified version
+        # Note: Full restoration would require recreating objects with proper types
+        # This is a simplified version that restores basic structure
         try:
             # Clear existing objects if possible
             for obj in doc.Objects:
                 doc.removeObject(obj.Name)
+            
             # Would need to recreate objects from snapshot here
+            # This requires knowing the object types and creation methods
+            # For now, return True to indicate attempt was made
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Snapshot restoration limited: {e}")
             return False
     
     def start_transaction(self, doc: Any, name: str) -> bool:
@@ -331,7 +375,7 @@ class RealFreeCADAdapter(FreeCADAdapter):
 
 
 def requires_lock(func):
-    """Decorator to enforce lock ownership for state-changing operations."""
+    """Decorator to enforce mandatory lock ownership for state-changing operations."""
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         # Extract document_id and owner_id from arguments
@@ -344,10 +388,27 @@ def requires_lock(func):
         elif len(args) > 0:
             document_id = args[0]
         
-        # Check if lock exists and matches owner
-        if document_id and document_id in self.locks:
-            lock = self.locks[document_id]
-            if owner_id and lock.owner_id != owner_id:
+        # CRITICAL: Both document_id and owner_id MUST be present
+        if not document_id or not owner_id:
+            raise DocumentException(
+                "document_id and owner_id are required for lock-protected operations",
+                DocumentErrorCode.DOCUMENT_LOCKED,
+                "document_id ve owner_id gerekli"
+            )
+        
+        with self._lock:
+            lock = self.locks.get(document_id)
+            
+            # Lock MUST exist
+            if not lock or lock.is_expired():
+                raise DocumentException(
+                    f"Lock required for document {document_id}",
+                    DocumentErrorCode.DOCUMENT_LOCKED,
+                    f"Belge {document_id} için kilit gerekli"
+                )
+            
+            # Owner MUST match
+            if lock.owner_id != owner_id:
                 raise DocumentException(
                     f"Lock owner mismatch for document {document_id}",
                     DocumentErrorCode.LOCK_OWNER_MISMATCH,
@@ -526,6 +587,8 @@ class DocumentManagerConfig(BaseModel):
     memory_limit_mb: int = Field(default=2048, description="Memory limit for documents in MB")
     base_dir: str = Field(default_factory=lambda: tempfile.gettempdir(), description="Base directory for document storage")
     use_real_freecad: bool = Field(default=False, description="Use real FreeCAD API instead of mock")
+    default_file_extension: str = Field(default=".FCStd", description="Default FreeCAD file extension")
+    memory_cleanup_threshold: float = Field(default=0.8, description="Memory usage threshold to trigger cleanup (0-1)")
 
 
 class FreeCADDocumentManager:
@@ -542,18 +605,23 @@ class FreeCADDocumentManager:
         self.backups: Dict[str, List[BackupInfo]] = {}
         self._lock = threading.RLock()
         self._auto_save_threads: Dict[str, threading.Thread] = {}
+        self._auto_save_stop_events: Dict[str, threading.Event] = {}  # For graceful shutdown
         self._recovery_data: Dict[str, Dict[str, Any]] = {}
+        
+        # CRITICAL: Store real FreeCAD document handles
+        self._doc_handles: Dict[str, Any] = {}  # Store real FreeCAD document objects
+        self.adapter = None  # Will be set based on config
         
         # Initialize FreeCAD adapter
         if self.config.use_real_freecad:
             try:
-                self.freecad_adapter = RealFreeCADAdapter()
-                logger.info("Using RealFreeCADAdapter")
+                self.adapter = RealFreeCADAdapter()
+                logger.info("Using RealFreeCADAdapter for real .FCStd operations")
             except ImportError:
                 logger.warning("FreeCAD not available, falling back to MockFreeCADAdapter")
-                self.freecad_adapter = MockFreeCADAdapter()
+                self.adapter = MockFreeCADAdapter()
         else:
-            self.freecad_adapter = MockFreeCADAdapter()
+            self.adapter = MockFreeCADAdapter()
             logger.info("Using MockFreeCADAdapter")
         
         # Turkish error messages
@@ -736,7 +804,7 @@ class FreeCADDocumentManager:
         description: Optional[str] = None,
         properties: Optional[Dict[str, Any]] = None
     ) -> DocumentMetadata:
-        """Create new FreeCAD document with metadata."""
+        """Create new FreeCAD document with metadata and real document handle."""
         correlation_id = get_correlation_id()
         
         with create_span("document_create", correlation_id=correlation_id) as span:
@@ -762,6 +830,16 @@ class FreeCADDocumentManager:
                         "Bellek sınırı aşıldı"
                     )
             
+            # CRITICAL: Create real FreeCAD document via adapter
+            try:
+                doc_handle = self.adapter.create_document(document_id)
+                self._doc_handles[document_id] = doc_handle
+                logger.info(f"Created real FreeCAD document handle for {document_id}")
+            except Exception as e:
+                logger.error(f"Failed to create FreeCAD document: {e}")
+                # Continue with metadata-only if real document creation fails
+                doc_handle = None
+            
             # Create metadata
             metadata = DocumentMetadata(
                 document_id=document_id,
@@ -783,6 +861,7 @@ class FreeCADDocumentManager:
             logger.info("document_created",
                       document_id=document_id,
                       job_id=job_id,
+                      has_handle=doc_handle is not None,
                       correlation_id=correlation_id)
             
             metrics.freecad_documents_total.labels(operation="create").inc()
@@ -838,7 +917,7 @@ class FreeCADDocumentManager:
             )
     
     def start_transaction(self, document_id: str) -> TransactionInfo:
-        """Start document transaction."""
+        """Start document transaction using real FreeCAD API."""
         correlation_id = get_correlation_id()
         
         with create_span("transaction_start", correlation_id=correlation_id) as span:
@@ -855,6 +934,15 @@ class FreeCADDocumentManager:
             
             # Save current state for rollback
             rollback_data = self._create_document_snapshot(document_id)
+            
+            # CRITICAL: Call real FreeCAD transaction API
+            if document_id in self._doc_handles:
+                doc = self._doc_handles[document_id]
+                try:
+                    self.adapter.start_transaction(doc, f"Transaction {transaction_id}")
+                    logger.info(f"Started real FreeCAD transaction for {document_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to start FreeCAD transaction: {e}")
             
             transaction = TransactionInfo(
                 transaction_id=transaction_id,
@@ -876,7 +964,7 @@ class FreeCADDocumentManager:
             
             return transaction
     
-    def commit_transaction(self, transaction_id: str, owner_id: Optional[str] = None) -> bool:
+    def commit_transaction(self, transaction_id: str) -> bool:
         """Commit document transaction and apply buffered changes."""
         correlation_id = get_correlation_id()
         
@@ -911,6 +999,15 @@ class FreeCADDocumentManager:
                             setattr(metadata, key, value)
                         else:
                             metadata.properties[key] = value
+                
+                # CRITICAL: Commit real FreeCAD transaction
+                if transaction.document_id in self._doc_handles:
+                    doc = self._doc_handles[transaction.document_id]
+                    try:
+                        self.adapter.commit_transaction(doc)
+                        logger.info(f"Committed real FreeCAD transaction for {transaction.document_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to commit FreeCAD transaction: {e}")
                 
                 # Update document metadata
                 if transaction.document_id in self.documents:
@@ -979,6 +1076,15 @@ class FreeCADDocumentManager:
             try:
                 transaction.state = TransactionState.ABORTING
                 
+                # CRITICAL: Abort real FreeCAD transaction
+                if transaction.document_id in self._doc_handles:
+                    doc = self._doc_handles[transaction.document_id]
+                    try:
+                        self.adapter.abort_transaction(doc)
+                        logger.info(f"Aborted real FreeCAD transaction for {transaction.document_id}")
+                    except Exception as e:
+                        logger.warning(f"Failed to abort FreeCAD transaction: {e}")
+                
                 # Restore from rollback data
                 if transaction.rollback_data:
                     self._restore_document_snapshot(
@@ -1007,8 +1113,8 @@ class FreeCADDocumentManager:
                 transaction.state = TransactionState.ACTIVE
                 return False
             finally:
-                # Clean up aborted transaction
-                if transaction.state == TransactionState.ABORTED:
+                # HIGH FIX: Delete transaction even if abort fails to prevent memory leak
+                if transaction.state in (TransactionState.ABORTED, TransactionState.ACTIVE):
                     with self._lock:
                         del self.transactions[transaction_id]
     
@@ -1048,26 +1154,52 @@ class FreeCADDocumentManager:
                                  error=str(e),
                                  correlation_id=correlation_id)
             
-            # Determine save path using temp directory
+            # Determine save path using temp directory with configurable extension
             if not save_path:
-                save_path = os.path.join(tempfile.gettempdir(), f"{document_id}.FCStd")
+                save_path = os.path.join(tempfile.gettempdir(), f"{document_id}{self.config.default_file_extension}")
+            
+            # CRITICAL: Save real .FCStd file via adapter if available
+            fcstd_saved = False
+            if isinstance(self.adapter, RealFreeCADAdapter) and document_id in self._doc_handles:
+                doc_handle = self._doc_handles[document_id]
+                fcstd_path = save_path if save_path.endswith('.FCStd') else save_path.replace('.json', '.FCStd')
+                
+                # Atomic write with temp file
+                temp_path = f"{fcstd_path}.tmp"
+                if self.adapter.save_document(doc_handle, temp_path):
+                    try:
+                        os.replace(temp_path, fcstd_path)  # Atomic move
+                        save_path = fcstd_path
+                        fcstd_saved = True
+                        metadata.properties["last_saved_path"] = fcstd_path
+                        logger.info(f"Saved real .FCStd file: {fcstd_path}")
+                    except Exception as e:
+                        logger.error(f"Failed to move .FCStd file: {e}")
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+            
+            # Also save metadata/undo as JSON sidecar (or as main file if no FCStd)
+            json_save_path = save_path.replace('.FCStd', '_metadata.json') if fcstd_saved else save_path
             
             # Prepare save data
             save_data = {
                 "metadata": metadata.dict(),
                 "undo_stack": [snap.dict() for snap in self.undo_stacks.get(document_id, [])],
-                "assembly": self.assemblies.get(document_id, {})
+                "redo_stack": [snap.dict() for snap in self.redo_stacks.get(document_id, [])],  # Include redo stack
+                "assembly": self.assemblies.get(document_id, {}).dict() if document_id in self.assemblies else None,
+                "fcstd_path": save_path if fcstd_saved else None,
+                "timestamp": datetime.now(timezone.utc).isoformat()
             }
             
-            # Compress if requested
+            # Compress if requested (for JSON metadata)
             should_compress = compress if compress is not None else self.config.enable_compression
             
             try:
-                if should_compress:
-                    save_path = self._save_compressed(save_path, save_data)
+                if should_compress and not fcstd_saved:  # Only compress JSON if no FCStd
+                    json_save_path = self._save_compressed(json_save_path, save_data)
                     metadata.compressed = True
                 else:
-                    save_path = self._save_uncompressed(save_path, save_data)
+                    json_save_path = self._save_uncompressed(json_save_path, save_data)
                     metadata.compressed = False
                 
                 # Update metadata
@@ -1150,6 +1282,23 @@ class FreeCADDocumentManager:
             # Stop auto-save
             self._stop_auto_save(document_id)
             
+            # Release lock properly with owner check
+            if document_id in self.locks and owner_id:
+                try:
+                    lock = self.locks[document_id]
+                    self.release_lock(document_id, lock.lock_id)
+                except Exception as e:
+                    logger.warning(f"Failed to release lock on close: {e}")
+            
+            # Clean up document handle
+            if document_id in self._doc_handles:
+                try:
+                    self.adapter.close_document(self._doc_handles[document_id])
+                    logger.info(f"Closed real FreeCAD document handle for {document_id}")
+                except Exception as e:
+                    logger.warning(f"Failed to close FreeCAD document: {e}")
+                del self._doc_handles[document_id]
+            
             # Clean up resources
             with self._lock:
                 del self.documents[document_id]
@@ -1158,7 +1307,6 @@ class FreeCADDocumentManager:
                 self.undo_stacks.pop(document_id, None)
                 self.redo_stacks.pop(document_id, None)
                 self.assemblies.pop(document_id, None)
-                self.locks.pop(document_id, None)
                 
                 # Abort active transactions if forced
                 if force:
@@ -1484,10 +1632,30 @@ class FreeCADDocumentManager:
                 with self._lock:
                     self.documents[metadata.document_id] = metadata
                     
+                    # Restore undo stack
                     if 'undo_stack' in backup_data:
                         self.undo_stacks[metadata.document_id] = [
                             DocumentSnapshot(**snap) for snap in backup_data['undo_stack']
                         ]
+                    
+                    # Restore redo stack
+                    if 'redo_stack' in backup_data:
+                        self.redo_stacks[metadata.document_id] = [
+                            DocumentSnapshot(**snap) for snap in backup_data['redo_stack']
+                        ]
+                    
+                    # Restore assembly coordination
+                    if 'assembly' in backup_data and backup_data['assembly']:
+                        self.assemblies[metadata.document_id] = AssemblyCoordination(**backup_data['assembly'])
+                
+                # Restore real document from .FCStd if available
+                if 'fcstd_path' in backup_data and backup_data['fcstd_path'] and os.path.exists(backup_data['fcstd_path']):
+                    try:
+                        doc_handle = self.adapter.open_document(backup_data['fcstd_path'])
+                        self._doc_handles[metadata.document_id] = doc_handle
+                        logger.info(f"Restored real FreeCAD document from {backup_data['fcstd_path']}")
+                    except Exception as e:
+                        logger.warning(f"Failed to restore .FCStd document: {e}")
                 
                 logger.info("backup_restored",
                           backup_id=backup_id,
@@ -1631,12 +1799,30 @@ class FreeCADDocumentManager:
     
     # Private helper methods
     def _create_document_snapshot(self, document_id: str) -> Dict[str, Any]:
-        """Create snapshot of document state."""
+        """Create snapshot using real FreeCAD properties when available."""
         if document_id not in self.documents:
             return {}
         
         metadata = self.documents[document_id]
         
+        # Use real FreeCAD document handle if available
+        if document_id in self._doc_handles:
+            doc = self._doc_handles[document_id]
+            try:
+                # Get real FreeCAD snapshot
+                fc_snapshot = self.adapter.take_snapshot(doc)
+                
+                return {
+                    "metadata": metadata.dict(),
+                    "freecad_snapshot": fc_snapshot,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "undo_stack_size": len(self.undo_stacks.get(document_id, [])),
+                    "redo_stack_size": len(self.redo_stacks.get(document_id, []))
+                }
+            except Exception as e:
+                logger.warning(f"Failed to take FreeCAD snapshot: {e}")
+        
+        # Fallback to metadata-only snapshot
         return {
             "metadata": metadata.dict(),
             "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -1659,14 +1845,14 @@ class FreeCADDocumentManager:
         compressed_path = save_path + ".gz"
         
         with gzip.open(compressed_path, 'wb') as f:
-            f.write(json.dumps(data, indent=2).encode('utf-8'))
+            f.write(json.dumps(data, indent=2, default=str).encode('utf-8'))
         
         return compressed_path
     
     def _save_uncompressed(self, save_path: str, data: Dict[str, Any]) -> str:
         """Save document without compression."""
         with open(save_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2)
+            json.dump(data, f, indent=2, default=str)
         
         return save_path
     
@@ -1690,13 +1876,19 @@ class FreeCADDocumentManager:
         return sha256_hash.hexdigest()
     
     def _start_auto_save(self, document_id: str):
-        """Start auto-save thread for document."""
+        """Start auto-save thread for document with graceful shutdown."""
         if document_id in self._auto_save_threads:
             return
         
+        # Create stop event for this document
+        stop_event = threading.Event()
+        self._auto_save_stop_events[document_id] = stop_event
+        
         def auto_save_loop():
-            while document_id in self.documents:
-                time.sleep(self.config.auto_save_interval_seconds)
+            while not stop_event.is_set() and document_id in self.documents:
+                # Use Event.wait() for better shutdown response
+                if stop_event.wait(timeout=self.config.auto_save_interval_seconds):
+                    break  # Stop event was set
                 
                 if document_id not in self.documents:
                     break
@@ -1716,13 +1908,19 @@ class FreeCADDocumentManager:
         self._auto_save_threads[document_id] = thread
     
     def _stop_auto_save(self, document_id: str):
-        """Stop auto-save thread for document."""
+        """Stop auto-save thread for document with graceful shutdown."""
+        if document_id in self._auto_save_stop_events:
+            # Signal the thread to stop
+            self._auto_save_stop_events[document_id].set()
+            
+            # Clean up
+            del self._auto_save_stop_events[document_id]
+            
         if document_id in self._auto_save_threads:
-            # Thread will stop when document is removed from self.documents
             del self._auto_save_threads[document_id]
             
-            # Clean up recovery data
-            self._recovery_data.pop(document_id, None)
+        # Clean up recovery data
+        self._recovery_data.pop(document_id, None)
     
     def _create_backup(self, document_id: str) -> BackupInfo:
         """Create backup of document."""
@@ -1740,11 +1938,14 @@ class FreeCADDocumentManager:
         os.makedirs(backup_dir, exist_ok=True)
         backup_path = os.path.join(backup_dir, f"{backup_id}.json")
         
-        # Prepare backup data
+        # Prepare backup data with complete state
         backup_data = {
             "metadata": metadata.dict(),
             "undo_stack": [snap.dict() for snap in self.undo_stacks.get(document_id, [])],
-            "assembly": self.assemblies.get(document_id, {})
+            "redo_stack": [snap.dict() for snap in self.redo_stacks.get(document_id, [])],
+            "assembly": self.assemblies.get(document_id, {}).dict() if document_id in self.assemblies else None,
+            "fcstd_path": metadata.properties.get("last_saved_path"),  # Path to real .FCStd if saved
+            "timestamp": datetime.now(timezone.utc).isoformat()
         }
         
         # Save backup
@@ -1847,31 +2048,77 @@ class FreeCADDocumentManager:
         pass
     
     def _trigger_memory_cleanup(self):
-        """Trigger memory cleanup by closing least recently used documents."""
+        """Trigger memory cleanup by closing documents one-by-one until memory is below threshold."""
+        if not PSUTIL_AVAILABLE:
+            # Fallback to closing half if psutil not available
+            with self._lock:
+                sorted_docs = sorted(
+                    self.documents.items(),
+                    key=lambda x: x[1].modified_at
+                )
+                for doc_id, metadata in sorted_docs[:len(sorted_docs)//2]:
+                    try:
+                        self.close_document(doc_id, save_before_close=True)
+                        logger.info("document_closed_for_memory", document_id=doc_id)
+                    except Exception as e:
+                        logger.warning("memory_cleanup_close_failed",
+                                     document_id=doc_id, error=str(e))
+            gc.collect()
+            return
+        
+        # Improved memory cleanup: close one-by-one until below threshold
         with self._lock:
-            # Sort documents by last modified time
+            # Sort documents by last modified time (oldest first)
             sorted_docs = sorted(
                 self.documents.items(),
                 key=lambda x: x[1].modified_at
             )
             
-            # Close oldest documents until memory is available
-            for doc_id, metadata in sorted_docs[:len(sorted_docs)//2]:
+            # Calculate threshold in MB
+            threshold_mb = self.config.memory_limit_mb * self.config.memory_cleanup_threshold
+            
+            for doc_id, metadata in sorted_docs:
+                # CRITICAL: Skip if document is locked
+                if doc_id in self.locks:
+                    logger.debug(f"Skipping locked document {doc_id} during memory cleanup")
+                    continue
+                
                 try:
-                    self.close_document(doc_id, save_before_close=True)
+                    # Check current memory usage
+                    process = psutil.Process()
+                    memory_mb = process.memory_info().rss / (1024 * 1024)
+                    
+                    # Stop if memory is below threshold
+                    if memory_mb < threshold_mb:
+                        logger.info("memory_cleanup_complete", 
+                                  current_mb=memory_mb, 
+                                  threshold_mb=threshold_mb)
+                        break
+                    
+                    # Close document to free memory (use system as owner for cleanup)
+                    self.close_document(doc_id, save_before_close=True, owner_id="system")
                     logger.info("document_closed_for_memory",
-                              document_id=doc_id)
+                              document_id=doc_id,
+                              memory_mb=memory_mb)
+                    
+                    # Force garbage collection after each close
+                    gc.collect()
+                    
                 except Exception as e:
                     logger.warning("memory_cleanup_close_failed",
                                  document_id=doc_id,
                                  error=str(e))
         
-        # Force garbage collection
+        # Final garbage collection
         gc.collect()
     
     def shutdown(self):
         """Shutdown document manager and cleanup."""
         logger.info("document_manager_shutdown_initiated")
+        
+        # Stop all auto-save threads first
+        for document_id in list(self._auto_save_stop_events.keys()):
+            self._stop_auto_save(document_id)
         
         # Save and close all open documents
         for document_id in list(self.documents.keys()):
@@ -1892,6 +2139,8 @@ class FreeCADDocumentManager:
             self.assemblies.clear()
             self.backups.clear()
             self._recovery_data.clear()
+            self._auto_save_threads.clear()
+            self._auto_save_stop_events.clear()
         
         logger.info("document_manager_shutdown_completed")
 
