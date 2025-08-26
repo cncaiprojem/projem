@@ -338,10 +338,13 @@ class ProcessMonitor:
                     break
                 
                 if cpu_percent > self.limits.max_cpu_percent:
+                    # Note: CPU limit is for monitoring/warning only, not enforced
+                    # Terminating for CPU spikes can be problematic
                     logger.warning("cpu_usage_high",
                                  current_percent=cpu_percent,
                                  limit_percent=self.limits.max_cpu_percent,
-                                 pid=self.pid)
+                                 pid=self.pid,
+                                 note="CPU limit is for monitoring only, not enforced")
                 
                 time.sleep(1)  # Sample every second
                 
@@ -751,6 +754,7 @@ class UltraEnterpriseFreeCADService:
         start_time = time.time()
         process = None
         monitor = None
+        stdout, stderr = "", ""
         
         try:
             # Start process with resource limits

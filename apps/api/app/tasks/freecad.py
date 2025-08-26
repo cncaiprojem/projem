@@ -100,7 +100,11 @@ def freecad_execute_operation_task(
                     correlation_id=correlation_id,
                     exc_info=True)
         
-        # Re-raise for Celery retry handling
+        # Note: Double retry mechanism - service handles application-level retries,
+        # Celery handles infrastructure-level retries (network, temporary failures)
+        # Service retries: 3 attempts with exponential backoff
+        # Celery retries: 3 attempts with 60s countdown
+        # Max theoretical attempts: 3 service * 3 Celery = 9 (by design for resilience)
         raise self.retry(exc=e, countdown=60, max_retries=3)
     
     finally:

@@ -42,8 +42,6 @@ def health_check():
         
         return health_status
         
-    except HTTPException:
-        raise
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -61,11 +59,21 @@ def get_metrics(
     """
     Get FreeCAD service metrics summary.
     
-    Requires authentication. Returns:
+    Requires ADMIN role. Returns:
     - Active processes count
     - Circuit breaker state
     - Recent performance metrics
     """
+    # Check admin role
+    if current_user.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Admin role required",
+                "turkish_error": "Admin rolü gerekli"
+            }
+        )
+    
     try:
         metrics_summary = freecad_service.get_metrics_summary()
         return metrics_summary
@@ -87,10 +95,20 @@ def reset_circuit_breaker(
     """
     Reset the FreeCAD service circuit breaker.
     
-    Requires authentication. This is an administrative operation
+    Requires ADMIN role. This is an administrative operation
     that should be used carefully to reset the circuit breaker
     after resolving underlying issues.
     """
+    # Check admin role
+    if current_user.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Admin role required",
+                "turkish_error": "Admin rolü gerekli"
+            }
+        )
+    
     try:
         # Use the service's reset method
         freecad_service.reset_circuit_breaker()
