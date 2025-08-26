@@ -528,10 +528,11 @@ class TestUltraEnterpriseFreeCADService:
         
         metrics = freecad_service.get_metrics_summary()
         
-        assert metrics['active_processes'] == 2
-        assert 'circuit_breaker_state' in metrics
-        assert 'circuit_breaker_failures' in metrics
-        assert 'timestamp' in metrics
+        # Use attribute access for Pydantic model instead of dictionary access
+        assert metrics.active_processes == 2
+        assert hasattr(metrics, 'circuit_breaker_state')
+        assert hasattr(metrics, 'circuit_breaker_failures')
+        assert hasattr(metrics, 'timestamp')
     
     def test_shutdown_graceful(self, freecad_service):
         """Test graceful service shutdown."""

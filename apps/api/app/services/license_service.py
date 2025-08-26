@@ -20,7 +20,11 @@ from ..models.license import License
 from ..models.license_audit import LicenseAudit
 from ..models.user import User
 from ..core.logging import get_logger
-from ..core.telemetry import create_span, create_financial_span
+from ..core.telemetry import create_span
+# create_financial_span is an alias for create_span with operation_type="financial"
+def create_financial_span(name: str, **kwargs):
+    """Create a span for financial operations."""
+    return create_span(name, operation_type="financial", **kwargs)
 from ..middleware.correlation_middleware import get_correlation_id, get_session_id
 from ..services.audit_service import audit_service
 from ..config import settings

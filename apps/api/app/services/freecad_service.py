@@ -36,12 +36,12 @@ import tempfile
 import threading
 import time
 from contextlib import contextmanager
-from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from ..core.environment import environment as settings
@@ -104,8 +104,7 @@ class FreeCADException(Exception):
         self.details = details or {}
 
 
-@dataclass
-class ResourceLimits:
+class ResourceLimits(BaseModel):
     """Resource limits per license tier."""
     max_memory_mb: int
     max_cpu_percent: float
@@ -115,9 +114,12 @@ class ResourceLimits:
     allowed_export_formats: Set[str]
     max_file_size_mb: int
 
+    class Config:
+        # Allow sets in Pydantic models
+        arbitrary_types_allowed = True
 
-@dataclass
-class ProcessMetrics:
+
+class ProcessMetrics(BaseModel):
     """Process execution metrics."""
     start_time: datetime
     end_time: Optional[datetime]
@@ -129,8 +131,7 @@ class ProcessMetrics:
     execution_duration_seconds: float
 
 
-@dataclass
-class FreeCADResult:
+class FreeCADResult(BaseModel):
     """Result of FreeCAD operation."""
     success: bool
     output_files: List[Path]
@@ -140,6 +141,30 @@ class FreeCADResult:
     error_message: Optional[str]
     turkish_error_message: Optional[str]
     warnings: List[str]
+
+    class Config:
+        # Allow Path objects and enums in Pydantic models
+        arbitrary_types_allowed = True
+    
+    def serialize_for_celery(self) -> dict:
+        """Serialize result for Celery task return."""
+        return {
+            'success': self.success,
+            'output_files': [str(f) for f in self.output_files],
+            'sha256_hashes': self.sha256_hashes,
+            'error_code': self.error_code.value if self.error_code else None,
+            'error_message': self.error_message,
+            'turkish_error_message': self.turkish_error_message,
+            'warnings': self.warnings,
+            'metrics': {
+                'start_time': self.metrics.start_time.isoformat() if self.metrics else None,
+                'end_time': self.metrics.end_time.isoformat() if self.metrics and self.metrics.end_time else None,
+                'peak_memory_mb': self.metrics.peak_memory_mb if self.metrics else 0.0,
+                'average_cpu_percent': self.metrics.average_cpu_percent if self.metrics else 0.0,
+                'execution_duration_seconds': self.metrics.execution_duration_seconds if self.metrics else 0.0,
+                'exit_code': self.metrics.exit_code if self.metrics else None
+            } if self.metrics else None
+        }
 
 
 class CircuitBreaker:
@@ -168,7 +193,8 @@ class CircuitBreaker:
             # get recorded before the circuit opens.
             with self._lock:
                 if self.state == 'OPEN':
-                    if time.monotonic() - self.last_failure_time < self.recovery_timeout:
+                    # Add defensive check for last_failure_time
+                    if self.last_failure_time and (time.monotonic() - self.last_failure_time < self.recovery_timeout):
                         logger.warning("circuit_breaker_open", 
                                      failure_count=self.failure_count,
                                      last_failure_time=self.last_failure_time)
@@ -404,8 +430,6 @@ OUTPUT_FILE_EXTENSIONS = {'.fcstd', '.step', '.stl', '.iges', '.obj', '.dxf', '.
 
 # Constants for error handling and retry logic
 DEFAULT_ERROR_EXIT_CODE = -1
-MIN_JITTER_FACTOR = 0.5
-MAX_JITTER_FACTOR = 1.0
 
 
 class UltraEnterpriseFreeCADService:
@@ -1105,7 +1129,8 @@ class UltraEnterpriseFreeCADService:
                 # Calculate delay with exponential backoff and jitter
                 delay = min(base_delay * (backoff_multiplier ** attempt), max_delay)
                 if jitter:
-                    delay *= (MIN_JITTER_FACTOR + random.random() * (MAX_JITTER_FACTOR - MIN_JITTER_FACTOR))  # Apply jitter to help prevent thundering herd retries
+                    # Use random.uniform for cleaner jitter implementation
+                    delay *= random.uniform(0.75, 1.25)  # Apply jitter to help prevent thundering herd retries
                 
                 logger.warning("freecad_operation_retry",
                              attempt=attempt + 1,

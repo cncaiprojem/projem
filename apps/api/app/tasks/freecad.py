@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from celery import shared_task
 from ..freecad.service import detect_freecad
 from ..services.freecad_service import freecad_service
@@ -62,24 +64,8 @@ def freecad_execute_operation_task(
             correlation_id=correlation_id or self.request.id
         )
         
-        # Convert result to dict for serialization
-        result_dict = {
-            'success': result.success,
-            'output_files': [str(f) for f in result.output_files],
-            'sha256_hashes': result.sha256_hashes,
-            'error_code': result.error_code.value if result.error_code else None,
-            'error_message': result.error_message,
-            'turkish_error_message': result.turkish_error_message,
-            'warnings': result.warnings,
-            'metrics': {
-                'start_time': result.metrics.start_time.isoformat() if result.metrics else None,
-                'end_time': result.metrics.end_time.isoformat() if result.metrics and result.metrics.end_time else None,
-                'peak_memory_mb': result.metrics.peak_memory_mb if result.metrics else 0.0,
-                'average_cpu_percent': result.metrics.average_cpu_percent if result.metrics else 0.0,
-                'execution_duration_seconds': result.metrics.execution_duration_seconds if result.metrics else 0.0,
-                'exit_code': result.metrics.exit_code if result.metrics else None
-            } if result.metrics else None
-        }
+        # Use the serialize_for_celery method for cleaner serialization
+        result_dict = result.serialize_for_celery()
         
         logger.info("freecad_task_completed",
                    task_id=self.request.id,
@@ -116,8 +102,6 @@ def freecad_execute_operation_task(
 @shared_task(name="freecad.health_check", queue="default")
 def freecad_health_check_task() -> dict:
     """FreeCAD service health check task."""
-    from datetime import datetime, timezone
-    
     try:
         health_status = freecad_service.health_check()
         
