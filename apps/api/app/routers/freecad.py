@@ -7,6 +7,19 @@ from ..core.security import get_current_user
 from ..models.user import User
 
 
+def require_admin_role(current_user: User = Depends(get_current_user)) -> User:
+    """Dependency to require admin role for protected endpoints."""
+    if current_user.role != 'admin':
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error": "Admin role required",
+                "turkish_error": "Admin rolü gerekli"
+            }
+        )
+    return current_user
+
+
 router = APIRouter(prefix="/api/v1/freecad", tags=["FreeCAD"]) 
 
 
@@ -54,7 +67,7 @@ def health_check():
 
 @router.get("/metrics")
 def get_metrics(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_role)
 ):
     """
     Get FreeCAD service metrics summary.
@@ -64,15 +77,6 @@ def get_metrics(
     - Circuit breaker state
     - Recent performance metrics
     """
-    # Check admin role
-    if current_user.role != 'admin':
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "Admin role required",
-                "turkish_error": "Admin rolü gerekli"
-            }
-        )
     
     try:
         metrics_summary = freecad_service.get_metrics_summary()
@@ -90,7 +94,7 @@ def get_metrics(
 
 @router.post("/circuit-breaker/reset")
 def reset_circuit_breaker(
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_admin_role)
 ):
     """
     Reset the FreeCAD service circuit breaker.
@@ -99,19 +103,11 @@ def reset_circuit_breaker(
     that should be used carefully to reset the circuit breaker
     after resolving underlying issues.
     
-    WARNING: This will retry all previously failed operations, which may
-    consume significant resources if many operations were queued.
-    Use only after confirming the underlying FreeCAD issues are resolved.
+    WARNING: This operation resets the circuit breaker state but does NOT
+    automatically retry previously failed operations. New operations will
+    be allowed to proceed once the circuit is reset. Ensure that the underlying
+    FreeCAD service issues have been resolved before resetting.
     """
-    # Check admin role
-    if current_user.role != 'admin':
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail={
-                "error": "Admin role required",
-                "turkish_error": "Admin rolü gerekli"
-            }
-        )
     
     try:
         # Use the service's reset method

@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from sqlalchemy.orm import Session
 
-from ..core.config import settings
+from ..core.environment import environment as settings
 from ..core.logging import get_logger
 from ..core.telemetry import create_span
 from ..middleware.correlation_middleware import get_correlation_id
@@ -152,7 +152,11 @@ class CircuitBreaker:
     
     def __call__(self, func):
         def wrapper(*args, **kwargs):
-            # Check state without holding lock during execution
+            # Check state without holding lock during execution.
+            # Race condition is acceptable here: it's better to allow a few extra
+            # operations through than to hold the lock during long-running operations,
+            # which would create a bottleneck. The worst case is a few extra failures
+            # get recorded before the circuit opens.
             with self._lock:
                 if self.state == 'OPEN':
                     if time.monotonic() - self.last_failure_time < self.recovery_timeout:
@@ -357,7 +361,9 @@ class ProcessMonitor:
                                  pid=self.pid,
                                  note="CPU limit is for monitoring only, not enforced")
                 
-                time.sleep(1)  # Sample every second
+                # Use configurable monitoring interval or default to 1 second
+                monitoring_interval = getattr(settings, 'FREECAD_MONITORING_INTERVAL_SECONDS', 1)
+                time.sleep(monitoring_interval)
                 
             except psutil.NoSuchProcess:
                 break
@@ -395,8 +401,8 @@ class UltraEnterpriseFreeCADService:
         # Track per-user active operations for proper license enforcement
         self.user_active_operations: Dict[int, int] = {}  # user_id -> count
         self.circuit_breaker = CircuitBreaker(
-            failure_threshold=getattr(settings, 'freecad_circuit_breaker_threshold', 5),
-            recovery_timeout=getattr(settings, 'freecad_circuit_breaker_recovery_timeout', 60),
+            failure_threshold=getattr(settings, 'FREECAD_CIRCUIT_BREAKER_THRESHOLD', 5),
+            recovery_timeout=getattr(settings, 'FREECAD_CIRCUIT_BREAKER_RECOVERY_TIMEOUT', 60),
             expected_exception=FreeCADException
         )
         self._process_lock = threading.Lock()
@@ -441,10 +447,10 @@ class UltraEnterpriseFreeCADService:
         
         with create_span("freecad_path_discovery", correlation_id=correlation_id) as span:
             # Check configured path first
-            if settings.freecadcmd_path and os.path.isfile(settings.freecadcmd_path):
+            if settings.FREECADCMD_PATH and os.path.isfile(settings.FREECADCMD_PATH):
                 span.set_attribute("discovery.method", "configured")
-                span.set_attribute("discovery.path", settings.freecadcmd_path)
-                return settings.freecadcmd_path
+                span.set_attribute("discovery.path", settings.FREECADCMD_PATH)
+                return settings.FREECADCMD_PATH
             
             # Check PATH
             path_candidate = shutil.which("FreeCADCmd")
@@ -794,6 +800,7 @@ class UltraEnterpriseFreeCADService:
         start_time = time.time()
         process = None
         monitor = None
+        exit_code = None
         stdout, stderr = None, None
         
         try:
@@ -906,7 +913,7 @@ class UltraEnterpriseFreeCADService:
                     end_time=end_time,
                     peak_memory_mb=0.0,
                     average_cpu_percent=0.0,
-                    exit_code=exit_code if 'exit_code' in locals() else 0,
+                    exit_code=exit_code if exit_code is not None else 0,
                     stdout_lines=len(stdout.splitlines()) if stdout else 0,
                     stderr_lines=len(stderr.splitlines()) if stderr else 0,
                     execution_duration_seconds=time.time() - start_time
@@ -1010,9 +1017,9 @@ class UltraEnterpriseFreeCADService:
             
             # Check resource configuration
             health_status["checks"]["resource_configuration"] = {
-                "max_concurrent_operations": getattr(settings, 'freecad_max_workers', 4),
-                "circuit_breaker_threshold": getattr(settings, 'freecad_circuit_breaker_threshold', 5),
-                "circuit_breaker_recovery_timeout": getattr(settings, 'freecad_circuit_breaker_recovery_timeout', 60)
+                "max_concurrent_operations": getattr(settings, 'FREECAD_MAX_WORKERS', 4),
+                "circuit_breaker_threshold": getattr(settings, 'FREECAD_CIRCUIT_BREAKER_THRESHOLD', 5),
+                "circuit_breaker_recovery_timeout": getattr(settings, 'FREECAD_CIRCUIT_BREAKER_RECOVERY_TIMEOUT', 60)
             }
             
         except Exception as e:
@@ -1043,7 +1050,15 @@ class UltraEnterpriseFreeCADService:
         backoff_multiplier: float = 2.0,
         jitter: bool = True
     ):
-        """Execute operation with exponential backoff retry logic."""
+        """Execute operation with exponential backoff retry logic.
+        
+        This method helps prevent resource exhaustion by spreading out retry attempts
+        and is especially important when combined with the circuit breaker pattern
+        to limit cascading failures and resource consumption during system issues.
+        
+        The jitter helps prevent thundering herd problems when multiple operations
+        retry simultaneously.
+        """
         
         for attempt in range(max_retries + 1):
             try:

@@ -403,10 +403,10 @@ class TestUltraEnterpriseFreeCADService:
         """Test concurrent operations limit enforcement."""
         mock_get_license.return_value = basic_license
         
-        # Fill up the active processes dictionary to simulate max concurrent operations
-        freecad_service.active_processes = {
-            'test_1': Mock(),
-            'test_2': Mock()  # Basic license allows only 1 concurrent operation
+        # Fill up the user_active_operations dictionary to simulate max concurrent operations
+        # Basic license allows only 1 concurrent operation per user
+        freecad_service.user_active_operations = {
+            1: 1  # User ID 1 has 1 active operation (the max for basic license)
         }
         
         with pytest.raises(FreeCADException) as exc_info:
