@@ -56,6 +56,7 @@ class Settings(BaseSettings):
     # Logging configuration
     pii_redaction_enabled: bool = True  # Enable PII redaction in logs (default to true for security)
 
+    # FreeCAD basic configuration - other settings in environment.py
     freecadcmd_path: str | None = None
     freecad_timeout_seconds: int = 1200
     freecad_asm4_required: bool = True

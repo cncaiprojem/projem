@@ -384,6 +384,10 @@ class UltraEnterpriseEnvironment(BaseSettings):
     
     FREECADCMD_PATH: Optional[str] = Field(default=None, description="FreeCAD binary path")
     FREECAD_TIMEOUT_SECONDS: int = Field(default=1200, description="FreeCAD timeout")
+    FREECAD_MONITORING_INTERVAL_SECONDS: float = Field(default=1.0, description="FreeCAD process monitoring interval in seconds")
+    FREECAD_CIRCUIT_BREAKER_THRESHOLD: int = Field(default=5, description="Number of failures before circuit opens")
+    FREECAD_CIRCUIT_BREAKER_RECOVERY_TIMEOUT: int = Field(default=60, description="Seconds to wait before attempting recovery")
+    FREECAD_MAX_WORKERS: int = Field(default=4, description="Maximum concurrent FreeCAD operations")
     
     # ===================================================================
     # RABBITMQ & CELERY CONFIGURATION
