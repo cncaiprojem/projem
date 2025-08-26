@@ -55,13 +55,20 @@ from ..middleware.correlation_middleware import get_correlation_id
 
 logger = get_logger(__name__)
 
-# Try to import psutil, provide fallback if not available
+# Try to import psutil, provide fallback if not available, and check feature flag
 try:
     import psutil
     PSUTIL_AVAILABLE = True
 except ImportError:
     PSUTIL_AVAILABLE = False
-    logger.warning("psutil not available, memory management features limited")
+    logger.warning(
+        "psutil not available, memory management features limited. "
+        "To enable full memory management, install psutil with 'pip install psutil'. "
+        "Alternatively, set ENABLE_MEMORY_MANAGEMENT=False in your environment settings to suppress this warning."
+    )
+# Feature flag for memory management
+ENABLE_MEMORY_MANAGEMENT = getattr(settings, "ENABLE_MEMORY_MANAGEMENT", True)
+MEMORY_MANAGEMENT_ENABLED = PSUTIL_AVAILABLE and ENABLE_MEMORY_MANAGEMENT
 
 
 class DocumentState(str, Enum):
@@ -175,7 +182,7 @@ class MockFreeCADAdapter(FreeCADAdapter):
     def open_document(self, filepath: str) -> Dict[str, Any]:
         """Open a mock document from JSON file."""
         if os.path.exists(filepath):
-            with open(filepath, 'r') as f:
+            with open(filepath, 'r', encoding='utf-8') as f:
                 doc = json.load(f)
                 self.documents[doc.get("name", filepath)] = doc
                 return doc
@@ -185,7 +192,7 @@ class MockFreeCADAdapter(FreeCADAdapter):
         """Save mock document to JSON file."""
         try:
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
-            with open(filepath, 'w') as f:
+            with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(doc, f, indent=2, default=str)
             return True
         except Exception:
@@ -306,7 +313,7 @@ class RealFreeCADAdapter(FreeCADAdapter):
                 # Skip non-serializable properties
                 if isinstance(value, (str, int, float, bool, list, dict)):
                     snapshot["properties"][prop] = value
-            except:
+            except Exception:
                 pass  # Skip properties that can't be accessed
         
         # Document objects
@@ -327,7 +334,7 @@ class RealFreeCADAdapter(FreeCADAdapter):
                         obj_data["Properties"][prop] = str(value)
                     elif isinstance(value, (str, int, float, bool, list, dict)):
                         obj_data["Properties"][prop] = value
-                except:
+                except Exception:
                     pass
             snapshot["objects"].append(obj_data)
         
@@ -659,15 +666,16 @@ class FreeCADDocumentManager:
         }
     
     def _generate_document_id(self, job_id: str, suffix: Optional[str] = None) -> str:
-        """Generate deterministic document ID based on job_id."""
+        """Generate unique document ID based on job_id, with UUID to prevent collisions."""
         # Sanitize job_id to prevent path injection
         import re
         safe_job_id = re.sub(r'[^\w\-_]', '_', job_id)
         base_id = f"doc_{safe_job_id}"
+        unique_id = uuid.uuid4().hex[:8]  # Use shorter UUID portion
         if suffix:
             safe_suffix = re.sub(r'[^\w\-_]', '_', suffix)
-            return f"{base_id}_{safe_suffix}"
-        return base_id
+            return f"{base_id}_{safe_suffix}_{unique_id}"
+        return f"{base_id}_{unique_id}"
     
     def _get_safe_path(self, filename: str) -> str:
         """Get safe file path with sanitized filename and configurable base directory."""
@@ -696,8 +704,8 @@ class FreeCADDocumentManager:
     
     def _check_memory_limit(self) -> bool:
         """Check if memory usage is within limits."""
-        if not PSUTIL_AVAILABLE:
-            # If psutil is not available, assume memory is OK
+        if not MEMORY_MANAGEMENT_ENABLED:
+            # If memory management is disabled or psutil is not available, assume memory is OK
             return True
         try:
             process = psutil.Process()
@@ -1634,7 +1642,7 @@ class FreeCADDocumentManager:
                     with gzip.open(backup_info.backup_path, 'rb') as f:
                         backup_data = json.loads(f.read().decode('utf-8'))
                 else:
-                    with open(backup_info.backup_path, 'r') as f:
+                    with open(backup_info.backup_path, 'r', encoding='utf-8') as f:
                         backup_data = json.load(f)
                 
                 # Restore metadata
@@ -1856,6 +1864,15 @@ class FreeCADDocumentManager:
             metadata = DocumentMetadata(**snapshot_data['metadata'])
             with self._lock:
                 self.documents[document_id] = metadata
+        
+        # CRITICAL: Restore real FreeCAD document state if available
+        if 'freecad_snapshot' in snapshot_data and document_id in self._doc_handles:
+            doc = self._doc_handles[document_id]
+            try:
+                self.adapter.restore_snapshot(doc, snapshot_data['freecad_snapshot'])
+                logger.info(f"Restored real FreeCAD snapshot for {document_id}")
+            except Exception as e:
+                logger.warning(f"Failed to restore FreeCAD snapshot: {e}")
     
     def _save_compressed(self, save_path: str, data: Dict[str, Any]) -> str:
         """Save document with gzip compression."""
@@ -2066,7 +2083,7 @@ class FreeCADDocumentManager:
     
     def _trigger_memory_cleanup(self):
         """Trigger memory cleanup by closing documents one-by-one until memory is below threshold."""
-        if not PSUTIL_AVAILABLE:
+        if not MEMORY_MANAGEMENT_ENABLED:
             # Fallback to closing half if psutil not available
             with self._lock:
                 sorted_docs = sorted(
@@ -2084,7 +2101,9 @@ class FreeCADDocumentManager:
             gc.collect()
             return
         
-        # Improved memory cleanup: close one-by-one until below threshold
+        # Improved memory cleanup: collect candidates first, then close outside lock
+        candidates_to_close = []
+        
         with self._lock:
             # Sort documents by last modified time (oldest first)
             sorted_docs = sorted(
@@ -2113,19 +2132,44 @@ class FreeCADDocumentManager:
                                   threshold_mb=threshold_mb)
                         break
                     
-                    # Close document to free memory (use system call bypass)
-                    self.close_document(doc_id, save_before_close=True, _system_call=True)
-                    logger.info("document_closed_for_memory",
-                              document_id=doc_id,
-                              memory_mb=memory_mb)
-                    
-                    # Force garbage collection after each close
-                    gc.collect()
+                    # Add to candidates list
+                    candidates_to_close.append((doc_id, memory_mb))
                     
                 except Exception as e:
-                    logger.warning("memory_cleanup_close_failed",
+                    logger.warning("memory_check_failed",
                                  document_id=doc_id,
                                  error=str(e))
+        
+        # Close documents outside of lock to prevent performance issues
+        for doc_id, memory_mb in candidates_to_close:
+            try:
+                # Close document to free memory (use system call bypass)
+                self.close_document(doc_id, save_before_close=True, _system_call=True)
+                logger.info("document_closed_for_memory",
+                          document_id=doc_id,
+                          memory_mb=memory_mb)
+                
+                # Force garbage collection after each close
+                gc.collect()
+                
+                # Check if we're below threshold now
+                if MEMORY_MANAGEMENT_ENABLED:
+                    try:
+                        process = psutil.Process()
+                        current_mb = process.memory_info().rss / (1024 * 1024)
+                        threshold_mb = self.config.memory_limit_mb * self.config.memory_cleanup_threshold
+                        if current_mb < threshold_mb:
+                            logger.info("memory_cleanup_target_reached",
+                                      current_mb=current_mb,
+                                      threshold_mb=threshold_mb)
+                            break
+                    except Exception:
+                        pass
+                
+            except Exception as e:
+                logger.warning("memory_cleanup_close_failed",
+                             document_id=doc_id,
+                             error=str(e))
         
         # Final garbage collection
         gc.collect()

@@ -391,6 +391,7 @@ class TestUltraEnterpriseFreeCADService:
                 script_content="# test script",
                 parameters={},
                 output_formats=['STEP'],  # Not allowed for basic license
+                job_id="test-job-123",
                 correlation_id="test-123"
             )
         
@@ -417,6 +418,7 @@ class TestUltraEnterpriseFreeCADService:
                 script_content="# test script",
                 parameters={},
                 output_formats=['FCStd'],
+                job_id="test-job-123",
                 correlation_id="test-123"
             )
         
@@ -612,6 +614,7 @@ class TestFreeCADIntegration:
                                                 script_content="# Test script",
                                                 parameters={'width': 10, 'height': 20},
                                                 output_formats=['FCStd'],
+                                                job_id="test-job-integration",
                                                 correlation_id="test-integration"
                                             )
                                             

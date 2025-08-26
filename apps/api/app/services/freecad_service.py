@@ -612,8 +612,8 @@ class UltraEnterpriseFreeCADService:
         script_content: str,
         parameters: Dict[str, Any],
         output_formats: List[str],
-        correlation_id: Optional[str] = None,
-        job_id: Optional[str] = None
+        job_id: str,
+        correlation_id: Optional[str] = None
     ) -> FreeCADResult:
         """Execute FreeCAD operation with comprehensive monitoring and control."""
         
