@@ -25,6 +25,9 @@ from unittest.mock import Mock, MagicMock, patch
 
 import pytest
 
+# TODO: Consider using freezegun library instead of time.sleep() for time-based tests
+# This would make tests more reliable and faster by mocking time instead of waiting
+
 from app.services.freecad_document_manager import (
     FreeCADDocumentManager,
     DocumentManagerConfig,
@@ -38,7 +41,10 @@ from app.services.freecad_document_manager import (
     DocumentSnapshot,
     AssemblyCoordination,
     DocumentMigration,
-    BackupInfo
+    BackupInfo,
+    MockFreeCADAdapter,
+    RealFreeCADAdapter,
+    FreeCADAdapter
 )
 
 
@@ -221,6 +227,46 @@ class TestTransactionManagement:
         assert transaction.started_at is not None
         assert transaction.rollback_data is not None
     
+    def test_transaction_buffer(self, document_manager):
+        """Test transaction buffering functionality."""
+        document_manager.create_document(job_id="job123")
+        
+        transaction = document_manager.start_transaction("doc_job123")
+        
+        # Add buffered changes
+        transaction.add_buffered_change("author", "new_author")
+        transaction.add_buffered_change("description", "new description")
+        
+        # Commit transaction
+        document_manager.commit_transaction(transaction.transaction_id)
+        
+        # Check that buffered changes were applied
+        metadata = document_manager.documents["doc_job123"]
+        assert metadata.author == "new_author"
+        assert metadata.description == "new description"
+    
+    def test_transaction_context_manager(self, document_manager):
+        """Test transaction context manager."""
+        document_manager.create_document(job_id="job123")
+        
+        # Test successful transaction
+        with document_manager.transaction("doc_job123") as txn:
+            assert txn is not None
+            assert txn.state == TransactionState.ACTIVE
+        
+        # Transaction should be committed
+        assert txn.transaction_id not in document_manager.transactions
+        
+        # Test failed transaction
+        try:
+            with document_manager.transaction("doc_job123") as txn:
+                raise ValueError("Test error")
+        except ValueError:
+            pass
+        
+        # Transaction should be aborted
+        assert txn.transaction_id not in document_manager.transactions
+    
     def test_commit_transaction(self, document_manager):
         """Test committing a transaction."""
         metadata = document_manager.create_document(job_id="job123")
@@ -375,6 +421,69 @@ class TestUndoRedo:
         assert len(document_manager.redo_stacks["doc_job123"]) == 0
 
 
+class TestLockEnforcement:
+    """Tests for lock ownership enforcement."""
+    
+    def test_save_requires_lock_owner(self, document_manager):
+        """Test that save requires correct lock owner."""
+        document_manager.create_document(job_id="job123")
+        
+        # Acquire lock as user1
+        lock = document_manager.acquire_lock("doc_job123", "user1")
+        
+        # Try to save as different user
+        with pytest.raises(DocumentException) as exc_info:
+            document_manager.save_document("doc_job123", owner_id="user2")
+        
+        assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+        
+        # Save with correct owner should work
+        path = document_manager.save_document("doc_job123", owner_id="user1")
+        assert path is not None
+    
+    def test_close_requires_lock_owner(self, document_manager):
+        """Test that close requires correct lock owner."""
+        document_manager.create_document(job_id="job123")
+        
+        # Acquire lock as user1
+        lock = document_manager.acquire_lock("doc_job123", "user1")
+        
+        # Try to close as different user
+        with pytest.raises(DocumentException) as exc_info:
+            document_manager.close_document("doc_job123", owner_id="user2")
+        
+        assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+
+
+class TestPathSanitization:
+    """Tests for path sanitization and safety."""
+    
+    def test_job_id_sanitization(self, document_manager):
+        """Test that job IDs are sanitized in document IDs."""
+        # Create document with potentially unsafe job_id
+        metadata = document_manager.create_document(job_id="../../../etc/passwd")
+        
+        # Document ID should be sanitized
+        assert metadata.document_id == "doc___________etc_passwd"
+        assert "/" not in metadata.document_id
+        assert ".." not in metadata.document_id
+    
+    def test_safe_path_generation(self, temp_dir):
+        """Test safe path generation with configurable base directory."""
+        config = DocumentManagerConfig(
+            base_dir=str(temp_dir),
+            auto_save_interval_seconds=0
+        )
+        manager = FreeCADDocumentManager(config)
+        
+        safe_path = manager._get_safe_path("test/../file.FCStd")
+        
+        # Path should be sanitized and within base directory
+        assert str(temp_dir) in safe_path
+        assert ".." not in safe_path
+        assert safe_path == os.path.join(str(temp_dir), "test____file.FCStd")
+
+
 class TestDocumentSaveAndLoad:
     """Tests for document saving and loading."""
     
@@ -468,6 +577,36 @@ class TestBackupAndRestore:
         assert backup.backup_id.startswith("backup_doc_job123_")
         assert os.path.exists(backup.backup_path)
         assert backup.compressed == document_manager.config.enable_compression
+    
+    def test_backup_retention_policy(self, temp_dir):
+        """Test backup retention and pruning."""
+        config = DocumentManagerConfig(
+            base_dir=str(temp_dir),
+            max_backups_per_document=3,
+            backup_retention_days=1,
+            auto_save_interval_seconds=0
+        )
+        manager = FreeCADDocumentManager(config)
+        
+        manager.create_document(job_id="job123")
+        
+        # Create more backups than the limit
+        backup_paths = []
+        for i in range(5):
+            backup = manager.create_backup("doc_job123")
+            backup_paths.append(backup.backup_path)
+            time.sleep(0.1)  # Small delay to ensure different timestamps
+        
+        # Should only keep max_backups_per_document
+        assert len(manager.backups["doc_job123"]) == 3
+        
+        # Old backups should be deleted
+        for path in backup_paths[:2]:
+            assert not os.path.exists(path)
+        
+        # Recent backups should exist
+        for backup in manager.backups["doc_job123"]:
+            assert os.path.exists(backup.backup_path)
     
     def test_restore_backup(self, document_manager):
         """Test restoring from backup."""
@@ -596,9 +735,75 @@ class TestAutoRecovery:
         assert recovered is False
 
 
+class TestFreeCADAdapter:
+    """Tests for FreeCAD adapter pattern."""
+    
+    def test_mock_adapter_creation(self):
+        """Test creating mock adapter."""
+        adapter = MockFreeCADAdapter()
+        doc = adapter.create_document("test_doc")
+        
+        assert doc["name"] == "test_doc"
+        assert "created_at" in doc
+        assert doc["objects"] == []
+    
+    def test_mock_adapter_save_and_open(self, temp_dir):
+        """Test saving and opening documents with mock adapter."""
+        adapter = MockFreeCADAdapter()
+        
+        # Create document
+        doc = adapter.create_document("test_doc")
+        doc["objects"].append({"name": "obj1", "type": "Part"})
+        
+        # Save document
+        save_path = str(temp_dir / "test_doc.json")
+        assert adapter.save_document(doc, save_path)
+        assert os.path.exists(save_path)
+        
+        # Open document
+        loaded_doc = adapter.open_document(save_path)
+        assert loaded_doc["name"] == "test_doc"
+        assert len(loaded_doc["objects"]) == 1
+    
+    def test_mock_adapter_transactions(self):
+        """Test transaction operations with mock adapter."""
+        adapter = MockFreeCADAdapter()
+        
+        doc = adapter.create_document("test_doc")
+        original_state = doc.copy()
+        
+        # Start transaction
+        assert adapter.start_transaction(doc, "test_txn")
+        
+        # Modify document
+        doc["objects"].append({"name": "new_obj"})
+        
+        # Abort transaction
+        assert adapter.abort_transaction(doc)
+        
+        # Document should be restored
+        assert doc["objects"] == original_state["objects"]
+    
+    def test_document_manager_with_mock_adapter(self, temp_dir):
+        """Test document manager using mock adapter."""
+        config = DocumentManagerConfig(
+            use_real_freecad=False,
+            base_dir=str(temp_dir),
+            auto_save_interval_seconds=0
+        )
+        manager = FreeCADDocumentManager(config)
+        
+        assert isinstance(manager.freecad_adapter, MockFreeCADAdapter)
+        
+        # Test basic operations
+        metadata = manager.create_document(job_id="test_job")
+        assert metadata.document_id == "doc_test_job"
+
+
 class TestMemoryManagement:
     """Tests for memory management."""
     
+    @patch('app.services.freecad_document_manager.PSUTIL_AVAILABLE', True)
     @patch('psutil.Process')
     def test_memory_limit_check(self, mock_process, document_manager):
         """Test memory limit checking."""

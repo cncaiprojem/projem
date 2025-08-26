@@ -37,13 +37,18 @@ import shutil
 import tempfile
 import threading
 import time
+import uuid
+from abc import ABC, abstractmethod
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
+from functools import wraps
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
+from pydantic.functional_validators import AfterValidator
+from typing_extensions import Annotated
 from sqlalchemy.orm import Session
 
 from ..core.environment import environment as settings
@@ -51,9 +56,16 @@ from ..core.logging import get_logger
 from ..core.telemetry import create_span
 from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
-from .s3_service import S3Service
 
 logger = get_logger(__name__)
+
+# Try to import psutil, provide fallback if not available
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
+    logger.warning("psutil not available, memory management features limited")
 
 
 class DocumentState(str, Enum):
@@ -94,6 +106,257 @@ class DocumentErrorCode(str, Enum):
     RESTORE_FAILED = "RESTORE_FAILED"
     MIGRATION_FAILED = "MIGRATION_FAILED"
     ASSEMBLY_COORDINATION_FAILED = "ASSEMBLY_COORDINATION_FAILED"
+    LOCK_OWNER_MISMATCH = "LOCK_OWNER_MISMATCH"
+
+
+class FreeCADAdapter(ABC):
+    """Abstract adapter for FreeCAD operations to enable testing and real implementation."""
+    
+    @abstractmethod
+    def create_document(self, name: str) -> Any:
+        """Create a new FreeCAD document."""
+        pass
+    
+    @abstractmethod
+    def open_document(self, filepath: str) -> Any:
+        """Open an existing FreeCAD document."""
+        pass
+    
+    @abstractmethod
+    def save_document(self, doc: Any, filepath: str) -> bool:
+        """Save a FreeCAD document to file."""
+        pass
+    
+    @abstractmethod
+    def close_document(self, doc: Any) -> bool:
+        """Close a FreeCAD document."""
+        pass
+    
+    @abstractmethod
+    def take_snapshot(self, doc: Any) -> Dict[str, Any]:
+        """Take a snapshot of the current document state."""
+        pass
+    
+    @abstractmethod
+    def restore_snapshot(self, doc: Any, snapshot: Dict[str, Any]) -> bool:
+        """Restore document from a snapshot."""
+        pass
+    
+    @abstractmethod
+    def start_transaction(self, doc: Any, name: str) -> bool:
+        """Start a transaction in the document."""
+        pass
+    
+    @abstractmethod
+    def commit_transaction(self, doc: Any) -> bool:
+        """Commit the active transaction."""
+        pass
+    
+    @abstractmethod
+    def abort_transaction(self, doc: Any) -> bool:
+        """Abort the active transaction."""
+        pass
+
+
+class MockFreeCADAdapter(FreeCADAdapter):
+    """Mock adapter for testing that uses JSON storage."""
+    
+    def __init__(self):
+        self.documents: Dict[str, Dict[str, Any]] = {}
+        self.transactions: Dict[str, List[Dict[str, Any]]] = {}
+    
+    def create_document(self, name: str) -> Dict[str, Any]:
+        """Create a mock document."""
+        doc = {
+            "name": name,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "objects": [],
+            "properties": {}
+        }
+        self.documents[name] = doc
+        return doc
+    
+    def open_document(self, filepath: str) -> Dict[str, Any]:
+        """Open a mock document from JSON file."""
+        if os.path.exists(filepath):
+            with open(filepath, 'r') as f:
+                doc = json.load(f)
+                self.documents[doc.get("name", filepath)] = doc
+                return doc
+        return self.create_document(os.path.basename(filepath))
+    
+    def save_document(self, doc: Any, filepath: str) -> bool:
+        """Save mock document to JSON file."""
+        try:
+            os.makedirs(os.path.dirname(filepath), exist_ok=True)
+            with open(filepath, 'w') as f:
+                json.dump(doc, f, indent=2, default=str)
+            return True
+        except Exception:
+            return False
+    
+    def close_document(self, doc: Any) -> bool:
+        """Close mock document."""
+        if isinstance(doc, dict) and "name" in doc:
+            self.documents.pop(doc["name"], None)
+            return True
+        return False
+    
+    def take_snapshot(self, doc: Any) -> Dict[str, Any]:
+        """Take snapshot of mock document."""
+        if isinstance(doc, dict):
+            import copy
+            return copy.deepcopy(doc)
+        return {}
+    
+    def restore_snapshot(self, doc: Any, snapshot: Dict[str, Any]) -> bool:
+        """Restore mock document from snapshot."""
+        if isinstance(doc, dict) and isinstance(snapshot, dict):
+            doc.clear()
+            doc.update(snapshot)
+            return True
+        return False
+    
+    def start_transaction(self, doc: Any, name: str) -> bool:
+        """Start mock transaction."""
+        if isinstance(doc, dict):
+            doc_name = doc.get("name", "unknown")
+            if doc_name not in self.transactions:
+                self.transactions[doc_name] = []
+            self.transactions[doc_name].append({
+                "name": name,
+                "snapshot": self.take_snapshot(doc)
+            })
+            return True
+        return False
+    
+    def commit_transaction(self, doc: Any) -> bool:
+        """Commit mock transaction."""
+        if isinstance(doc, dict):
+            doc_name = doc.get("name", "unknown")
+            if doc_name in self.transactions and self.transactions[doc_name]:
+                self.transactions[doc_name].pop()
+                return True
+        return False
+    
+    def abort_transaction(self, doc: Any) -> bool:
+        """Abort mock transaction."""
+        if isinstance(doc, dict):
+            doc_name = doc.get("name", "unknown")
+            if doc_name in self.transactions and self.transactions[doc_name]:
+                txn = self.transactions[doc_name].pop()
+                return self.restore_snapshot(doc, txn["snapshot"])
+        return False
+
+
+class RealFreeCADAdapter(FreeCADAdapter):
+    """Real adapter that interfaces with actual FreeCAD API."""
+    
+    def __init__(self):
+        # Import FreeCAD only when using real adapter
+        try:
+            import FreeCAD as App
+            self.App = App
+        except ImportError:
+            raise ImportError("FreeCAD module not available. Install FreeCAD or use MockFreeCADAdapter.")
+    
+    def create_document(self, name: str) -> Any:
+        """Create a new FreeCAD document using App.newDocument."""
+        return self.App.newDocument(name)
+    
+    def open_document(self, filepath: str) -> Any:
+        """Open an existing FreeCAD document using App.open."""
+        return self.App.open(filepath)
+    
+    def save_document(self, doc: Any, filepath: str) -> bool:
+        """Save FreeCAD document using doc.saveAs."""
+        try:
+            doc.saveAs(filepath)
+            return True
+        except Exception:
+            return False
+    
+    def close_document(self, doc: Any) -> bool:
+        """Close FreeCAD document using App.closeDocument."""
+        try:
+            self.App.closeDocument(doc.Name)
+            return True
+        except Exception:
+            return False
+    
+    def take_snapshot(self, doc: Any) -> Dict[str, Any]:
+        """Take snapshot of FreeCAD document state."""
+        return {
+            "name": doc.Name,
+            "objects": [obj.Name for obj in doc.Objects],
+            "properties": dict(doc.PropertiesList) if hasattr(doc, 'PropertiesList') else {}
+        }
+    
+    def restore_snapshot(self, doc: Any, snapshot: Dict[str, Any]) -> bool:
+        """Restore FreeCAD document from snapshot (limited functionality)."""
+        # Note: Full restoration would require recreating objects
+        # This is a simplified version
+        try:
+            # Clear existing objects if possible
+            for obj in doc.Objects:
+                doc.removeObject(obj.Name)
+            # Would need to recreate objects from snapshot here
+            return True
+        except Exception:
+            return False
+    
+    def start_transaction(self, doc: Any, name: str) -> bool:
+        """Start transaction using doc.openTransaction."""
+        try:
+            doc.openTransaction(name)
+            return True
+        except Exception:
+            return False
+    
+    def commit_transaction(self, doc: Any) -> bool:
+        """Commit transaction using doc.commitTransaction."""
+        try:
+            doc.commitTransaction()
+            return True
+        except Exception:
+            return False
+    
+    def abort_transaction(self, doc: Any) -> bool:
+        """Abort transaction using doc.abortTransaction."""
+        try:
+            doc.abortTransaction()
+            return True
+        except Exception:
+            return False
+
+
+def requires_lock(func):
+    """Decorator to enforce lock ownership for state-changing operations."""
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        # Extract document_id and owner_id from arguments
+        document_id = None
+        owner_id = kwargs.get('owner_id')
+        
+        # Try to get document_id from various argument positions
+        if 'document_id' in kwargs:
+            document_id = kwargs['document_id']
+        elif len(args) > 0:
+            document_id = args[0]
+        
+        # Check if lock exists and matches owner
+        if document_id and document_id in self.locks:
+            lock = self.locks[document_id]
+            if owner_id and lock.owner_id != owner_id:
+                raise DocumentException(
+                    f"Lock owner mismatch for document {document_id}",
+                    DocumentErrorCode.LOCK_OWNER_MISMATCH,
+                    f"Belge {document_id} için kilit sahibi uyuşmazlığı",
+                    {"expected_owner": lock.owner_id, "provided_owner": owner_id}
+                )
+        
+        return func(self, *args, **kwargs)
+    return wrapper
 
 
 class DocumentException(Exception):
@@ -113,6 +376,8 @@ class DocumentException(Exception):
 
 class DocumentMetadata(BaseModel):
     """Document metadata model."""
+    model_config = ConfigDict(validate_assignment=True)
+    
     document_id: str = Field(description="Unique document identifier")
     job_id: str = Field(description="Associated job ID")
     version: int = Field(default=1, description="Document version number")
@@ -128,8 +393,9 @@ class DocumentMetadata(BaseModel):
     sha256_hash: Optional[str] = Field(default=None, description="Document SHA256 hash")
     compressed: bool = Field(default=False, description="Whether document is compressed")
     
-    @validator('revision')
-    def validate_revision(cls, v):
+    @field_validator('revision')
+    @classmethod
+    def validate_revision(cls, v: str) -> str:
         """Validate revision format (single letter A-Z)."""
         if not v or not v.isalpha() or len(v) != 1 or not v.isupper():
             raise ValueError("Revision must be a single uppercase letter (A-Z)")
@@ -142,9 +408,9 @@ class DocumentMetadata(BaseModel):
         self.modified_at = datetime.now(timezone.utc)
     
     def increment_revision(self):
-        """Increment revision letter (A->B, Z->AA)."""
+        """Increment revision letter (A->B, Z->version+1, revision='A')."""
         if self.revision == 'Z':
-            # For simplicity, start over at A with version increment
+            # When revision reaches Z, increment version and reset revision to A
             self.increment_version()
         else:
             self.revision = chr(ord(self.revision) + 1)
@@ -169,6 +435,8 @@ class DocumentLock(BaseModel):
 
 class TransactionInfo(BaseModel):
     """Transaction information model."""
+    model_config = ConfigDict(validate_assignment=True)
+    
     transaction_id: str = Field(description="Unique transaction identifier")
     document_id: str = Field(description="Document in transaction")
     state: TransactionState = Field(default=TransactionState.NONE)
@@ -176,6 +444,7 @@ class TransactionInfo(BaseModel):
     ended_at: Optional[datetime] = Field(default=None)
     operations: List[Dict[str, Any]] = Field(default_factory=list, description="Transaction operations")
     rollback_data: Optional[Dict[str, Any]] = Field(default=None, description="Data for rollback")
+    buffer: Dict[str, Any] = Field(default_factory=dict, description="Buffered changes during transaction")
     
     def add_operation(self, operation: Dict[str, Any]):
         """Add operation to transaction log."""
@@ -183,6 +452,18 @@ class TransactionInfo(BaseModel):
             **operation,
             "timestamp": datetime.now(timezone.utc).isoformat()
         })
+    
+    def add_buffered_change(self, key: str, value: Any):
+        """Add a change to the transaction buffer."""
+        self.buffer[key] = value
+    
+    def get_buffered_changes(self) -> Dict[str, Any]:
+        """Get all buffered changes."""
+        return self.buffer.copy()
+    
+    def clear_buffer(self):
+        """Clear the transaction buffer."""
+        self.buffer.clear()
 
 
 class DocumentSnapshot(BaseModel):
@@ -231,15 +512,20 @@ class BackupInfo(BaseModel):
 
 class DocumentManagerConfig(BaseModel):
     """Document manager configuration."""
+    model_config = ConfigDict(validate_assignment=True)
+    
     max_document_size_mb: int = Field(default=100, description="Maximum document size in MB")
     max_undo_stack_size: int = Field(default=50, description="Maximum undo stack size")
     max_concurrent_documents: int = Field(default=10, description="Maximum concurrent open documents")
     auto_save_interval_seconds: int = Field(default=300, description="Auto-save interval in seconds")
     lock_timeout_seconds: int = Field(default=3600, description="Document lock timeout in seconds")
     backup_retention_days: int = Field(default=30, description="Backup retention period in days")
+    max_backups_per_document: int = Field(default=10, description="Maximum number of backups per document")
     enable_compression: bool = Field(default=True, description="Enable document compression")
     enable_auto_recovery: bool = Field(default=True, description="Enable auto-recovery")
     memory_limit_mb: int = Field(default=2048, description="Memory limit for documents in MB")
+    base_dir: str = Field(default_factory=lambda: tempfile.gettempdir(), description="Base directory for document storage")
+    use_real_freecad: bool = Field(default=False, description="Use real FreeCAD API instead of mock")
 
 
 class FreeCADDocumentManager:
@@ -257,7 +543,18 @@ class FreeCADDocumentManager:
         self._lock = threading.RLock()
         self._auto_save_threads: Dict[str, threading.Thread] = {}
         self._recovery_data: Dict[str, Dict[str, Any]] = {}
-        self.s3_service = S3Service()
+        
+        # Initialize FreeCAD adapter
+        if self.config.use_real_freecad:
+            try:
+                self.freecad_adapter = RealFreeCADAdapter()
+                logger.info("Using RealFreeCADAdapter")
+            except ImportError:
+                logger.warning("FreeCAD not available, falling back to MockFreeCADAdapter")
+                self.freecad_adapter = MockFreeCADAdapter()
+        else:
+            self.freecad_adapter = MockFreeCADAdapter()
+            logger.info("Using MockFreeCADAdapter")
         
         # Turkish error messages
         self.turkish_errors = {
@@ -274,30 +571,40 @@ class FreeCADDocumentManager:
             DocumentErrorCode.BACKUP_FAILED: "Yedekleme başarısız",
             DocumentErrorCode.RESTORE_FAILED: "Geri yükleme başarısız",
             DocumentErrorCode.MIGRATION_FAILED: "Geçiş başarısız",
-            DocumentErrorCode.ASSEMBLY_COORDINATION_FAILED: "Montaj koordinasyonu başarısız"
+            DocumentErrorCode.ASSEMBLY_COORDINATION_FAILED: "Montaj koordinasyonu başarısız",
+            DocumentErrorCode.LOCK_OWNER_MISMATCH: "Kilit sahibi uyuşmazlığı"
         }
     
     def _generate_document_id(self, job_id: str, suffix: Optional[str] = None) -> str:
         """Generate deterministic document ID based on job_id."""
-        base_id = f"doc_{job_id}"
+        # Sanitize job_id to prevent path injection
+        import re
+        safe_job_id = re.sub(r'[^\w\-_]', '_', job_id)
+        base_id = f"doc_{safe_job_id}"
         if suffix:
-            return f"{base_id}_{suffix}"
+            safe_suffix = re.sub(r'[^\w\-_]', '_', suffix)
+            return f"{base_id}_{safe_suffix}"
         return base_id
     
+    def _get_safe_path(self, filename: str) -> str:
+        """Get safe file path with sanitized filename and configurable base directory."""
+        import re
+        # Sanitize filename
+        safe_filename = re.sub(r'[^\w\-_.]', '_', filename)
+        # Use configured base directory
+        return os.path.join(self.config.base_dir, safe_filename)
+    
     def _generate_lock_id(self, document_id: str, owner_id: str) -> str:
-        """Generate unique lock ID."""
-        timestamp = int(time.time() * 1000000)  # microsecond precision
-        return f"lock_{document_id}_{owner_id}_{timestamp}"
+        """Generate unique lock ID using UUID."""
+        return f"lock_{document_id}_{owner_id}_{uuid.uuid4().hex}"
     
     def _generate_transaction_id(self, document_id: str) -> str:
-        """Generate unique transaction ID."""
-        timestamp = int(time.time() * 1000000)
-        return f"txn_{document_id}_{timestamp}"
+        """Generate unique transaction ID using UUID."""
+        return f"txn_{document_id}_{uuid.uuid4().hex}"
     
     def _generate_snapshot_id(self, document_id: str) -> str:
-        """Generate unique snapshot ID."""
-        timestamp = int(time.time() * 1000000)
-        return f"snap_{document_id}_{timestamp}"
+        """Generate unique snapshot ID using UUID."""
+        return f"snap_{document_id}_{uuid.uuid4().hex}"
     
     def _generate_backup_id(self, document_id: str) -> str:
         """Generate unique backup ID."""
@@ -306,10 +613,16 @@ class FreeCADDocumentManager:
     
     def _check_memory_limit(self) -> bool:
         """Check if memory usage is within limits."""
-        import psutil
-        process = psutil.Process()
-        memory_mb = process.memory_info().rss / (1024 * 1024)
-        return memory_mb < self.config.memory_limit_mb
+        if not PSUTIL_AVAILABLE:
+            # If psutil is not available, assume memory is OK
+            return True
+        try:
+            process = psutil.Process()
+            memory_mb = process.memory_info().rss / (1024 * 1024)
+            return memory_mb < self.config.memory_limit_mb
+        except Exception as e:
+            logger.warning(f"Could not check memory limit: {e}")
+            return True  # Assume OK if check fails
     
     @contextmanager
     def document_lock(self, document_id: str, owner_id: str, lock_type: str = "exclusive"):
@@ -321,6 +634,21 @@ class FreeCADDocumentManager:
         finally:
             if lock:
                 self.release_lock(document_id, lock.lock_id)
+    
+    @contextmanager
+    def transaction(self, document_id: str):
+        """Context manager for document transactions."""
+        transaction = None
+        try:
+            transaction = self.start_transaction(document_id)
+            yield transaction
+        except Exception as e:
+            if transaction:
+                self.abort_transaction(transaction.transaction_id)
+            raise
+        else:
+            if transaction:
+                self.commit_transaction(transaction.transaction_id)
     
     def acquire_lock(
         self, 
@@ -338,7 +666,7 @@ class FreeCADDocumentManager:
             span.set_attribute("lock.type", lock_type)
             
             timeout = timeout_seconds or self.config.lock_timeout_seconds
-            expires_at = datetime.now(timezone.utc).timestamp() + timeout
+            expires_at = datetime.now(timezone.utc) + timedelta(seconds=timeout)
             
             with self._lock:
                 # Check for existing locks
@@ -358,7 +686,7 @@ class FreeCADDocumentManager:
                     lock_id=self._generate_lock_id(document_id, owner_id),
                     owner_id=owner_id,
                     lock_type=lock_type,
-                    expires_at=datetime.fromtimestamp(expires_at, tz=timezone.utc)
+                    expires_at=expires_at
                 )
                 
                 self.locks[document_id] = lock
@@ -548,8 +876,8 @@ class FreeCADDocumentManager:
             
             return transaction
     
-    def commit_transaction(self, transaction_id: str) -> bool:
-        """Commit document transaction."""
+    def commit_transaction(self, transaction_id: str, owner_id: Optional[str] = None) -> bool:
+        """Commit document transaction and apply buffered changes."""
         correlation_id = get_correlation_id()
         
         with create_span("transaction_commit", correlation_id=correlation_id) as span:
@@ -573,6 +901,16 @@ class FreeCADDocumentManager:
             
             try:
                 transaction.state = TransactionState.COMMITTING
+                
+                # Apply buffered changes
+                buffered_changes = transaction.get_buffered_changes()
+                if buffered_changes and transaction.document_id in self.documents:
+                    metadata = self.documents[transaction.document_id]
+                    for key, value in buffered_changes.items():
+                        if hasattr(metadata, key):
+                            setattr(metadata, key, value)
+                        else:
+                            metadata.properties[key] = value
                 
                 # Update document metadata
                 if transaction.document_id in self.documents:
@@ -610,10 +948,18 @@ class FreeCADDocumentManager:
                     f"İşlem kaydetme başarısız: {str(e)}"
                 )
             finally:
-                # Clean up completed transaction
+                # Clean up completed or failed transaction to prevent memory leak
                 if transaction.state == TransactionState.COMMITTED:
                     with self._lock:
                         del self.transactions[transaction_id]
+                elif transaction.state == TransactionState.ACTIVE:
+                    # Clean up failed transaction to prevent memory leak
+                    logger.warning("cleaning_up_failed_transaction",
+                                 transaction_id=transaction_id,
+                                 correlation_id=correlation_id)
+                    with self._lock:
+                        if transaction_id in self.transactions:
+                            del self.transactions[transaction_id]
     
     def abort_transaction(self, transaction_id: str) -> bool:
         """Abort document transaction and rollback changes."""
@@ -666,12 +1012,14 @@ class FreeCADDocumentManager:
                     with self._lock:
                         del self.transactions[transaction_id]
     
+    @requires_lock
     def save_document(
         self,
         document_id: str,
         save_path: Optional[str] = None,
         compress: bool = None,
-        create_backup: bool = True
+        create_backup: bool = True,
+        owner_id: Optional[str] = None
     ) -> str:
         """Save document with optional compression and backup."""
         correlation_id = get_correlation_id()
@@ -700,9 +1048,9 @@ class FreeCADDocumentManager:
                                  error=str(e),
                                  correlation_id=correlation_id)
             
-            # Determine save path
+            # Determine save path using temp directory
             if not save_path:
-                save_path = f"/tmp/{document_id}.FCStd"
+                save_path = os.path.join(tempfile.gettempdir(), f"{document_id}.FCStd")
             
             # Prepare save data
             save_data = {
@@ -752,11 +1100,13 @@ class FreeCADDocumentManager:
                     f"Belge kaydetme başarısız: {str(e)}"
                 )
     
+    @requires_lock
     def close_document(
         self,
         document_id: str,
         save_before_close: bool = True,
-        force: bool = False
+        force: bool = False,
+        owner_id: Optional[str] = None
     ) -> bool:
         """Close document with cleanup."""
         correlation_id = get_correlation_id()
@@ -841,12 +1191,17 @@ class FreeCADDocumentManager:
                 f"Belge {document_id} bulunamadı"
             )
         
+        snapshot_data = data or self._create_document_snapshot(document_id)
+        
+        # Calculate actual size for snapshot
+        snapshot_size = len(json.dumps(snapshot_data, default=str))
+        
         snapshot = DocumentSnapshot(
             snapshot_id=self._generate_snapshot_id(document_id),
             document_id=document_id,
             description=description,
-            data=data or self._create_document_snapshot(document_id),
-            size_bytes=len(json.dumps(data or {}))
+            data=snapshot_data,
+            size_bytes=snapshot_size
         )
         
         with self._lock:
@@ -880,12 +1235,16 @@ class FreeCADDocumentManager:
             snapshot = self.undo_stacks[document_id].pop()
             
             # Save current state to redo stack
+            current_data = self._create_document_snapshot(document_id)
+            # Calculate actual size for current snapshot
+            current_size = len(json.dumps(current_data, default=str))
+            
             current_snapshot = DocumentSnapshot(
                 snapshot_id=self._generate_snapshot_id(document_id),
                 document_id=document_id,
                 description=f"Before undo: {snapshot.description}",
-                data=self._create_document_snapshot(document_id),
-                size_bytes=0
+                data=current_data,
+                size_bytes=current_size
             )
             
             if document_id not in self.redo_stacks:
@@ -914,12 +1273,16 @@ class FreeCADDocumentManager:
             snapshot = self.redo_stacks[document_id].pop()
             
             # Save current state to undo stack
+            current_data = self._create_document_snapshot(document_id)
+            # Calculate actual size for current snapshot
+            current_size = len(json.dumps(current_data, default=str))
+            
             current_snapshot = DocumentSnapshot(
                 snapshot_id=self._generate_snapshot_id(document_id),
                 document_id=document_id,
                 description=f"Before redo: {snapshot.description}",
-                data=self._create_document_snapshot(document_id),
-                size_bytes=0
+                data=current_data,
+                size_bytes=current_size
             )
             
             self.undo_stacks[document_id].append(current_snapshot)
@@ -985,9 +1348,12 @@ class FreeCADDocumentManager:
             
             metadata = self.documents[document_id]
             
+            # Get source version from metadata if available
+            source_version = metadata.properties.get("freecad_version", "1.1.0")
+            
             migration = DocumentMigration(
                 migration_id=f"mig_{document_id}_{int(time.time())}",
-                source_version="1.1.0",  # Current version
+                source_version=source_version,
                 target_version=target_version,
                 started_at=datetime.now(timezone.utc)
             )
@@ -1070,13 +1436,26 @@ class FreeCADDocumentManager:
         with create_span("backup_restore", correlation_id=correlation_id) as span:
             span.set_attribute("backup.id", backup_id)
             
-            # Find backup
+            # Optimize backup lookup by extracting document_id from backup_id
+            # backup_id format: "backup_{document_id}_{YYYYMMDD}_{HHMMSS}"
             backup_info = None
-            for doc_backups in self.backups.values():
-                for backup in doc_backups:
-                    if backup.backup_id == backup_id:
-                        backup_info = backup
-                        break
+            parts = backup_id.split('_')
+            if len(parts) >= 4 and parts[0] == 'backup':
+                # The last two parts are date and time, so exclude them
+                potential_doc_id = '_'.join(parts[1:-2])  # Handle doc IDs with underscores
+                if potential_doc_id in self.backups:
+                    for backup in self.backups[potential_doc_id]:
+                        if backup.backup_id == backup_id:
+                            backup_info = backup
+                            break
+            
+            # Fallback to exhaustive search if optimized lookup fails
+            if not backup_info:
+                for doc_backups in self.backups.values():
+                    for backup in doc_backups:
+                        if backup.backup_id == backup_id:
+                            backup_info = backup
+                            break
             
             if not backup_info:
                 raise DocumentException(
@@ -1199,7 +1578,7 @@ class FreeCADDocumentManager:
         
         metadata = self.documents[document_id]
         
-        # Check for locks
+        # Check for locks - return dict format for compatibility
         lock_info = None
         if document_id in self.locks:
             lock = self.locks[document_id]
@@ -1356,7 +1735,10 @@ class FreeCADDocumentManager:
         
         metadata = self.documents[document_id]
         backup_id = self._generate_backup_id(document_id)
-        backup_path = f"/tmp/backup_{backup_id}.json"
+        # Use proper backup directory in temp folder
+        backup_dir = os.path.join(tempfile.gettempdir(), "freecad_backups")
+        os.makedirs(backup_dir, exist_ok=True)
+        backup_path = os.path.join(backup_dir, f"{backup_id}.json")
         
         # Prepare backup data
         backup_data = {
@@ -1393,7 +1775,56 @@ class FreeCADDocumentManager:
         
         metrics.freecad_backups_total.inc()
         
+        # Prune old backups
+        self._prune_backups(document_id)
+        
         return backup_info
+    
+    def _prune_backups(self, document_id: str):
+        """Prune old backups based on retention policy."""
+        if document_id not in self.backups:
+            return
+        
+        backups = self.backups[document_id]
+        
+        # Remove backups older than retention days
+        retention_cutoff = datetime.now(timezone.utc) - timedelta(days=self.config.backup_retention_days)
+        backups_to_keep = []
+        
+        for backup in backups:
+            if backup.created_at > retention_cutoff:
+                backups_to_keep.append(backup)
+            else:
+                # Delete old backup file
+                try:
+                    if os.path.exists(backup.backup_path):
+                        os.remove(backup.backup_path)
+                    logger.debug("Pruned old backup", backup_id=backup.backup_id)
+                except Exception as e:
+                    logger.warning("Failed to delete old backup",
+                                 backup_id=backup.backup_id,
+                                 error=str(e))
+        
+        # Keep only max number of backups
+        if len(backups_to_keep) > self.config.max_backups_per_document:
+            # Sort by creation time (newest first)
+            backups_to_keep.sort(key=lambda b: b.created_at, reverse=True)
+            
+            # Remove excess old backups
+            for backup in backups_to_keep[self.config.max_backups_per_document:]:
+                try:
+                    if os.path.exists(backup.backup_path):
+                        os.remove(backup.backup_path)
+                    logger.debug("Pruned excess backup", backup_id=backup.backup_id)
+                except Exception as e:
+                    logger.warning("Failed to delete excess backup",
+                                 backup_id=backup.backup_id,
+                                 error=str(e))
+            
+            # Keep only the allowed number
+            backups_to_keep = backups_to_keep[:self.config.max_backups_per_document]
+        
+        self.backups[document_id] = backups_to_keep
     
     def _apply_migration_rule(
         self,

@@ -200,16 +200,41 @@ class DocumentTransactionResponse(BaseModel):
         }
 
 
+class DocumentLockStatus(BaseModel):
+    """Document lock status model."""
+    locked: bool = Field(description="Whether document is locked")
+    lock_id: str = Field(description="Lock identifier")
+    owner: str = Field(description="Lock owner identifier")
+    expires_at: Optional[str] = Field(default=None, description="Lock expiration time")
+    is_expired: bool = Field(description="Whether lock has expired")
+
+
+class DocumentTransactionStatus(BaseModel):
+    """Document transaction status model."""
+    transaction_id: str = Field(description="Transaction identifier")
+    state: str = Field(description="Transaction state")
+    started_at: Optional[str] = Field(default=None, description="Transaction start time")
+    operations: int = Field(description="Number of operations in transaction")
+
+
+class AssemblyStatus(BaseModel):
+    """Assembly coordination status model."""
+    is_assembly: bool = Field(description="Whether document is an assembly")
+    parent: Optional[str] = Field(default=None, description="Parent document ID")
+    children: List[str] = Field(default_factory=list, description="Child document IDs")
+    constraints: int = Field(description="Number of constraints")
+
+
 class DocumentStatusResponse(BaseModel):
     """Comprehensive document status response."""
     status: str = Field(description="Document status")
     document_id: str = Field(description="Document identifier")
     metadata: Optional[DocumentMetadataResponse] = Field(default=None, description="Document metadata")
-    lock: Optional[Dict[str, Any]] = Field(default=None, description="Lock information if locked")
-    transactions: List[Dict[str, Any]] = Field(default_factory=list, description="Active transactions")
+    lock: Optional[DocumentLockStatus] = Field(default=None, description="Lock information if locked")
+    transactions: List[DocumentTransactionStatus] = Field(default_factory=list, description="Active transactions")
     undo_stack_size: int = Field(default=0, description="Number of undo operations available")
     redo_stack_size: int = Field(default=0, description="Number of redo operations available")
-    assembly: Optional[Dict[str, Any]] = Field(default=None, description="Assembly coordination info")
+    assembly: Optional[AssemblyStatus] = Field(default=None, description="Assembly coordination info")
     backup_count: int = Field(default=0, description="Number of available backups")
     
     class Config:

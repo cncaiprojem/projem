@@ -732,8 +732,13 @@ class UltraEnterpriseFreeCADService:
                                  job_id=job_id,
                                  error=str(e),
                                  correlation_id=correlation_id)
-                    # Continue without document lifecycle management
-                    pass
+                    # Raise exception instead of silently continuing without document lifecycle
+                    raise FreeCADServiceError(
+                        message=f"Failed to initialize document lifecycle for job {job_id}",
+                        error_code="DOCUMENT_LIFECYCLE_INIT_FAILED",
+                        turkish_message=f"İş {job_id} için belge yaşam döngüsü başlatılamadı",
+                        details={"job_id": job_id, "error": str(e)}
+                    )
             
             # Execute with managed resources
             with self.managed_temp_directory() as temp_dir:
@@ -822,8 +827,11 @@ class UltraEnterpriseFreeCADService:
                             # Abort transaction on failure
                             try:
                                 document_manager.abort_transaction(transaction_info.transaction_id)
-                            except Exception:
-                                pass
+                            except Exception as abort_exc:
+                                logger.error("transaction_abort_on_finalize_failed",
+                                           transaction_id=transaction_info.transaction_id,
+                                           error=str(abort_exc),
+                                           correlation_id=correlation_id)
                     
                     logger.info("freecad_operation_completed",
                               operation_type=operation_type,
