@@ -56,9 +56,38 @@ class Settings(BaseSettings):
     # Logging configuration
     pii_redaction_enabled: bool = True  # Enable PII redaction in logs (default to true for security)
 
+    # Ultra-Enterprise FreeCAD Configuration
     freecadcmd_path: str | None = None
     freecad_timeout_seconds: int = 1200
     freecad_asm4_required: bool = True
+    
+    # FreeCAD Process Management
+    freecad_max_workers: int = 4  # Max concurrent FreeCAD processes
+    freecad_max_threads: int = 8  # Max threads for I/O operations
+    freecad_memory_limit_mb: int = 4096  # Default memory limit
+    freecad_cpu_limit_percent: float = 80.0  # Default CPU limit
+    
+    # Circuit Breaker Configuration
+    freecad_circuit_breaker_threshold: int = 5  # Failure threshold
+    freecad_circuit_breaker_recovery_timeout: int = 60  # Recovery timeout in seconds
+    
+    # Security and Validation
+    freecad_enable_input_sanitization: bool = True
+    freecad_enable_output_validation: bool = True
+    freecad_max_script_size_kb: int = 500  # Max script size in KB
+    freecad_allowed_modules: str = "App,Part,Sketcher,Asm4,Path,Draft,Mesh,Import"
+    
+    # Monitoring and Observability
+    freecad_enable_process_monitoring: bool = True
+    freecad_monitoring_interval_seconds: int = 1
+    freecad_enable_metrics_collection: bool = True
+    
+    # Retry Configuration
+    freecad_max_retries: int = 3
+    freecad_base_retry_delay_seconds: float = 1.0
+    freecad_max_retry_delay_seconds: float = 60.0
+    freecad_retry_backoff_multiplier: float = 2.0
+    freecad_retry_jitter_enabled: bool = True
 
     # Model yönetişimi
     model_policy: str = "quality_first"  # quality_first | cost_first

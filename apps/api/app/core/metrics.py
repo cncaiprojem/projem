@@ -137,6 +137,71 @@ trace_spans_total = Counter(
     registry=REGISTRY
 )
 
+# FreeCAD-specific metrics
+freecad_operations_total = Counter(
+    'freecad_operations_total',
+    'Total number of FreeCAD operations',
+    ['operation_type', 'license_tier', 'status'],
+    registry=REGISTRY
+)
+
+freecad_operation_duration_seconds = Histogram(
+    'freecad_operation_duration_seconds',
+    'Time taken to complete FreeCAD operations',
+    ['operation_type', 'license_tier', 'status'],
+    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, float('inf')),
+    registry=REGISTRY
+)
+
+freecad_memory_peak_mb = Gauge(
+    'freecad_memory_peak_mb',
+    'Peak memory usage during FreeCAD operations',
+    ['operation_type', 'license_tier'],
+    registry=REGISTRY
+)
+
+freecad_cpu_average_percent = Gauge(
+    'freecad_cpu_average_percent',
+    'Average CPU usage during FreeCAD operations',
+    ['operation_type', 'license_tier'],
+    registry=REGISTRY
+)
+
+freecad_circuit_breaker_state = Gauge(
+    'freecad_circuit_breaker_state',
+    'Circuit breaker state (0=closed, 1=open, 2=half-open)',
+    registry=REGISTRY
+)
+
+freecad_active_processes = Gauge(
+    'freecad_active_processes',
+    'Number of active FreeCAD processes',
+    registry=REGISTRY
+)
+
+# License-specific metrics
+license_operations_total = Counter(
+    'license_operations_total',
+    'Total number of license operations',
+    ['operation', 'license_type', 'status', 'user_type'],
+    registry=REGISTRY
+)
+
+license_assignment_duration_seconds = Histogram(
+    'license_assignment_duration_seconds',
+    'Time taken to assign licenses',
+    ['license_type', 'status'],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, float('inf')),
+    registry=REGISTRY
+)
+
+licenses_active_total = Gauge(
+    'licenses_active_total',
+    'Total number of active licenses',
+    ['license_type', 'environment'],
+    registry=REGISTRY
+)
+
 
 class MetricsCollector:
     """
@@ -333,6 +398,15 @@ __all__ = [
     'error_routing_total',
     'request_duration_seconds',
     'trace_spans_total',
+    'freecad_operations_total',
+    'freecad_operation_duration_seconds',
+    'freecad_memory_peak_mb',
+    'freecad_cpu_average_percent',
+    'freecad_circuit_breaker_state',
+    'freecad_active_processes',
+    'license_operations_total',
+    'license_assignment_duration_seconds',
+    'licenses_active_total',
     'MetricsCollector',
     'metrics'
 ]
