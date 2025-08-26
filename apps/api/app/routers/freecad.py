@@ -3,6 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from ..freecad.service import detect_freecad
 from ..services.freecad_service import freecad_service
 from ..schemas import FreeCADDetectResponse
+from ..schemas.freecad import (
+    FreeCADHealthCheckResponse,
+    MetricsSummaryResponse,
+    CircuitBreakerResetResponse
+)
 from ..core.security import get_current_user
 from ..models.user import User
 
@@ -29,8 +34,8 @@ def detect() -> FreeCADDetectResponse:
     return detect_freecad()
 
 
-@router.get("/health")
-def health_check() -> dict:
+@router.get("/health", response_model=FreeCADHealthCheckResponse)
+def health_check() -> FreeCADHealthCheckResponse:
     """
     Ultra-enterprise FreeCAD service health check endpoint.
     
@@ -65,10 +70,10 @@ def health_check() -> dict:
         )
 
 
-@router.get("/metrics")
+@router.get("/metrics", response_model=MetricsSummaryResponse)
 def get_metrics(
     current_user: User = Depends(require_admin_role)
-) -> dict:
+) -> MetricsSummaryResponse:
     """
     Get FreeCAD service metrics summary.
     
@@ -92,10 +97,10 @@ def get_metrics(
         )
 
 
-@router.post("/circuit-breaker/reset")
+@router.post("/circuit-breaker/reset", response_model=CircuitBreakerResetResponse)
 def reset_circuit_breaker(
     current_user: User = Depends(require_admin_role)
-) -> dict:
+) -> CircuitBreakerResetResponse:
     """
     Reset the FreeCAD service circuit breaker.
     
@@ -113,12 +118,12 @@ def reset_circuit_breaker(
         # Use the service's reset method
         freecad_service.reset_circuit_breaker()
         
-        return {
-            "success": True,
-            "message": "Circuit breaker reset successfully",
-            "turkish_message": "Devre kesici başarıyla sıfırlandı",
-            "new_state": "CLOSED"
-        }
+        return CircuitBreakerResetResponse(
+            success=True,
+            message="Circuit breaker reset successfully",
+            turkish_message="Devre kesici başarıyla sıfırlandı",
+            new_state="CLOSED"
+        )
         
     except Exception as e:
         raise HTTPException(

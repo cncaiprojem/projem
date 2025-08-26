@@ -51,6 +51,15 @@ from ..middleware.correlation_middleware import get_correlation_id
 from ..services.license_service import LicenseService
 from ..models.license import License
 from ..core import metrics
+from ..schemas.freecad import (
+    FreeCADHealthCheckResponse,
+    MetricsSummaryResponse,
+    FreeCADHealthStatus,
+    CircuitBreakerStatus,
+    ActiveProcessesStatus,
+    ResourceConfiguration,
+    HealthCheckStatus
+)
 
 logger = get_logger(__name__)
 
@@ -329,6 +338,9 @@ class ProcessMonitor:
     
     def _monitor_loop(self):
         """Background monitoring loop."""
+        # Get monitoring interval once, outside the loop
+        monitoring_interval = settings.FREECAD_MONITORING_INTERVAL_SECONDS
+        
         while self._monitoring:
             try:
                 if not self.process.is_running():
@@ -361,8 +373,7 @@ class ProcessMonitor:
                                  pid=self.pid,
                                  note="CPU limit is for monitoring only, not enforced")
                 
-                # Use configurable monitoring interval from settings
-                monitoring_interval = settings.FREECAD_MONITORING_INTERVAL_SECONDS
+                # Use monitoring interval from settings (retrieved once outside loop)
                 time.sleep(monitoring_interval)
                 
             except psutil.NoSuchProcess:
@@ -401,8 +412,8 @@ class UltraEnterpriseFreeCADService:
         # Track per-user active operations for proper license enforcement
         self.user_active_operations: Dict[int, int] = {}  # user_id -> count
         self.circuit_breaker = CircuitBreaker(
-            failure_threshold=getattr(settings, 'FREECAD_CIRCUIT_BREAKER_THRESHOLD', 5),
-            recovery_timeout=getattr(settings, 'FREECAD_CIRCUIT_BREAKER_RECOVERY_TIMEOUT', 60),
+            failure_threshold=settings.FREECAD_CIRCUIT_BREAKER_THRESHOLD,
+            recovery_timeout=settings.FREECAD_CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
             expected_exception=FreeCADException
         )
         self._process_lock = threading.Lock()
@@ -903,21 +914,8 @@ class UltraEnterpriseFreeCADService:
             if not output_files:
                 warnings.append("No output files generated")
             
-            # Create fallback metrics if monitor is None
-            if monitor and monitor.metrics:
-                process_metrics = monitor.metrics
-            else:
-                end_time = datetime.now(timezone.utc)
-                process_metrics = ProcessMetrics(
-                    start_time=datetime.fromtimestamp(start_time, timezone.utc),
-                    end_time=end_time,
-                    peak_memory_mb=0.0,
-                    average_cpu_percent=0.0,
-                    exit_code=exit_code if exit_code is not None else 0,
-                    stdout_lines=len(stdout.splitlines()) if stdout else 0,
-                    stderr_lines=len(stderr.splitlines()) if stderr else 0,
-                    execution_duration_seconds=time.time() - start_time
-                )
+            # Use monitor metrics (monitor is always created and available here)
+            process_metrics = monitor.metrics
             
             return FreeCADResult(
                 success=True,
@@ -969,77 +967,103 @@ class UltraEnterpriseFreeCADService:
         except Exception as e:
             logger.error("process_tree_termination_failed", pid=pid, error=str(e))
     
-    def health_check(self) -> Dict[str, Any]:
+    def health_check(self) -> FreeCADHealthCheckResponse:
         """Perform comprehensive health check."""
-        health_status = {
-            "healthy": True,
-            "checks": {},
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "version": "1.0.0"
-        }
+        healthy = True
+        error = None
+        freecad_status = None
         
         try:
             # Check FreeCAD availability
             freecad_path = self.find_freecadcmd_path()
             if freecad_path:
                 version_valid, version = self.validate_freecad_version(freecad_path)
-                health_status["checks"]["freecad"] = {
-                    "available": True,
-                    "path": freecad_path,
-                    "version": version,
-                    "version_valid": version_valid
-                }
+                freecad_status = FreeCADHealthStatus(
+                    available=True,
+                    path=freecad_path,
+                    version=version,
+                    version_valid=version_valid
+                )
                 if not version_valid:
-                    health_status["healthy"] = False
+                    healthy = False
             else:
-                health_status["checks"]["freecad"] = {
-                    "available": False,
-                    "error": "FreeCADCmd not found"
-                }
-                health_status["healthy"] = False
+                freecad_status = FreeCADHealthStatus(
+                    available=False,
+                    error="FreeCADCmd not found"
+                )
+                healthy = False
             
             # Check circuit breaker status
-            health_status["checks"]["circuit_breaker"] = {
-                "state": self.circuit_breaker.state,
-                "failure_count": self.circuit_breaker.failure_count,
-                "last_failure": self.circuit_breaker.last_failure_time
-            }
+            circuit_breaker_status = CircuitBreakerStatus(
+                state=self.circuit_breaker.state,
+                failure_count=self.circuit_breaker.failure_count,
+                last_failure=self.circuit_breaker.last_failure_time
+            )
             
             if self.circuit_breaker.state == 'OPEN':
-                health_status["healthy"] = False
+                healthy = False
             
             # Check active processes
             with self._process_lock:
-                health_status["checks"]["active_processes"] = {
-                    "count": len(self.active_processes),
-                    "processes": list(self.active_processes.keys())
-                }
+                active_processes_status = ActiveProcessesStatus(
+                    count=len(self.active_processes),
+                    processes=list(self.active_processes.keys())
+                )
             
             # Check resource configuration
-            health_status["checks"]["resource_configuration"] = {
-                "max_concurrent_operations": getattr(settings, 'FREECAD_MAX_WORKERS', 4),
-                "circuit_breaker_threshold": getattr(settings, 'FREECAD_CIRCUIT_BREAKER_THRESHOLD', 5),
-                "circuit_breaker_recovery_timeout": getattr(settings, 'FREECAD_CIRCUIT_BREAKER_RECOVERY_TIMEOUT', 60)
-            }
+            resource_config = ResourceConfiguration(
+                max_concurrent_operations=settings.FREECAD_MAX_WORKERS,
+                circuit_breaker_threshold=settings.FREECAD_CIRCUIT_BREAKER_THRESHOLD,
+                circuit_breaker_recovery_timeout=settings.FREECAD_CIRCUIT_BREAKER_RECOVERY_TIMEOUT
+            )
+            
+            checks = HealthCheckStatus(
+                freecad=freecad_status,
+                circuit_breaker=circuit_breaker_status,
+                active_processes=active_processes_status,
+                resource_configuration=resource_config
+            )
             
         except Exception as e:
-            health_status["healthy"] = False
-            health_status["error"] = str(e)
+            healthy = False
+            error = str(e)
             logger.error("health_check_failed", error=str(e), exc_info=True)
+            
+            # Create default checks in case of error
+            checks = HealthCheckStatus(
+                freecad=FreeCADHealthStatus(available=False, error=error),
+                circuit_breaker=CircuitBreakerStatus(
+                    state="UNKNOWN",
+                    failure_count=0,
+                    last_failure=None
+                ),
+                active_processes=ActiveProcessesStatus(count=0, processes=[]),
+                resource_configuration=ResourceConfiguration(
+                    max_concurrent_operations=settings.FREECAD_MAX_WORKERS,
+                    circuit_breaker_threshold=settings.FREECAD_CIRCUIT_BREAKER_THRESHOLD,
+                    circuit_breaker_recovery_timeout=settings.FREECAD_CIRCUIT_BREAKER_RECOVERY_TIMEOUT
+                )
+            )
         
-        return health_status
+        return FreeCADHealthCheckResponse(
+            healthy=healthy,
+            checks=checks,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            version="1.0.0",
+            error=error
+        )
     
-    def get_metrics_summary(self) -> Dict[str, Any]:
+    def get_metrics_summary(self) -> MetricsSummaryResponse:
         """Get service metrics summary."""
         with self._process_lock:
             active_count = len(self.active_processes)
         
-        return {
-            "active_processes": active_count,
-            "circuit_breaker_state": self.circuit_breaker.state,
-            "circuit_breaker_failures": self.circuit_breaker.failure_count,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
+        return MetricsSummaryResponse(
+            active_processes=active_count,
+            circuit_breaker_state=self.circuit_breaker.state,
+            circuit_breaker_failures=self.circuit_breaker.failure_count,
+            timestamp=datetime.now(timezone.utc).isoformat()
+        )
     
     def retry_with_exponential_backoff(
         self,
