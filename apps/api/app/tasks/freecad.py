@@ -78,7 +78,7 @@ def freecad_execute_operation_task(
                 'average_cpu_percent': result.metrics.average_cpu_percent if result.metrics else 0.0,
                 'execution_duration_seconds': result.metrics.execution_duration_seconds if result.metrics else 0.0,
                 'exit_code': result.metrics.exit_code if result.metrics else None
-            }
+            } if result.metrics else None
         }
         
         logger.info("freecad_task_completed",
@@ -116,14 +116,16 @@ def freecad_execute_operation_task(
 @shared_task(name="freecad.health_check", queue="default")
 def freecad_health_check_task() -> dict:
     """FreeCAD service health check task."""
+    from datetime import datetime, timezone
+    
     try:
         health_status = freecad_service.health_check()
         
         logger.info("freecad_health_check_completed",
-                   healthy=health_status['healthy'],
-                   circuit_breaker_state=health_status['checks'].get('circuit_breaker', {}).get('state'))
+                   healthy=health_status.healthy,
+                   circuit_breaker_state=health_status.checks.circuit_breaker.state)
         
-        return health_status
+        return health_status.model_dump()
         
     except Exception as e:
         logger.error("freecad_health_check_failed",
@@ -133,7 +135,7 @@ def freecad_health_check_task() -> dict:
         return {
             'healthy': False,
             'error': str(e),
-            'timestamp': freecad_service.get_metrics_summary()['timestamp']
+            'timestamp': datetime.now(timezone.utc).isoformat()
         }
 
 

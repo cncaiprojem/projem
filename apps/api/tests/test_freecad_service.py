@@ -427,9 +427,9 @@ class TestUltraEnterpriseFreeCADService:
         with patch.object(freecad_service, 'find_freecadcmd_path', return_value=None):
             health = freecad_service.health_check()
             
-            assert health['healthy'] is False
-            assert health['checks']['freecad']['available'] is False
-            assert 'not found' in health['checks']['freecad']['error']
+            assert health.healthy is False
+            assert health.checks.freecad.available is False
+            assert 'not found' in health.checks.freecad.error
     
     def test_health_check_freecad_available(self, freecad_service):
         """Test health check when FreeCAD is available."""
@@ -437,9 +437,9 @@ class TestUltraEnterpriseFreeCADService:
             with patch.object(freecad_service, 'validate_freecad_version', return_value=(True, '1.1.0')):
                 health = freecad_service.health_check()
                 
-                assert health['checks']['freecad']['available'] is True
-                assert health['checks']['freecad']['version'] == '1.1.0'
-                assert health['checks']['freecad']['version_valid'] is True
+                assert health.checks.freecad.available is True
+                assert health.checks.freecad.version == '1.1.0'
+                assert health.checks.freecad.version_valid is True
     
     def test_health_check_invalid_version(self, freecad_service):
         """Test health check with invalid FreeCAD version."""
@@ -447,8 +447,8 @@ class TestUltraEnterpriseFreeCADService:
             with patch.object(freecad_service, 'validate_freecad_version', return_value=(False, '0.20.0')):
                 health = freecad_service.health_check()
                 
-                assert health['healthy'] is False
-                assert health['checks']['freecad']['version_valid'] is False
+                assert health.healthy is False
+                assert health.checks.freecad.version_valid is False
     
     def test_managed_temp_directory_cleanup(self, freecad_service):
         """Test temporary directory is cleaned up properly."""

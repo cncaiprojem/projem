@@ -54,7 +54,7 @@ class FreeCADHealthCheckResponse(BaseModel):
     """Response model for FreeCAD health check endpoint."""
     healthy: bool = Field(description="Overall health status")
     checks: HealthCheckStatus = Field(description="Detailed health checks")
-    timestamp: str = Field(description="ISO format timestamp of health check")
+    timestamp: datetime = Field(description="Timestamp of health check")
     version: str = Field(description="Service version")
     error: Optional[str] = Field(default=None, description="Error message if unhealthy")
     
@@ -95,7 +95,7 @@ class MetricsSummaryResponse(BaseModel):
     active_processes: int = Field(description="Number of currently active processes")
     circuit_breaker_state: str = Field(description="Current circuit breaker state")
     circuit_breaker_failures: int = Field(description="Number of circuit breaker failures")
-    timestamp: str = Field(description="ISO format timestamp of metrics collection")
+    timestamp: datetime = Field(description="Timestamp of metrics collection")
     
     class Config:
         json_schema_extra = {

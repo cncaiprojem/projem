@@ -48,13 +48,13 @@ def health_check() -> FreeCADHealthCheckResponse:
     try:
         health_status = freecad_service.health_check()
         
-        if not health_status['healthy']:
+        if not health_status.healthy:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail={
                     "error": "FreeCAD service unhealthy",
                     "turkish_error": "FreeCAD servisi sağlıksız",
-                    "health_status": health_status
+                    "health_status": health_status.model_dump()
                 }
             )
         

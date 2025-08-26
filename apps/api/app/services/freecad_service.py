@@ -402,6 +402,11 @@ class ProcessMonitor:
 # Define output file extensions set at module level
 OUTPUT_FILE_EXTENSIONS = {'.fcstd', '.step', '.stl', '.iges', '.obj', '.dxf', '.ifc', '.dae'}
 
+# Constants for error handling and retry logic
+DEFAULT_ERROR_EXIT_CODE = -1
+MIN_JITTER_FACTOR = 0.5
+MAX_JITTER_FACTOR = 1.0
+
 
 class UltraEnterpriseFreeCADService:
     """Ultra-enterprise FreeCAD service with comprehensive features."""
@@ -811,7 +816,7 @@ class UltraEnterpriseFreeCADService:
         start_time = time.time()
         process = None
         monitor = None
-        exit_code = -1  # Default error code in case of early exception
+        exit_code = DEFAULT_ERROR_EXIT_CODE  # Default error code in case of early exception
         stdout, stderr = None, None
         
         try:
@@ -1048,7 +1053,7 @@ class UltraEnterpriseFreeCADService:
         return FreeCADHealthCheckResponse(
             healthy=healthy,
             checks=checks,
-            timestamp=datetime.now(timezone.utc).isoformat(),
+            timestamp=datetime.now(timezone.utc),
             version="1.0.0",
             error=error
         )
@@ -1062,7 +1067,7 @@ class UltraEnterpriseFreeCADService:
             active_processes=active_count,
             circuit_breaker_state=self.circuit_breaker.state,
             circuit_breaker_failures=self.circuit_breaker.failure_count,
-            timestamp=datetime.now(timezone.utc).isoformat()
+            timestamp=datetime.now(timezone.utc)
         )
     
     def retry_with_exponential_backoff(
@@ -1100,7 +1105,7 @@ class UltraEnterpriseFreeCADService:
                 # Calculate delay with exponential backoff and jitter
                 delay = min(base_delay * (backoff_multiplier ** attempt), max_delay)
                 if jitter:
-                    delay *= (0.5 + random.random() * 0.5)  # Apply jitter to help prevent thundering herd retries
+                    delay *= (MIN_JITTER_FACTOR + random.random() * (MAX_JITTER_FACTOR - MIN_JITTER_FACTOR))  # Apply jitter to help prevent thundering herd retries
                 
                 logger.warning("freecad_operation_retry",
                              attempt=attempt + 1,
