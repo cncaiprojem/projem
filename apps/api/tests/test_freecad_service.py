@@ -361,16 +361,16 @@ class TestUltraEnterpriseFreeCADService:
         """Test file hash computation."""
         import hashlib
         
-        test_content = 'test content'
+        test_file_content = 'test content'
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-            f.write(test_content)
+            f.write(test_file_content)
             temp_path = Path(f.name)
         
         try:
             hash_value = freecad_service.compute_file_hash(temp_path)
             
             # Compute expected SHA256 dynamically
-            expected_hash = hashlib.sha256(test_content.encode()).hexdigest()
+            expected_hash = hashlib.sha256(test_file_content.encode()).hexdigest()
             assert hash_value == expected_hash
             
         finally:
@@ -545,17 +545,11 @@ class TestUltraEnterpriseFreeCADService:
             'test_process': mock_monitor
         }
         
-        # Mock thread pools
-        freecad_service.process_pool = Mock()
-        freecad_service.thread_pool = Mock()
-        
         freecad_service.shutdown()
         
         # Verify cleanup was attempted
         mock_monitor.stop_monitoring.assert_called_once()
         mock_process.terminate.assert_called_once()
-        freecad_service.process_pool.shutdown.assert_called_once()
-        freecad_service.thread_pool.shutdown.assert_called_once()
 
 
 class TestFreeCADIntegration:

@@ -44,7 +44,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
 from sqlalchemy.orm import Session
 
-from ..config import settings
+from ..core.config import settings
 from ..core.logging import get_logger
 from ..core.telemetry import create_span
 from ..middleware.correlation_middleware import get_correlation_id
@@ -148,7 +148,7 @@ class CircuitBreaker:
         self.failure_count = 0
         self.last_failure_time = None
         self.state = 'CLOSED'  # CLOSED, OPEN, HALF_OPEN
-        self._lock = Lock()
+        self._lock = threading.Lock()
     
     def __call__(self, func):
         def wrapper(*args, **kwargs):
@@ -1010,7 +1010,7 @@ class UltraEnterpriseFreeCADService:
                 # Calculate delay with exponential backoff and jitter
                 delay = min(base_delay * (backoff_multiplier ** attempt), max_delay)
                 if jitter:
-                    delay *= (0.5 + random.random() * 0.5)  # Add 50%-100% of delay as jitter
+                    delay *= (0.5 + random.random() * 0.5)  # Multiply delay by a random factor between 0.5 and 1.0 (jitter)
                 
                 logger.warning("freecad_operation_retry",
                              attempt=attempt + 1,
