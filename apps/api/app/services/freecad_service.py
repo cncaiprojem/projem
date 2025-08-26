@@ -152,6 +152,7 @@ class CircuitBreaker:
     
     def __call__(self, func):
         def wrapper(*args, **kwargs):
+            # Check state without holding lock during execution
             with self._lock:
                 if self.state == 'OPEN':
                     if time.monotonic() - self.last_failure_time < self.recovery_timeout:
@@ -165,16 +166,26 @@ class CircuitBreaker:
                         )
                     else:
                         self.state = 'HALF_OPEN'
+                        logger.info("circuit_breaker_half_open")
                 
-                try:
-                    result = func(*args, **kwargs)
-                    if self.state == 'HALF_OPEN':
+                current_state = self.state
+            
+            # Execute function without holding lock
+            try:
+                result = func(*args, **kwargs)
+                
+                # Update state on success (only lock for state change)
+                if current_state == 'HALF_OPEN':
+                    with self._lock:
                         self.failure_count = 0
                         self.state = 'CLOSED'
                         logger.info("circuit_breaker_recovered")
-                    return result
-                    
-                except self.expected_exception as e:
+                
+                return result
+                
+            except self.expected_exception as e:
+                # Update state on failure (only lock for state change)
+                with self._lock:
                     self.failure_count += 1
                     self.last_failure_time = time.monotonic()
                     
@@ -183,7 +194,7 @@ class CircuitBreaker:
                         logger.error("circuit_breaker_opened", 
                                    failure_count=self.failure_count,
                                    exception=str(e))
-                    raise
+                raise
         
         return wrapper
 
@@ -381,6 +392,8 @@ class UltraEnterpriseFreeCADService:
     def __init__(self):
         # Process and thread pools removed as they're not used (we use subprocess.Popen)
         self.active_processes: Dict[str, ProcessMonitor] = {}
+        # Track per-user active operations for proper license enforcement
+        self.user_active_operations: Dict[int, int] = {}  # user_id -> count
         self.circuit_breaker = CircuitBreaker(
             failure_threshold=getattr(settings, 'freecad_circuit_breaker_threshold', 5),
             recovery_timeout=getattr(settings, 'freecad_circuit_breaker_recovery_timeout', 60),
@@ -597,12 +610,18 @@ class UltraEnterpriseFreeCADService:
                         {"requested_format": format_type, "license_tier": license_tier.value}
                     )
             
-            # Check concurrent operations limit
+            # Check concurrent operations limit per user
             with self._process_lock:
-                active_count = len(self.active_processes)
-                if active_count >= resource_limits.max_concurrent_operations:
-                    error_msg = f"Maximum concurrent operations ({resource_limits.max_concurrent_operations}) exceeded"
-                    turkish_msg = f"Maksimum eş zamanlı işlem sayısı ({resource_limits.max_concurrent_operations}) aşıldı"
+                user_active_count = self.user_active_operations.get(user_id, 0)
+                if user_active_count >= resource_limits.max_concurrent_operations:
+                    error_msg = f"Maximum concurrent operations ({resource_limits.max_concurrent_operations}) exceeded for user"
+                    turkish_msg = f"Kullanıcı için maksimum eş zamanlı işlem sayısı ({resource_limits.max_concurrent_operations}) aşıldı"
+                    
+                    logger.warning("user_concurrent_limit_exceeded",
+                                 user_id=user_id,
+                                 current_count=user_active_count,
+                                 limit=resource_limits.max_concurrent_operations,
+                                 correlation_id=correlation_id)
                     
                     raise FreeCADException(
                         error_msg,
@@ -635,6 +654,14 @@ class UltraEnterpriseFreeCADService:
             
             # Execute with managed resources
             with self.managed_temp_directory() as temp_dir:
+                # Increment user's active operation count
+                with self._process_lock:
+                    self.user_active_operations[user_id] = self.user_active_operations.get(user_id, 0) + 1
+                    logger.debug("user_operation_started",
+                               user_id=user_id,
+                               active_count=self.user_active_operations[user_id],
+                               correlation_id=correlation_id)
+                
                 try:
                     result = self._execute_with_monitoring(
                         freecad_path=freecad_path,
@@ -643,7 +670,8 @@ class UltraEnterpriseFreeCADService:
                         output_formats=output_formats,
                         temp_dir=temp_dir,
                         resource_limits=resource_limits,
-                        correlation_id=correlation_id
+                        correlation_id=correlation_id,
+                        user_id=user_id
                     )
                     
                     # Update metrics
@@ -707,6 +735,17 @@ class UltraEnterpriseFreeCADService:
                                exc_info=True)
                     
                     raise
+                finally:
+                    # Decrement user's active operation count
+                    with self._process_lock:
+                        if user_id in self.user_active_operations:
+                            self.user_active_operations[user_id] -= 1
+                            if self.user_active_operations[user_id] <= 0:
+                                del self.user_active_operations[user_id]
+                            logger.debug("user_operation_ended",
+                                       user_id=user_id,
+                                       remaining_count=self.user_active_operations.get(user_id, 0),
+                                       correlation_id=correlation_id)
     
     def _execute_with_monitoring(
         self,
@@ -716,7 +755,8 @@ class UltraEnterpriseFreeCADService:
         output_formats: List[str],
         temp_dir: Path,
         resource_limits: ResourceLimits,
-        correlation_id: str
+        correlation_id: str,
+        user_id: Optional[int] = None
     ) -> FreeCADResult:
         """Execute FreeCAD with process monitoring."""
         
@@ -754,7 +794,7 @@ class UltraEnterpriseFreeCADService:
         start_time = time.time()
         process = None
         monitor = None
-        stdout, stderr = "", ""
+        stdout, stderr = None, None
         
         try:
             # Start process with resource limits
@@ -813,8 +853,8 @@ class UltraEnterpriseFreeCADService:
                 if monitor:
                     monitor.stop_monitoring()
                     monitor.metrics.exit_code = process.returncode if process else None
-                    monitor.metrics.stdout_lines = len(stdout.split('\n')) if stdout else 0
-                    monitor.metrics.stderr_lines = len(stderr.split('\n')) if stderr else 0
+                    monitor.metrics.stdout_lines = len(stdout.splitlines()) if stdout else 0
+                    monitor.metrics.stderr_lines = len(stderr.splitlines()) if stderr else 0
                 
                 # Unregister process
                 with self._process_lock:
@@ -856,23 +896,30 @@ class UltraEnterpriseFreeCADService:
             if not output_files:
                 warnings.append("No output files generated")
             
+            # Create fallback metrics if monitor is None
+            if monitor and monitor.metrics:
+                process_metrics = monitor.metrics
+            else:
+                end_time = datetime.now(timezone.utc)
+                process_metrics = ProcessMetrics(
+                    start_time=datetime.fromtimestamp(start_time, timezone.utc),
+                    end_time=end_time,
+                    peak_memory_mb=0.0,
+                    average_cpu_percent=0.0,
+                    exit_code=exit_code if 'exit_code' in locals() else 0,
+                    stdout_lines=len(stdout.splitlines()) if stdout else 0,
+                    stderr_lines=len(stderr.splitlines()) if stderr else 0,
+                    execution_duration_seconds=time.time() - start_time
+                )
+            
             return FreeCADResult(
                 success=True,
                 output_files=output_files,
-                metrics=monitor.metrics if monitor else ProcessMetrics(
-                    start_time=datetime.now(timezone.utc),
-                    end_time=None,
-                    peak_memory_mb=0.0,
-                    average_cpu_percent=0.0,
-                    exit_code=exit_code,
-                    stdout_lines=0,
-                    stderr_lines=0,
-                    execution_duration_seconds=time.time() - start_time
-                ),
+                metrics=process_metrics,
                 sha256_hashes=sha256_hashes,
                 error_code=None,
-                error_message=None,
-                turkish_error_message=None,
+                error_message="Operation completed successfully",
+                turkish_error_message="İşlem başarıyla tamamlandı",
                 warnings=warnings
             )
             

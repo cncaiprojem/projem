@@ -98,6 +98,10 @@ def reset_circuit_breaker(
     Requires ADMIN role. This is an administrative operation
     that should be used carefully to reset the circuit breaker
     after resolving underlying issues.
+    
+    WARNING: This will retry all previously failed operations, which may
+    consume significant resources if many operations were queued.
+    Use only after confirming the underlying FreeCAD issues are resolved.
     """
     # Check admin role
     if current_user.role != 'admin':
