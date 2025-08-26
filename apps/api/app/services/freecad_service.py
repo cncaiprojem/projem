@@ -448,6 +448,10 @@ class UltraEnterpriseFreeCADService:
         )
         self._process_lock = threading.Lock()
         
+        # Configuration for document lifecycle (can be disabled for testing or legacy mode)
+        self.enable_document_lifecycle = getattr(settings, 'FREECAD_ENABLE_DOCUMENT_LIFECYCLE', True)
+        self.require_document_lifecycle = getattr(settings, 'FREECAD_REQUIRE_DOCUMENT_LIFECYCLE', False)
+        
         # Initialize Turkish error messages
         self.turkish_errors = {
             FreeCADErrorCode.FREECAD_NOT_FOUND: "FreeCAD bulunamadı",
@@ -700,16 +704,24 @@ class UltraEnterpriseFreeCADService:
             # Sanitize inputs
             sanitized_params = self.sanitize_input(parameters)
             
-            # Initialize document lifecycle management if job_id provided
+            # Initialize document lifecycle management if job_id provided and enabled
             document_metadata = None
             transaction_info = None
-            if job_id:
+            document_lock = None
+            if job_id and self.enable_document_lifecycle:
                 try:
                     # Create or open document for this job
                     document_metadata = document_manager.open_document(
                         job_id=job_id,
                         document_path=None,
                         create_if_not_exists=True
+                    )
+                    
+                    # CRITICAL: Acquire lock before operations
+                    document_lock = document_manager.acquire_lock(
+                        document_metadata.document_id,
+                        owner_id=str(user_id),
+                        lock_type="exclusive"
                     )
                     
                     # Start transaction for atomic operations
@@ -732,13 +744,23 @@ class UltraEnterpriseFreeCADService:
                                  job_id=job_id,
                                  error=str(e),
                                  correlation_id=correlation_id)
-                    # Raise exception instead of silently continuing without document lifecycle
-                    raise FreeCADServiceError(
-                        message=f"Failed to initialize document lifecycle for job {job_id}",
-                        error_code="DOCUMENT_LIFECYCLE_INIT_FAILED",
-                        turkish_message=f"İş {job_id} için belge yaşam döngüsü başlatılamadı",
-                        details={"job_id": job_id, "error": str(e)}
-                    )
+                    # Only raise if lifecycle is required
+                    if self.require_document_lifecycle:
+                        raise FreeCADServiceError(
+                            message=f"Failed to initialize document lifecycle for job {job_id}",
+                            error_code="DOCUMENT_LIFECYCLE_INIT_FAILED",
+                            turkish_message=f"İş {job_id} için belge yaşam döngüsü başlatılamadı",
+                            details={"job_id": job_id, "error": str(e)}
+                        )
+                    else:
+                        # Continue without document lifecycle if not required
+                        logger.warning("document_lifecycle_disabled_due_to_error",
+                                     job_id=job_id,
+                                     error=str(e),
+                                     correlation_id=correlation_id)
+                        document_metadata = None
+                        transaction_info = None
+                        document_lock = None
             
             # Execute with managed resources
             with self.managed_temp_directory() as temp_dir:
@@ -807,8 +829,10 @@ class UltraEnterpriseFreeCADService:
                             
                             # Save document with output files
                             if result.output_files:
+                                # CRITICAL: Pass owner_id to save_document
                                 document_path = document_manager.save_document(
                                     document_metadata.document_id,
+                                    owner_id=str(user_id),
                                     save_path=str(result.output_files[0]),
                                     compress=True,
                                     create_backup=True
@@ -869,6 +893,19 @@ class UltraEnterpriseFreeCADService:
                     
                     raise
                 finally:
+                    # Release lock if acquired
+                    if document_lock and document_metadata:
+                        try:
+                            document_manager.release_lock(
+                                document_metadata.document_id,
+                                document_lock.lock_id
+                            )
+                        except Exception as e:
+                            logger.warning("lock_release_failed",
+                                         document_id=document_metadata.document_id,
+                                         error=str(e),
+                                         correlation_id=correlation_id)
+                    
                     # Decrement user's active operation count
                     with self._process_lock:
                         if user_id in self.user_active_operations:

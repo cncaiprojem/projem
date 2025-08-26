@@ -31,6 +31,7 @@ from __future__ import annotations
 import gc
 import gzip
 import hashlib
+import inspect
 import json
 import os
 import tempfile
@@ -376,24 +377,38 @@ class RealFreeCADAdapter(FreeCADAdapter):
 
 def requires_lock(func):
     """Decorator to enforce mandatory lock ownership for state-changing operations."""
+    import inspect
+    
     @wraps(func)
     def wrapper(self, *args, **kwargs):
-        # Extract document_id and owner_id from arguments
-        document_id = None
-        owner_id = kwargs.get('owner_id')
+        # Check for system bypass flag FIRST
+        if kwargs.get('_system_call', False):
+            # Remove the flag and proceed without lock check
+            kwargs.pop('_system_call')
+            return func(self, *args, **kwargs)
         
-        # Try to get document_id from various argument positions
-        if 'document_id' in kwargs:
-            document_id = kwargs['document_id']
-        elif len(args) > 0:
-            document_id = args[0]
+        # Use inspect to properly extract arguments
+        sig = inspect.signature(func)
+        bound_args = sig.bind(self, *args, **kwargs)
+        bound_args.apply_defaults()
         
-        # CRITICAL: Both document_id and owner_id MUST be present
-        if not document_id or not owner_id:
+        document_id = bound_args.arguments.get('document_id')
+        owner_id = bound_args.arguments.get('owner_id')
+        
+        # CRITICAL: Check if owner_id is None or missing
+        if not owner_id:
             raise DocumentException(
-                "document_id and owner_id are required for lock-protected operations",
+                f"owner_id is required for lock-protected operations on document {document_id}",
                 DocumentErrorCode.DOCUMENT_LOCKED,
-                "document_id ve owner_id gerekli"
+                f"Belge {document_id} için owner_id gerekli"
+            )
+        
+        # CRITICAL: Check if document_id is missing
+        if not document_id:
+            raise DocumentException(
+                "document_id is required for lock-protected operations",
+                DocumentErrorCode.DOCUMENT_LOCKED,
+                "document_id gerekli"
             )
         
         with self._lock:
@@ -1270,7 +1285,8 @@ class FreeCADDocumentManager:
             # Save if requested
             if save_before_close:
                 try:
-                    self.save_document(document_id)
+                    # CRITICAL FIX: Pass owner_id to save_document
+                    self.save_document(document_id, owner_id=owner_id)
                 except Exception as e:
                     if not force:
                         raise
@@ -1577,7 +1593,7 @@ class FreeCADDocumentManager:
         """Create document backup."""
         return self._create_backup(document_id)
     
-    def restore_backup(self, backup_id: str) -> DocumentMetadata:
+    def restore_backup(self, backup_id: str, _system_call: bool = False) -> DocumentMetadata:
         """Restore document from backup."""
         correlation_id = get_correlation_id()
         
@@ -1626,7 +1642,8 @@ class FreeCADDocumentManager:
                 
                 # Close current document if open
                 if metadata.document_id in self.documents:
-                    self.close_document(metadata.document_id, save_before_close=False)
+                    # Use system call for restore operations
+                    self.close_document(metadata.document_id, save_before_close=False, _system_call=True)
                 
                 # Restore document
                 with self._lock:
@@ -2058,7 +2075,8 @@ class FreeCADDocumentManager:
                 )
                 for doc_id, metadata in sorted_docs[:len(sorted_docs)//2]:
                     try:
-                        self.close_document(doc_id, save_before_close=True)
+                        # CRITICAL: Use _system_call=True for memory cleanup
+                        self.close_document(doc_id, save_before_close=True, _system_call=True)
                         logger.info("document_closed_for_memory", document_id=doc_id)
                     except Exception as e:
                         logger.warning("memory_cleanup_close_failed",
@@ -2095,8 +2113,8 @@ class FreeCADDocumentManager:
                                   threshold_mb=threshold_mb)
                         break
                     
-                    # Close document to free memory (use system as owner for cleanup)
-                    self.close_document(doc_id, save_before_close=True, owner_id="system")
+                    # Close document to free memory (use system call bypass)
+                    self.close_document(doc_id, save_before_close=True, _system_call=True)
                     logger.info("document_closed_for_memory",
                               document_id=doc_id,
                               memory_mb=memory_mb)
@@ -2123,7 +2141,8 @@ class FreeCADDocumentManager:
         # Save and close all open documents
         for document_id in list(self.documents.keys()):
             try:
-                self.close_document(document_id, save_before_close=True)
+                # CRITICAL: Use _system_call=True for shutdown
+                self.close_document(document_id, save_before_close=True, _system_call=True)
             except Exception as e:
                 logger.error("shutdown_close_failed",
                            document_id=document_id,

@@ -465,13 +465,15 @@ class TestLockEnforcement:
         with pytest.raises(DocumentException) as exc_info:
             document_manager.save_document("doc_job123", owner_id=None)
         
-        assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+        # When owner_id is None, we should get DOCUMENT_LOCKED error
+        assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
         
         # Try to save without passing owner_id at all
         with pytest.raises(DocumentException) as exc_info:
             document_manager.save_document("doc_job123")
         
-        assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+        # When owner_id is missing, we should get DOCUMENT_LOCKED error  
+        assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
     
     def test_close_fails_without_owner_id(self, document_manager):
         """Test that close fails when owner_id is None or missing when lock exists."""
@@ -484,26 +486,30 @@ class TestLockEnforcement:
         with pytest.raises(DocumentException) as exc_info:
             document_manager.close_document("doc_job123", owner_id=None)
         
-        assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+        # When owner_id is None, we should get DOCUMENT_LOCKED error
+        assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
         
         # Try to close without passing owner_id at all
         with pytest.raises(DocumentException) as exc_info:
             document_manager.close_document("doc_job123")
         
-        assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
+        # When owner_id is missing, we should get DOCUMENT_LOCKED error
+        assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
     
-    def test_operations_work_without_lock(self, document_manager):
-        """Test that operations work normally when no lock exists."""
+    def test_operations_fail_without_lock(self, document_manager):
+        """Test that operations fail without proper lock and owner_id."""
         document_manager.create_document(job_id="job123")
         
-        # Without any lock, operations should work normally
-        path = document_manager.save_document("doc_job123")
-        assert path is not None
+        # Without any lock or owner_id, save should fail
+        with pytest.raises(DocumentException) as exc_info:
+            document_manager.save_document("doc_job123")
+        assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
         
-        # Close should also work without lock
+        # Close should also fail without owner_id
         document_manager.create_document(job_id="job456")
-        result = document_manager.close_document("doc_job456", save_before_close=False)
-        assert result is True
+        with pytest.raises(DocumentException) as exc_info:
+            document_manager.close_document("doc_job456", save_before_close=False)
+        assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
 
 
 class TestPathSanitization:
@@ -545,12 +551,19 @@ class TestDocumentSaveAndLoad:
             author="test_user"
         )
         
+        # Acquire lock first
+        lock = document_manager.acquire_lock("doc_job123", owner_id="test_user")
+        
         save_path = temp_dir / "test_doc.FCStd"
         result_path = document_manager.save_document(
             "doc_job123",
-            str(save_path),
+            owner_id="test_user",
+            save_path=str(save_path),
             compress=False
         )
+        
+        # Release lock
+        document_manager.release_lock("doc_job123", lock.lock_id)
         
         assert os.path.exists(result_path)
         
@@ -566,12 +579,19 @@ class TestDocumentSaveAndLoad:
         """Test saving document with compression."""
         document_manager.create_document(job_id="job123")
         
+        # Acquire lock first
+        lock = document_manager.acquire_lock("doc_job123", owner_id="test_user")
+        
         save_path = temp_dir / "test_doc.FCStd"
         result_path = document_manager.save_document(
             "doc_job123",
-            str(save_path),
+            owner_id="test_user",
+            save_path=str(save_path),
             compress=True
         )
+        
+        # Release lock
+        document_manager.release_lock("doc_job123", lock.lock_id)
         
         assert result_path.endswith(".gz")
         assert os.path.exists(result_path)
@@ -583,11 +603,18 @@ class TestDocumentSaveAndLoad:
         """Test saving document with backup creation."""
         document_manager.create_document(job_id="job123")
         
+        # Acquire lock first
+        lock = document_manager.acquire_lock("doc_job123", owner_id="test_user")
+        
         # Save with backup
         save_path = document_manager.save_document(
             "doc_job123",
+            owner_id="test_user",
             create_backup=True
         )
+        
+        # Release lock
+        document_manager.release_lock("doc_job123", lock.lock_id)
         
         # Check that backup was created
         assert "doc_job123" in document_manager.backups
@@ -601,8 +628,12 @@ class TestDocumentSaveAndLoad:
         """Test closing document with save."""
         document_manager.create_document(job_id="job123")
         
+        # Acquire lock first
+        lock = document_manager.acquire_lock("doc_job123", owner_id="test_user")
+        
         closed = document_manager.close_document(
             "doc_job123",
+            owner_id="test_user",
             save_before_close=True
         )
         
