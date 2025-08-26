@@ -361,8 +361,8 @@ class ProcessMonitor:
                                  pid=self.pid,
                                  note="CPU limit is for monitoring only, not enforced")
                 
-                # Use configurable monitoring interval or default to 1 second
-                monitoring_interval = getattr(settings, 'FREECAD_MONITORING_INTERVAL_SECONDS', 1)
+                # Use configurable monitoring interval from settings
+                monitoring_interval = settings.FREECAD_MONITORING_INTERVAL_SECONDS
                 time.sleep(monitoring_interval)
                 
             except psutil.NoSuchProcess:
@@ -800,7 +800,7 @@ class UltraEnterpriseFreeCADService:
         start_time = time.time()
         process = None
         monitor = None
-        exit_code = None
+        exit_code = -1  # Default error code in case of early exception
         stdout, stderr = None, None
         
         try:
@@ -1076,7 +1076,7 @@ class UltraEnterpriseFreeCADService:
                 # Calculate delay with exponential backoff and jitter
                 delay = min(base_delay * (backoff_multiplier ** attempt), max_delay)
                 if jitter:
-                    delay *= (0.5 + random.random() * 0.5)  # Multiply delay by a random factor between 0.5 and 1.0 (jitter)
+                    delay *= (0.5 + random.random() * 0.5)  # Apply jitter to help prevent thundering herd retries
                 
                 logger.warning("freecad_operation_retry",
                              attempt=attempt + 1,

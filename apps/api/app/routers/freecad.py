@@ -30,7 +30,7 @@ def detect() -> FreeCADDetectResponse:
 
 
 @router.get("/health")
-def health_check():
+def health_check() -> dict:
     """
     Ultra-enterprise FreeCAD service health check endpoint.
     
@@ -68,7 +68,7 @@ def health_check():
 @router.get("/metrics")
 def get_metrics(
     current_user: User = Depends(require_admin_role)
-):
+) -> dict:
     """
     Get FreeCAD service metrics summary.
     
@@ -95,7 +95,7 @@ def get_metrics(
 @router.post("/circuit-breaker/reset")
 def reset_circuit_breaker(
     current_user: User = Depends(require_admin_role)
-):
+) -> dict:
     """
     Reset the FreeCAD service circuit breaker.
     
