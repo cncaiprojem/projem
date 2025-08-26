@@ -1,10 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
 
 from ..freecad.service import detect_freecad
 from ..services.freecad_service import freecad_service
 from ..schemas import FreeCADDetectResponse
-from ..core.database import get_db
 from ..core.security import get_current_user
 from ..models.user import User
 
@@ -94,10 +92,8 @@ def reset_circuit_breaker(
     after resolving underlying issues.
     """
     try:
-        # Reset circuit breaker state
-        freecad_service.circuit_breaker.failure_count = 0
-        freecad_service.circuit_breaker.state = 'CLOSED'
-        freecad_service.circuit_breaker.last_failure_time = None
+        # Use the service's reset method
+        freecad_service.reset_circuit_breaker()
         
         return {
             "success": True,

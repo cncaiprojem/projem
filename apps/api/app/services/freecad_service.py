@@ -23,12 +23,12 @@ Features:
 
 from __future__ import annotations
 
-import gc
 import hashlib
 import json
 import os
 import platform
 import psutil
+import random
 import shutil
 import signal
 import subprocess
@@ -38,16 +38,13 @@ import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
-from threading import Lock
 
 from sqlalchemy.orm import Session
 
-from ..core.config import settings
+from ..config import settings
 from ..core.logging import get_logger
 from ..core.telemetry import create_span
 from ..middleware.correlation_middleware import get_correlation_id
@@ -157,7 +154,7 @@ class CircuitBreaker:
         def wrapper(*args, **kwargs):
             with self._lock:
                 if self.state == 'OPEN':
-                    if time.time() - self.last_failure_time < self.recovery_timeout:
+                    if time.monotonic() - self.last_failure_time < self.recovery_timeout:
                         logger.warning("circuit_breaker_open", 
                                      failure_count=self.failure_count,
                                      last_failure_time=self.last_failure_time)
@@ -179,7 +176,7 @@ class CircuitBreaker:
                     
                 except self.expected_exception as e:
                     self.failure_count += 1
-                    self.last_failure_time = time.time()
+                    self.last_failure_time = time.monotonic()
                     
                     if self.failure_count >= self.failure_threshold:
                         self.state = 'OPEN'
@@ -371,19 +368,22 @@ class ProcessMonitor:
             logger.error("process_termination_error", pid=self.pid, error=str(e))
 
 
+# Define output file extensions set at module level
+OUTPUT_FILE_EXTENSIONS = {'.fcstd', '.step', '.stl', '.iges', '.obj', '.dxf', '.ifc', '.dae'}
+
+
 class UltraEnterpriseFreeCADService:
     """Ultra-enterprise FreeCAD service with comprehensive features."""
     
     def __init__(self):
-        self.process_pool = ProcessPoolExecutor(max_workers=settings.freecad_max_workers)
-        self.thread_pool = ThreadPoolExecutor(max_workers=settings.freecad_max_threads)
+        # Process and thread pools removed as they're not used (we use subprocess.Popen)
         self.active_processes: Dict[str, ProcessMonitor] = {}
         self.circuit_breaker = CircuitBreaker(
-            failure_threshold=settings.freecad_circuit_breaker_threshold,
-            recovery_timeout=settings.freecad_circuit_breaker_recovery_timeout,
+            failure_threshold=getattr(settings, 'freecad_circuit_breaker_threshold', 5),
+            recovery_timeout=getattr(settings, 'freecad_circuit_breaker_recovery_timeout', 60),
             expected_exception=FreeCADException
         )
-        self._process_lock = Lock()
+        self._process_lock = threading.Lock()
         
         # Initialize Turkish error messages
         self.turkish_errors = {
@@ -840,7 +840,7 @@ class UltraEnterpriseFreeCADService:
             warnings = []
             
             for file_path in temp_dir.iterdir():
-                if file_path.is_file() and file_path.suffix.lower() in ['.fcstd', '.step', '.stl', '.iges', '.obj', '.dxf']:
+                if file_path.is_file() and file_path.suffix.lower() in OUTPUT_FILE_EXTENSIONS:
                     output_files.append(file_path)
                     try:
                         file_hash = self.compute_file_hash(file_path)
@@ -851,9 +851,6 @@ class UltraEnterpriseFreeCADService:
             # Validate required outputs
             if not output_files:
                 warnings.append("No output files generated")
-            
-            # Force garbage collection
-            gc.collect()
             
             return FreeCADResult(
                 success=True,
@@ -960,10 +957,11 @@ class UltraEnterpriseFreeCADService:
                     "processes": list(self.active_processes.keys())
                 }
             
-            # Check resource pools
-            health_status["checks"]["resource_pools"] = {
-                "process_pool_workers": getattr(settings, 'freecad_max_workers', 4),
-                "thread_pool_workers": getattr(settings, 'freecad_max_threads', 8)
+            # Check resource configuration
+            health_status["checks"]["resource_configuration"] = {
+                "max_concurrent_operations": getattr(settings, 'freecad_max_workers', 4),
+                "circuit_breaker_threshold": getattr(settings, 'freecad_circuit_breaker_threshold', 5),
+                "circuit_breaker_recovery_timeout": getattr(settings, 'freecad_circuit_breaker_recovery_timeout', 60)
             }
             
         except Exception as e:
@@ -995,7 +993,6 @@ class UltraEnterpriseFreeCADService:
         jitter: bool = True
     ):
         """Execute operation with exponential backoff retry logic."""
-        import random
         
         for attempt in range(max_retries + 1):
             try:
@@ -1013,7 +1010,7 @@ class UltraEnterpriseFreeCADService:
                 # Calculate delay with exponential backoff and jitter
                 delay = min(base_delay * (backoff_multiplier ** attempt), max_delay)
                 if jitter:
-                    delay *= (0.5 + random.random() * 0.5)  # Add ±50% jitter
+                    delay *= (0.5 + random.random() * 0.5)  # Add 50%-100% of delay as jitter
                 
                 logger.warning("freecad_operation_retry",
                              attempt=attempt + 1,
@@ -1022,6 +1019,18 @@ class UltraEnterpriseFreeCADService:
                              error=str(e))
                 
                 time.sleep(delay)
+    
+    def reset_circuit_breaker(self):
+        """Reset the circuit breaker state.
+        
+        This is an administrative operation that should be used carefully
+        to reset the circuit breaker after resolving underlying issues.
+        """
+        with self.circuit_breaker._lock:
+            self.circuit_breaker.failure_count = 0
+            self.circuit_breaker.state = 'CLOSED'
+            self.circuit_breaker.last_failure_time = None
+            logger.info("circuit_breaker_reset_manually")
     
     def shutdown(self):
         """Graceful shutdown of the service."""
@@ -1037,13 +1046,6 @@ class UltraEnterpriseFreeCADService:
                 except Exception as e:
                     logger.error("process_shutdown_error", 
                                process_key=process_key, error=str(e))
-        
-        # Shutdown thread pools
-        try:
-            self.process_pool.shutdown(wait=True, timeout=30)
-            self.thread_pool.shutdown(wait=True, timeout=10)
-        except Exception as e:
-            logger.error("pool_shutdown_error", error=str(e))
         
         logger.info("freecad_service_shutdown_completed")
 

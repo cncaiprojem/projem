@@ -1,11 +1,9 @@
 from __future__ import annotations
 
 from celery import shared_task
-from sqlalchemy.orm import Session
-
 from ..freecad.service import detect_freecad
 from ..services.freecad_service import freecad_service
-from ..core.database import get_db
+from ..core.database import SessionLocal
 from ..core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -42,9 +40,10 @@ def freecad_execute_operation_task(
     Returns:
         Dict containing execution results
     """
+    db = None
     try:
-        # Get database session
-        db = next(get_db())
+        # Create database session
+        db = SessionLocal()
         
         logger.info("freecad_task_started",
                    task_id=self.request.id,
@@ -103,6 +102,11 @@ def freecad_execute_operation_task(
         
         # Re-raise for Celery retry handling
         raise self.retry(exc=e, countdown=60, max_retries=3)
+    
+    finally:
+        # Clean up database session
+        if db:
+            db.close()
 
 
 @shared_task(name="freecad.health_check", queue="default")

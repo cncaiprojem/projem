@@ -359,15 +359,18 @@ class TestUltraEnterpriseFreeCADService:
     
     def test_compute_file_hash(self, freecad_service):
         """Test file hash computation."""
+        import hashlib
+        
+        test_content = 'test content'
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-            f.write('test content')
+            f.write(test_content)
             temp_path = Path(f.name)
         
         try:
             hash_value = freecad_service.compute_file_hash(temp_path)
             
-            # SHA256 of 'test content' should be consistent
-            expected_hash = "1eebdf4fdc9fc7bf283031b93f9aef3338de9052f584775ad2c8ce53e02b6ae2"
+            # Compute expected SHA256 dynamically
+            expected_hash = hashlib.sha256(test_content.encode()).hexdigest()
             assert hash_value == expected_hash
             
         finally:
