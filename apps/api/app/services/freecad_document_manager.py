@@ -127,8 +127,12 @@ class FreeCADAdapter(ABC):
         pass
     
     @abstractmethod
-    def save_document(self, doc: Any, filepath: str) -> bool:
-        """Save a FreeCAD document to file."""
+    def save_document(self, doc: Any, filepath: str):
+        """Save a FreeCAD document to file.
+        
+        Raises:
+            DocumentException: If save operation fails
+        """
         pass
     
     @abstractmethod
@@ -189,15 +193,22 @@ class MockFreeCADAdapter(FreeCADAdapter):
                 return doc
         return self.create_document(os.path.basename(filepath))
     
-    def save_document(self, doc: Any, filepath: str) -> bool:
-        """Save mock document to JSON file."""
+    def save_document(self, doc: Any, filepath: str):
+        """Save mock document to JSON file.
+        
+        Raises:
+            DocumentException: If save operation fails
+        """
         try:
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(doc, f, indent=2, default=str)
-            return True
-        except OSError:
-            return False
+        except OSError as e:
+            raise DocumentException(
+                f"Failed to save mock document to {filepath}: {e}",
+                DocumentErrorCode.SAVE_FAILED,
+                f"Mock belge {filepath} konumuna kaydedilemedi: {e}"
+            ) from e
     
     def close_document(self, doc: Any) -> bool:
         """Close mock document."""
@@ -272,8 +283,12 @@ class RealFreeCADAdapter(FreeCADAdapter):
         """Open an existing .FCStd document using App.open."""
         return self.App.open(filepath)
     
-    def save_document(self, doc: Any, filepath: str) -> bool:
-        """Save FreeCAD document as .FCStd file."""
+    def save_document(self, doc: Any, filepath: str):
+        """Save FreeCAD document as .FCStd file.
+        
+        Raises:
+            DocumentException: If save operation fails
+        """
         try:
             # Ensure proper extension
             if not filepath.endswith('.FCStd'):
@@ -281,10 +296,13 @@ class RealFreeCADAdapter(FreeCADAdapter):
                 if not filepath.endswith('.FCStd'):
                     filepath += '.FCStd'
             doc.saveAs(filepath)
-            return True
         except Exception as e:
-            logger.error(f"Failed to save .FCStd file: {e}")
-            return False
+            logger.error("Failed to save .FCStd file", filepath=filepath, error=str(e))
+            raise DocumentException(
+                f"Failed to save .FCStd document to {filepath}: {e}",
+                DocumentErrorCode.SAVE_FAILED,
+                f".FCStd belgesi {filepath} konumuna kaydedilemedi: {e}"
+            ) from e
     
     def close_document(self, doc: Any) -> bool:
         """Close FreeCAD document using App.closeDocument."""
@@ -292,7 +310,7 @@ class RealFreeCADAdapter(FreeCADAdapter):
             self.App.closeDocument(doc.Name)
             return True
         except Exception as e:
-            logger.error(f"Failed to close FreeCAD document {doc.Name}: {e}", exc_info=True)
+            logger.error("Failed to close FreeCAD document", document_name=doc.Name, error=str(e), exc_info=True)
             return False
     
     def take_snapshot(self, doc: Any) -> Dict[str, Any]:
@@ -358,7 +376,7 @@ class RealFreeCADAdapter(FreeCADAdapter):
             # For now, return True to indicate attempt was made
             return True
         except Exception as e:
-            logger.warning(f"Snapshot restoration limited: {e}")
+            logger.warning("Snapshot restoration limited", error=str(e))
             return False
     
     def start_transaction(self, doc: Any, name: str) -> bool:
@@ -631,6 +649,7 @@ class FreeCADDocumentManager:
         self.redo_stacks: Dict[str, List[DocumentSnapshot]] = {}
         self.assemblies: Dict[str, AssemblyCoordination] = {}
         self.backups: Dict[str, List[BackupInfo]] = {}
+        self._backup_index: Dict[str, BackupInfo] = {}  # O(1) backup lookup index
         self._lock = threading.RLock()
         self._auto_save_threads: Dict[str, threading.Thread] = {}
         self._auto_save_stop_events: Dict[str, threading.Event] = {}  # For graceful shutdown
@@ -701,9 +720,9 @@ class FreeCADDocumentManager:
         return f"snap_{document_id}_{uuid.uuid4().hex}"
     
     def _generate_backup_id(self, document_id: str) -> str:
-        """Generate unique backup ID."""
+        """Generate unique backup ID with :: separator for robust parsing."""
         timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        return f"backup_{document_id}_{timestamp}"
+        return f"backup_{document_id}::{timestamp}"
     
     def _check_memory_limit(self) -> bool:
         """Check if memory usage is within limits."""
@@ -860,9 +879,9 @@ class FreeCADDocumentManager:
             try:
                 doc_handle = self.adapter.create_document(document_id)
                 self._doc_handles[document_id] = doc_handle
-                logger.info(f"Created real FreeCAD document handle for {document_id}")
+                logger.info("Created real FreeCAD document handle", document_id=document_id)
             except Exception as e:
-                logger.error(f"Failed to create FreeCAD document: {e}")
+                logger.error("Failed to create FreeCAD document", error=str(e))
                 # Continue with metadata-only if real document creation fails
                 doc_handle = None
             
@@ -966,9 +985,9 @@ class FreeCADDocumentManager:
                 doc = self._doc_handles[document_id]
                 try:
                     self.adapter.start_transaction(doc, f"Transaction {transaction_id}")
-                    logger.info(f"Started real FreeCAD transaction for {document_id}")
+                    logger.info("Started real FreeCAD transaction", document_id=document_id)
                 except Exception as e:
-                    logger.warning(f"Failed to start FreeCAD transaction: {e}")
+                    logger.warning("Failed to start FreeCAD transaction", error=str(e))
             
             transaction = TransactionInfo(
                 transaction_id=transaction_id,
@@ -1031,9 +1050,9 @@ class FreeCADDocumentManager:
                     doc = self._doc_handles[transaction.document_id]
                     try:
                         self.adapter.commit_transaction(doc)
-                        logger.info(f"Committed real FreeCAD transaction for {transaction.document_id}")
+                        logger.info("Committed real FreeCAD transaction", document_id=transaction.document_id)
                     except Exception as e:
-                        logger.warning(f"Failed to commit FreeCAD transaction: {e}")
+                        logger.warning("Failed to commit FreeCAD transaction", error=str(e))
                 
                 # Update document metadata
                 if transaction.document_id in self.documents:
@@ -1107,9 +1126,9 @@ class FreeCADDocumentManager:
                     doc = self._doc_handles[transaction.document_id]
                     try:
                         self.adapter.abort_transaction(doc)
-                        logger.info(f"Aborted real FreeCAD transaction for {transaction.document_id}")
+                        logger.info("Aborted real FreeCAD transaction", document_id=transaction.document_id)
                     except Exception as e:
-                        logger.warning(f"Failed to abort FreeCAD transaction: {e}")
+                        logger.warning("Failed to abort FreeCAD transaction", error=str(e))
                 
                 # Restore from rollback data
                 if transaction.rollback_data:
@@ -1624,17 +1643,23 @@ class FreeCADDocumentManager:
             span.set_attribute("backup.id", backup_id)
             
             # Optimize backup lookup by extracting document_id from backup_id
-            # backup_id format: "backup_{document_id}_{YYYYMMDD}_{HHMMSS}"
+            # backup_id format: "backup_{document_id}::{YYYYMMDD}_{HHMMSS}"
             backup_info = None
-            parts = backup_id.split('_')
-            if len(parts) >= 4 and parts[0] == 'backup':
-                # The last two parts are date and time, so exclude them
-                potential_doc_id = '_'.join(parts[1:-2])  # Handle doc IDs with underscores
-                if potential_doc_id in self.backups:
-                    for backup in self.backups[potential_doc_id]:
-                        if backup.backup_id == backup_id:
-                            backup_info = backup
-                            break
+            
+            # Use backup index for O(1) lookup if available
+            if hasattr(self, '_backup_index') and backup_id in self._backup_index:
+                backup_info = self._backup_index[backup_id]
+            else:
+                # Fallback: Parse backup_id to extract document_id
+                parts = backup_id.split('::')
+                if len(parts) == 2 and parts[0].startswith('backup_'):
+                    # Extract document_id from "backup_{document_id}"
+                    potential_doc_id = parts[0][7:]  # Skip "backup_" prefix
+                    if potential_doc_id in self.backups:
+                        for backup in self.backups[potential_doc_id]:
+                            if backup.backup_id == backup_id:
+                                backup_info = backup
+                                break
             
             # TODO: Consider adding a backup_id index (dict mapping backup_id -> BackupInfo)
             # to avoid O(n²) search in the fallback case below
@@ -1698,9 +1723,9 @@ class FreeCADDocumentManager:
                     try:
                         doc_handle = self.adapter.open_document(backup_data['fcstd_path'])
                         self._doc_handles[metadata.document_id] = doc_handle
-                        logger.info(f"Restored real FreeCAD document from {backup_data['fcstd_path']}")
+                        logger.info("Restored real FreeCAD document", fcstd_path=backup_data['fcstd_path'])
                     except Exception as e:
-                        logger.warning(f"Failed to restore .FCStd document: {e}")
+                        logger.warning("Failed to restore .FCStd document", error=str(e))
                 
                 logger.info("backup_restored",
                           backup_id=backup_id,
@@ -1865,7 +1890,7 @@ class FreeCADDocumentManager:
                     "redo_stack_size": len(self.redo_stacks.get(document_id, []))
                 }
             except Exception as e:
-                logger.warning(f"Failed to take FreeCAD snapshot: {e}")
+                logger.warning("Failed to take FreeCAD snapshot", error=str(e))
         
         # Fallback to metadata-only snapshot
         return {
@@ -1890,9 +1915,9 @@ class FreeCADDocumentManager:
             doc = self._doc_handles[document_id]
             try:
                 self.adapter.restore_snapshot(doc, snapshot_data['freecad_snapshot'])
-                logger.info(f"Restored real FreeCAD snapshot for {document_id}")
+                logger.info("Restored real FreeCAD snapshot", document_id=document_id)
             except Exception as e:
-                logger.warning(f"Failed to restore FreeCAD snapshot: {e}")
+                logger.warning("Failed to restore FreeCAD snapshot", error=str(e))
     
     def _save_compressed(self, save_path: str, data: Dict[str, Any]) -> str:
         """Save document with gzip compression."""
@@ -2022,6 +2047,8 @@ class FreeCADDocumentManager:
             if document_id not in self.backups:
                 self.backups[document_id] = []
             self.backups[document_id].append(backup_info)
+            # Update backup index for O(1) lookup
+            self._backup_index[backup_info.backup_id] = backup_info
         
         logger.info("backup_created",
                   backup_id=backup_id,
@@ -2054,11 +2081,17 @@ class FreeCADDocumentManager:
                 try:
                     if os.path.exists(backup.backup_path):
                         os.remove(backup.backup_path)
+                    # Remove from backup index
+                    self._backup_index.pop(backup.backup_id, None)
                     logger.debug("Pruned old backup", backup_id=backup.backup_id)
                 except FileNotFoundError:
                     # Backup file already deleted (possibly by another cleanup process), safe to continue
+                    # Still remove from index
+                    self._backup_index.pop(backup.backup_id, None)
                     logger.debug("Old backup file already deleted", backup_id=backup.backup_id)
                 except OSError as e:
+                    # Even if file delete fails, remove from index
+                    self._backup_index.pop(backup.backup_id, None)
                     logger.warning("Failed to delete old backup",
                                  backup_id=backup.backup_id,
                                  error=str(e))
@@ -2073,15 +2106,24 @@ class FreeCADDocumentManager:
                 try:
                     if os.path.exists(backup.backup_path):
                         os.remove(backup.backup_path)
+                    # Remove from backup index
+                    self._backup_index.pop(backup.backup_id, None)
                     logger.debug("Pruned excess backup", backup_id=backup.backup_id)
                 except FileNotFoundError:
                     # Excess backup already removed (possibly by concurrent cleanup), safe to ignore
+                    # Still remove from index
+                    self._backup_index.pop(backup.backup_id, None)
                     pass
                 except OSError as e:
-                    logger.warning(f"Failed to prune backup {backup.backup_id}: {e}")
+                    logger.warning("Failed to prune backup", backup_id=backup.backup_id, error=str(e))
             
             # Keep only the allowed number
             backups_to_keep = backups_to_keep[:self.config.max_backups_per_document]
+        
+        # Update the backup index to remove pruned backups
+        pruned_backup_ids = set(backup.backup_id for backup in backups) - set(backup.backup_id for backup in backups_to_keep)
+        for backup_id in pruned_backup_ids:
+            self._backup_index.pop(backup_id, None)
         
         self.backups[document_id] = backups_to_keep
     
@@ -2146,7 +2188,7 @@ class FreeCADDocumentManager:
             for doc_id, metadata in sorted_docs:
                 # CRITICAL: Skip if document is locked
                 if doc_id in self.locks:
-                    logger.debug(f"Skipping locked document {doc_id} during memory cleanup")
+                    logger.debug("Skipping locked document during memory cleanup", document_id=doc_id)
                     continue
                 
                 try:
@@ -2230,6 +2272,7 @@ class FreeCADDocumentManager:
             self.redo_stacks.clear()
             self.assemblies.clear()
             self.backups.clear()
+            self._backup_index.clear()  # Clear backup index
             self._recovery_data.clear()
             self._auto_save_threads.clear()
             self._auto_save_stop_events.clear()
