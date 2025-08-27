@@ -402,22 +402,20 @@ def requires_lock(func):
         bound_args.apply_defaults()
         
         document_id = bound_args.arguments.get('document_id')
+        # CRITICAL: Check if document_id is missing first
+        if not document_id:
+            raise DocumentException(
+                "document_id is required for lock-protected operations",
+                DocumentErrorCode.DOCUMENT_LOCKED,
+                "document_id gerekli"
+            )
         owner_id = bound_args.arguments.get('owner_id')
-        
         # CRITICAL: Check if owner_id is None or missing
         if not owner_id:
             raise DocumentException(
                 f"owner_id is required for lock-protected operations on document {document_id}",
                 DocumentErrorCode.DOCUMENT_LOCKED,
                 f"Belge {document_id} için owner_id gerekli"
-            )
-        
-        # CRITICAL: Check if document_id is missing
-        if not document_id:
-            raise DocumentException(
-                "document_id is required for lock-protected operations",
-                DocumentErrorCode.DOCUMENT_LOCKED,
-                "document_id gerekli"
             )
         
         with self._lock:
@@ -1195,7 +1193,7 @@ class FreeCADDocumentManager:
                         fcstd_saved = True
                         metadata.properties["last_saved_path"] = fcstd_path
                         logger.info(f"Saved real .FCStd file: {fcstd_path}")
-                    except (OSError, TypeError) as e:
+                    except OSError as e:
                         logger.error(f"Failed to move .FCStd file: {e}")
                         if os.path.exists(temp_path):
                             os.remove(temp_path)
