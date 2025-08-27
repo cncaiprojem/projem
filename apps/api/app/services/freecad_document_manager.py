@@ -315,8 +315,8 @@ class RealFreeCADAdapter(FreeCADAdapter):
                 # Skip non-serializable properties
                 if isinstance(value, (str, int, float, bool, list, dict)):
                     snapshot["properties"][prop] = value
-            except Exception:
-                pass  # Skip properties that can't be accessed
+            except Exception as e:
+                logger.warning(f"Could not access document property '{prop}': {e}")
         
         # Document objects
         for obj in doc.Objects:
@@ -336,8 +336,8 @@ class RealFreeCADAdapter(FreeCADAdapter):
                         obj_data["Properties"][prop] = str(value)
                     elif isinstance(value, (str, int, float, bool, list, dict)):
                         obj_data["Properties"][prop] = value
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(f"Could not access object property '{prop}' for object '{obj.Name}': {e}")
             snapshot["objects"].append(obj_data)
         
         return snapshot
@@ -1199,7 +1199,8 @@ class FreeCADDocumentManager:
                         try:
                             os.remove(temp_path)
                         except FileNotFoundError:
-                            pass  # File already gone, no problem
+                            # File already removed (possibly by another process or cleanup), safe to ignore
+                            pass
                         except OSError as remove_err:
                             logger.warning(f"Failed to remove temp file {temp_path}: {remove_err}")
             
@@ -2043,6 +2044,7 @@ class FreeCADDocumentManager:
                         os.remove(backup.backup_path)
                     logger.debug("Pruned old backup", backup_id=backup.backup_id)
                 except FileNotFoundError:
+                    # Backup file already deleted (possibly by another cleanup process), safe to continue
                     logger.debug("Old backup file already deleted", backup_id=backup.backup_id)
                 except OSError as e:
                     logger.warning("Failed to delete old backup",
@@ -2061,7 +2063,8 @@ class FreeCADDocumentManager:
                         os.remove(backup.backup_path)
                     logger.debug("Pruned excess backup", backup_id=backup.backup_id)
                 except FileNotFoundError:
-                    pass  # Already gone
+                    # Excess backup already removed (possibly by concurrent cleanup), safe to ignore
+                    pass
                 except OSError as e:
                     logger.warning(f"Failed to prune backup {backup.backup_id}: {e}")
             

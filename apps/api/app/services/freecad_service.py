@@ -51,7 +51,7 @@ from ..middleware.correlation_middleware import get_correlation_id
 from ..services.license_service import LicenseService
 from ..models.license import License
 from ..core import metrics
-from .freecad_document_manager import FreeCADDocumentManager, document_manager
+from .freecad_document_manager import FreeCADDocumentManager, document_manager, DocumentException
 from ..schemas.freecad import (
     FreeCADHealthCheckResponse,
     MetricsSummaryResponse,
@@ -739,16 +739,16 @@ class UltraEnterpriseFreeCADService:
                               transaction_id=transaction_info.transaction_id,
                               correlation_id=correlation_id)
                     
-                except Exception as e:
+                except DocumentException as e:
                     logger.warning("document_lifecycle_init_failed",
                                  job_id=job_id,
                                  error=str(e),
                                  correlation_id=correlation_id)
                     # Only raise if lifecycle is required
                     if self.require_document_lifecycle:
-                        raise FreeCADServiceError(
+                        raise FreeCADException(
                             message=f"Failed to initialize document lifecycle for job {job_id}",
-                            error_code="DOCUMENT_LIFECYCLE_INIT_FAILED",
+                            error_code=FreeCADErrorCode.TEMPORARY_FAILURE,
                             turkish_message=f"İş {job_id} için belge yaşam döngüsü başlatılamadı",
                             details={"job_id": job_id, "error": str(e)}
                         )
@@ -843,7 +843,7 @@ class UltraEnterpriseFreeCADService:
                                           document_path=document_path,
                                           correlation_id=correlation_id)
                         
-                        except Exception as e:
+                        except DocumentException as e:
                             logger.warning("document_lifecycle_finalization_failed",
                                          document_id=document_metadata.document_id,
                                          error=str(e),
