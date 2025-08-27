@@ -839,7 +839,8 @@ class TestFreeCADAdapter:
         
         # Save document
         save_path = str(temp_dir / "test_doc.json")
-        assert adapter.save_document(doc, save_path)
+        # FIXED: Adapter returns None on success, not bool
+        adapter.save_document(doc, save_path)
         assert os.path.exists(save_path)
         
         # Open document

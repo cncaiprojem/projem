@@ -734,7 +734,7 @@ class FreeCADDocumentManager:
             memory_mb = process.memory_info().rss / (1024 * 1024)
             return memory_mb < self.config.memory_limit_mb
         except Exception as e:
-            logger.warning(f"Could not check memory limit: {e}")
+            logger.warning("Could not check memory limit", error=str(e))
             return True  # Assume OK if check fails
     
     @contextmanager
@@ -1211,29 +1211,30 @@ class FreeCADDocumentManager:
                 
                 # Atomic write with temp file
                 temp_path = f"{fcstd_path}.tmp"
-                if self.adapter.save_document(doc_handle, temp_path):
+                # CRITICAL FIX: Adapter raises exceptions on failure, doesn't return bool
+                self.adapter.save_document(doc_handle, temp_path)
+                try:
+                    os.replace(temp_path, fcstd_path)  # Atomic move
+                    save_path = fcstd_path
+                    fcstd_saved = True
+                    metadata.properties["last_saved_path"] = fcstd_path
+                    logger.info("Saved real .FCStd file", fcstd_path=fcstd_path)
+                except OSError as e:
+                    logger.error("Failed to move .FCStd file", error=str(e))
+                    # Attempt to clean up the temporary file
                     try:
-                        os.replace(temp_path, fcstd_path)  # Atomic move
-                        save_path = fcstd_path
-                        fcstd_saved = True
-                        metadata.properties["last_saved_path"] = fcstd_path
-                        logger.info(f"Saved real .FCStd file: {fcstd_path}")
-                    except OSError as e:
-                        logger.error(f"Failed to move .FCStd file: {e}")
-                        # Attempt to clean up the temporary file
-                        try:
-                            os.remove(temp_path)
-                        except FileNotFoundError:
-                            # File already removed, safe to ignore
-                            pass
-                        except OSError as remove_err:
-                            logger.warning(f"Failed to remove temp file {temp_path}: {remove_err}")
-                        # Re-raise the original error to ensure the save operation fails
-                        raise DocumentException(
-                            f"Failed to save document due to file system error: {e}",
-                            DocumentErrorCode.SAVE_FAILED,
-                            f"Belge dosya sistemi hatası nedeniyle kaydedilemedi: {e}"
-                        ) from e
+                        os.remove(temp_path)
+                    except FileNotFoundError:
+                        # File already removed, safe to ignore
+                        pass
+                    except OSError as remove_err:
+                        logger.warning("Failed to remove temp file", temp_path=temp_path, error=str(remove_err))
+                    # Re-raise the original error to ensure the save operation fails
+                    raise DocumentException(
+                        f"Failed to save document due to file system error: {e}",
+                        DocumentErrorCode.SAVE_FAILED,
+                        f"Belge dosya sistemi hatası nedeniyle kaydedilemedi: {e}"
+                    ) from e
             
             # Also save metadata/undo as JSON sidecar (or as main file if no FCStd)
             json_save_path = save_path.replace('.FCStd', '_metadata.json') if fcstd_saved else save_path
@@ -1346,15 +1347,15 @@ class FreeCADDocumentManager:
                     lock = self.locks[document_id]
                     self.release_lock(document_id, lock.lock_id)
                 except Exception as e:
-                    logger.warning(f"Failed to release lock on close: {e}")
+                    logger.warning("Failed to release lock on close", error=str(e))
             
             # Clean up document handle
             if document_id in self._doc_handles:
                 try:
                     self.adapter.close_document(self._doc_handles[document_id])
-                    logger.info(f"Closed real FreeCAD document handle for {document_id}")
+                    logger.info("Closed real FreeCAD document handle", document_id=document_id)
                 except Exception as e:
-                    logger.warning(f"Failed to close FreeCAD document: {e}")
+                    logger.warning("Failed to close FreeCAD document", error=str(e))
                 del self._doc_handles[document_id]
             
             # Clean up resources
@@ -1723,7 +1724,7 @@ class FreeCADDocumentManager:
                     try:
                         doc_handle = self.adapter.open_document(backup_data['fcstd_path'])
                         self._doc_handles[metadata.document_id] = doc_handle
-                        logger.info("Restored real FreeCAD document", fcstd_path=backup_data['fcstd_path'])
+                        logger.info("Restored real FreeCAD document from backup", fcstd_path=backup_data['fcstd_path'])
                     except Exception as e:
                         logger.warning("Failed to restore .FCStd document", error=str(e))
                 
