@@ -119,7 +119,8 @@ def test_migration():
         
         missing_constraints = expected_constraints - constraint_names
         if missing_constraints:
-            logger.warning(f"Missing constraints: {missing_constraints}")
+            logger.error(f"Missing constraints: {missing_constraints}")
+            assert False, f"Missing constraints: {missing_constraints}"
         else:
             logger.info("✅ All constraints present on models table")
         
@@ -134,7 +135,8 @@ def test_migration():
         
         missing_indexes = expected_indexes - index_names
         if missing_indexes:
-            logger.warning(f"Missing indexes: {missing_indexes}")
+            logger.error(f"Missing indexes: {missing_indexes}")
+            assert False, f"Missing indexes: {missing_indexes}"
         else:
             logger.info("✅ All indexes present on models table")
         
@@ -193,8 +195,8 @@ def test_migration():
         logger.info("✅ Task 7.15 migration downgrade successful!")
         
         # Restore to Task 7.15
-        logger.info("Restoring to Task 7.15...")
-        command.upgrade(alembic_cfg, "20250827_213512_task_715")
+        logger.info(f"Restoring to Task 7.15 (revision: {task_715_revision})...")
+        command.upgrade(alembic_cfg, task_715_revision)
         
         logger.info("✅ All Task 7.15 migration tests passed!")
         return True

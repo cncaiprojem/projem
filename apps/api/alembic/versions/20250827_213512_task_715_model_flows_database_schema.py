@@ -118,7 +118,7 @@ def upgrade() -> None:
             sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, 
                      server_default=sa.func.now()),
             sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False, 
-                     server_default=sa.func.now(), onupdate=sa.func.now()),
+                     server_default=sa.func.now()),
             
             sa.PrimaryKeyConstraint('id'),
             sa.ForeignKeyConstraint(['job_id'], ['jobs.id'], 
@@ -328,12 +328,17 @@ def upgrade() -> None:
     
     # Create trigger to increment model_rev on derived model creation
     # Fixed: Base revision on freecad_doc_uuid, not parent_model_id
+    # Added: PostgreSQL advisory lock to prevent race conditions
     connection.execute(text("""
         CREATE OR REPLACE FUNCTION increment_model_rev()
         RETURNS TRIGGER AS $$
         BEGIN
             -- Only auto-increment if freecad_doc_uuid is provided
             IF NEW.freecad_doc_uuid IS NOT NULL THEN
+                -- Acquire advisory lock to prevent concurrent updates
+                -- Using hashtext() to convert UUID to bigint for lock ID
+                PERFORM pg_advisory_xact_lock(hashtext(NEW.freecad_doc_uuid::text));
+                
                 -- Get the max revision for this document UUID
                 SELECT COALESCE(MAX(model_rev), 0) + 1
                 INTO NEW.model_rev

@@ -174,11 +174,23 @@ class AISuggestion(Base, TimestampMixin):
             
         masked_text = text
         
-        # Email addresses - mask to keep domain visible
+        # Email addresses - preserve first and last chars for better UX
         email_pattern = r'\b([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b'
+        
+        def mask_email(match):
+            local = match.group(1)
+            domain = match.group(2)
+            
+            # Handle short emails (<=2 chars) specially
+            if len(local) <= 2:
+                return f"***@{domain}"
+            else:
+                # Preserve first and last characters
+                return f"{local[0]}***{local[-1]}@{domain}"
+        
         masked_text = re.sub(
             email_pattern,
-            lambda m: f"***@{m.group(2)}",
+            mask_email,
             masked_text,
             flags=re.IGNORECASE
         )
@@ -223,15 +235,23 @@ class AISuggestion(Base, TimestampMixin):
             'Özlem', 'Dilek', 'Sibel', 'Aslı', 'Gülşen', 'Şerife', 'Filiz'
         ]
         
-        # Create pattern for names with word boundaries
-        for name in turkish_names:
-            name_pattern = rf'\b{re.escape(name)}\s+[A-ZÇĞİÖŞÜ][a-zçğıöşü]+\b'
-            masked_text = re.sub(
-                name_pattern,
-                f"{name[0]}*** ***",
-                masked_text,
-                flags=re.IGNORECASE
-            )
+        # Build single optimized regex pattern for all names
+        # This is much more efficient than looping through each name
+        escaped_names = [re.escape(name) for name in turkish_names]
+        names_pattern = r'\b(' + '|'.join(escaped_names) + r')\s+([A-ZÇĞİÖŞÜ][a-zçğıöşü]+)\b'
+        
+        # Use replacement function to properly mask matched names
+        def mask_name(match):
+            first_name = match.group(1)
+            # Use the actual matched first name, not loop variable
+            return f"{first_name[0]}*** ***"
+        
+        masked_text = re.sub(
+            names_pattern,
+            mask_name,
+            masked_text,
+            flags=re.IGNORECASE
+        )
         
         # Turkish address components (street names, mahalle, sokak, etc.)
         address_patterns = [
