@@ -5,6 +5,7 @@ Task 7.15: Enhanced model tracking with versioning, OCCT determinism,
 and Assembly4 workbench support.
 """
 
+import re
 from datetime import datetime
 from typing import Optional, List, TYPE_CHECKING
 from uuid import UUID
@@ -18,6 +19,10 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
 from .enums import ModelStatus
+
+# Compile regex patterns at module level for performance
+FREECAD_VERSION_PATTERN = re.compile(r'^1\.1\.\d+$')
+OCCT_VERSION_PATTERN = re.compile(r'^7\.8\.\d+$')
 
 if TYPE_CHECKING:
     from .job import Job
@@ -174,12 +179,9 @@ class Model(Base, TimestampMixin):
     @property
     def has_valid_versions(self) -> bool:
         """Validate FreeCAD and OCCT versions."""
-        import re
-        freecad_pattern = re.compile(r'^1\.1\.\d+$')
-        occt_pattern = re.compile(r'^7\.8\.\d+$')
         return (
-            freecad_pattern.match(self.freecad_version) is not None and
-            occt_pattern.match(self.occt_version) is not None
+            FREECAD_VERSION_PATTERN.match(self.freecad_version) is not None and
+            OCCT_VERSION_PATTERN.match(self.occt_version) is not None
         )
     
     def create_revision(self, **kwargs) -> "Model":

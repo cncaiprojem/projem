@@ -176,6 +176,8 @@ def upgrade() -> None:
                  comment='Additional metadata and context'),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, 
                  server_default=sa.func.now()),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False,
+                 server_default=sa.func.now()),
         sa.Column('retention_expires_at', sa.DateTime(timezone=True), nullable=True,
                  comment='KVKK compliance: When this record should be deleted'),
         
@@ -270,6 +272,8 @@ def upgrade() -> None:
                  comment='OCCT algorithm version used'),
         sa.Column('created_at', sa.DateTime(timezone=True), nullable=False, 
                  server_default=sa.func.now()),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False,
+                 server_default=sa.func.now()),
         
         sa.PrimaryKeyConstraint('id'),
         sa.ForeignKeyConstraint(['artefact_id'], ['artefacts.id'], 
@@ -299,17 +303,42 @@ def upgrade() -> None:
                        unique=True,
                        postgresql_where=text('idempotency_key IS NOT NULL'))
     
+    # Create generic function to update updated_at timestamp
+    connection.execute(text("""
+        CREATE OR REPLACE FUNCTION update_updated_at_column()
+        RETURNS TRIGGER AS $$
+        BEGIN
+            NEW.updated_at = CURRENT_TIMESTAMP;
+            RETURN NEW;
+        END;
+        $$ LANGUAGE plpgsql;
+    """))
+    
+    # Add updated_at triggers to all tables that have the column
+    tables_with_updated_at = ['models', 'ai_suggestions', 'topology_hashes']
+    for table_name in tables_with_updated_at:
+        connection.execute(text(f"""
+            DROP TRIGGER IF EXISTS update_{table_name}_updated_at ON {table_name};
+            
+            CREATE TRIGGER update_{table_name}_updated_at
+            BEFORE UPDATE ON {table_name}
+            FOR EACH ROW
+            EXECUTE FUNCTION update_updated_at_column();
+        """))
+    
     # Create trigger to increment model_rev on derived model creation
+    # Fixed: Base revision on freecad_doc_uuid, not parent_model_id
     connection.execute(text("""
         CREATE OR REPLACE FUNCTION increment_model_rev()
         RETURNS TRIGGER AS $$
         BEGIN
-            IF NEW.parent_model_id IS NOT NULL THEN
+            -- Only auto-increment if freecad_doc_uuid is provided
+            IF NEW.freecad_doc_uuid IS NOT NULL THEN
+                -- Get the max revision for this document UUID
                 SELECT COALESCE(MAX(model_rev), 0) + 1
                 INTO NEW.model_rev
                 FROM models
-                WHERE parent_model_id = NEW.parent_model_id
-                   OR (id = NEW.parent_model_id AND parent_model_id IS NULL);
+                WHERE freecad_doc_uuid = NEW.freecad_doc_uuid;
             END IF;
             RETURN NEW;
         END;
@@ -331,10 +360,18 @@ def downgrade() -> None:
     
     connection = op.get_bind()
     
-    # Drop trigger and function
+    # Drop updated_at triggers
+    tables_with_updated_at = ['models', 'ai_suggestions', 'topology_hashes']
+    for table_name in tables_with_updated_at:
+        connection.execute(text(f"""
+            DROP TRIGGER IF EXISTS update_{table_name}_updated_at ON {table_name};
+        """))
+    
+    # Drop trigger functions
     connection.execute(text("""
         DROP TRIGGER IF EXISTS trigger_increment_model_rev ON models;
         DROP FUNCTION IF EXISTS increment_model_rev();
+        DROP FUNCTION IF EXISTS update_updated_at_column();
     """))
     
     # Drop tables in reverse order due to foreign keys

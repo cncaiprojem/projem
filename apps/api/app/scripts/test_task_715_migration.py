@@ -34,6 +34,25 @@ def get_alembic_config():
     return alembic_cfg
 
 
+def get_latest_migration_revision():
+    """Get the latest migration revision ID from the migrations directory."""
+    from alembic.script import ScriptDirectory
+    from alembic.config import Config
+    
+    alembic_cfg = get_alembic_config()
+    script_dir = ScriptDirectory.from_config(alembic_cfg)
+    
+    # Get the head revision
+    head_revision = script_dir.get_current_head()
+    
+    # If looking specifically for Task 7.15, find by pattern
+    for revision in script_dir.walk_revisions():
+        if 'task_715' in revision.revision or 'Task 7.15' in revision.doc:
+            return revision.revision
+    
+    return head_revision
+
+
 def test_migration():
     """Test Task 7.15 migration up and down."""
     
@@ -58,9 +77,12 @@ def test_migration():
             current_rev = result.scalar()
             logger.info(f"Current revision: {current_rev}")
         
+        # Get the Task 7.15 migration revision
+        task_715_revision = get_latest_migration_revision()
+        
         # Upgrade to Task 7.15
-        logger.info("Upgrading to Task 7.15...")
-        command.upgrade(alembic_cfg, "20250827_213512_task_715")
+        logger.info(f"Upgrading to Task 7.15 (revision: {task_715_revision})...")
+        command.upgrade(alembic_cfg, task_715_revision)
         
         # Verify tables exist
         tables = inspector.get_table_names()

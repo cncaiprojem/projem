@@ -5,7 +5,7 @@ ensuring deterministic CAD model generation.
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import (
     String, BigInteger, ForeignKey, UniqueConstraint, Index, Text, Enum as SQLEnum
@@ -123,7 +123,7 @@ class TopologyHash(Base, TimestampMixin):
         return self.object_path.count('/') + 1
     
     @property
-    def parent_path(self) -> str:
+    def parent_path(self) -> Optional[str]:
         """Get the parent object path."""
         if '/' not in self.object_path:
             return None

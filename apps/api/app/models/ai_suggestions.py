@@ -4,6 +4,7 @@ Task 7.15: AI-powered model generation suggestions with privacy compliance
 and cost tracking.
 """
 
+import re
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
@@ -159,16 +160,91 @@ class AISuggestion(Base, TimestampMixin):
     def mask_pii(self, text: str) -> str:
         """Mask PII in text for KVKK compliance.
         
-        This is a placeholder - implement actual PII masking logic
-        based on Turkish KVKK requirements.
+        Masks personal information according to Turkish KVKK requirements:
+        - Email addresses
+        - Phone numbers (Turkish and international)
+        - Turkish ID numbers (TC Kimlik)
+        - Credit card numbers
+        - IBAN numbers
+        - Common Turkish names
+        - Addresses
         """
-        # TODO: Implement actual PII masking
-        # - Email addresses
-        # - Phone numbers
-        # - Turkish ID numbers
-        # - Names
-        # - Addresses
-        return text
+        if not text:
+            return text
+            
+        masked_text = text
+        
+        # Email addresses - mask to keep domain visible
+        email_pattern = r'\b([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b'
+        masked_text = re.sub(
+            email_pattern,
+            lambda m: f"***@{m.group(2)}",
+            masked_text,
+            flags=re.IGNORECASE
+        )
+        
+        # Turkish phone numbers (various formats)
+        # Formats: +90 5xx xxx xxxx, 0 5xx xxx xxxx, 5xx xxx xxxx, etc.
+        turkish_phone_patterns = [
+            r'\+90\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',  # +90 5xx xxx xx xx
+            r'\+90\s*\d{10}',                           # +905xxxxxxxxx
+            r'0\s*5\d{2}\s*\d{3}\s*\d{2}\s*\d{2}',     # 0 5xx xxx xx xx
+            r'05\d{9}',                                 # 05xxxxxxxxx
+            r'5\d{2}\s*\d{3}\s*\d{2}\s*\d{2}',         # 5xx xxx xx xx
+            r'5\d{9}',                                  # 5xxxxxxxxx
+            r'\(\d{3}\)\s*\d{3}[-\s]?\d{2}[-\s]?\d{2}' # (5xx) xxx-xx-xx
+        ]
+        
+        for pattern in turkish_phone_patterns:
+            masked_text = re.sub(pattern, '***-***-****', masked_text)
+        
+        # Turkish ID numbers (TC Kimlik No) - 11 digits
+        tc_kimlik_pattern = r'\b\d{11}\b'
+        masked_text = re.sub(tc_kimlik_pattern, '***********', masked_text)
+        
+        # Credit card numbers (16 digits with optional spaces/dashes)
+        credit_card_pattern = r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'
+        masked_text = re.sub(credit_card_pattern, '****-****-****-****', masked_text)
+        
+        # IBAN numbers (Turkish IBAN format: TR + 24 digits)
+        iban_pattern = r'\bTR\d{2}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{2}\b'
+        masked_text = re.sub(
+            iban_pattern,
+            lambda m: f"TR** **** **** **** **** {m.group()[-6:-2]} {m.group()[-2:]}",
+            masked_text,
+            flags=re.IGNORECASE
+        )
+        
+        # Common Turkish names (sample list - can be extended)
+        turkish_names = [
+            'Mehmet', 'Ahmet', 'Mustafa', 'Ali', 'Hasan', 'Hüseyin', 'İbrahim',
+            'Fatma', 'Ayşe', 'Emine', 'Hatice', 'Zeynep', 'Elif', 'Meryem',
+            'Ömer', 'Osman', 'Ramazan', 'Bekir', 'Murat', 'Serkan', 'Emre',
+            'Özlem', 'Dilek', 'Sibel', 'Aslı', 'Gülşen', 'Şerife', 'Filiz'
+        ]
+        
+        # Create pattern for names with word boundaries
+        for name in turkish_names:
+            name_pattern = rf'\b{re.escape(name)}\s+[A-ZÇĞİÖŞÜ][a-zçğıöşü]+\b'
+            masked_text = re.sub(
+                name_pattern,
+                f"{name[0]}*** ***",
+                masked_text,
+                flags=re.IGNORECASE
+            )
+        
+        # Turkish address components (street names, mahalle, sokak, etc.)
+        address_patterns = [
+            r'\b\d+\.\s*(Sokak|Sk\.|Cadde|Cad\.|Mahalle|Mah\.)',
+            r'\b(Sokak|Cadde|Mahalle|Bulvar|Blv\.)\s+No\s*:\s*\d+',
+            r'\bDaire\s*:\s*\d+',
+            r'\bKat\s*:\s*\d+'
+        ]
+        
+        for pattern in address_patterns:
+            masked_text = re.sub(pattern, '*** ***', masked_text, flags=re.IGNORECASE)
+        
+        return masked_text
     
     def set_retention_period(self, days: int = 90) -> None:
         """Set retention expiration date.
