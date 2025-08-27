@@ -1195,8 +1195,13 @@ class FreeCADDocumentManager:
                         logger.info(f"Saved real .FCStd file: {fcstd_path}")
                     except OSError as e:
                         logger.error(f"Failed to move .FCStd file: {e}")
-                        if os.path.exists(temp_path):
+                        # Proper exception handling for temp file removal
+                        try:
                             os.remove(temp_path)
+                        except FileNotFoundError:
+                            pass  # File already gone, no problem
+                        except OSError as remove_err:
+                            logger.warning(f"Failed to remove temp file {temp_path}: {remove_err}")
             
             # Also save metadata/undo as JSON sidecar (or as main file if no FCStd)
             json_save_path = save_path.replace('.FCStd', '_metadata.json') if fcstd_saved else save_path
@@ -1239,7 +1244,7 @@ class FreeCADDocumentManager:
                 
                 return save_path
                 
-            except Exception as e:
+            except (OSError, TypeError, ValueError) as e:
                 logger.error("document_save_failed",
                            document_id=document_id,
                            error=str(e),
@@ -1618,6 +1623,8 @@ class FreeCADDocumentManager:
                             backup_info = backup
                             break
             
+            # TODO: Consider adding a backup_id index (dict mapping backup_id -> BackupInfo)
+            # to avoid O(n²) search in the fallback case below
             # Fallback to exhaustive search if optimized lookup fails
             if not backup_info:
                 logger.warning("backup_lookup_fallback", backup_id=backup_id, reason="Optimized lookup failed, performing exhaustive search.")
@@ -2035,7 +2042,9 @@ class FreeCADDocumentManager:
                     if os.path.exists(backup.backup_path):
                         os.remove(backup.backup_path)
                     logger.debug("Pruned old backup", backup_id=backup.backup_id)
-                except Exception as e:
+                except FileNotFoundError:
+                    logger.debug("Old backup file already deleted", backup_id=backup.backup_id)
+                except OSError as e:
                     logger.warning("Failed to delete old backup",
                                  backup_id=backup.backup_id,
                                  error=str(e))
@@ -2051,10 +2060,10 @@ class FreeCADDocumentManager:
                     if os.path.exists(backup.backup_path):
                         os.remove(backup.backup_path)
                     logger.debug("Pruned excess backup", backup_id=backup.backup_id)
-                except Exception as e:
-                    logger.warning("Failed to delete excess backup",
-                                 backup_id=backup.backup_id,
-                                 error=str(e))
+                except FileNotFoundError:
+                    pass  # Already gone
+                except OSError as e:
+                    logger.warning(f"Failed to prune backup {backup.backup_id}: {e}")
             
             # Keep only the allowed number
             backups_to_keep = backups_to_keep[:self.config.max_backups_per_document]
