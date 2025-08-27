@@ -166,10 +166,13 @@ class Model(Base, TimestampMixin):
     
     @property
     def is_latest_revision(self) -> bool:
-        """Check if this is the latest revision."""
-        if not self.child_models:
-            return True
-        return all(child.model_rev < self.model_rev for child in self.child_models)
+        """Check if this is the latest revision.
+        
+        Note: Children have HIGHER model_rev, not lower.
+        A model is the latest revision if it has no children.
+        """
+        # If no child models exist, this is the latest revision
+        return not bool(self.child_models)
     
     @property
     def is_assembly(self) -> bool:

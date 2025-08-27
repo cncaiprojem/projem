@@ -335,9 +335,13 @@ def upgrade() -> None:
         BEGIN
             -- Only auto-increment if freecad_doc_uuid is provided
             IF NEW.freecad_doc_uuid IS NOT NULL THEN
-                -- Acquire advisory lock to prevent concurrent updates
-                -- Using hashtext() to convert UUID to bigint for lock ID
-                PERFORM pg_advisory_xact_lock(hashtext(NEW.freecad_doc_uuid::text));
+                -- Acquire 128-bit advisory lock to prevent concurrent updates
+                -- Extract two 64-bit values from UUID for better collision resistance
+                -- First 8 bytes (64 bits) and last 8 bytes (64 bits) of the UUID
+                PERFORM pg_advisory_xact_lock(
+                    ('x' || substr(NEW.freecad_doc_uuid::text, 1, 16))::bit(64)::bigint,
+                    ('x' || substr(NEW.freecad_doc_uuid::text, 17, 16))::bit(64)::bigint
+                );
                 
                 -- Get the max revision for this document UUID
                 SELECT COALESCE(MAX(model_rev), 0) + 1

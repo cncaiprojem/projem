@@ -195,7 +195,7 @@ class AISuggestion(Base, TimestampMixin):
             flags=re.IGNORECASE
         )
         
-        # Turkish phone numbers (various formats)
+        # Turkish phone numbers (various formats) - optimized with single regex
         # Formats: +90 5xx xxx xxxx, 0 5xx xxx xxxx, 5xx xxx xxxx, etc.
         turkish_phone_patterns = [
             r'\+90\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',  # +90 5xx xxx xx xx
@@ -207,8 +207,9 @@ class AISuggestion(Base, TimestampMixin):
             r'\(\d{3}\)\s*\d{3}[-\s]?\d{2}[-\s]?\d{2}' # (5xx) xxx-xx-xx
         ]
         
-        for pattern in turkish_phone_patterns:
-            masked_text = re.sub(pattern, '***-***-****', masked_text)
+        # Combine all phone patterns into a single regex for performance
+        combined_phone_pattern = '|'.join(turkish_phone_patterns)
+        masked_text = re.sub(combined_phone_pattern, '***-***-****', masked_text)
         
         # Turkish ID numbers (TC Kimlik No) - 11 digits
         tc_kimlik_pattern = r'\b\d{11}\b'
@@ -253,7 +254,7 @@ class AISuggestion(Base, TimestampMixin):
             flags=re.IGNORECASE
         )
         
-        # Turkish address components (street names, mahalle, sokak, etc.)
+        # Turkish address components (street names, mahalle, sokak, etc.) - optimized
         address_patterns = [
             r'\b\d+\.\s*(Sokak|Sk\.|Cadde|Cad\.|Mahalle|Mah\.)',
             r'\b(Sokak|Cadde|Mahalle|Bulvar|Blv\.)\s+No\s*:\s*\d+',
@@ -261,8 +262,9 @@ class AISuggestion(Base, TimestampMixin):
             r'\bKat\s*:\s*\d+'
         ]
         
-        for pattern in address_patterns:
-            masked_text = re.sub(pattern, '*** ***', masked_text, flags=re.IGNORECASE)
+        # Combine all address patterns into a single regex for performance
+        combined_address_pattern = '|'.join(address_patterns)
+        masked_text = re.sub(combined_address_pattern, '*** ***', masked_text, flags=re.IGNORECASE)
         
         return masked_text
     

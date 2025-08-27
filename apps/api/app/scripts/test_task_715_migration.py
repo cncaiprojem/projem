@@ -189,8 +189,8 @@ def test_migration():
                 WHERE typname IN ('model_status', 'artefact_file_type', 'shape_kind')
             """))
             remaining_enums = {row[0] for row in result}
-            if remaining_enums:
-                logger.warning(f"Enums not dropped: {remaining_enums}")
+            # Assert that all enums were properly dropped
+            assert not remaining_enums, f"Enums not properly dropped in downgrade: {remaining_enums}"
         
         logger.info("✅ Task 7.15 migration downgrade successful!")
         
