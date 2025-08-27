@@ -196,7 +196,7 @@ class MockFreeCADAdapter(FreeCADAdapter):
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(doc, f, indent=2, default=str)
             return True
-        except (OSError, TypeError):
+        except OSError:
             return False
     
     def close_document(self, doc: Any) -> bool:
@@ -291,7 +291,8 @@ class RealFreeCADAdapter(FreeCADAdapter):
         try:
             self.App.closeDocument(doc.Name)
             return True
-        except Exception:
+        except Exception as e:
+            logger.error(f"Failed to close FreeCAD document {doc.Name}: {e}", exc_info=True)
             return False
     
     def take_snapshot(self, doc: Any) -> Dict[str, Any]:
@@ -1621,11 +1622,14 @@ class FreeCADDocumentManager:
             
             # Fallback to exhaustive search if optimized lookup fails
             if not backup_info:
+                logger.warning("backup_lookup_fallback", backup_id=backup_id, reason="Optimized lookup failed, performing exhaustive search.")
                 for doc_backups in self.backups.values():
                     for backup in doc_backups:
                         if backup.backup_id == backup_id:
                             backup_info = backup
                             break
+                    if backup_info:
+                        break
             
             if not backup_info:
                 raise DocumentException(
@@ -2083,19 +2087,24 @@ class FreeCADDocumentManager:
         """Trigger memory cleanup by closing documents one-by-one until memory is below threshold."""
         if not MEMORY_MANAGEMENT_ENABLED:
             # Fallback to closing half if psutil not available
+            candidates_to_close = []
             with self._lock:
                 sorted_docs = sorted(
                     self.documents.items(),
                     key=lambda x: x[1].modified_at
                 )
-                for doc_id, metadata in sorted_docs[:len(sorted_docs)//2]:
-                    try:
-                        # CRITICAL: Use _system_call=True for memory cleanup
-                        self.close_document(doc_id, save_before_close=True, _system_call=True)
-                        logger.info("document_closed_for_memory", document_id=doc_id)
-                    except Exception as e:
-                        logger.warning("memory_cleanup_close_failed",
-                                     document_id=doc_id, error=str(e))
+                # Collect doc_ids to close
+                candidates_to_close = [doc_id for doc_id, _ in sorted_docs[:len(sorted_docs)//2]]
+
+            # Close documents outside the main lock
+            for doc_id in candidates_to_close:
+                try:
+                    # CRITICAL: Use _system_call=True for memory cleanup
+                    self.close_document(doc_id, save_before_close=True, _system_call=True)
+                    logger.info("document_closed_for_memory", document_id=doc_id)
+                except Exception as e:
+                    logger.warning("memory_cleanup_close_failed",
+                                 document_id=doc_id, error=str(e))
             gc.collect()
             return
         
