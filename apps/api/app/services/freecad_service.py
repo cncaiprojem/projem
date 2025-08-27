@@ -51,7 +51,7 @@ from ..middleware.correlation_middleware import get_correlation_id
 from ..services.license_service import LicenseService
 from ..models.license import License
 from ..core import metrics
-from .freecad_document_manager import FreeCADDocumentManager, document_manager, DocumentException
+from .freecad_document_manager import FreeCADDocumentManager, document_manager, DocumentException, DocumentErrorCode
 from ..schemas.freecad import (
     FreeCADHealthCheckResponse,
     MetricsSummaryResponse,
@@ -746,12 +746,18 @@ class UltraEnterpriseFreeCADService:
                                  correlation_id=correlation_id)
                     # Only raise if lifecycle is required
                     if self.require_document_lifecycle:
+                        # Map specific document errors to more descriptive service errors
+                        if hasattr(e, 'error_code') and e.error_code == DocumentErrorCode.DOCUMENT_LOCKED:
+                            f_error_code = FreeCADErrorCode.RESOURCE_EXHAUSTED
+                        else:
+                            f_error_code = FreeCADErrorCode.TEMPORARY_FAILURE
+                        
                         raise FreeCADException(
-                            message=f"Failed to initialize document lifecycle for job {job_id}",
-                            error_code=FreeCADErrorCode.TEMPORARY_FAILURE,
-                            turkish_message=f"İş {job_id} için belge yaşam döngüsü başlatılamadı",
-                            details={"job_id": job_id, "error": str(e)}
-                        )
+                            message=f"Failed to initialize document lifecycle for job {job_id}: {e}",
+                            error_code=f_error_code,
+                            turkish_message=f"İş {job_id} için belge yaşam döngüsü başlatılamadı: {getattr(e, 'turkish_message', str(e))}",
+                            details={"job_id": job_id, "error": str(e), "original_error_code": getattr(e, 'error_code', None)}
+                        ) from e
                     else:
                         # Continue without document lifecycle if not required
                         logger.warning("document_lifecycle_disabled_due_to_error",
@@ -856,6 +862,22 @@ class UltraEnterpriseFreeCADService:
                                            transaction_id=transaction_info.transaction_id,
                                            error=str(abort_exc),
                                            correlation_id=correlation_id)
+                            
+                            # Map specific document errors to more descriptive service errors
+                            if hasattr(e, 'error_code') and e.error_code == DocumentErrorCode.SAVE_FAILED:
+                                f_error_code = FreeCADErrorCode.TEMPORARY_FAILURE
+                            elif hasattr(e, 'error_code') and e.error_code == DocumentErrorCode.DOCUMENT_LOCKED:
+                                f_error_code = FreeCADErrorCode.RESOURCE_EXHAUSTED
+                            else:
+                                f_error_code = FreeCADErrorCode.TEMPORARY_FAILURE
+                            
+                            # Re-raise with preserved context
+                            raise FreeCADException(
+                                message=f"Failed to finalize document lifecycle for job {job_id}: {e}",
+                                error_code=f_error_code,
+                                turkish_message=f"İş {job_id} için belge yaşam döngüsü sonlandırılamadı: {getattr(e, 'turkish_message', str(e))}",
+                                details={"job_id": job_id, "error": str(e), "original_error_code": getattr(e, 'error_code', None)}
+                            ) from e
                     
                     logger.info("freecad_operation_completed",
                               operation_type=operation_type,

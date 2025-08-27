@@ -313,10 +313,12 @@ class RealFreeCADAdapter(FreeCADAdapter):
             try:
                 value = getattr(doc, prop)
                 # Skip non-serializable properties
+                # FreeCAD-specific types (e.g., Placement, Vector, Matrix) are excluded
+                # as they require special serialization and are handled separately
                 if isinstance(value, (str, int, float, bool, list, dict)):
                     snapshot["properties"][prop] = value
             except Exception as e:
-                logger.warning(f"Could not access document property '{prop}': {e}")
+                logger.warning("Could not access document property", prop=prop, error=str(e))
         
         # Document objects
         for obj in doc.Objects:
@@ -337,7 +339,7 @@ class RealFreeCADAdapter(FreeCADAdapter):
                     elif isinstance(value, (str, int, float, bool, list, dict)):
                         obj_data["Properties"][prop] = value
                 except Exception as e:
-                    logger.warning(f"Could not access object property '{prop}' for object '{obj.Name}': {e}")
+                    logger.warning("Could not access object property", prop=prop, object_name=obj.Name, error=str(e))
             snapshot["objects"].append(obj_data)
         
         return snapshot
@@ -391,6 +393,10 @@ def requires_lock(func):
     @wraps(func)
     def wrapper(self, *args, **kwargs):
         # Check for system bypass flag FIRST
+        # The _system_call=True parameter is a special flag used internally by the document manager
+        # to bypass lock checks for system operations like memory cleanup, shutdown, and restore.
+        # This prevents deadlocks when the system needs to perform housekeeping operations
+        # on documents that may be locked. This flag should NEVER be exposed to external callers.
         if kwargs.get('_system_call', False):
             # Remove the flag and proceed without lock check
             kwargs.pop('_system_call')
@@ -1195,14 +1201,20 @@ class FreeCADDocumentManager:
                         logger.info(f"Saved real .FCStd file: {fcstd_path}")
                     except OSError as e:
                         logger.error(f"Failed to move .FCStd file: {e}")
-                        # Proper exception handling for temp file removal
+                        # Attempt to clean up the temporary file
                         try:
                             os.remove(temp_path)
                         except FileNotFoundError:
-                            # File already removed (possibly by another process or cleanup), safe to ignore
+                            # File already removed, safe to ignore
                             pass
                         except OSError as remove_err:
                             logger.warning(f"Failed to remove temp file {temp_path}: {remove_err}")
+                        # Re-raise the original error to ensure the save operation fails
+                        raise DocumentException(
+                            f"Failed to save document due to file system error: {e}",
+                            DocumentErrorCode.SAVE_FAILED,
+                            f"Belge dosya sistemi hatası nedeniyle kaydedilemedi: {e}"
+                        ) from e
             
             # Also save metadata/undo as JSON sidecar (or as main file if no FCStd)
             json_save_path = save_path.replace('.FCStd', '_metadata.json') if fcstd_saved else save_path

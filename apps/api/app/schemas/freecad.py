@@ -205,7 +205,7 @@ class DocumentLockStatus(BaseModel):
     locked: bool = Field(description="Whether document is locked")
     lock_id: str = Field(description="Lock identifier")
     owner: str = Field(description="Lock owner identifier")
-    expires_at: Optional[str] = Field(default=None, description="Lock expiration time")
+    expires_at: Optional[datetime] = Field(default=None, description="Lock expiration time")
     is_expired: bool = Field(description="Whether lock has expired")
 
 
@@ -213,7 +213,7 @@ class DocumentTransactionStatus(BaseModel):
     """Document transaction status model."""
     transaction_id: str = Field(description="Transaction identifier")
     state: str = Field(description="Transaction state")
-    started_at: Optional[str] = Field(default=None, description="Transaction start time")
+    started_at: Optional[datetime] = Field(default=None, description="Transaction start time")
     operations: int = Field(description="Number of operations in transaction")
 
 
