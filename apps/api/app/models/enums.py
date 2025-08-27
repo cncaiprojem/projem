@@ -83,6 +83,14 @@ class ModelType(str, enum.Enum):
     MESH = "mesh"
 
 
+class ModelStatus(str, enum.Enum):
+    """Model generation status states."""
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
 class FileFormat(str, enum.Enum):
     """Supported file formats."""
     # Native
@@ -102,6 +110,31 @@ class FileFormat(str, enum.Enum):
     # Other
     GCODE = "GCODE"
     JSON = "JSON"
+
+
+class ArtefactFileType(str, enum.Enum):
+    """Artefact file type enumeration for better querying."""
+    FCSTD = "fcstd"
+    STEP = "step"
+    STL = "stl"
+    GLB = "glb"
+    IGES = "iges"
+    BREP = "brep"
+    OBJ = "obj"
+    PLY = "ply"
+    DXF = "dxf"
+    SVG = "svg"
+    PDF = "pdf"
+    GCODE = "gcode"
+
+
+class ShapeKind(str, enum.Enum):
+    """OCCT shape types for topology hashing."""
+    SOLID = "Solid"
+    SHELL = "Shell"
+    FACE = "Face"
+    EDGE = "Edge"
+    VERTEX = "Vertex"
 
 
 class CamStrategy(str, enum.Enum):

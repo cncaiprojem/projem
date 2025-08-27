@@ -3,7 +3,7 @@ Job model for asynchronous task processing.
 """
 
 from datetime import datetime, timedelta, timezone
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import (
     String, Integer, ForeignKey, Index, Boolean,
@@ -14,6 +14,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
 from .enums import JobType, JobStatus
+
+if TYPE_CHECKING:
+    from .model import Model
 
 
 class Job(Base, TimestampMixin):
@@ -157,6 +160,12 @@ class Job(Base, TimestampMixin):
     )
     artefacts: Mapped[List["Artefact"]] = relationship(
         "Artefact",
+        back_populates="job",
+        cascade="all, delete-orphan"
+    )
+    # Task 7.15: Model generation tracking
+    models: Mapped[List["Model"]] = relationship(
+        "Model",
         back_populates="job",
         cascade="all, delete-orphan"
     )

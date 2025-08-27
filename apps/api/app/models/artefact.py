@@ -10,18 +10,20 @@ from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import (
     String, BigInteger, ForeignKey, Index,
-    DateTime, UniqueConstraint
+    DateTime, UniqueConstraint, Enum as SQLEnum
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.orm.attributes import flag_modified
 
 from .base import Base, TimestampMixin
+from .enums import ArtefactFileType
 
 if TYPE_CHECKING:
     from .job import Job
     from .user import User
     from .machine import Machine
+    from .topology_hashes import TopologyHash
 
 # Module-level compiled regex patterns
 # This avoids recompiling the patterns on every use
@@ -135,6 +137,13 @@ class Artefact(Base, TimestampMixin):
         comment="Additional metadata: tags, retention, compliance info, etc."
     )
     
+    # File type enum (Task 7.15 addition)
+    file_type: Mapped[Optional[ArtefactFileType]] = mapped_column(
+        SQLEnum(ArtefactFileType),
+        nullable=True,
+        comment="File type enumeration for better querying"
+    )
+    
     # Relationships
     job: Mapped["Job"] = relationship(
         "Job", 
@@ -150,6 +159,13 @@ class Artefact(Base, TimestampMixin):
     machine: Mapped[Optional["Machine"]] = relationship(
         "Machine",
         foreign_keys=[machine_id]
+    )
+    
+    # Task 7.15: Topology hashes relationship
+    topology_hashes: Mapped[list["TopologyHash"]] = relationship(
+        "TopologyHash",
+        back_populates="artefact",
+        cascade="all, delete-orphan"
     )
     
     # Enterprise-grade indexing strategy with Task 5.7 requirements
