@@ -34,6 +34,7 @@ import hashlib
 import inspect
 import json
 import os
+import re
 import tempfile
 import threading
 import time
@@ -195,7 +196,7 @@ class MockFreeCADAdapter(FreeCADAdapter):
             with open(filepath, 'w', encoding='utf-8') as f:
                 json.dump(doc, f, indent=2, default=str)
             return True
-        except Exception:
+        except (OSError, TypeError):
             return False
     
     def close_document(self, doc: Any) -> bool:
@@ -666,20 +667,17 @@ class FreeCADDocumentManager:
         }
     
     def _generate_document_id(self, job_id: str, suffix: Optional[str] = None) -> str:
-        """Generate unique document ID based on job_id, with UUID to prevent collisions."""
+        """Generate deterministic document ID based on job_id (and optional suffix)."""
         # Sanitize job_id to prevent path injection
-        import re
         safe_job_id = re.sub(r'[^\w\-_]', '_', job_id)
         base_id = f"doc_{safe_job_id}"
-        unique_id = uuid.uuid4().hex[:8]  # Use shorter UUID portion
         if suffix:
             safe_suffix = re.sub(r'[^\w\-_]', '_', suffix)
-            return f"{base_id}_{safe_suffix}_{unique_id}"
-        return f"{base_id}_{unique_id}"
+            return f"{base_id}_{safe_suffix}"
+        return base_id
     
     def _get_safe_path(self, filename: str) -> str:
         """Get safe file path with sanitized filename and configurable base directory."""
-        import re
         # Sanitize filename
         safe_filename = re.sub(r'[^\w\-_.]', '_', filename)
         # Use configured base directory
@@ -1196,7 +1194,7 @@ class FreeCADDocumentManager:
                         fcstd_saved = True
                         metadata.properties["last_saved_path"] = fcstd_path
                         logger.info(f"Saved real .FCStd file: {fcstd_path}")
-                    except Exception as e:
+                    except (OSError, TypeError) as e:
                         logger.error(f"Failed to move .FCStd file: {e}")
                         if os.path.exists(temp_path):
                             os.remove(temp_path)

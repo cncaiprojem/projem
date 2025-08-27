@@ -139,68 +139,68 @@ class TestDocumentLocking:
     
     def test_acquire_lock(self, document_manager):
         """Test acquiring document lock."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         lock = document_manager.acquire_lock(
-            document_id="doc_job123",
+            document_id=metadata.document_id,
             owner_id="user1",
             lock_type="exclusive"
         )
         
-        assert lock.document_id == "doc_job123"
+        assert lock.document_id == metadata.document_id
         assert lock.owner_id == "user1"
         assert lock.lock_type == "exclusive"
         assert lock.expires_at is not None
     
     def test_acquire_lock_on_locked_document(self, document_manager):
         """Test that acquiring lock on locked document fails."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # First lock succeeds
-        lock1 = document_manager.acquire_lock("doc_job123", "user1")
+        lock1 = document_manager.acquire_lock(metadata.document_id, "user1")
         
         # Second lock fails
         with pytest.raises(DocumentException) as exc_info:
-            document_manager.acquire_lock("doc_job123", "user2")
+            document_manager.acquire_lock(metadata.document_id, "user2")
         
         assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
     
     def test_release_lock(self, document_manager):
         """Test releasing document lock."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
-        lock = document_manager.acquire_lock("doc_job123", "user1")
-        released = document_manager.release_lock("doc_job123", lock.lock_id)
+        lock = document_manager.acquire_lock(metadata.document_id, "user1")
+        released = document_manager.release_lock(metadata.document_id, lock.lock_id)
         
         assert released is True
         
         # Should be able to acquire new lock after release
-        lock2 = document_manager.acquire_lock("doc_job123", "user2")
+        lock2 = document_manager.acquire_lock(metadata.document_id, "user2")
         assert lock2 is not None
     
     def test_lock_context_manager(self, document_manager):
         """Test lock context manager."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
-        with document_manager.document_lock("doc_job123", "user1") as lock:
+        with document_manager.document_lock(metadata.document_id, "user1") as lock:
             assert lock is not None
             assert lock.owner_id == "user1"
             
             # Lock should be active inside context
             with pytest.raises(DocumentException):
-                document_manager.acquire_lock("doc_job123", "user2")
+                document_manager.acquire_lock(metadata.document_id, "user2")
         
         # Lock should be released outside context
-        lock2 = document_manager.acquire_lock("doc_job123", "user2")
+        lock2 = document_manager.acquire_lock(metadata.document_id, "user2")
         assert lock2 is not None
     
     def test_expired_lock(self, document_manager):
         """Test that expired locks can be overridden."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Acquire lock with short timeout
         lock = document_manager.acquire_lock(
-            "doc_job123",
+            metadata.document_id,
             "user1",
             timeout_seconds=1
         )
@@ -209,7 +209,7 @@ class TestDocumentLocking:
         time.sleep(2)
         
         # Should be able to acquire new lock
-        lock2 = document_manager.acquire_lock("doc_job123", "user2")
+        lock2 = document_manager.acquire_lock(metadata.document_id, "user2")
         assert lock2 is not None
 
 
@@ -229,9 +229,9 @@ class TestTransactionManagement:
     
     def test_transaction_buffer(self, document_manager):
         """Test transaction buffering functionality."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
-        transaction = document_manager.start_transaction("doc_job123")
+        transaction = document_manager.start_transaction(metadata.document_id)
         
         # Add buffered changes
         transaction.add_buffered_change("author", "new_author")
@@ -241,16 +241,16 @@ class TestTransactionManagement:
         document_manager.commit_transaction(transaction.transaction_id)
         
         # Check that buffered changes were applied
-        metadata = document_manager.documents["doc_job123"]
-        assert metadata.author == "new_author"
-        assert metadata.description == "new description"
+        doc_metadata = document_manager.documents[metadata.document_id]
+        assert doc_metadata.author == "new_author"
+        assert doc_metadata.description == "new description"
     
     def test_transaction_context_manager(self, document_manager):
         """Test transaction context manager."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Test successful transaction
-        with document_manager.transaction("doc_job123") as txn:
+        with document_manager.transaction(metadata.document_id) as txn:
             assert txn is not None
             assert txn.state == TransactionState.ACTIVE
         
@@ -259,7 +259,7 @@ class TestTransactionManagement:
         
         # Test failed transaction
         try:
-            with document_manager.transaction("doc_job123") as txn:
+            with document_manager.transaction(metadata.document_id) as txn:
                 raise ValueError("Test error")
         except ValueError:
             pass
@@ -272,20 +272,20 @@ class TestTransactionManagement:
         metadata = document_manager.create_document(job_id="job123")
         initial_revision = metadata.revision
         
-        transaction = document_manager.start_transaction("doc_job123")
+        transaction = document_manager.start_transaction(metadata.document_id)
         committed = document_manager.commit_transaction(transaction.transaction_id)
         
         assert committed is True
         
         # Check that revision was incremented
-        updated_metadata = document_manager.documents["doc_job123"]
+        updated_metadata = document_manager.documents[metadata.document_id]
         assert updated_metadata.revision == "B"
     
     def test_abort_transaction(self, document_manager):
         """Test aborting a transaction."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
-        transaction = document_manager.start_transaction("doc_job123")
+        transaction = document_manager.start_transaction(metadata.document_id)
         aborted = document_manager.abort_transaction(transaction.transaction_id)
         
         assert aborted is True
@@ -345,80 +345,80 @@ class TestUndoRedo:
     
     def test_add_undo_snapshot(self, document_manager):
         """Test adding undo snapshot."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         snapshot = document_manager.add_undo_snapshot(
-            "doc_job123",
+            metadata.document_id,
             "Test change",
             {"test": "data"}
         )
         
-        assert snapshot.document_id == "doc_job123"
+        assert snapshot.document_id == metadata.document_id
         assert snapshot.description == "Test change"
         assert snapshot.data == {"test": "data"}
-        assert len(document_manager.undo_stacks["doc_job123"]) == 1
+        assert len(document_manager.undo_stacks[metadata.document_id]) == 1
     
     def test_undo_operation(self, document_manager):
         """Test undo operation."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Add snapshots
-        document_manager.add_undo_snapshot("doc_job123", "Change 1", {"step": 1})
-        document_manager.add_undo_snapshot("doc_job123", "Change 2", {"step": 2})
+        document_manager.add_undo_snapshot(metadata.document_id, "Change 1", {"step": 1})
+        document_manager.add_undo_snapshot(metadata.document_id, "Change 2", {"step": 2})
         
         # Perform undo
-        undone = document_manager.undo("doc_job123")
+        undone = document_manager.undo(metadata.document_id)
         
         assert undone is not None
         assert undone.description == "Change 2"
-        assert len(document_manager.undo_stacks["doc_job123"]) == 1
-        assert len(document_manager.redo_stacks["doc_job123"]) == 1
+        assert len(document_manager.undo_stacks[metadata.document_id]) == 1
+        assert len(document_manager.redo_stacks[metadata.document_id]) == 1
     
     def test_redo_operation(self, document_manager):
         """Test redo operation."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Add snapshots and undo
-        document_manager.add_undo_snapshot("doc_job123", "Change 1", {"step": 1})
-        document_manager.add_undo_snapshot("doc_job123", "Change 2", {"step": 2})
-        document_manager.undo("doc_job123")
+        document_manager.add_undo_snapshot(metadata.document_id, "Change 1", {"step": 1})
+        document_manager.add_undo_snapshot(metadata.document_id, "Change 2", {"step": 2})
+        document_manager.undo(metadata.document_id)
         
         # Perform redo
-        redone = document_manager.redo("doc_job123")
+        redone = document_manager.redo(metadata.document_id)
         
         assert redone is not None
-        assert len(document_manager.undo_stacks["doc_job123"]) == 2
-        assert len(document_manager.redo_stacks["doc_job123"]) == 0
+        assert len(document_manager.undo_stacks[metadata.document_id]) == 2
+        assert len(document_manager.redo_stacks[metadata.document_id]) == 0
     
     def test_undo_stack_limit(self, document_manager):
         """Test that undo stack respects size limit."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Add more snapshots than limit
         for i in range(15):
             document_manager.add_undo_snapshot(
-                "doc_job123",
+                metadata.document_id,
                 f"Change {i}",
                 {"step": i}
             )
         
         # Stack should be limited to max_undo_stack_size (10)
-        assert len(document_manager.undo_stacks["doc_job123"]) == 10
+        assert len(document_manager.undo_stacks[metadata.document_id]) == 10
     
     def test_redo_cleared_on_new_change(self, document_manager):
         """Test that redo stack is cleared on new changes."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Create undo/redo history
-        document_manager.add_undo_snapshot("doc_job123", "Change 1", {"step": 1})
-        document_manager.undo("doc_job123")
-        assert len(document_manager.redo_stacks["doc_job123"]) == 1
+        document_manager.add_undo_snapshot(metadata.document_id, "Change 1", {"step": 1})
+        document_manager.undo(metadata.document_id)
+        assert len(document_manager.redo_stacks[metadata.document_id]) == 1
         
         # Add new change
-        document_manager.add_undo_snapshot("doc_job123", "New change", {"step": 2})
+        document_manager.add_undo_snapshot(metadata.document_id, "New change", {"step": 2})
         
         # Redo stack should be cleared
-        assert len(document_manager.redo_stacks["doc_job123"]) == 0
+        assert len(document_manager.redo_stacks[metadata.document_id]) == 0
 
 
 class TestLockEnforcement:
@@ -426,89 +426,89 @@ class TestLockEnforcement:
     
     def test_save_requires_lock_owner(self, document_manager):
         """Test that save requires correct lock owner."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Acquire lock as user1
-        lock = document_manager.acquire_lock("doc_job123", "user1")
+        lock = document_manager.acquire_lock(metadata.document_id, "user1")
         
         # Try to save as different user
         with pytest.raises(DocumentException) as exc_info:
-            document_manager.save_document("doc_job123", owner_id="user2")
+            document_manager.save_document(metadata.document_id, owner_id="user2")
         
         assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
         
         # Save with correct owner should work
-        path = document_manager.save_document("doc_job123", owner_id="user1")
+        path = document_manager.save_document(metadata.document_id, owner_id="user1")
         assert path is not None
     
     def test_close_requires_lock_owner(self, document_manager):
         """Test that close requires correct lock owner."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Acquire lock as user1
-        lock = document_manager.acquire_lock("doc_job123", "user1")
+        lock = document_manager.acquire_lock(metadata.document_id, "user1")
         
         # Try to close as different user
         with pytest.raises(DocumentException) as exc_info:
-            document_manager.close_document("doc_job123", owner_id="user2")
+            document_manager.close_document(metadata.document_id, owner_id="user2")
         
         assert exc_info.value.error_code == DocumentErrorCode.LOCK_OWNER_MISMATCH
     
     def test_save_fails_without_owner_id(self, document_manager):
         """Test that save fails when owner_id is None or missing when lock exists."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Acquire lock as user1
-        lock = document_manager.acquire_lock("doc_job123", "user1")
+        lock = document_manager.acquire_lock(metadata.document_id, "user1")
         
         # Try to save without owner_id (None)
         with pytest.raises(DocumentException) as exc_info:
-            document_manager.save_document("doc_job123", owner_id=None)
+            document_manager.save_document(metadata.document_id, owner_id=None)
         
         # When owner_id is None, we should get DOCUMENT_LOCKED error
         assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
         
         # Try to save without passing owner_id at all
         with pytest.raises(DocumentException) as exc_info:
-            document_manager.save_document("doc_job123")
+            document_manager.save_document(metadata.document_id)
         
         # When owner_id is missing, we should get DOCUMENT_LOCKED error  
         assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
     
     def test_close_fails_without_owner_id(self, document_manager):
         """Test that close fails when owner_id is None or missing when lock exists."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Acquire lock as user1
-        lock = document_manager.acquire_lock("doc_job123", "user1")
+        lock = document_manager.acquire_lock(metadata.document_id, "user1")
         
         # Try to close without owner_id (None)
         with pytest.raises(DocumentException) as exc_info:
-            document_manager.close_document("doc_job123", owner_id=None)
+            document_manager.close_document(metadata.document_id, owner_id=None)
         
         # When owner_id is None, we should get DOCUMENT_LOCKED error
         assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
         
         # Try to close without passing owner_id at all
         with pytest.raises(DocumentException) as exc_info:
-            document_manager.close_document("doc_job123")
+            document_manager.close_document(metadata.document_id)
         
         # When owner_id is missing, we should get DOCUMENT_LOCKED error
         assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
     
     def test_operations_fail_without_lock(self, document_manager):
         """Test that operations fail without proper lock and owner_id."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Without any lock or owner_id, save should fail
         with pytest.raises(DocumentException) as exc_info:
-            document_manager.save_document("doc_job123")
+            document_manager.save_document(metadata.document_id)
         assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
         
         # Close should also fail without owner_id
-        document_manager.create_document(job_id="job456")
+        metadata456 = document_manager.create_document(job_id="job456")
         with pytest.raises(DocumentException) as exc_info:
-            document_manager.close_document("doc_job456", save_before_close=False)
+            document_manager.close_document(metadata456.document_id, save_before_close=False)
         assert exc_info.value.error_code == DocumentErrorCode.DOCUMENT_LOCKED
 
 
@@ -546,24 +546,24 @@ class TestDocumentSaveAndLoad:
     
     def test_save_document(self, document_manager, temp_dir):
         """Test saving document."""
-        document_manager.create_document(
+        metadata = document_manager.create_document(
             job_id="job123",
             author="test_user"
         )
         
         # Acquire lock first
-        lock = document_manager.acquire_lock("doc_job123", owner_id="test_user")
+        lock = document_manager.acquire_lock(metadata.document_id, owner_id="test_user")
         
         save_path = temp_dir / "test_doc.FCStd"
         result_path = document_manager.save_document(
-            "doc_job123",
+            metadata.document_id,
             owner_id="test_user",
             save_path=str(save_path),
             compress=False
         )
         
         # Release lock
-        document_manager.release_lock("doc_job123", lock.lock_id)
+        document_manager.release_lock(metadata.document_id, lock.lock_id)
         
         assert os.path.exists(result_path)
         
@@ -572,26 +572,26 @@ class TestDocumentSaveAndLoad:
             saved_data = json.load(f)
         
         assert "metadata" in saved_data
-        assert saved_data["metadata"]["document_id"] == "doc_job123"
+        assert saved_data["metadata"]["document_id"] == metadata.document_id
         assert saved_data["metadata"]["author"] == "test_user"
     
     def test_save_document_compressed(self, document_manager, temp_dir):
         """Test saving document with compression."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Acquire lock first
-        lock = document_manager.acquire_lock("doc_job123", owner_id="test_user")
+        lock = document_manager.acquire_lock(metadata.document_id, owner_id="test_user")
         
         save_path = temp_dir / "test_doc.FCStd"
         result_path = document_manager.save_document(
-            "doc_job123",
+            metadata.document_id,
             owner_id="test_user",
             save_path=str(save_path),
             compress=True
         )
         
         # Release lock
-        document_manager.release_lock("doc_job123", lock.lock_id)
+        document_manager.release_lock(metadata.document_id, lock.lock_id)
         
         assert result_path.endswith(".gz")
         assert os.path.exists(result_path)
@@ -601,46 +601,46 @@ class TestDocumentSaveAndLoad:
     
     def test_save_with_backup(self, document_manager, temp_dir):
         """Test saving document with backup creation."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Acquire lock first
-        lock = document_manager.acquire_lock("doc_job123", owner_id="test_user")
+        lock = document_manager.acquire_lock(metadata.document_id, owner_id="test_user")
         
         # Save with backup
         save_path = document_manager.save_document(
-            "doc_job123",
+            metadata.document_id,
             owner_id="test_user",
             create_backup=True
         )
         
         # Release lock
-        document_manager.release_lock("doc_job123", lock.lock_id)
+        document_manager.release_lock(metadata.document_id, lock.lock_id)
         
         # Check that backup was created
-        assert "doc_job123" in document_manager.backups
-        assert len(document_manager.backups["doc_job123"]) == 1
+        assert metadata.document_id in document_manager.backups
+        assert len(document_manager.backups[metadata.document_id]) == 1
         
-        backup = document_manager.backups["doc_job123"][0]
-        assert backup.document_id == "doc_job123"
+        backup = document_manager.backups[metadata.document_id][0]
+        assert backup.document_id == metadata.document_id
         assert os.path.exists(backup.backup_path)
     
     def test_close_document_with_save(self, document_manager, temp_dir):
         """Test closing document with save."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Acquire lock first
-        lock = document_manager.acquire_lock("doc_job123", owner_id="test_user")
+        lock = document_manager.acquire_lock(metadata.document_id, owner_id="test_user")
         
         closed = document_manager.close_document(
-            "doc_job123",
+            metadata.document_id,
             owner_id="test_user",
             save_before_close=True
         )
         
         assert closed is True
-        assert "doc_job123" not in document_manager.documents
-        assert "doc_job123" not in document_manager.undo_stacks
-        assert "doc_job123" not in document_manager.redo_stacks
+        assert metadata.document_id not in document_manager.documents
+        assert metadata.document_id not in document_manager.undo_stacks
+        assert metadata.document_id not in document_manager.redo_stacks
 
 
 class TestBackupAndRestore:
@@ -648,15 +648,15 @@ class TestBackupAndRestore:
     
     def test_create_backup(self, document_manager):
         """Test creating document backup."""
-        document_manager.create_document(
+        metadata = document_manager.create_document(
             job_id="job123",
             author="test_user"
         )
         
-        backup = document_manager.create_backup("doc_job123")
+        backup = document_manager.create_backup(metadata.document_id)
         
-        assert backup.document_id == "doc_job123"
-        assert backup.backup_id.startswith("backup_doc_job123_")
+        assert backup.document_id == metadata.document_id
+        assert backup.backup_id.startswith(f"backup_{metadata.document_id}_")
         assert os.path.exists(backup.backup_path)
         assert backup.compressed == document_manager.config.enable_compression
     
@@ -670,24 +670,24 @@ class TestBackupAndRestore:
         )
         manager = FreeCADDocumentManager(config)
         
-        manager.create_document(job_id="job123")
+        metadata = manager.create_document(job_id="job123")
         
         # Create more backups than the limit
         backup_paths = []
         for i in range(5):
-            backup = manager.create_backup("doc_job123")
+            backup = manager.create_backup(metadata.document_id)
             backup_paths.append(backup.backup_path)
             time.sleep(0.1)  # Small delay to ensure different timestamps
         
         # Should only keep max_backups_per_document
-        assert len(manager.backups["doc_job123"]) == 3
+        assert len(manager.backups[metadata.document_id]) == 3
         
         # Old backups should be deleted
         for path in backup_paths[:2]:
             assert not os.path.exists(path)
         
         # Recent backups should exist
-        for backup in manager.backups["doc_job123"]:
+        for backup in manager.backups[metadata.document_id]:
             assert os.path.exists(backup.backup_path)
     
     def test_restore_backup(self, document_manager):
@@ -699,7 +699,7 @@ class TestBackupAndRestore:
         )
         
         # Create backup
-        backup = document_manager.create_backup("doc_job123")
+        backup = document_manager.create_backup(metadata.document_id)
         
         # Modify document
         metadata.author = "modified_author"
@@ -724,32 +724,32 @@ class TestAssemblyCoordination:
     
     def test_setup_assembly_coordination(self, document_manager):
         """Test setting up assembly coordination."""
-        document_manager.create_document(job_id="assembly_main")
-        document_manager.create_document(job_id="part1")
-        document_manager.create_document(job_id="part2")
+        main_meta = document_manager.create_document(job_id="assembly_main")
+        part1_meta = document_manager.create_document(job_id="part1")
+        part2_meta = document_manager.create_document(job_id="part2")
         
         coordination = document_manager.setup_assembly_coordination(
-            assembly_id="doc_assembly_main",
-            child_document_ids=["doc_part1", "doc_part2"]
+            assembly_id=main_meta.document_id,
+            child_document_ids=[part1_meta.document_id, part2_meta.document_id]
         )
         
-        assert coordination.assembly_id == "doc_assembly_main"
+        assert coordination.assembly_id == main_meta.document_id
         assert len(coordination.child_document_ids) == 2
-        assert "doc_part1" in coordination.child_document_ids
-        assert "doc_part2" in coordination.child_document_ids
+        assert part1_meta.document_id in coordination.child_document_ids
+        assert part2_meta.document_id in coordination.child_document_ids
     
     def test_assembly_with_parent(self, document_manager):
         """Test assembly with parent document."""
-        document_manager.create_document(job_id="parent_assembly")
-        document_manager.create_document(job_id="sub_assembly")
+        parent_meta = document_manager.create_document(job_id="parent_assembly")
+        sub_meta = document_manager.create_document(job_id="sub_assembly")
         
         coordination = document_manager.setup_assembly_coordination(
-            assembly_id="doc_sub_assembly",
-            parent_document_id="doc_parent_assembly",
+            assembly_id=sub_meta.document_id,
+            parent_document_id=parent_meta.document_id,
             child_document_ids=[]
         )
         
-        assert coordination.parent_document_id == "doc_parent_assembly"
+        assert coordination.parent_document_id == parent_meta.document_id
 
 
 class TestDocumentMigration:
@@ -757,10 +757,10 @@ class TestDocumentMigration:
     
     def test_migrate_document(self, document_manager):
         """Test document migration to new version."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         migration = document_manager.migrate_document(
-            "doc_job123",
+            metadata.document_id,
             target_version="1.2.0",
             migration_rules={
                 "update_properties": {"action": "update"},
@@ -775,9 +775,9 @@ class TestDocumentMigration:
         assert migration.completed_at is not None
         
         # Check that version was incremented
-        metadata = document_manager.documents["doc_job123"]
-        assert metadata.version == 2
-        assert metadata.properties.get("migration_version") == "1.2.0"
+        doc_metadata = document_manager.documents[metadata.document_id]
+        assert doc_metadata.version == 2
+        assert doc_metadata.properties.get("migration_version") == "1.2.0"
     
     def test_migrate_nonexistent_document(self, document_manager):
         """Test migrating non-existent document fails."""
@@ -925,18 +925,18 @@ class TestDocumentStatus:
     
     def test_get_document_status(self, document_manager):
         """Test getting comprehensive document status."""
-        document_manager.create_document(job_id="job123")
+        metadata = document_manager.create_document(job_id="job123")
         
         # Add some operations
-        lock = document_manager.acquire_lock("doc_job123", "user1")
-        transaction = document_manager.start_transaction("doc_job123")
-        document_manager.add_undo_snapshot("doc_job123", "Change 1", {})
-        document_manager.create_backup("doc_job123")
+        lock = document_manager.acquire_lock(metadata.document_id, "user1")
+        transaction = document_manager.start_transaction(metadata.document_id)
+        document_manager.add_undo_snapshot(metadata.document_id, "Change 1", {})
+        document_manager.create_backup(metadata.document_id)
         
-        status = document_manager.get_document_status("doc_job123")
+        status = document_manager.get_document_status(metadata.document_id)
         
         assert status["status"] == "open"
-        assert status["document_id"] == "doc_job123"
+        assert status["document_id"] == metadata.document_id
         assert status["metadata"] is not None
         assert status["lock"] is not None
         assert len(status["transactions"]) == 1
