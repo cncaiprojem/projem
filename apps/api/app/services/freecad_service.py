@@ -51,6 +51,7 @@ from ..middleware.correlation_middleware import get_correlation_id
 from ..services.license_service import LicenseService
 from ..models.license import License
 from ..core import metrics
+from .freecad_document_manager import FreeCADDocumentManager, document_manager, DocumentException, DocumentErrorCode
 from ..schemas.freecad import (
     FreeCADHealthCheckResponse,
     MetricsSummaryResponse,
@@ -447,6 +448,10 @@ class UltraEnterpriseFreeCADService:
         )
         self._process_lock = threading.Lock()
         
+        # Configuration for document lifecycle (can be disabled for testing or legacy mode)
+        self.enable_document_lifecycle = getattr(settings, 'FREECAD_ENABLE_DOCUMENT_LIFECYCLE', True)
+        self.require_document_lifecycle = getattr(settings, 'FREECAD_REQUIRE_DOCUMENT_LIFECYCLE', False)
+        
         # Initialize Turkish error messages
         self.turkish_errors = {
             FreeCADErrorCode.FREECAD_NOT_FOUND: "FreeCAD bulunamadı",
@@ -607,6 +612,7 @@ class UltraEnterpriseFreeCADService:
         script_content: str,
         parameters: Dict[str, Any],
         output_formats: List[str],
+        job_id: str,
         correlation_id: Optional[str] = None
     ) -> FreeCADResult:
         """Execute FreeCAD operation with comprehensive monitoring and control."""
@@ -698,6 +704,70 @@ class UltraEnterpriseFreeCADService:
             # Sanitize inputs
             sanitized_params = self.sanitize_input(parameters)
             
+            # Initialize document lifecycle management if job_id provided and enabled
+            document_metadata = None
+            transaction_info = None
+            document_lock = None
+            if job_id and self.enable_document_lifecycle:
+                try:
+                    # Create or open document for this job
+                    document_metadata = document_manager.open_document(
+                        job_id=job_id,
+                        document_path=None,
+                        create_if_not_exists=True
+                    )
+                    
+                    # CRITICAL: Acquire lock before operations
+                    document_lock = document_manager.acquire_lock(
+                        document_metadata.document_id,
+                        owner_id=str(user_id),
+                        lock_type="exclusive"
+                    )
+                    
+                    # Start transaction for atomic operations
+                    transaction_info = document_manager.start_transaction(document_metadata.document_id)
+                    
+                    # Add operation to transaction log
+                    transaction_info.add_operation({
+                        "operation_type": operation_type,
+                        "user_id": user_id,
+                        "output_formats": output_formats
+                    })
+                    
+                    logger.info("document_lifecycle_initialized",
+                              document_id=document_metadata.document_id,
+                              transaction_id=transaction_info.transaction_id,
+                              correlation_id=correlation_id)
+                    
+                except DocumentException as e:
+                    logger.warning("document_lifecycle_init_failed",
+                                 job_id=job_id,
+                                 error=str(e),
+                                 correlation_id=correlation_id)
+                    # Only raise if lifecycle is required
+                    if self.require_document_lifecycle:
+                        # Map specific document errors to more descriptive service errors
+                        if hasattr(e, 'error_code') and e.error_code == DocumentErrorCode.DOCUMENT_LOCKED:
+                            f_error_code = FreeCADErrorCode.RESOURCE_EXHAUSTED
+                        else:
+                            f_error_code = FreeCADErrorCode.TEMPORARY_FAILURE
+                        
+                        raise FreeCADException(
+                            message=f"Failed to initialize document lifecycle for job {job_id}: {e}",
+                            error_code=f_error_code,
+                            turkish_message=f"İş {job_id} için belge yaşam döngüsü başlatılamadı: {getattr(e, 'turkish_message', str(e))}",
+                            details={"job_id": job_id, "error": str(e), "original_error_code": getattr(e, 'error_code', None)}
+                        ) from e
+                    else:
+                        # Continue without document lifecycle if not required
+                        logger.warning("document_lifecycle_disabled_due_to_error",
+                                     job_id=job_id,
+                                     error=str(e),
+                                     correlation_id=correlation_id)
+                        document_metadata = None
+                        transaction_info = None
+                        document_lock = None
+            
             # Execute with managed resources
             with self.managed_temp_directory() as temp_dir:
                 # Increment user's active operation count
@@ -746,6 +816,69 @@ class UltraEnterpriseFreeCADService:
                             license_tier=license_tier.value
                         ).set(result.metrics.average_cpu_percent)
                     
+                    # Finalize document lifecycle if initialized
+                    if document_metadata and transaction_info:
+                        try:
+                            # Add undo snapshot before commit
+                            document_manager.add_undo_snapshot(
+                                document_metadata.document_id,
+                                f"{operation_type} completed",
+                                {
+                                    "operation_type": operation_type,
+                                    "output_files": [str(f) for f in result.output_files],
+                                    "sha256_hashes": result.sha256_hashes
+                                }
+                            )
+                            
+                            # Commit transaction
+                            document_manager.commit_transaction(transaction_info.transaction_id)
+                            
+                            # Save document with output files
+                            if result.output_files:
+                                # CRITICAL: Pass owner_id to save_document
+                                document_path = document_manager.save_document(
+                                    document_metadata.document_id,
+                                    owner_id=str(user_id),
+                                    save_path=str(result.output_files[0]),
+                                    compress=True,
+                                    create_backup=True
+                                )
+                                
+                                logger.info("document_lifecycle_finalized",
+                                          document_id=document_metadata.document_id,
+                                          document_path=document_path,
+                                          correlation_id=correlation_id)
+                        
+                        except DocumentException as e:
+                            logger.warning("document_lifecycle_finalization_failed",
+                                         document_id=document_metadata.document_id,
+                                         error=str(e),
+                                         correlation_id=correlation_id)
+                            # Abort transaction on failure
+                            try:
+                                document_manager.abort_transaction(transaction_info.transaction_id)
+                            except Exception as abort_exc:
+                                logger.error("transaction_abort_on_finalize_failed",
+                                           transaction_id=transaction_info.transaction_id,
+                                           error=str(abort_exc),
+                                           correlation_id=correlation_id)
+                            
+                            # Map specific document errors to more descriptive service errors
+                            if hasattr(e, 'error_code') and e.error_code == DocumentErrorCode.SAVE_FAILED:
+                                f_error_code = FreeCADErrorCode.TEMPORARY_FAILURE
+                            elif hasattr(e, 'error_code') and e.error_code == DocumentErrorCode.DOCUMENT_LOCKED:
+                                f_error_code = FreeCADErrorCode.RESOURCE_EXHAUSTED
+                            else:
+                                f_error_code = FreeCADErrorCode.TEMPORARY_FAILURE
+                            
+                            # Re-raise with preserved context
+                            raise FreeCADException(
+                                message=f"Failed to finalize document lifecycle for job {job_id}: {e}",
+                                error_code=f_error_code,
+                                turkish_message=f"İş {job_id} için belge yaşam döngüsü sonlandırılamadı: {getattr(e, 'turkish_message', str(e))}",
+                                details={"job_id": job_id, "error": str(e), "original_error_code": getattr(e, 'error_code', None)}
+                            ) from e
+                    
                     logger.info("freecad_operation_completed",
                               operation_type=operation_type,
                               user_id=user_id,
@@ -782,6 +915,19 @@ class UltraEnterpriseFreeCADService:
                     
                     raise
                 finally:
+                    # Release lock if acquired
+                    if document_lock and document_metadata:
+                        try:
+                            document_manager.release_lock(
+                                document_metadata.document_id,
+                                document_lock.lock_id
+                            )
+                        except Exception as e:
+                            logger.warning("lock_release_failed",
+                                         document_id=document_metadata.document_id,
+                                         error=str(e),
+                                         correlation_id=correlation_id)
+                    
                     # Decrement user's active operation count
                     with self._process_lock:
                         if user_id in self.user_active_operations:

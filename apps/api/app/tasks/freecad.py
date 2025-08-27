@@ -26,6 +26,7 @@ def freecad_execute_operation_task(
     script_content: str,
     parameters: dict,
     output_formats: list,
+    job_id: str,
     correlation_id: str = None
 ) -> dict:
     """
@@ -37,6 +38,7 @@ def freecad_execute_operation_task(
         script_content: FreeCAD Python script to execute
         parameters: Operation parameters
         output_formats: Desired output file formats
+        job_id: Job ID for document tracking
         correlation_id: Request correlation ID
         
     Returns:
@@ -61,6 +63,7 @@ def freecad_execute_operation_task(
             script_content=script_content,
             parameters=parameters,
             output_formats=output_formats,
+            job_id=job_id,
             correlation_id=correlation_id or self.request.id
         )
         
