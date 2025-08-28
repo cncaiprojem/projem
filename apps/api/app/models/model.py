@@ -141,8 +141,9 @@ class Model(Base, TimestampMixin):
         # Unique constraint for document UUID and revision
         UniqueConstraint(
             'freecad_doc_uuid', 'model_rev',
-            name='uq_models_doc_uuid_rev',
-            postgresql_where='freecad_doc_uuid IS NOT NULL'
+            name='uq_models_doc_uuid_rev'
+            # Note: Partial unique constraints need to be added via migration
+            # postgresql_where='freecad_doc_uuid IS NOT NULL'
         ),
         
         # Indexes for performance

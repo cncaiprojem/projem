@@ -138,7 +138,7 @@ class AISuggestion(Base, TimestampMixin):
     )
     
     # Metadata
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    suggestion_metadata: Mapped[Optional[dict]] = mapped_column(
         JSONB,
         nullable=True,
         comment="Additional metadata and context"
