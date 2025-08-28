@@ -161,8 +161,11 @@ def get_turkish_term(key: str) -> str:
         "boundary_condition": "sınır koşulu",
         "load": "yük",
         "material": "malzeme",
+        # Mechanical stress (not psychological stress)
         "stress": "gerilme",
+        # Engineering strain (not general deformation)
         "strain": "şekil değiştirme",
+        # Displacement in mechanical/engineering context
         "displacement": "yer değiştirme",
         "frequency": "frekans",
         "mode": "mod",

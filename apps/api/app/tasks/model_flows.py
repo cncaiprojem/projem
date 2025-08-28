@@ -20,7 +20,6 @@ Implements:
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import tempfile
@@ -29,6 +28,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
+from asgiref.sync import async_to_sync
 from celery import shared_task
 from celery.exceptions import Ignore, Retry
 from celery.utils.log import get_task_logger
@@ -145,14 +145,14 @@ def generate_model_from_prompt(
             # Call AI adapter for script generation
             logger.info("Calling AI adapter for script generation", prompt=prompt[:100])
             
-            # Run async AI adapter in sync context
-            script_response = asyncio.run(ai_adapter.suggest_params(
+            # Run async AI adapter in sync context using proper async_to_sync
+            script_response = async_to_sync(ai_adapter.suggest_params)(
                 prompt=prompt,
                 context=canonical_params.get("context", {}),
                 user_id=str(user_id),
                 timeout=30,
                 retries=2
-            ))
+            )
             
             # Validate generated script
             try:

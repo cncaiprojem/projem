@@ -32,6 +32,7 @@ import tempfile
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from celery import shared_task
@@ -185,9 +186,13 @@ class FEMTaskResult:
         }
 
 
-def validate_fem_inputs(canonical_params: Dict[str, Any]) -> Tuple[bool, List[str]]:
+def validate_fem_inputs(canonical_params: Dict[str, Any], model_ref: Optional[str] = None) -> Tuple[bool, List[str]]:
     """
     Validate FEM analysis inputs for completeness and correctness.
+    
+    Args:
+        canonical_params: Analysis parameters
+        model_ref: Optional model reference (S3 URL or local path)
     
     Returns:
         Tuple of (is_valid, warnings_list)
@@ -203,7 +208,6 @@ def validate_fem_inputs(canonical_params: Dict[str, Any]) -> Tuple[bool, List[st
         return is_valid, warnings
     
     # Check model reference
-    model_ref = canonical_params.get("model_ref")
     if not model_ref:
         warnings.append("Model referansı gerekli")
         is_valid = False
@@ -332,10 +336,7 @@ def estimate_analysis_resources(canonical_params: Dict[str, Any]) -> Dict[str, A
     }
 
 
-@shared_task(
-    bind=True,
-    autoretry_for=(ConnectionError, TimeoutError)
-)
+@shared_task(bind=True)
 def run_fem_simulation(
     self,
     job_id: str,
@@ -380,7 +381,7 @@ def run_fem_simulation(
             raise Ignore()
         
         # Initial validation
-        is_valid, warnings = validate_fem_inputs(canonical_params)
+        is_valid, warnings = validate_fem_inputs(canonical_params, model_ref)
         if not is_valid:
             error_msg = f"FEM girdi doğrulaması başarısız: {'; '.join(warnings[:3])}"
             logger.error(error_msg, job_id=job_id)
@@ -627,7 +628,10 @@ def _resolve_model_reference(model_ref: str, temp_dir: str) -> Optional[str]:
         # Download from S3
         local_path = os.path.join(temp_dir, "input_model.FCStd")
         try:
-            s3_service.download_file(model_ref.split('/')[-1], local_path)
+            # Parse S3 URL properly to handle path prefixes
+            parsed_url = urlparse(model_ref)
+            s3_key = parsed_url.path.lstrip('/')
+            s3_service.download_file(s3_key, local_path)
             return local_path
         except Exception as e:
             logger.error(f"Failed to download model from S3: {e}")
