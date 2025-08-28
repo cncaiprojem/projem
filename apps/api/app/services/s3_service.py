@@ -876,7 +876,22 @@ class S3ServiceProxy:
     """
     
     def __getattr__(self, name: str) -> Any:
-        """Forward attribute access to the singleton instance."""
+        """
+        Forward attribute access to the singleton S3Service instance.
+        
+        This method intercepts attribute access on the proxy object and delegates
+        it to the lazily-initialized singleton S3Service instance. This allows
+        consumers to use `s3_service.<attribute>` as if accessing the actual
+        S3Service, while ensuring that the S3Service is only instantiated when
+        first needed. All method calls and property accesses are transparently
+        forwarded, providing backward compatibility and lazy initialization.
+        
+        Args:
+            name: The attribute name to access.
+        
+        Returns:
+            The attribute from the singleton S3Service instance.
+        """
         return getattr(get_s3_service_singleton(), name)
     
     def __repr__(self) -> str:

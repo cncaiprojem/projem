@@ -30,7 +30,7 @@ from pydantic import BaseModel, Field, field_validator, PrivateAttr
 from ..core.environment import environment as settings
 from ..core.logging import get_logger
 from ..core.telemetry import create_span
-# from ..core import metrics  # Temporarily disabled due to metric name conflicts
+from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
 from ..models.ai_suggestions import AISuggestion
 
@@ -603,13 +603,13 @@ doc.recompute()""",
                     
                     # Log metrics
                     elapsed = time.time() - start_time
-                    # metrics.ai_adapter_requests_total.labels(
-                    #     provider=self.config.provider.value,
-                    #     status="success"
-                    # ).inc()
-                    # metrics.ai_adapter_request_duration.labels(
-                    #     provider=self.config.provider.value
-                    # ).observe(elapsed)
+                    metrics.ai_adapter_requests_total.labels(
+                        provider=self.config.provider.value,
+                        status="success"
+                    ).inc()
+                    metrics.ai_adapter_request_duration.labels(
+                        provider=self.config.provider.value
+                    ).observe(elapsed)
                     
                     logger.info(
                         "AI suggestion generated successfully",
@@ -652,10 +652,10 @@ doc.recompute()""",
                         )
             
             # All retries failed
-            # metrics.ai_adapter_requests_total.labels(
-            #     provider=self.config.provider.value,
-            #     status="failed"
-            # ).inc()
+            metrics.ai_adapter_requests_total.labels(
+                provider=self.config.provider.value,
+                status="failed"
+            ).inc()
             
             if isinstance(last_exception, AIException):
                 raise last_exception

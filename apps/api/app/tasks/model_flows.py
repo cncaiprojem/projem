@@ -36,7 +36,7 @@ from celery.utils.log import get_task_logger
 from ..core.database import SessionLocal
 from ..core.logging import get_logger
 from ..core.telemetry import create_span
-# from ..core import metrics  # Temporarily disabled due to metric name conflicts
+from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
 from ..models.job import Job
 from ..models.enums import JobStatus, JobType
@@ -265,14 +265,14 @@ def generate_model_from_prompt(
                         )
                         
                         # Record metrics
-                        # metrics.freecad_model_generations_total.labels(
-                        #     type="ai_prompt",
-                        #     status="success"
-                        # ).inc()
+                        metrics.freecad_model_generations_total.labels(
+                            type="ai_prompt",
+                            status="success"
+                        ).inc()
                         
-                        # metrics.freecad_model_generation_duration.labels(
-                        #     type="ai_prompt"
-                        # ).observe(time.time() - start_time)
+                        metrics.freecad_model_generation_duration.labels(
+                            type="ai_prompt"
+                        ).observe(time.time() - start_time)
                         
                         return result.to_dict()
                         
@@ -305,10 +305,10 @@ def generate_model_from_prompt(
                 error_message=error_msg
             )
             
-            # metrics.freecad_model_generations_total.labels(
-            #     type="ai_prompt",
-            #     status="failed"
-            # ).inc()
+            metrics.freecad_model_generations_total.labels(
+                type="ai_prompt",
+                status="failed"
+            ).inc()
             
             return result.to_dict()
             
@@ -323,18 +323,26 @@ def generate_model_from_prompt(
                 retry_count=self.request.retries
             )
             
-            # Update job status to failed for non-retryable exceptions
+            # Check if this is a retryable exception
             # Celery's autoretry_for will handle ConnectionError, TimeoutError, DocumentException
-            if not isinstance(e, (ConnectionError, TimeoutError, DocumentException)):
+            if isinstance(e, (ConnectionError, TimeoutError, DocumentException)):
+                # Re-raise to let Celery handle retry logic
+                raise
+            else:
+                # Non-retryable exception, mark job as failed
                 update_job_status(
                     job_id,
                     JobStatus.FAILED,
                     progress=0,
                     error_message=error_msg
                 )
-            
-            # Re-raise to let Celery handle retry logic
-            raise
+                # Return failure result
+                result = TaskResult(
+                    success=False,
+                    error=error_msg,
+                    progress=0
+                )
+                return result.to_dict()
 
 
 @shared_task(
@@ -475,10 +483,10 @@ def generate_model_from_params(
                         generation_time=time.time() - start_time
                     )
                     
-                    # metrics.freecad_model_generations_total.labels(
-                    #     type="parametric",
-                    #     status="success"
-                    # ).inc()
+                    metrics.freecad_model_generations_total.labels(
+                        type="parametric",
+                        status="success"
+                    ).inc()
                     
                     return result.to_dict()
                     
@@ -631,10 +639,10 @@ def normalize_uploaded_model(
                         original_format=file_ext
                     )
                     
-                    # metrics.freecad_model_generations_total.labels(
-                    #     type="upload_normalization",
-                    #     status="success"
-                    # ).inc()
+                    metrics.freecad_model_generations_total.labels(
+                        type="upload_normalization",
+                        status="success"
+                    ).inc()
                     
                     return result.to_dict()
                     
@@ -791,10 +799,10 @@ def generate_assembly4_workflow(
                         parts_count=len(parts)
                     )
                     
-                    # metrics.freecad_model_generations_total.labels(
-                    #     type="assembly4",
-                    #     status="success"
-                    # ).inc()
+                    metrics.freecad_model_generations_total.labels(
+                        type="assembly4",
+                        status="success"
+                    ).inc()
                     
                     return result.to_dict()
                     

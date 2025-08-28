@@ -51,7 +51,7 @@ from pydantic import BaseModel, Field, field_validator, ConfigDict
 from ..core.environment import environment as settings
 from ..core.logging import get_logger
 from ..core.telemetry import create_span
-# from ..core import metrics  # Temporarily disabled due to metric name conflicts
+from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
 
 logger = get_logger(__name__)
@@ -810,7 +810,7 @@ class FreeCADDocumentManager:
                           owner_id=owner_id,
                           correlation_id=correlation_id)
                 
-                # metrics.freecad_document_locks_active.inc()
+                metrics.freecad_document_locks_active.inc()
                 
                 return lock
     
@@ -909,7 +909,7 @@ class FreeCADDocumentManager:
                       has_handle=doc_handle is not None,
                       correlation_id=correlation_id)
             
-            # metrics.freecad_documents_total.labels(operation="create").inc()
+            metrics.freecad_documents_total.labels(operation="create").inc()
             
             return metadata
     
@@ -947,7 +947,7 @@ class FreeCADDocumentManager:
                           path=document_path,
                           correlation_id=correlation_id)
                 
-                # metrics.freecad_documents_total.labels(operation="open").inc()
+                metrics.freecad_documents_total.labels(operation="open").inc()
                 
                 return metadata
             
@@ -1005,7 +1005,7 @@ class FreeCADDocumentManager:
                       document_id=document_id,
                       correlation_id=correlation_id)
             
-            # metrics.freecad_transactions_total.labels(operation="start").inc()
+            metrics.freecad_transactions_total.labels(operation="start").inc()
             
             return transaction
     
@@ -1073,7 +1073,7 @@ class FreeCADDocumentManager:
                           operations=len(transaction.operations),
                           correlation_id=correlation_id)
                 
-                # metrics.freecad_transactions_total.labels(operation="commit").inc()
+                metrics.freecad_transactions_total.labels(operation="commit").inc()
                 
                 return True
                 
@@ -1145,7 +1145,7 @@ class FreeCADDocumentManager:
                           document_id=transaction.document_id,
                           correlation_id=correlation_id)
                 
-                # metrics.freecad_transactions_total.labels(operation="abort").inc()
+                metrics.freecad_transactions_total.labels(operation="abort").inc()
                 
                 return True
                 
@@ -1271,9 +1271,9 @@ class FreeCADDocumentManager:
                           compressed=metadata.compressed,
                           correlation_id=correlation_id)
                 
-                # metrics.freecad_document_saves_total.labels(
-                #     compressed=str(metadata.compressed)
-                # ).inc()
+                metrics.freecad_document_saves_total.labels(
+                    compressed=str(metadata.compressed)
+                ).inc()
                 
                 return save_path
                 
@@ -1380,7 +1380,7 @@ class FreeCADDocumentManager:
                       forced=force,
                       correlation_id=correlation_id)
             
-            # metrics.freecad_documents_total.labels(operation="close").inc()
+            metrics.freecad_documents_total.labels(operation="close").inc()
             
             return True
     
@@ -1605,9 +1605,9 @@ class FreeCADDocumentManager:
                           warnings=len(migration.warnings),
                           correlation_id=correlation_id)
                 
-                # metrics.freecad_document_migrations_total.labels(
-                #     status="success"
-                # ).inc()
+                metrics.freecad_document_migrations_total.labels(
+                    status="success"
+                ).inc()
                 
                 return migration
                 
@@ -1622,9 +1622,9 @@ class FreeCADDocumentManager:
                            error=str(e),
                            correlation_id=correlation_id)
                 
-                # metrics.freecad_document_migrations_total.labels(
-                #     status="failed"
-                # ).inc()
+                metrics.freecad_document_migrations_total.labels(
+                    status="failed"
+                ).inc()
                 
                 raise DocumentException(
                     f"Migration failed: {str(e)}",
@@ -1733,9 +1733,9 @@ class FreeCADDocumentManager:
                           document_id=metadata.document_id,
                           correlation_id=correlation_id)
                 
-                # metrics.freecad_backup_restores_total.labels(
-                #     status="success"
-                # ).inc()
+                metrics.freecad_backup_restores_total.labels(
+                    status="success"
+                ).inc()
                 
                 return metadata
                 
@@ -1745,9 +1745,9 @@ class FreeCADDocumentManager:
                            error=str(e),
                            correlation_id=correlation_id)
                 
-                # metrics.freecad_backup_restores_total.labels(
-                #     status="failed"
-                # ).inc()
+                metrics.freecad_backup_restores_total.labels(
+                    status="failed"
+                ).inc()
                 
                 raise DocumentException(
                     f"Restore failed: {str(e)}",
@@ -2056,7 +2056,7 @@ class FreeCADDocumentManager:
                   document_id=document_id,
                   size_bytes=backup_info.size_bytes)
         
-        # metrics.freecad_backups_total.inc()
+        metrics.freecad_backups_total.inc()
         
         # Prune old backups
         self._prune_backups(document_id)

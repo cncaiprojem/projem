@@ -41,7 +41,7 @@ from celery.utils.log import get_task_logger
 
 from ..core.logging import get_logger
 from ..core.telemetry import create_span
-# from ..core import metrics  # Temporarily disabled due to metric name conflicts
+from ..core import metrics
 from ..models.enums import JobStatus
 from ..services.s3_service import s3_service
 from .utils import ensure_idempotency, update_job_status
@@ -543,14 +543,14 @@ def run_fem_simulation(
             )
             
             # Record metrics
-            # metrics.fem_simulations_total.labels(
-            #     analysis_type=analysis_type,
-            #     status="success"
-            # ).inc()
+            metrics.fem_simulations_total.labels(
+                analysis_type=analysis_type,
+                status="success"
+            ).inc()
             
-            # metrics.fem_simulation_duration.labels(
-            #     analysis_type=analysis_type
-            # ).observe(time.time() - start_time)
+            metrics.fem_simulation_duration.labels(
+                analysis_type=analysis_type
+            ).observe(time.time() - start_time)
             
             return result.to_dict()
             
@@ -588,22 +588,26 @@ def run_fem_simulation(
                 warnings=warnings
             )
             
-            update_job_status(
-                job_id,
-                JobStatus.RUNNING,  # Keep running for retry
-                progress=0,
-                error_message=f"Deneme {self.request.retries + 1}: {error_msg}"
-            )
-            
-            # metrics.fem_simulations_total.labels(
-            #     analysis_type=analysis_type,
-            #     status="failed"
-            # ).inc()
-            
-            # Let Celery's autoretry_for handle ConnectionError and TimeoutError
-            # For other exceptions, mark job as failed
-            update_job_status(job_id, JobStatus.FAILED, output_data=result.to_dict())
-            raise  # Re-raise to let Celery handle retry logic
+            # Check if this is a retryable exception
+            if isinstance(e, (ConnectionError, TimeoutError)):
+                # Update status to indicate retry attempt
+                update_job_status(
+                    job_id,
+                    JobStatus.RUNNING,  # Keep running for retry
+                    progress=0,
+                    error_message=f"Deneme {self.request.retries + 1}: {error_msg}"
+                )
+                # Re-raise to let Celery handle retry logic
+                raise
+            else:
+                # Non-retryable exception, mark as failed
+                update_job_status(
+                    job_id, 
+                    JobStatus.FAILED, 
+                    output_data=result.to_dict()
+                )
+                # Return failure result
+                return result.to_dict()
             
         finally:
             # Cleanup temporary directory
