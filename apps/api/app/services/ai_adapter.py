@@ -25,12 +25,12 @@ from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 from decimal import Decimal, ROUND_HALF_UP
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, PrivateAttr
 
 from ..core.environment import environment as settings
 from ..core.logging import get_logger
 from ..core.telemetry import create_span
-from ..core import metrics
+# from ..core import metrics  # Temporarily disabled due to metric name conflicts
 from ..middleware.correlation_middleware import get_correlation_id
 from ..models.ai_suggestions import AISuggestion
 
@@ -178,7 +178,7 @@ class RateLimiter(BaseModel):
     """Thread-safe per-user rate limiter."""
     requests: Dict[str, List[datetime]] = Field(default_factory=dict)
     limit: int = Field(default=30, description="Requests per minute")
-    _lock: threading.Lock = Field(default_factory=threading.Lock, exclude=True)  # Thread safety lock
+    _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)  # Thread safety lock
     
     class Config:
         arbitrary_types_allowed = True  # Allow threading.Lock
@@ -603,13 +603,13 @@ doc.recompute()""",
                     
                     # Log metrics
                     elapsed = time.time() - start_time
-                    metrics.ai_adapter_requests_total.labels(
-                        provider=self.config.provider.value,
-                        status="success"
-                    ).inc()
-                    metrics.ai_adapter_request_duration.labels(
-                        provider=self.config.provider.value
-                    ).observe(elapsed)
+                    # metrics.ai_adapter_requests_total.labels(
+                    #     provider=self.config.provider.value,
+                    #     status="success"
+                    # ).inc()
+                    # metrics.ai_adapter_request_duration.labels(
+                    #     provider=self.config.provider.value
+                    # ).observe(elapsed)
                     
                     logger.info(
                         "AI suggestion generated successfully",
@@ -652,10 +652,10 @@ doc.recompute()""",
                         )
             
             # All retries failed
-            metrics.ai_adapter_requests_total.labels(
-                provider=self.config.provider.value,
-                status="failed"
-            ).inc()
+            # metrics.ai_adapter_requests_total.labels(
+            #     provider=self.config.provider.value,
+            #     status="failed"
+            # ).inc()
             
             if isinstance(last_exception, AIException):
                 raise last_exception

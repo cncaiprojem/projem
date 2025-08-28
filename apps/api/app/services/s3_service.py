@@ -856,6 +856,25 @@ def get_s3_service() -> S3Service:
     return S3Service()
 
 
+# Create singleton instance lazily for backward compatibility
+_s3_service = None
+
+def get_s3_service_singleton():
+    """Get singleton S3 service instance."""
+    global _s3_service
+    if _s3_service is None:
+        _s3_service = S3Service()
+    return _s3_service
+
+# Create a property-like access for backward compatibility
+class S3ServiceProxy:
+    """Proxy for lazy S3Service initialization."""
+    
+    def __getattr__(self, name):
+        return getattr(get_s3_service_singleton(), name)
+
+s3_service = S3ServiceProxy()
+
 __all__ = [
     "S3Service",
     "AsyncS3Service",
@@ -864,4 +883,5 @@ __all__ = [
     "get_s3_service",
     "get_async_s3_service",
     "get_s3_service_async",
+    "s3_service",  # Export the singleton
 ]

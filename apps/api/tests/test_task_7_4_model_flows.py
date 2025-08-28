@@ -24,7 +24,7 @@ from unittest.mock import Mock, patch, AsyncMock, MagicMock
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from apps.api.app.tasks.model_flows import (
+from app.tasks.model_flows import (
     generate_model_from_prompt,
     generate_model_from_params,
     normalize_uploaded_model,
@@ -34,7 +34,7 @@ from apps.api.app.tasks.model_flows import (
     validate_model_inputs,
     TaskResult
 )
-from apps.api.app.tasks.fem_simulation import (
+from app.tasks.fem_simulation import (
     run_fem_simulation,
     validate_fem_inputs,
     estimate_analysis_resources,
@@ -42,8 +42,8 @@ from apps.api.app.tasks.fem_simulation import (
     FEM_ANALYSIS_TYPES,
     DEFAULT_MATERIALS
 )
-from apps.api.app.models.enums import JobStatus, JobType
-from apps.api.app.core.database import SessionLocal
+from app.tasks.model_flows import get_turkish_term
+from app.models.enums import JobStatus, JobType
 
 
 class TestModelFlowTasks:
@@ -72,7 +72,7 @@ class TestModelFlowTasks:
     @pytest.fixture
     def mock_db_session(self):
         """Mock database session."""
-        with patch('app.tasks.model_flows.SessionLocal') as mock_session:
+        with patch('app.core.database.SessionLocal') as mock_session:
             mock_db = Mock()
             mock_session.return_value = mock_db
             mock_job = Mock()
@@ -85,7 +85,7 @@ class TestModelFlowTasks:
     @pytest.fixture 
     def mock_document_manager(self):
         """Mock FreeCAD document manager."""
-        with patch('app.tasks.model_flows.document_manager') as mock_dm:
+        with patch('app.services.freecad_document_manager.document_manager') as mock_dm:
             mock_metadata = Mock()
             mock_metadata.document_id = "doc_123"
             mock_dm.create_document.return_value = mock_metadata
@@ -95,7 +95,7 @@ class TestModelFlowTasks:
     @pytest.fixture
     def mock_ai_adapter(self):
         """Mock AI adapter."""
-        with patch('app.tasks.model_flows.ai_adapter') as mock_ai:
+        with patch('app.services.ai_adapter.ai_adapter') as mock_ai:
             mock_response = Mock()
             mock_response.script_py = "# FreeCAD script\nimport FreeCAD\n"
             mock_response.parameters = {"diameter": 20.0}
@@ -111,7 +111,7 @@ class TestModelFlowTasks:
     @pytest.fixture
     def mock_s3_service(self):
         """Mock S3 service."""
-        with patch('app.tasks.model_flows.s3_service') as mock_s3:
+        with patch('app.services.s3_service.s3_service') as mock_s3:
             mock_s3.upload_file.return_value = "https://s3.amazonaws.com/bucket/test.FCStd"
             yield mock_s3
 
@@ -162,8 +162,7 @@ class TestModelFlowTasks:
         assert len(warnings) > 0
         assert any("Invalid dimension" in w for w in warnings)
 
-    @pytest.mark.asyncio
-    async def test_generate_model_from_prompt_success(
+    def test_generate_model_from_prompt_success(
         self, 
         sample_job_params,
         mock_db_session,
@@ -197,7 +196,7 @@ class TestModelFlowTasks:
             mock_task.request.retries = 0
             
             # Call the task function directly (not through Celery)
-            result = await generate_model_from_prompt(
+            result = generate_model_from_prompt(
                 mock_task,
                 **sample_job_params
             )
@@ -225,11 +224,11 @@ class TestModelFlowTasks:
         mock_db_session
     ):
         """Test AI adapter failure handling."""
-        from apps.api.app.services.ai_adapter import AIException, AIErrorCode
+        from app.services.ai_adapter import AIException, AIErrorCode
         
-        with patch('app.tasks.model_flows.ai_adapter') as mock_ai, \
-             patch('app.tasks.model_flows.create_span') as mock_span, \
-             patch('app.tasks.model_flows.set_correlation_id'), \
+        with patch('apps.api.app.services.ai_adapter.ai_adapter') as mock_ai, \
+             patch('app.core.telemetry.create_span') as mock_span, \
+             patch('app.middleware.correlation_middleware.set_correlation_id'), \
              patch('app.tasks.model_flows.metrics'):
             
             # Mock AI adapter to raise exception
@@ -252,10 +251,10 @@ class TestModelFlowTasks:
             mock_task.request.retries = 0
             
             # Call the task function
-            result = asyncio.run(generate_model_from_prompt(
+            result = generate_model_from_prompt(
                 mock_task,
                 **sample_job_params
-            ))
+            )
             
             # Assertions
             assert isinstance(result, dict)
@@ -599,10 +598,9 @@ class TestFEMSimulationTasks:
         assert result_dict["results_summary"]["max_von_mises_stress"] == 125.6
         assert "timestamp" in result_dict
 
-    @pytest.mark.asyncio
-    async def test_run_fem_simulation_success(self, fem_job_params):
+    def test_run_fem_simulation_success(self, fem_job_params):
         """Test successful FEM simulation execution."""
-        with patch('app.tasks.fem_simulation.SessionLocal') as mock_session, \
+        with patch('apps.api.app.core.database.SessionLocal') as mock_session, \
              patch('app.tasks.fem_simulation._resolve_model_reference') as mock_resolve, \
              patch('app.tasks.fem_simulation._create_fem_analysis') as mock_create, \
              patch('app.tasks.fem_simulation._assign_materials') as mock_materials, \
@@ -611,8 +609,8 @@ class TestFEMSimulationTasks:
              patch('app.tasks.fem_simulation._run_calculix_solver') as mock_solver, \
              patch('app.tasks.fem_simulation._process_fem_results') as mock_results, \
              patch('app.tasks.fem_simulation._create_fem_artefacts') as mock_artefacts, \
-             patch('app.tasks.fem_simulation.create_span') as mock_span, \
-             patch('app.tasks.fem_simulation.set_correlation_id'), \
+             patch('app.core.telemetry.create_span') as mock_span, \
+             patch('app.middleware.correlation_middleware.set_correlation_id'), \
              patch('app.tasks.fem_simulation.metrics'), \
              patch('tempfile.mkdtemp', return_value="/tmp/fem_test"), \
              patch('shutil.rmtree'):
@@ -681,10 +679,10 @@ class TestFEMSimulationTasks:
         # Make parameters invalid
         fem_job_params["canonical_params"]["analysis_type"] = "invalid_type"
         
-        with patch('app.tasks.fem_simulation.SessionLocal') as mock_session, \
-             patch('app.tasks.fem_simulation.create_span') as mock_span, \
-             patch('app.tasks.fem_simulation.set_correlation_id'), \
-             patch('app.tasks.fem_simulation.metrics'):
+        with patch('apps.api.app.core.database.SessionLocal') as mock_session, \
+             patch('apps.api.app.core.telemetry.create_span') as mock_span, \
+             patch('apps.api.app.middleware.correlation_middleware.set_correlation_id'), \
+             patch('apps.api.app.tasks.fem_simulation.metrics'):
             
             # Mock database session
             mock_db = Mock()
@@ -724,7 +722,7 @@ class TestTaskOrchestration:
         """Test successful job status update."""
         job_id = "test_job_123"
         
-        with patch('app.tasks.model_flows.SessionLocal') as mock_session:
+        with patch('app.core.database.SessionLocal') as mock_session:
             mock_db = Mock()
             mock_session.return_value = mock_db
             
@@ -749,7 +747,7 @@ class TestTaskOrchestration:
         """Test job status update when job doesn't exist."""
         job_id = "nonexistent_job"
         
-        with patch('app.tasks.model_flows.SessionLocal') as mock_session:
+        with patch('app.core.database.SessionLocal') as mock_session:
             mock_db = Mock()
             mock_session.return_value = mock_db
             mock_db.query.return_value.filter.return_value.first.return_value = None
@@ -763,7 +761,7 @@ class TestTaskOrchestration:
         job_id = "test_job_123"
         request_id = "req_123"
         
-        with patch('app.tasks.model_flows.SessionLocal') as mock_session:
+        with patch('app.core.database.SessionLocal') as mock_session:
             mock_db = Mock()
             mock_session.return_value = mock_db
             
@@ -783,7 +781,7 @@ class TestTaskOrchestration:
         job_id = "test_job_123"
         request_id = "req_123"
         
-        with patch('app.tasks.model_flows.SessionLocal') as mock_session:
+        with patch('app.core.database.SessionLocal') as mock_session:
             mock_db = Mock()
             mock_session.return_value = mock_db
             
@@ -798,7 +796,7 @@ class TestTaskOrchestration:
 
     def test_turkish_terminology_mapping(self):
         """Test Turkish terminology is correctly applied."""
-        from app.tasks.fem_simulation import get_turkish_term
+        # get_turkish_term already imported at the top
         
         # Test known terms
         assert get_turkish_term("stress") == "gerilme"

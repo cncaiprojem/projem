@@ -31,24 +31,17 @@ import subprocess
 import tempfile
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
-from pathlib import Path
 
 from celery import shared_task
 from celery.exceptions import Ignore, Retry
 from celery.utils.log import get_task_logger
 
-from ..core.database import SessionLocal
 from ..core.logging import get_logger
 from ..core.telemetry import create_span
 # from ..core import metrics  # Temporarily disabled due to metric name conflicts
-from ..middleware.correlation_middleware import get_correlation_id
-from ..models.job import Job
-from ..models.enums import JobStatus, JobType
-from ..services.freecad_document_manager import document_manager, DocumentException
 from ..services.s3_service import s3_service
-from ..core.environment import environment as settings
 
 logger = get_logger(__name__)
 task_logger = get_task_logger(__name__)
@@ -344,7 +337,7 @@ def estimate_analysis_resources(canonical_params: Dict[str, Any]) -> Dict[str, A
     max_retries=2,
     default_retry_delay=120,
     retry_backoff=True,
-    autoretry_for=(ConnectionError, TimeoutError, subprocess.TimeoutExpired),
+    autoretry_for=(ConnectionError, TimeoutError),
     retry_jitter=True,
     soft_time_limit=3600,  # 1 hour soft limit
     time_limit=4200        # 70 minutes hard limit
@@ -617,7 +610,7 @@ def run_fem_simulation(
             # ).inc()
             
             # Retry with exponential backoff (only for retryable exceptions)
-            if isinstance(e, (ConnectionError, TimeoutError, subprocess.TimeoutExpired)):
+            if isinstance(e, (ConnectionError, TimeoutError)):
                 raise self.retry(
                     exc=e,
                     countdown=min(120 * (2 ** self.request.retries), 600),  # Max 10 minutes

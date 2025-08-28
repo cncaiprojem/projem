@@ -20,13 +20,13 @@ Implements:
 
 from __future__ import annotations
 
-import hashlib
+import asyncio
 import json
 import os
 import tempfile
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, List, Optional, Union
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
 from uuid import uuid4
 
 from celery import shared_task
@@ -308,7 +308,6 @@ def generate_model_from_prompt(
             logger.info("Calling AI adapter for script generation", prompt=prompt[:100])
             
             # Run async AI adapter in sync context
-            import asyncio
             script_response = asyncio.run(ai_adapter.suggest_params(
                 prompt=prompt,
                 context=canonical_params.get("context", {}),
