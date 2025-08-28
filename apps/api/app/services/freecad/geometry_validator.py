@@ -208,78 +208,67 @@ class GeometryValidator:
         return result
     
     def _validate_mock_shape(self, shape: Any) -> ValidationResult:
-        """Mock validation when FreeCAD is not available."""
-        result = ValidationResult(
-            is_valid=True,
-            is_closed=True,
-            is_null=False,
-            is_manifold=True
+        """Raise exception when FreeCAD is not available - no mock data."""
+        # CRITICAL FIX: Never return fake hardcoded values
+        # Instead, raise a proper exception when FreeCAD is not available
+        logger.error("FreeCAD is required for geometry validation but is not available")
+        raise RuntimeError(
+            "FreeCAD is required for geometry validation but is not installed or available. "
+            "Please ensure FreeCAD is properly installed in the container/environment."
         )
-        
-        # Basic mock validation based on shape attributes
-        if hasattr(shape, '__dict__'):
-            shape_dict = shape.__dict__
-            
-            # Check for null-like conditions
-            if shape_dict.get('is_null') or shape_dict.get('vertices') == []:
-                result.is_null = True
-                result.is_valid = False
-                result.errors.append("Shape appears to be null")
-            
-            # Mock volume and area
-            if 'volume' in shape_dict:
-                result.volume = shape_dict['volume']
-            else:
-                result.volume = 1000.0  # Default 1000mm³
-            
-            if 'area' in shape_dict:
-                result.area = shape_dict['area']
-            else:
-                result.area = 600.0  # Default 600mm²
-            
-            # Mock center of mass
-            result.center_of_mass = shape_dict.get('center_of_mass', [0.0, 0.0, 0.0])
-            
-            # Mock bounding box
-            result.bounding_box = shape_dict.get('bounding_box', {
-                "x_min": -50.0,
-                "x_max": 50.0,
-                "y_min": -50.0,
-                "y_max": 50.0,
-                "z_min": 0.0,
-                "z_max": 100.0,
-                "length": 100.0,
-                "width": 100.0,
-                "height": 100.0
-            })
-        
-        # Always support basic formats in mock
-        result.export_formats = [
-            ExportFormat.STEP,
-            ExportFormat.IGES,
-            ExportFormat.STL
-        ]
-        
-        result.warnings.append("Using mock validation (FreeCAD not available)")
-        
-        return result
     
     def _validate_manufacturing_constraints(self, shape: Any, result: ValidationResult):
         """Validate manufacturing constraints on shape."""
         try:
             import Part
             
-            # Check wall thickness (simplified)
-            # TODO: Improve wall thickness calculation - current approach is rough approximation
-            #       Consider using shape.distToShape() for more accurate thickness measurement
-            if hasattr(shape, 'Faces'):
-                for face in shape.Faces:
-                    # Simplified thickness check using face area/perimeter ratio
-                    if face.Area > 0 and hasattr(face, 'Length'):
-                        approx_thickness = face.Area / face.Length
-                        is_valid, error_msg = self.constraints.validate_thickness(approx_thickness)
+            # Check wall thickness using improved method
+            if hasattr(shape, 'Faces') and len(shape.Faces) > 1:
+                try:
+                    # Use distToShape() for accurate wall thickness measurement
+                    # This method finds the minimum distance between faces
+                    min_thickness = float('inf')
+                    
+                    # Compare pairs of faces to find minimum thickness
+                    faces = list(shape.Faces)
+                    for i, face1 in enumerate(faces[:-1]):
+                        for face2 in faces[i+1:]:
+                            try:
+                                # distToShape returns (distance, list_of_solutions, ...)
+                                # We only need the distance value
+                                dist_result = face1.distToShape(face2)
+                                if isinstance(dist_result, tuple) and len(dist_result) > 0:
+                                    distance = dist_result[0]
+                                    if distance < min_thickness and distance > 0:
+                                        min_thickness = distance
+                            except Exception as e:
+                                logger.debug(f"Could not compute distance between faces: {e}")
+                    
+                    # Validate the minimum thickness found
+                    if min_thickness != float('inf'):
+                        is_valid, error_msg = self.constraints.validate_thickness(min_thickness)
                         if not is_valid:
                             result.manufacturing_issues.append(error_msg)
+                    else:
+                        # Fallback to simplified method if distToShape fails
+                        for face in shape.Faces:
+                            if face.Area > 0 and hasattr(face, 'Length'):
+                                approx_thickness = face.Area / face.Length
+                                is_valid, error_msg = self.constraints.validate_thickness(approx_thickness)
+                                if not is_valid:
+                                    result.manufacturing_issues.append(error_msg)
+                                    break  # Report first violation only to avoid spam
+                                    
+                except Exception as e:
+                    logger.warning(f"Wall thickness check failed, using fallback: {e}")
+                    # Fallback to area/perimeter ratio method
+                    for face in shape.Faces:
+                        if face.Area > 0 and hasattr(face, 'Length'):
+                            approx_thickness = face.Area / face.Length
+                            is_valid, error_msg = self.constraints.validate_thickness(approx_thickness)
+                            if not is_valid:
+                                result.manufacturing_issues.append(error_msg)
+                                break
             
             # Check draft angles for vertical faces
             if hasattr(shape, 'Faces'):

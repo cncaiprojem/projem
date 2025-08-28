@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import re
+import threading  # CRITICAL FIX: Added for thread safety
 import time
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -79,70 +80,129 @@ class CircuitBreakerState(str, Enum):
 
 
 class CircuitBreaker(BaseModel):
-    """Circuit breaker for timeout protection."""
+    """Circuit breaker for timeout protection with proper failure rate calculation."""
     state: CircuitBreakerState = Field(default=CircuitBreakerState.CLOSED)
     failure_count: int = Field(default=0)
-    last_failure_time: Optional[datetime] = Field(default=None)
     success_count: int = Field(default=0)
-    threshold: int = Field(default=3, description="Failures before opening")
+    total_count: int = Field(default=0)
+    last_failure_time: Optional[datetime] = Field(default=None)
+    last_success_time: Optional[datetime] = Field(default=None)
+    threshold: int = Field(default=3, description="Consecutive failures before opening")
+    failure_rate_threshold: float = Field(default=0.5, description="Failure rate threshold (50%)")
     recovery_timeout: int = Field(default=60, description="Seconds before half-open")
     half_open_requests: int = Field(default=1, description="Requests allowed in half-open")
+    half_open_backoff_multiplier: float = Field(default=1.5, description="Exponential backoff multiplier")
+    consecutive_failures: int = Field(default=0, description="Consecutive failure count")
+    window_size: int = Field(default=10, description="Window size for failure rate calculation")
+    recent_results: List[bool] = Field(default_factory=list, description="Recent results for rate calculation")
     
     def is_open(self) -> bool:
-        """Check if circuit is open."""
+        """Check if circuit is open with proper half-open state testing."""
+        now = datetime.now(timezone.utc)
+        
         if self.state == CircuitBreakerState.OPEN:
             if self.last_failure_time:
-                elapsed = (datetime.now(timezone.utc) - self.last_failure_time).total_seconds()
+                # Use proper timezone-aware comparison
+                elapsed = (now - self.last_failure_time).total_seconds()
                 if elapsed > self.recovery_timeout:
+                    # Move to half-open state for testing
                     self.state = CircuitBreakerState.HALF_OPEN
                     self.success_count = 0
+                    logger.info("Circuit breaker moved to half-open state for testing")
                     return False
             return True
+        elif self.state == CircuitBreakerState.HALF_OPEN:
+            # Allow limited requests in half-open state
+            return False
         return False
     
     def record_success(self):
-        """Record successful call."""
+        """Record successful call with proper state management."""
+        now = datetime.now(timezone.utc)
+        self.last_success_time = now
+        self.total_count += 1
+        self.consecutive_failures = 0  # Reset consecutive failures
+        
+        # Update recent results for failure rate calculation
+        self.recent_results.append(True)
+        if len(self.recent_results) > self.window_size:
+            self.recent_results.pop(0)
+        
         if self.state == CircuitBreakerState.HALF_OPEN:
             self.success_count += 1
             if self.success_count >= self.half_open_requests:
+                # Successfully tested in half-open, close the circuit
                 self.state = CircuitBreakerState.CLOSED
                 self.failure_count = 0
-                logger.info("Circuit breaker closed after recovery")
+                self.recent_results = []  # Reset window
+                logger.info("Circuit breaker closed after successful half-open testing")
     
     def record_failure(self):
-        """Record failed call."""
+        """Record failed call with failure rate calculation."""
+        now = datetime.now(timezone.utc)
         self.failure_count += 1
-        self.last_failure_time = datetime.now(timezone.utc)
+        self.total_count += 1
+        self.consecutive_failures += 1
+        self.last_failure_time = now
         
-        if self.failure_count >= self.threshold:
+        # Update recent results for failure rate calculation
+        self.recent_results.append(False)
+        if len(self.recent_results) > self.window_size:
+            self.recent_results.pop(0)
+        
+        # Calculate failure rate
+        if len(self.recent_results) >= self.window_size // 2:
+            failure_rate = sum(1 for r in self.recent_results if not r) / len(self.recent_results)
+        else:
+            failure_rate = 0.0
+        
+        # Open circuit based on consecutive failures OR failure rate
+        should_open = (
+            self.consecutive_failures >= self.threshold or
+            (failure_rate >= self.failure_rate_threshold and len(self.recent_results) >= self.window_size // 2)
+        )
+        
+        if should_open:
+            if self.state == CircuitBreakerState.HALF_OPEN:
+                # Failed in half-open, apply exponential backoff
+                self.recovery_timeout = int(self.recovery_timeout * self.half_open_backoff_multiplier)
+                logger.warning(f"Circuit breaker re-opened with increased timeout: {self.recovery_timeout}s")
             self.state = CircuitBreakerState.OPEN
-            logger.warning(f"Circuit breaker opened after {self.failure_count} failures")
+            logger.warning(
+                f"Circuit breaker opened - consecutive: {self.consecutive_failures}, "
+                f"failure rate: {failure_rate:.2%}"
+            )
 
 
 class RateLimiter(BaseModel):
-    """Per-user rate limiter."""
+    """Thread-safe per-user rate limiter."""
     requests: Dict[str, List[datetime]] = Field(default_factory=dict)
     limit: int = Field(default=30, description="Requests per minute")
+    _lock: threading.Lock = Field(default_factory=threading.Lock, exclude=True)  # Thread safety lock
+    
+    class Config:
+        arbitrary_types_allowed = True  # Allow threading.Lock
     
     def check_and_update(self, user_id: str) -> bool:
-        """Check if user can make request and update counter."""
-        now = datetime.now(timezone.utc)
-        minute_ago = now - timedelta(minutes=1)
-        
-        if user_id not in self.requests:
-            self.requests[user_id] = []
-        
-        # Clean old requests
-        self.requests[user_id] = [
-            req_time for req_time in self.requests[user_id]
-            if req_time > minute_ago
-        ]
-        
-        if len(self.requests[user_id]) >= self.limit:
-            return False
-        
-        self.requests[user_id].append(now)
-        return True
+        """Thread-safe check if user can make request and update counter."""
+        with self._lock:  # CRITICAL FIX: Thread-safe operations
+            now = datetime.now(timezone.utc)
+            minute_ago = now - timedelta(minutes=1)
+            
+            if user_id not in self.requests:
+                self.requests[user_id] = []
+            
+            # Clean old requests
+            self.requests[user_id] = [
+                req_time for req_time in self.requests[user_id]
+                if req_time > minute_ago
+            ]
+            
+            if len(self.requests[user_id]) >= self.limit:
+                return False
+            
+            self.requests[user_id].append(now)
+            return True
 
 
 # Turkish CAD glossary for translation
@@ -264,25 +324,29 @@ class AIAdapter:
         return config
     
     def _initialize_client(self):
-        """Initialize the AI provider client."""
+        """Initialize the AI provider client with proper async support."""
         if not self.config.api_key:
             logger.warning(f"No API key configured for {self.config.provider}")
             return
         
         try:
             if self.config.provider == AIProvider.OPENAI:
-                from openai import OpenAI
-                self._client = OpenAI(
+                # CRITICAL FIX: Use AsyncOpenAI for native async support
+                from openai import AsyncOpenAI
+                self._client = AsyncOpenAI(
                     api_key=self.config.api_key,
-                    timeout=self.config.timeout
+                    timeout=self.config.timeout,
+                    max_retries=0  # We handle retries ourselves
                 )
             elif self.config.provider == AIProvider.AZURE:
-                from openai import AzureOpenAI
-                self._client = AzureOpenAI(
+                # CRITICAL FIX: Use async Azure client
+                from openai import AsyncAzureOpenAI
+                self._client = AsyncAzureOpenAI(
                     api_key=self.config.api_key,
                     azure_endpoint=self.config.api_base,
                     api_version="2024-02-01",
-                    timeout=self.config.timeout
+                    timeout=self.config.timeout,
+                    max_retries=0  # We handle retries ourselves
                 )
         except ImportError as e:
             logger.error(f"Failed to import AI provider library: {e}")
@@ -572,7 +636,7 @@ doc.recompute()""",
         max_tokens: int,
         timeout: int
     ) -> Dict[str, Any]:
-        """Call the AI provider with timeout."""
+        """Call the AI provider with native async and proper error handling."""
         if not self._client:
             raise AIException(
                 "AI client not initialized",
@@ -581,33 +645,93 @@ doc.recompute()""",
             )
         
         try:
-            # Use asyncio timeout for additional control
+            # Use asyncio timeout for network timeout control
             async with asyncio.timeout(timeout):
-                # Call OpenAI/Azure API
-                completion = await asyncio.to_thread(
-                    self._client.chat.completions.create,
+                # CRITICAL FIX: Use native async API - no asyncio.to_thread needed
+                completion = await self._client.chat.completions.create(
                     model=self.config.model,
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=self.config.temperature,
-                    response_format={"type": "json_object"}  # Force JSON response
+                    response_format={"type": "json_object"},  # Force JSON response
+                    # Stream handling for partial responses
+                    stream=False  # Set to True if we want to handle partial responses
                 )
+                
+                # Handle response
+                if not completion.choices:
+                    raise AIException(
+                        "No response choices from AI provider",
+                        AIErrorCode.INVALID_RESPONSE,
+                        "AI sağlayıcıdan yanıt seçeneği yok"
+                    )
                 
                 return {
                     "content": completion.choices[0].message.content,
                     "usage": {
-                        "prompt_tokens": completion.usage.prompt_tokens,
-                        "completion_tokens": completion.usage.completion_tokens
-                    }
+                        "prompt_tokens": completion.usage.prompt_tokens if completion.usage else 0,
+                        "completion_tokens": completion.usage.completion_tokens if completion.usage else 0,
+                        "total_tokens": completion.usage.total_tokens if completion.usage else 0
+                    },
+                    "model": completion.model,
+                    "finish_reason": completion.choices[0].finish_reason
                 }
+                
         except asyncio.TimeoutError:
-            raise
+            # Network timeout - different from API timeout
+            logger.error(f"Network timeout after {timeout} seconds")
+            raise AIException(
+                f"Network timeout after {timeout} seconds",
+                AIErrorCode.TIMEOUT,
+                f"Ağ zaman aşımı: {timeout} saniye"
+            )
+        except asyncio.CancelledError:
+            # Stream interruption
+            logger.error("Request was cancelled/interrupted")
+            raise AIException(
+                "Request was cancelled or interrupted",
+                AIErrorCode.TIMEOUT,
+                "İstek iptal edildi veya kesintiye uğradı"
+            )
         except Exception as e:
+            # Distinguish different error types
+            error_msg = str(e)
+            
+            # Token limit exceeded
+            if "maximum context length" in error_msg.lower() or "token" in error_msg.lower():
+                raise AIException(
+                    f"Token limit exceeded: {error_msg}",
+                    AIErrorCode.INVALID_RESPONSE,
+                    f"Token limiti aşıldı: {error_msg}"
+                )
+            
+            # Rate limiting from provider
+            if "rate limit" in error_msg.lower() or "429" in error_msg:
+                raise AIException(
+                    f"Provider rate limit: {error_msg}",
+                    AIErrorCode.RATE_LIMITED,
+                    f"Sağlayıcı hız limiti: {error_msg}"
+                )
+            
+            # API deprecation warnings
+            if "deprecated" in error_msg.lower():
+                logger.warning(f"API deprecation warning: {error_msg}")
+                # Continue but log the warning
+            
+            # API timeout (different from network timeout)
+            if "timeout" in error_msg.lower() or "timed out" in error_msg.lower():
+                raise AIException(
+                    f"API processing timeout: {error_msg}",
+                    AIErrorCode.TIMEOUT,
+                    f"API işleme zaman aşımı: {error_msg}"
+                )
+            
+            # Generic provider error
             logger.error(f"Provider API call failed: {e}")
             raise AIException(
-                f"Provider error: {str(e)}",
+                f"Provider error: {error_msg}",
                 AIErrorCode.PROVIDER_ERROR,
-                f"Sağlayıcı hatası: {str(e)}"
+                f"Sağlayıcı hatası: {error_msg}"
             )
     
     def _parse_response(self, response: Dict[str, Any]) -> FreeCADScriptResponse:
@@ -649,8 +773,30 @@ doc.recompute()""",
             )
     
     def _validate_script_security(self, script: str):
-        """Validate script for security violations using AST."""
+        """Validate script for security violations using enhanced AST with all security hardening."""
         import ast
+        import sys
+        
+        # CRITICAL FIX: Input length limit
+        MAX_SCRIPT_LENGTH = 50000  # 50KB max script size
+        if len(script) > MAX_SCRIPT_LENGTH:
+            raise AIException(
+                f"Script too large: {len(script)} bytes (max {MAX_SCRIPT_LENGTH})",
+                AIErrorCode.VALIDATION_FAILED,
+                f"Script çok büyük: {len(script)} bayt (maksimum {MAX_SCRIPT_LENGTH})"
+            )
+        
+        # CRITICAL FIX: AST parsing with timeout protection
+        MAX_PARSE_TIME = 2.0  # 2 seconds max for parsing
+        import signal
+        
+        def timeout_handler(signum, frame):
+            raise TimeoutError("AST parsing timeout")
+        
+        # Set timeout for parsing (Unix-like systems only)
+        if hasattr(signal, 'SIGALRM'):
+            signal.signal(signal.SIGALRM, timeout_handler)
+            signal.alarm(int(MAX_PARSE_TIME))
         
         try:
             tree = ast.parse(script)
@@ -660,6 +806,15 @@ doc.recompute()""",
                 AIErrorCode.VALIDATION_FAILED,
                 f"Geçersiz Python sözdizimi: {e}"
             )
+        except TimeoutError:
+            raise AIException(
+                "Script parsing timeout - possible malicious code",
+                AIErrorCode.SECURITY_VIOLATION,
+                "Script ayrıştırma zaman aşımı - olası kötü niyetli kod"
+            )
+        finally:
+            if hasattr(signal, 'SIGALRM'):
+                signal.alarm(0)  # Cancel alarm
         
         # Whitelist of allowed modules
         allowed_imports = {
@@ -667,72 +822,167 @@ doc.recompute()""",
             'Draft', 'Import', 'Mesh', 'math', 'numpy', 'Base'
         }
         
-        # Forbidden function calls
+        # Forbidden function/attribute names (expanded list)
         forbidden_calls = {
-            '__import__', 'exec', 'eval', 'compile',
-            'open', 'file', 'input', 'raw_input',
-            'os', 'subprocess', 'sys'
+            '__import__', 'exec', 'eval', 'compile', 'execfile',
+            'open', 'file', 'input', 'raw_input', 'reload',
+            'os', 'subprocess', 'sys', 'importlib', 'getattr', 
+            'setattr', 'delattr', 'hasattr', 'globals', 'locals',
+            'vars', 'dir', '__builtins__', 'help', 'id', 'type',
+            'memoryview', 'bytearray', 'bytes', 'object'
         }
+        
+        # CRITICAL FIX: AST depth limiting
+        MAX_AST_DEPTH = 100
         
         class SecurityValidator(ast.NodeVisitor):
             def __init__(self):
                 self.violations = []
+                self.depth = 0
+                self.max_depth_reached = 0
+                self.visited_nodes = set()  # For recursive structure detection
+            
+            def generic_visit(self, node):
+                # CRITICAL FIX: Depth limiting
+                self.depth += 1
+                self.max_depth_reached = max(self.max_depth_reached, self.depth)
+                
+                if self.depth > MAX_AST_DEPTH:
+                    self.violations.append(
+                        f"AST depth limit exceeded: {self.depth} (max {MAX_AST_DEPTH})"
+                    )
+                    return  # Stop traversing deeper
+                
+                # CRITICAL FIX: Recursive structure detection
+                node_id = id(node)
+                if node_id in self.visited_nodes:
+                    self.violations.append("Recursive AST structure detected - possible attack")
+                    return
+                self.visited_nodes.add(node_id)
+                
+                super().generic_visit(node)
+                self.depth -= 1
             
             def visit_Import(self, node):
                 for alias in node.names:
                     module = alias.name.split('.')[0]
                     if module not in allowed_imports:
-                        self.violations.append(
-                            f"Forbidden import: {module}"
-                        )
+                        self.violations.append(f"Forbidden import: {module}")
+                self.generic_visit(node)
             
             def visit_ImportFrom(self, node):
                 if node.module:
                     module = node.module.split('.')[0]
                     if module not in allowed_imports:
-                        self.violations.append(
-                            f"Forbidden import from: {module}"
-                        )
+                        self.violations.append(f"Forbidden import from: {module}")
+                self.generic_visit(node)
+            
+            def visit_Name(self, node):
+                # CRITICAL FIX: Check for __builtins__ access
+                if node.id == '__builtins__' or node.id.startswith('__'):
+                    self.violations.append(f"Forbidden name access: {node.id}")
+                self.generic_visit(node)
+            
+            def visit_Attribute(self, node):
+                # CRITICAL FIX: Protection against getattr/importlib abuse
+                if node.attr in forbidden_calls:
+                    self.violations.append(f"Forbidden attribute access: {node.attr}")
+                
+                # Check for __dict__, __class__, __bases__ access
+                if node.attr.startswith('__') and node.attr.endswith('__'):
+                    if node.attr not in ['__name__', '__doc__', '__init__']:
+                        self.violations.append(f"Forbidden dunder attribute: {node.attr}")
+                
+                self.generic_visit(node)
             
             def visit_Call(self, node):
+                # Check function name
                 if isinstance(node.func, ast.Name):
                     if node.func.id in forbidden_calls:
-                        self.violations.append(
-                            f"Forbidden function call: {node.func.id}"
-                        )
+                        self.violations.append(f"Forbidden function call: {node.func.id}")
+                
+                # Check method calls
                 elif isinstance(node.func, ast.Attribute):
+                    # Protection against getattr/importlib patterns
+                    if node.func.attr in forbidden_calls:
+                        self.violations.append(f"Forbidden method call: {node.func.attr}")
+                    
                     # Check for Import.export* calls
                     if (isinstance(node.func.value, ast.Name) and
                         node.func.value.id == 'Import' and
                         node.func.attr.startswith('export')):
-                        self.violations.append(
-                            f"Forbidden export call: Import.{node.func.attr}"
-                        )
+                        self.violations.append(f"Forbidden export call: Import.{node.func.attr}")
                     
-                    # Check dimensions only in FreeCAD Part functions
+                    # Validate dimensions in FreeCAD Part functions
                     if (isinstance(node.func.value, ast.Name) and
                         node.func.value.id == 'Part' and
                         node.func.attr in ['makeCylinder', 'makeBox', 'makeSphere', 
                                          'makeCone', 'makeTorus']):
-                        # Validate dimensions in these specific calls
                         for arg in node.args:
-                            if isinstance(arg, ast.Num):
-                                if isinstance(arg.n, (int, float)):
-                                    if arg.n < 0.1 or arg.n > 1000:
+                            if isinstance(arg, (ast.Num, ast.Constant)):
+                                value = arg.n if isinstance(arg, ast.Num) else arg.value
+                                if isinstance(value, (int, float)):
+                                    if value < 0.1 or value > 1000:
                                         self.violations.append(
-                                            f"Dimension out of bounds in {node.func.attr}: {arg.n} (must be 0.1-1000mm)"
+                                            f"Dimension out of bounds in {node.func.attr}: {value} (must be 0.1-1000mm)"
                                         )
                 
                 self.generic_visit(node)
+            
+            def visit_Lambda(self, node):
+                # Lambdas can be used for code obfuscation
+                self.violations.append("Lambda functions not allowed for security")
+                self.generic_visit(node)
+            
+            def visit_ListComp(self, node):
+                # Check depth of comprehensions (can cause memory issues)
+                self.generic_visit(node)
+            
+            def visit_DictComp(self, node):
+                self.generic_visit(node)
+            
+            def visit_SetComp(self, node):
+                self.generic_visit(node)
+            
+            def visit_GeneratorExp(self, node):
+                self.generic_visit(node)
         
+        # CRITICAL FIX: Memory limit check - count total nodes
+        class NodeCounter(ast.NodeVisitor):
+            def __init__(self):
+                self.count = 0
+                
+            def generic_visit(self, node):
+                self.count += 1
+                if self.count > 10000:  # Max 10k AST nodes
+                    raise AIException(
+                        "Script too complex: too many AST nodes",
+                        AIErrorCode.SECURITY_VIOLATION,
+                        "Script çok karmaşık: çok fazla AST düğümü"
+                    )
+                super().generic_visit(node)
+        
+        # Count nodes first
+        counter = NodeCounter()
+        counter.visit(tree)
+        
+        # Run security validation
         validator = SecurityValidator()
         validator.visit(tree)
         
+        # Check for stack overflow attempts
+        if validator.max_depth_reached > MAX_AST_DEPTH:
+            raise AIException(
+                f"AST too deep: {validator.max_depth_reached} (max {MAX_AST_DEPTH})",
+                AIErrorCode.SECURITY_VIOLATION,
+                f"AST çok derin: {validator.max_depth_reached} (maksimum {MAX_AST_DEPTH})"
+            )
+        
         if validator.violations:
             raise AIException(
-                f"Security violations detected: {'; '.join(validator.violations)}",
+                f"Security violations detected: {'; '.join(validator.violations[:10])}",  # Limit output
                 AIErrorCode.SECURITY_VIOLATION,
-                f"Güvenlik ihlalleri tespit edildi: {'; '.join(validator.violations)}"
+                f"Güvenlik ihlalleri tespit edildi: {'; '.join(validator.violations[:10])}"
             )
 
 

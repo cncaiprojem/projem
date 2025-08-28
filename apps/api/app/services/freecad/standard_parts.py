@@ -102,7 +102,8 @@ class StandardPartsLibrary:
     
     # Catalog of common DIN/ISO parts
     # TODO: Consider externalizing this catalog to a JSON/YAML file for easier maintenance
-    #       and to allow adding new standard parts without code changes
+    #       and to allow adding new standard parts without code changes.
+    #       This would enable runtime catalog updates without redeployment.
     CATALOG = {
         "DIN933": StandardPart(
             code="DIN933",

@@ -8,7 +8,8 @@ Parses AI responses to extract FreeCAD Python scripts with:
 - Script templates for common operations
 
 TODO: Consider consolidating with AIAdapter's script validation logic
-      to avoid code duplication. Currently used mainly for testing.
+      to avoid code duplication. Currently this module is used mainly for
+      testing while AIAdapter handles production script validation.
 """
 
 from __future__ import annotations
