@@ -53,6 +53,7 @@ class AIErrorCode(str, Enum):
     SECURITY_VIOLATION = "ERR-AI-451"
     CIRCUIT_BREAKER_OPEN = "ERR-AI-503"
     CONFIG_ERROR = "ERR-AI-503"
+    VALIDATION_FAILED = "ERR-AI-400"  # Added for script validation failures
 
 
 class AIException(Exception):
@@ -707,15 +708,22 @@ doc.recompute()""",
                         self.violations.append(
                             f"Forbidden export call: Import.{node.func.attr}"
                         )
+                    
+                    # Check dimensions only in FreeCAD Part functions
+                    if (isinstance(node.func.value, ast.Name) and
+                        node.func.value.id == 'Part' and
+                        node.func.attr in ['makeCylinder', 'makeBox', 'makeSphere', 
+                                         'makeCone', 'makeTorus']):
+                        # Validate dimensions in these specific calls
+                        for arg in node.args:
+                            if isinstance(arg, ast.Num):
+                                if isinstance(arg.n, (int, float)):
+                                    if arg.n < 0.1 or arg.n > 1000:
+                                        self.violations.append(
+                                            f"Dimension out of bounds in {node.func.attr}: {arg.n} (must be 0.1-1000mm)"
+                                        )
+                
                 self.generic_visit(node)
-            
-            def visit_Num(self, node):
-                # Check numeric dimensions
-                if isinstance(node.n, (int, float)):
-                    if node.n < 0.1 or node.n > 1000:
-                        self.violations.append(
-                            f"Dimension out of bounds: {node.n} (must be 0.1-1000mm)"
-                        )
         
         validator = SecurityValidator()
         validator.visit(tree)

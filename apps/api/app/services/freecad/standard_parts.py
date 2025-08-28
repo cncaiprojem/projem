@@ -101,6 +101,8 @@ class StandardPartsLibrary:
     """Library of standard parts and templates."""
     
     # Catalog of common DIN/ISO parts
+    # TODO: Consider externalizing this catalog to a JSON/YAML file for easier maintenance
+    #       and to allow adding new standard parts without code changes
     CATALOG = {
         "DIN933": StandardPart(
             code="DIN933",
@@ -232,7 +234,7 @@ doc.recompute()"""
             metadata_file = template_file.with_suffix(".json")
             if metadata_file.exists():
                 try:
-                    with open(metadata_file, 'r') as f:
+                    with open(metadata_file, 'r', encoding='utf-8') as f:
                         metadata = json.load(f)
                     
                     template = FCStdTemplate(

@@ -6,6 +6,9 @@ Parses AI responses to extract FreeCAD Python scripts with:
 - Dimension bounds checking
 - Units normalization
 - Script templates for common operations
+
+TODO: Consider consolidating with AIAdapter's script validation logic
+      to avoid code duplication. Currently used mainly for testing.
 """
 
 from __future__ import annotations

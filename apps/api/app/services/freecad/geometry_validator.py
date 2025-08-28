@@ -10,6 +10,7 @@ Validates generated FreeCAD shapes with:
 
 from __future__ import annotations
 
+import math
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -178,8 +179,9 @@ class GeometryValidator:
                 # Check aspect ratio
                 max_dim = max(bbox.XLength, bbox.YLength, bbox.ZLength)
                 min_dim = min(
-                    d for d in [bbox.XLength, bbox.YLength, bbox.ZLength] 
-                    if d > 0.01
+                    (d for d in [bbox.XLength, bbox.YLength, bbox.ZLength] 
+                    if d > 0.01),
+                    default=0.0
                 )
                 if min_dim > 0:
                     aspect_ratio = max_dim / min_dim
@@ -268,6 +270,8 @@ class GeometryValidator:
             import Part
             
             # Check wall thickness (simplified)
+            # TODO: Improve wall thickness calculation - current approach is rough approximation
+            #       Consider using shape.distToShape() for more accurate thickness measurement
             if hasattr(shape, 'Faces'):
                 for face in shape.Faces:
                     # Simplified thickness check using face area/perimeter ratio
@@ -288,7 +292,6 @@ class GeometryValidator:
                             z_component = abs(normal.z)
                             if z_component < 0.1:  # Nearly vertical
                                 # Calculate draft angle from vertical
-                                import math
                                 angle = math.degrees(math.asin(z_component))
                                 is_valid, error_msg = self.constraints.validate_draft(angle)
                                 if not is_valid:
@@ -298,7 +301,6 @@ class GeometryValidator:
             
             # Check for undercuts/overhangs (for 3D printing)
             if hasattr(shape, 'Faces'):
-                import math
                 for face in shape.Faces:
                     try:
                         if hasattr(face, 'normalAt'):
