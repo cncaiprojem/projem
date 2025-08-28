@@ -41,6 +41,7 @@ from celery.utils.log import get_task_logger
 from ..core.logging import get_logger
 from ..core.telemetry import create_span
 # from ..core import metrics  # Temporarily disabled due to metric name conflicts
+from ..models.enums import JobStatus
 from ..services.s3_service import s3_service
 
 logger = get_logger(__name__)
@@ -365,10 +366,7 @@ def run_fem_simulation(
         Task result with simulation results and artefacts
     """
     start_time = time.time()
-    correlation_id = request_id
-    # Note: correlation_id will be used for tracing
-    
-    with create_span("run_fem_simulation", correlation_id=correlation_id) as span:
+    with create_span("run_fem_simulation", correlation_id=request_id) as span:
         analysis_type = canonical_params.get("analysis_type", "static")
         span.set_attribute("job.id", job_id)
         span.set_attribute("user.id", str(user_id))
@@ -385,7 +383,7 @@ def run_fem_simulation(
         )
         
         # Idempotency check
-        from .model_flows import ensure_idempotency, update_job_status
+        from .utils import ensure_idempotency, update_job_status
         if not ensure_idempotency(job_id, request_id):
             raise Ignore()
         

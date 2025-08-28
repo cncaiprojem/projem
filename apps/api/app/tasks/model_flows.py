@@ -44,11 +44,12 @@ from ..services.freecad_document_manager import document_manager, DocumentExcept
 from ..services.ai_adapter import ai_adapter, AIException
 from ..services.s3_service import s3_service
 from ..core.security_validator import security_validator, SecurityValidationError
+from .utils import TaskResult, update_job_status, ensure_idempotency, get_turkish_term
 
 logger = get_logger(__name__)
 task_logger = get_task_logger(__name__)
 
-# Turkish terminology mapping for UI/logs
+# Turkish terminology mapping for UI/logs (extended from utils)
 TURKISH_TERMS = {
     "constraint": "kısıt",
     "load": "yük", 
@@ -72,141 +73,6 @@ TURKISH_TERMS = {
     "thermal": "ısıl",
     "coupled": "bağlama"
 }
-
-def get_turkish_term(english_term: str) -> str:
-    """Get Turkish translation for CAD/FEM terms."""
-    return TURKISH_TERMS.get(english_term.lower(), english_term)
-
-
-class TaskResult:
-    """Standardized task result format."""
-    
-    def __init__(
-        self,
-        success: bool,
-        data: Optional[Dict[str, Any]] = None,
-        error: Optional[str] = None,
-        warnings: Optional[List[str]] = None,
-        artefacts: Optional[List[Dict[str, Any]]] = None,
-        progress: int = 100
-    ):
-        self.success = success
-        self.data = data or {}
-        self.error = error
-        self.warnings = warnings or []
-        self.artefacts = artefacts or []
-        self.progress = progress
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
-        return {
-            "success": self.success,
-            "data": self.data,
-            "error": self.error,
-            "warnings": self.warnings,
-            "artefacts": self.artefacts,
-            "progress": self.progress,
-            "timestamp": datetime.now(timezone.utc).isoformat()
-        }
-
-
-def update_job_status(
-    job_id: str,
-    status: JobStatus,
-    progress: int = 0,
-    output_data: Optional[Dict[str, Any]] = None,
-    error_message: Optional[str] = None
-) -> Optional[Job]:
-    """Update job status in database with error handling."""
-    db = None
-    try:
-        db = SessionLocal()
-        job = db.query(Job).filter(Job.id == job_id).first()
-        
-        if not job:
-            logger.warning("Job not found for status update", job_id=job_id)
-            return None
-        
-        job.status = status
-        job.progress = progress
-        
-        if output_data:
-            job.output_data = output_data
-        
-        if error_message:
-            if not job.output_data:
-                job.output_data = {}
-            job.output_data["error"] = error_message
-        
-        job.modified_at = datetime.now(timezone.utc)
-        
-        db.commit()
-        
-        logger.info(
-            "Job status updated",
-            job_id=job_id,
-            status=status.value,
-            progress=progress
-        )
-        
-        return job
-        
-    except Exception as e:
-        logger.error("Failed to update job status", job_id=job_id, error=str(e))
-        if db:
-            db.rollback()
-        return None
-    finally:
-        if db:
-            db.close()
-
-
-def ensure_idempotency(job_id: str, request_id: str) -> bool:
-    """Check job idempotency and prevent duplicate execution."""
-    db = None
-    try:
-        db = SessionLocal()
-        
-        # Check if job already exists and is not in initial state
-        job = db.query(Job).filter(Job.id == job_id).first()
-        
-        if job and job.status not in [JobStatus.PENDING, JobStatus.FAILED]:
-            logger.info(
-                "Job already processed - idempotency check",
-                job_id=job_id,
-                current_status=job.status.value,
-                request_id=request_id
-            )
-            return False
-        
-        # Update or create job with running status
-        if job:
-            job.status = JobStatus.RUNNING
-            job.progress = 0
-            job.modified_at = datetime.now(timezone.utc)
-        else:
-            logger.warning(
-                "Job not found during idempotency check",
-                job_id=job_id,
-                request_id=request_id
-            )
-        
-        db.commit()
-        return True
-        
-    except Exception as e:
-        logger.error(
-            "Idempotency check failed",
-            job_id=job_id,
-            request_id=request_id,
-            error=str(e)
-        )
-        if db:
-            db.rollback()
-        return False
-    finally:
-        if db:
-            db.close()
 
 
 def validate_model_inputs(canonical_params: Dict[str, Any]) -> List[str]:
@@ -268,10 +134,7 @@ def generate_model_from_prompt(
         Task result with generated model artefacts
     """
     start_time = time.time()
-    correlation_id = request_id
-    # Note: correlation_id will be used for tracing
-    
-    with create_span("generate_model_from_prompt", correlation_id=correlation_id) as span:
+    with create_span("generate_model_from_prompt", correlation_id=request_id) as span:
         span.set_attribute("job.id", job_id)
         span.set_attribute("user.id", str(user_id))
         span.set_attribute("task.queue", "model")
@@ -532,10 +395,7 @@ def generate_model_from_params(
         Task result with generated model
     """
     start_time = time.time()
-    correlation_id = request_id
-    # Note: correlation_id will be used for tracing
-    
-    with create_span("generate_model_from_params", correlation_id=correlation_id) as span:
+    with create_span("generate_model_from_params", correlation_id=request_id) as span:
         span.set_attribute("job.id", job_id)
         span.set_attribute("user.id", str(user_id))
         span.set_attribute("task.queue", "model")
@@ -697,10 +557,7 @@ def normalize_uploaded_model(
         Task result with normalized model
     """
     start_time = time.time()
-    correlation_id = request_id
-    # Note: correlation_id will be used for tracing
-    
-    with create_span("normalize_uploaded_model", correlation_id=correlation_id) as span:
+    with create_span("normalize_uploaded_model", correlation_id=request_id) as span:
         span.set_attribute("job.id", job_id)
         span.set_attribute("user.id", str(user_id))
         span.set_attribute("input.ref", input_ref)
@@ -849,10 +706,7 @@ def generate_assembly4_workflow(
         Task result with assembly artefacts
     """
     start_time = time.time()
-    correlation_id = request_id
-    # Note: correlation_id will be used for tracing
-    
-    with create_span("generate_assembly4_workflow", correlation_id=correlation_id) as span:
+    with create_span("generate_assembly4_workflow", correlation_id=request_id) as span:
         span.set_attribute("job.id", job_id)
         span.set_attribute("user.id", str(user_id))
         

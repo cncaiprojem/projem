@@ -171,10 +171,9 @@ class TestModelFlowTasks:
         mock_s3_service
     ):
         """Test successful AI-driven model generation."""
-        with patch('apps.api.app.tasks.model_flows.security_validator') as mock_validator, \
-             patch('apps.api.app.tasks.model_flows.create_span') as mock_span, \
-             patch('apps.api.app.tasks.model_flows.set_correlation_id'), \
-             patch('apps.api.app.tasks.model_flows.metrics'):
+        with patch('app.tasks.model_flows.security_validator') as mock_validator, \
+             patch('app.tasks.model_flows.create_span') as mock_span, \
+             patch('app.tasks.model_flows.metrics'):
             
             # Mock security validation
             mock_validator.validate_script.return_value = None
@@ -226,9 +225,8 @@ class TestModelFlowTasks:
         """Test AI adapter failure handling."""
         from app.services.ai_adapter import AIException, AIErrorCode
         
-        with patch('apps.api.app.services.ai_adapter.ai_adapter') as mock_ai, \
-             patch('app.core.telemetry.create_span') as mock_span, \
-             patch('app.middleware.correlation_middleware.set_correlation_id'), \
+        with patch('app.tasks.model_flows.ai_adapter') as mock_ai, \
+             patch('app.tasks.model_flows.create_span') as mock_span, \
              patch('app.tasks.model_flows.metrics'):
             
             # Mock AI adapter to raise exception
@@ -279,7 +277,6 @@ class TestModelFlowTasks:
         
         with patch('app.tasks.model_flows._generate_parametric_model') as mock_gen, \
              patch('app.tasks.model_flows.create_span') as mock_span, \
-             patch('app.tasks.model_flows.set_correlation_id'), \
              patch('app.tasks.model_flows.metrics'), \
              patch('os.path.getsize', return_value=1024):
             
@@ -337,7 +334,6 @@ class TestModelFlowTasks:
         with patch('app.tasks.model_flows._resolve_input_ref') as mock_resolve, \
              patch('app.tasks.model_flows._normalize_cad_file') as mock_normalize, \
              patch('app.tasks.model_flows.create_span') as mock_span, \
-             patch('app.tasks.model_flows.set_correlation_id'), \
              patch('app.tasks.model_flows.metrics'), \
              patch('os.path.getsize', return_value=2048), \
              patch('os.path.splitext', return_value=('test_model', '.step')):
@@ -400,7 +396,6 @@ class TestModelFlowTasks:
         
         with patch('app.tasks.model_flows._create_assembly4_workflow') as mock_asm, \
              patch('app.tasks.model_flows.create_span') as mock_span, \
-             patch('app.tasks.model_flows.set_correlation_id'), \
              patch('app.tasks.model_flows.metrics'), \
              patch('os.path.getsize', return_value=4096):
             
@@ -600,7 +595,7 @@ class TestFEMSimulationTasks:
 
     def test_run_fem_simulation_success(self, fem_job_params):
         """Test successful FEM simulation execution."""
-        with patch('apps.api.app.core.database.SessionLocal') as mock_session, \
+        with patch('app.tasks.model_flows.SessionLocal') as mock_session, \
              patch('app.tasks.fem_simulation._resolve_model_reference') as mock_resolve, \
              patch('app.tasks.fem_simulation._create_fem_analysis') as mock_create, \
              patch('app.tasks.fem_simulation._assign_materials') as mock_materials, \
@@ -609,8 +604,7 @@ class TestFEMSimulationTasks:
              patch('app.tasks.fem_simulation._run_calculix_solver') as mock_solver, \
              patch('app.tasks.fem_simulation._process_fem_results') as mock_results, \
              patch('app.tasks.fem_simulation._create_fem_artefacts') as mock_artefacts, \
-             patch('app.core.telemetry.create_span') as mock_span, \
-             patch('app.middleware.correlation_middleware.set_correlation_id'), \
+             patch('app.tasks.fem_simulation.create_span') as mock_span, \
              patch('app.tasks.fem_simulation.metrics'), \
              patch('tempfile.mkdtemp', return_value="/tmp/fem_test"), \
              patch('shutil.rmtree'):
@@ -679,10 +673,9 @@ class TestFEMSimulationTasks:
         # Make parameters invalid
         fem_job_params["canonical_params"]["analysis_type"] = "invalid_type"
         
-        with patch('apps.api.app.core.database.SessionLocal') as mock_session, \
-             patch('apps.api.app.core.telemetry.create_span') as mock_span, \
-             patch('apps.api.app.middleware.correlation_middleware.set_correlation_id'), \
-             patch('apps.api.app.tasks.fem_simulation.metrics'):
+        with patch('app.tasks.model_flows.SessionLocal') as mock_session, \
+             patch('app.tasks.fem_simulation.create_span') as mock_span, \
+             patch('app.tasks.fem_simulation.metrics'):
             
             # Mock database session
             mock_db = Mock()
