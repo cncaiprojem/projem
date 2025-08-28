@@ -42,7 +42,7 @@ from app.tasks.fem_simulation import (
     FEM_ANALYSIS_TYPES,
     DEFAULT_MATERIALS
 )
-from app.tasks.model_flows import get_turkish_term
+from app.tasks.utils import get_turkish_term
 from app.models.enums import JobStatus, JobType
 
 
@@ -595,7 +595,7 @@ class TestFEMSimulationTasks:
 
     def test_run_fem_simulation_success(self, fem_job_params):
         """Test successful FEM simulation execution."""
-        with patch('app.tasks.model_flows.SessionLocal') as mock_session, \
+        with patch('app.tasks.utils.SessionLocal') as mock_session, \
              patch('app.tasks.fem_simulation._resolve_model_reference') as mock_resolve, \
              patch('app.tasks.fem_simulation._create_fem_analysis') as mock_create, \
              patch('app.tasks.fem_simulation._assign_materials') as mock_materials, \
@@ -673,7 +673,7 @@ class TestFEMSimulationTasks:
         # Make parameters invalid
         fem_job_params["canonical_params"]["analysis_type"] = "invalid_type"
         
-        with patch('app.tasks.model_flows.SessionLocal') as mock_session, \
+        with patch('app.tasks.utils.SessionLocal') as mock_session, \
              patch('app.tasks.fem_simulation.create_span') as mock_span, \
              patch('app.tasks.fem_simulation.metrics'):
             

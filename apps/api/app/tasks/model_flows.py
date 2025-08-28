@@ -49,31 +49,6 @@ from .utils import TaskResult, update_job_status, ensure_idempotency, get_turkis
 logger = get_logger(__name__)
 task_logger = get_task_logger(__name__)
 
-# Turkish terminology mapping for UI/logs (extended from utils)
-TURKISH_TERMS = {
-    "constraint": "kısıt",
-    "load": "yük", 
-    "boundary_condition": "sınır koşulu",
-    "mesh": "ağ",
-    "element": "eleman",
-    "node": "düğüm",
-    "solver": "çözücü",
-    "result": "sonuç",
-    "stress": "gerilme",
-    "strain": "şekil değiştirme",
-    "displacement": "yer değiştirme",
-    "temperature": "sıcaklık",
-    "heat_flux": "ısı akısı",
-    "convection": "taşınım",
-    "contact": "temas",
-    "buckling": "burkulma",
-    "modal": "modal/özdeğer",
-    "factor_of_safety": "emniyet katsayısı",
-    "static": "doğrusal statik",
-    "thermal": "ısıl",
-    "coupled": "bağlama"
-}
-
 
 def validate_model_inputs(canonical_params: Dict[str, Any]) -> List[str]:
     """Validate model generation inputs and return warnings."""

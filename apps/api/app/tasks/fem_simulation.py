@@ -43,6 +43,7 @@ from ..core.telemetry import create_span
 # from ..core import metrics  # Temporarily disabled due to metric name conflicts
 from ..models.enums import JobStatus
 from ..services.s3_service import s3_service
+from .utils import ensure_idempotency, update_job_status
 
 logger = get_logger(__name__)
 task_logger = get_task_logger(__name__)
@@ -333,15 +334,7 @@ def estimate_analysis_resources(canonical_params: Dict[str, Any]) -> Dict[str, A
 
 @shared_task(
     bind=True,
-    name="sim.fem",
-    queue="sim", 
-    max_retries=2,
-    default_retry_delay=120,
-    retry_backoff=True,
-    autoretry_for=(ConnectionError, TimeoutError),
-    retry_jitter=True,
-    soft_time_limit=3600,  # 1 hour soft limit
-    time_limit=4200        # 70 minutes hard limit
+    autoretry_for=(ConnectionError, TimeoutError)
 )
 def run_fem_simulation(
     self,
@@ -383,7 +376,6 @@ def run_fem_simulation(
         )
         
         # Idempotency check
-        from .utils import ensure_idempotency, update_job_status
         if not ensure_idempotency(job_id, request_id):
             raise Ignore()
         
