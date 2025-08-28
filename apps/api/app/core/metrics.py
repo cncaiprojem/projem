@@ -250,6 +250,60 @@ licenses_active_total = Gauge(
     registry=REGISTRY
 )
 
+# Task 7.4: Model Flow and FEM Simulation Metrics
+freecad_model_generations_total = Counter(
+    'freecad_model_generations_total',
+    'Total number of FreeCAD model generations',
+    ['type', 'status'],  # type: ai_prompt, parametric, upload_normalization, assembly4
+    registry=REGISTRY
+)
+
+freecad_model_generation_duration = Histogram(
+    'freecad_model_generation_duration',
+    'Time taken to generate FreeCAD models',
+    ['type'],  # type: ai_prompt, parametric, upload_normalization, assembly4
+    buckets=(5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, float('inf')),
+    registry=REGISTRY
+)
+
+fem_simulations_total = Counter(
+    'fem_simulations_total',
+    'Total number of FEM simulations',
+    ['analysis_type', 'status'],  # analysis_type: static, modal, buckling, thermal_steady, thermal_transient, coupled_thermal_static
+    registry=REGISTRY
+)
+
+fem_simulation_duration = Histogram(
+    'fem_simulation_duration',
+    'Time taken to complete FEM simulations',
+    ['analysis_type'],
+    buckets=(60.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, 7200.0, 14400.0, float('inf')),
+    registry=REGISTRY
+)
+
+fem_mesh_elements_total = Histogram(
+    'fem_mesh_elements_total',
+    'Number of mesh elements in FEM simulations',
+    ['analysis_type'],
+    buckets=(1000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, float('inf')),
+    registry=REGISTRY
+)
+
+ai_adapter_requests_total = Counter(
+    'ai_adapter_requests_total',
+    'Total number of AI adapter requests',
+    ['provider', 'status'],
+    registry=REGISTRY
+)
+
+ai_adapter_request_duration = Histogram(
+    'ai_adapter_request_duration',
+    'Time taken for AI adapter requests',
+    ['provider'],
+    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, float('inf')),
+    registry=REGISTRY
+)
+
 
 class MetricsCollector:
     """
@@ -455,6 +509,14 @@ __all__ = [
     'license_operations_total',
     'license_assignment_duration_seconds',
     'licenses_active_total',
+    # Task 7.4: New model flow and FEM metrics
+    'freecad_model_generations_total',
+    'freecad_model_generation_duration',
+    'fem_simulations_total',
+    'fem_simulation_duration',
+    'fem_mesh_elements_total',
+    'ai_adapter_requests_total',
+    'ai_adapter_request_duration',
     'MetricsCollector',
     'metrics'
 ]
