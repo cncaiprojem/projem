@@ -208,9 +208,17 @@ class GeometryValidator:
         return result
     
     def _validate_mock_shape(self, shape: Any) -> ValidationResult:
-        """Raise exception when FreeCAD is not available - no mock data."""
-        # CRITICAL FIX: Never return fake hardcoded values
-        # Instead, raise a proper exception when FreeCAD is not available
+        """Raise exception when FreeCAD is not available for validation.
+        
+        This method ensures data integrity by preventing the use of mock data
+        in production environments where FreeCAD is not installed.
+        
+        Args:
+            shape: The shape object that requires validation
+            
+        Raises:
+            RuntimeError: Always raises as FreeCAD is required for proper validation
+        """
         logger.error("FreeCAD is required for geometry validation but is not available")
         raise RuntimeError(
             "FreeCAD is required for geometry validation but is not installed or available. "

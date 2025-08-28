@@ -323,48 +323,47 @@ doc.recompute()"""
         return normalized
     
     def _validate_security(self, tree: ast.AST) -> List[str]:
-        """Validate script security using AST."""
+        """Validate script security using shared security validator.
+        
+        Note: This method validates an already-parsed AST tree.
+        For full script validation including parsing, use the security_validator directly.
+        """
+        from ...core.security_validator import security_validator
+        
+        # Convert tree back to script for validation
+        # This ensures we use the full security validation logic
+        try:
+            import ast
+            script = ast.unparse(tree) if hasattr(ast, 'unparse') else compile(tree, '<string>', 'exec')
+            if isinstance(script, type(compile('', '', 'exec'))):
+                # If we got bytecode, we can't validate it properly
+                # Fall back to basic validation
+                return self._basic_ast_validation(tree)
+            
+            _, violations = security_validator.validate_script(str(script), raise_on_error=False)
+            return violations
+        except Exception as e:
+            logger.warning(f"Could not use shared validator, falling back to basic validation: {e}")
+            return self._basic_ast_validation(tree)
+    
+    def _basic_ast_validation(self, tree: ast.AST) -> List[str]:
+        """Basic AST validation fallback when shared validator can't be used."""
         violations = []
         
-        # Allowed modules
-        allowed_modules = {
-            'FreeCAD', 'App', 'Part', 'PartDesign', 
-            'Sketcher', 'Draft', 'Import', 'Mesh', 
-            'math', 'numpy', 'Base', 'Vector'
-        }
+        # Minimal allowed modules
+        allowed_modules = {'FreeCAD', 'App', 'Part', 'math'}
         
-        # Forbidden calls
-        forbidden_calls = {
-            '__import__', 'exec', 'eval', 'compile',
-            'open', 'file', 'input', 'os', 'subprocess'
-        }
-        
-        class SecurityChecker(ast.NodeVisitor):
+        class BasicChecker(ast.NodeVisitor):
             def visit_Import(self, node):
                 for alias in node.names:
-                    module = alias.name.split('.')[0]
-                    if module not in allowed_modules:
-                        violations.append(f"Forbidden import: {module}")
+                    if alias.name.split('.')[0] not in allowed_modules:
+                        violations.append(f"Forbidden import: {alias.name}")
             
             def visit_ImportFrom(self, node):
-                if node.module:
-                    module = node.module.split('.')[0]
-                    if module not in allowed_modules:
-                        violations.append(f"Forbidden import: {module}")
-            
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Name):
-                    if node.func.id in forbidden_calls:
-                        violations.append(f"Forbidden call: {node.func.id}")
-                elif isinstance(node.func, ast.Attribute):
-                    # Check for file I/O operations
-                    if node.func.attr in ['export', 'save', 'write', 'dump']:
-                        violations.append(f"File I/O not allowed: {node.func.attr}")
-                self.generic_visit(node)
+                if node.module and node.module.split('.')[0] not in allowed_modules:
+                    violations.append(f"Forbidden import: {node.module}")
         
-        checker = SecurityChecker()
-        checker.visit(tree)
-        
+        BasicChecker().visit(tree)
         return violations
     
     def _extract_and_validate_dimensions(

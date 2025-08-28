@@ -429,25 +429,25 @@ os.system('rm -rf /')"""
 class TestGeometryValidator:
     """Test geometry validation."""
     
-    def test_mock_validation(self):
-        """Test mock validation when FreeCAD not available."""
-        validator = GeometryValidator()
+    def test_mock_validation_raises_error(self):
+        """Test that validation raises RuntimeError when FreeCAD is not available."""
+        from unittest.mock import patch
+        import pytest
         
-        # Mock shape object
-        mock_shape = MagicMock()
-        mock_shape.__dict__ = {
-            "volume": 5000.0,
-            "area": 1200.0,
-            "center_of_mass": [0, 0, 25]
-        }
-        
-        result = validator.validate_shape(mock_shape)
-        
-        assert result.is_valid
-        assert result.volume == 5000.0
-        assert result.area == 1200.0
-        assert len(result.export_formats) > 0
-        assert any("mock validation" in w for w in result.warnings)
+        # Mock _check_freecad to return False
+        with patch('app.services.freecad.geometry_validator.GeometryValidator._check_freecad', return_value=False):
+            validator = GeometryValidator()
+            
+            # Mock shape object
+            mock_shape = MagicMock()
+            
+            # Validation should raise RuntimeError when FreeCAD is not available
+            with pytest.raises(RuntimeError) as exc_info:
+                validator.validate_shape(mock_shape)
+            
+            # Check that error message mentions FreeCAD requirement
+            assert "FreeCAD is required" in str(exc_info.value)
+            assert "not installed or available" in str(exc_info.value)
     
     def test_manufacturing_constraints(self):
         """Test manufacturing constraints validation."""

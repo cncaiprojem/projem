@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -499,12 +499,34 @@ doc.recompute()""",
             # Apply glossary
             enhanced_prompt, glossary_used = self._apply_glossary(prompt)
             
+            # Validate user_id and fail fast if invalid
+            if not user_id:
+                # If anonymous suggestions are required, use a dedicated anonymous user ID
+                # Otherwise, reject the request
+                raise AIException(
+                    "A valid user_id is required for AI suggestions.",
+                    AIErrorCode.VALIDATION_FAILED,
+                    "AI önerileri için geçerli bir kullanıcı kimliği gereklidir."
+                )
+            
+            # Validate user_id format
+            try:
+                validated_user_id = int(user_id) if isinstance(user_id, str) else user_id
+                if validated_user_id <= 0:
+                    raise ValueError("User ID must be positive")
+            except (ValueError, TypeError) as e:
+                raise AIException(
+                    f"Invalid user_id format: {e}",
+                    AIErrorCode.VALIDATION_FAILED,
+                    f"Geçersiz kullanıcı kimliği formatı: {e}"
+                )
+            
             # Mask PII before storage
             ai_suggestion = AISuggestion(
                 request_id=request_id,
                 prompt="",  # Will be set after masking
                 response={},  # Will be set after generation
-                user_id=1 if not user_id else int(user_id) if user_id.isdigit() else 1
+                user_id=validated_user_id
             )
             masked_prompt = ai_suggestion.mask_pii(enhanced_prompt)
             ai_suggestion.prompt = masked_prompt
@@ -555,12 +577,26 @@ doc.recompute()""",
                     ai_suggestion.prompt_tokens = response.get("usage", {}).get("prompt_tokens")
                     ai_suggestion.response_tokens = response.get("usage", {}).get("completion_tokens")
                     
-                    # Calculate cost (example rates)
+                    # Calculate cost using Decimal for precision (example rates)
                     if ai_suggestion.prompt_tokens and ai_suggestion.response_tokens:
-                        # GPT-4 rates (adjust as needed)
-                        prompt_cost = ai_suggestion.prompt_tokens * 0.03 / 1000
-                        completion_cost = ai_suggestion.response_tokens * 0.06 / 1000
-                        ai_suggestion.total_cost_cents = int((prompt_cost + completion_cost) * 100)
+                        # GPT-4 rates (adjust as needed) - using Decimal for financial accuracy
+                        prompt_tokens_decimal = Decimal(str(ai_suggestion.prompt_tokens))
+                        response_tokens_decimal = Decimal(str(ai_suggestion.response_tokens))
+                        
+                        # Cost per 1000 tokens in dollars
+                        prompt_rate = Decimal('0.03')  # $0.03 per 1k tokens
+                        completion_rate = Decimal('0.06')  # $0.06 per 1k tokens
+                        
+                        # Calculate costs in dollars
+                        prompt_cost = (prompt_tokens_decimal * prompt_rate) / Decimal('1000')
+                        completion_cost = (response_tokens_decimal * completion_rate) / Decimal('1000')
+                        total_cost_dollars = prompt_cost + completion_cost
+                        
+                        # Convert to cents and round properly
+                        total_cost_cents_decimal = (total_cost_dollars * Decimal('100')).quantize(
+                            Decimal('1'), rounding=ROUND_HALF_UP
+                        )
+                        ai_suggestion.total_cost_cents = int(total_cost_cents_decimal)
                     
                     # Set retention period (90 days for KVKK)
                     ai_suggestion.set_retention_period(90)
@@ -773,216 +809,29 @@ doc.recompute()""",
             )
     
     def _validate_script_security(self, script: str):
-        """Validate script for security violations using enhanced AST with all security hardening."""
-        import ast
-        import sys
-        
-        # CRITICAL FIX: Input length limit
-        MAX_SCRIPT_LENGTH = 50000  # 50KB max script size
-        if len(script) > MAX_SCRIPT_LENGTH:
-            raise AIException(
-                f"Script too large: {len(script)} bytes (max {MAX_SCRIPT_LENGTH})",
-                AIErrorCode.VALIDATION_FAILED,
-                f"Script çok büyük: {len(script)} bayt (maksimum {MAX_SCRIPT_LENGTH})"
-            )
-        
-        # CRITICAL FIX: AST parsing with timeout protection
-        MAX_PARSE_TIME = 2.0  # 2 seconds max for parsing
-        import signal
-        
-        def timeout_handler(signum, frame):
-            raise TimeoutError("AST parsing timeout")
-        
-        # Set timeout for parsing (Unix-like systems only)
-        if hasattr(signal, 'SIGALRM'):
-            signal.signal(signal.SIGALRM, timeout_handler)
-            signal.alarm(int(MAX_PARSE_TIME))
+        """Validate script for security violations using shared security validator."""
+        from ..core.security_validator import security_validator, SecurityValidationError
         
         try:
-            tree = ast.parse(script)
-        except SyntaxError as e:
+            is_valid, violations = security_validator.validate_script(script, raise_on_error=False)
+            
+            if not is_valid:
+                # Log all violations
+                for violation in violations:
+                    logger.warning(f"Script security violation: {violation}")
+                
+                # Raise exception with combined violations
+                raise AIException(
+                    f"Security violations detected: {'; '.join(violations[:3])}",  # Show first 3
+                    AIErrorCode.SECURITY_VIOLATION,
+                    f"Güvenlik ihlalleri tespit edildi: {'; '.join(violations[:3])}"
+                )
+        except SecurityValidationError as e:
+            # Security validator raised an error
             raise AIException(
-                f"Invalid Python syntax: {e}",
-                AIErrorCode.VALIDATION_FAILED,
-                f"Geçersiz Python sözdizimi: {e}"
-            )
-        except TimeoutError:
-            raise AIException(
-                "Script parsing timeout - possible malicious code",
+                str(e),
                 AIErrorCode.SECURITY_VIOLATION,
-                "Script ayrıştırma zaman aşımı - olası kötü niyetli kod"
-            )
-        finally:
-            if hasattr(signal, 'SIGALRM'):
-                signal.alarm(0)  # Cancel alarm
-        
-        # Whitelist of allowed modules
-        allowed_imports = {
-            'FreeCAD', 'Part', 'PartDesign', 'Sketcher', 
-            'Draft', 'Import', 'Mesh', 'math', 'numpy', 'Base'
-        }
-        
-        # Forbidden function/attribute names (expanded list)
-        forbidden_calls = {
-            '__import__', 'exec', 'eval', 'compile', 'execfile',
-            'open', 'file', 'input', 'raw_input', 'reload',
-            'os', 'subprocess', 'sys', 'importlib', 'getattr', 
-            'setattr', 'delattr', 'hasattr', 'globals', 'locals',
-            'vars', 'dir', '__builtins__', 'help', 'id', 'type',
-            'memoryview', 'bytearray', 'bytes', 'object'
-        }
-        
-        # CRITICAL FIX: AST depth limiting
-        MAX_AST_DEPTH = 100
-        
-        class SecurityValidator(ast.NodeVisitor):
-            def __init__(self):
-                self.violations = []
-                self.depth = 0
-                self.max_depth_reached = 0
-                self.visited_nodes = set()  # For recursive structure detection
-            
-            def generic_visit(self, node):
-                # CRITICAL FIX: Depth limiting
-                self.depth += 1
-                self.max_depth_reached = max(self.max_depth_reached, self.depth)
-                
-                if self.depth > MAX_AST_DEPTH:
-                    self.violations.append(
-                        f"AST depth limit exceeded: {self.depth} (max {MAX_AST_DEPTH})"
-                    )
-                    return  # Stop traversing deeper
-                
-                # CRITICAL FIX: Recursive structure detection
-                node_id = id(node)
-                if node_id in self.visited_nodes:
-                    self.violations.append("Recursive AST structure detected - possible attack")
-                    return
-                self.visited_nodes.add(node_id)
-                
-                super().generic_visit(node)
-                self.depth -= 1
-            
-            def visit_Import(self, node):
-                for alias in node.names:
-                    module = alias.name.split('.')[0]
-                    if module not in allowed_imports:
-                        self.violations.append(f"Forbidden import: {module}")
-                self.generic_visit(node)
-            
-            def visit_ImportFrom(self, node):
-                if node.module:
-                    module = node.module.split('.')[0]
-                    if module not in allowed_imports:
-                        self.violations.append(f"Forbidden import from: {module}")
-                self.generic_visit(node)
-            
-            def visit_Name(self, node):
-                # CRITICAL FIX: Check for __builtins__ access
-                if node.id == '__builtins__' or node.id.startswith('__'):
-                    self.violations.append(f"Forbidden name access: {node.id}")
-                self.generic_visit(node)
-            
-            def visit_Attribute(self, node):
-                # CRITICAL FIX: Protection against getattr/importlib abuse
-                if node.attr in forbidden_calls:
-                    self.violations.append(f"Forbidden attribute access: {node.attr}")
-                
-                # Check for __dict__, __class__, __bases__ access
-                if node.attr.startswith('__') and node.attr.endswith('__'):
-                    if node.attr not in ['__name__', '__doc__', '__init__']:
-                        self.violations.append(f"Forbidden dunder attribute: {node.attr}")
-                
-                self.generic_visit(node)
-            
-            def visit_Call(self, node):
-                # Check function name
-                if isinstance(node.func, ast.Name):
-                    if node.func.id in forbidden_calls:
-                        self.violations.append(f"Forbidden function call: {node.func.id}")
-                
-                # Check method calls
-                elif isinstance(node.func, ast.Attribute):
-                    # Protection against getattr/importlib patterns
-                    if node.func.attr in forbidden_calls:
-                        self.violations.append(f"Forbidden method call: {node.func.attr}")
-                    
-                    # Check for Import.export* calls
-                    if (isinstance(node.func.value, ast.Name) and
-                        node.func.value.id == 'Import' and
-                        node.func.attr.startswith('export')):
-                        self.violations.append(f"Forbidden export call: Import.{node.func.attr}")
-                    
-                    # Validate dimensions in FreeCAD Part functions
-                    if (isinstance(node.func.value, ast.Name) and
-                        node.func.value.id == 'Part' and
-                        node.func.attr in ['makeCylinder', 'makeBox', 'makeSphere', 
-                                         'makeCone', 'makeTorus']):
-                        for arg in node.args:
-                            if isinstance(arg, (ast.Num, ast.Constant)):
-                                value = arg.n if isinstance(arg, ast.Num) else arg.value
-                                if isinstance(value, (int, float)):
-                                    if value < 0.1 or value > 1000:
-                                        self.violations.append(
-                                            f"Dimension out of bounds in {node.func.attr}: {value} (must be 0.1-1000mm)"
-                                        )
-                
-                self.generic_visit(node)
-            
-            def visit_Lambda(self, node):
-                # Lambdas can be used for code obfuscation
-                self.violations.append("Lambda functions not allowed for security")
-                self.generic_visit(node)
-            
-            def visit_ListComp(self, node):
-                # Check depth of comprehensions (can cause memory issues)
-                self.generic_visit(node)
-            
-            def visit_DictComp(self, node):
-                self.generic_visit(node)
-            
-            def visit_SetComp(self, node):
-                self.generic_visit(node)
-            
-            def visit_GeneratorExp(self, node):
-                self.generic_visit(node)
-        
-        # CRITICAL FIX: Memory limit check - count total nodes
-        class NodeCounter(ast.NodeVisitor):
-            def __init__(self):
-                self.count = 0
-                
-            def generic_visit(self, node):
-                self.count += 1
-                if self.count > 10000:  # Max 10k AST nodes
-                    raise AIException(
-                        "Script too complex: too many AST nodes",
-                        AIErrorCode.SECURITY_VIOLATION,
-                        "Script çok karmaşık: çok fazla AST düğümü"
-                    )
-                super().generic_visit(node)
-        
-        # Count nodes first
-        counter = NodeCounter()
-        counter.visit(tree)
-        
-        # Run security validation
-        validator = SecurityValidator()
-        validator.visit(tree)
-        
-        # Check for stack overflow attempts
-        if validator.max_depth_reached > MAX_AST_DEPTH:
-            raise AIException(
-                f"AST too deep: {validator.max_depth_reached} (max {MAX_AST_DEPTH})",
-                AIErrorCode.SECURITY_VIOLATION,
-                f"AST çok derin: {validator.max_depth_reached} (maksimum {MAX_AST_DEPTH})"
-            )
-        
-        if validator.violations:
-            raise AIException(
-                f"Security violations detected: {'; '.join(validator.violations[:10])}",  # Limit output
-                AIErrorCode.SECURITY_VIOLATION,
-                f"Güvenlik ihlalleri tespit edildi: {'; '.join(validator.violations[:10])}"
+                f"Güvenlik doğrulama hatası: {str(e)}"
             )
 
 
