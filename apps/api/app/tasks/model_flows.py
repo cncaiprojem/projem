@@ -313,7 +313,7 @@ def generate_model_from_prompt(
             return result.to_dict()
             
         except Exception as e:
-            # Retryable errors
+            # Log error
             error_msg = f"Model generation error: {str(e)}"
             logger.error(
                 error_msg,
@@ -323,20 +323,18 @@ def generate_model_from_prompt(
                 retry_count=self.request.retries
             )
             
-            # Update job status
-            update_job_status(
-                job_id,
-                JobStatus.RUNNING,
-                progress=0,
-                error_message=f"Retry {self.request.retries + 1}: {error_msg}"
-            )
+            # Update job status to failed for non-retryable exceptions
+            # Celery's autoretry_for will handle ConnectionError, TimeoutError, DocumentException
+            if not isinstance(e, (ConnectionError, TimeoutError, DocumentException)):
+                update_job_status(
+                    job_id,
+                    JobStatus.FAILED,
+                    progress=0,
+                    error_message=error_msg
+                )
             
-            # Retry with exponential backoff
-            raise self.retry(
-                exc=e,
-                countdown=min(60 * (2 ** self.request.retries), 300),  # Max 5 minutes
-                max_retries=3
-            )
+            # Re-raise to let Celery handle retry logic
+            raise
 
 
 @shared_task(

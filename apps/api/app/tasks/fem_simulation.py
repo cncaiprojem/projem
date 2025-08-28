@@ -600,17 +600,10 @@ def run_fem_simulation(
             #     status="failed"
             # ).inc()
             
-            # Retry with exponential backoff (only for retryable exceptions)
-            if isinstance(e, (ConnectionError, TimeoutError)):
-                raise self.retry(
-                    exc=e,
-                    countdown=min(120 * (2 ** self.request.retries), 600),  # Max 10 minutes
-                    max_retries=2
-                )
-            else:
-                # Non-retryable error
-                update_job_status(job_id, JobStatus.FAILED, output_data=result.to_dict())
-                return result.to_dict()
+            # Let Celery's autoretry_for handle ConnectionError and TimeoutError
+            # For other exceptions, mark job as failed
+            update_job_status(job_id, JobStatus.FAILED, output_data=result.to_dict())
+            raise  # Re-raise to let Celery handle retry logic
             
         finally:
             # Cleanup temporary directory

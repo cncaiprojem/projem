@@ -14,7 +14,7 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import BinaryIO, Dict, List, Optional, Tuple, Union, Final, AsyncIterator
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union, Final, AsyncIterator
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -868,10 +868,20 @@ def get_s3_service_singleton():
 
 # Create a property-like access for backward compatibility
 class S3ServiceProxy:
-    """Proxy for lazy S3Service initialization."""
+    """
+    Proxy for lazy S3Service initialization.
     
-    def __getattr__(self, name):
+    Forwards all attribute access to the singleton S3Service instance.
+    This provides backward compatibility while allowing lazy initialization.
+    """
+    
+    def __getattr__(self, name: str) -> Any:
+        """Forward attribute access to the singleton instance."""
         return getattr(get_s3_service_singleton(), name)
+    
+    def __repr__(self) -> str:
+        """String representation of the proxy."""
+        return f"<S3ServiceProxy -> {get_s3_service_singleton()!r}>"
 
 s3_service = S3ServiceProxy()
 
