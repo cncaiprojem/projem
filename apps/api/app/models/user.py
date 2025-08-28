@@ -4,7 +4,7 @@ This replaces the basic user model with ultra enterprise security features.
 """
 
 from datetime import datetime, timezone, timedelta
-from typing import Optional, List
+from typing import Optional, List, TYPE_CHECKING
 
 from sqlalchemy import (
     Boolean, String, Text, Index, CheckConstraint, BigInteger,
@@ -15,6 +15,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .base import Base, TimestampMixin
 from .enums import UserRole, Locale
+
+if TYPE_CHECKING:
+    from .ai_suggestions import AISuggestion
 
 
 class User(Base, TimestampMixin):
@@ -266,9 +269,11 @@ class User(Base, TimestampMixin):
         "License",
         back_populates="user"
     )
-    models: Mapped[List["Model"]] = relationship(
-        "Model",
-        back_populates="user"
+    # Task 7.15: AI suggestions tracking
+    ai_suggestions: Mapped[List["AISuggestion"]] = relationship(
+        "AISuggestion",
+        back_populates="user",
+        cascade="all, delete-orphan"
     )
     jobs: Mapped[List["Job"]] = relationship(
         "Job",

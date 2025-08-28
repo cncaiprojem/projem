@@ -18,6 +18,8 @@ from .license_audit import LicenseAudit
 from .invoice import Invoice
 from .payment import Payment, PaymentWebhookEvent, PaymentAuditLog
 from .model import Model
+from .ai_suggestions import AISuggestion
+from .topology_hashes import TopologyHash
 from .job import Job
 from .cam_run import CamRun
 from .sim_run import SimRun
@@ -62,6 +64,8 @@ __all__ = [
     
     # Core Business
     "Model",
+    "AISuggestion",
+    "TopologyHash",
     "Job",
     "CamRun",
     "SimRun",
