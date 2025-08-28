@@ -22,13 +22,14 @@ def validate_advisory_lock_fix():
     migration_file = Path("apps/api/alembic/versions/20250827_213512_task_715_model_flows_database_schema.py")
     content = migration_file.read_text(encoding='utf-8')
     
-    # Check for advisory lock
-    if "pg_advisory_xact_lock(hashtext(NEW.freecad_doc_uuid::text))" in content:
+    # Check for proper UUID byte extraction pattern (new implementation)
+    if "uuid_send(NEW.freecad_doc_uuid)" in content and "get_byte(uuid_bytes" in content:
         print("[PASS] Advisory lock properly added using pg_advisory_xact_lock")
-        print("   - Uses hashtext() to convert UUID to bigint for lock ID")
+        print("   - Uses uuid_send() and get_byte() to extract UUID bytes")
+        print("   - Creates two bigint values from UUID for 128-bit lock")
         print("   - Prevents concurrent transactions from getting same model_rev")
     else:
-        print("[FAIL] Advisory lock not found")
+        print("[FAIL] Advisory lock not using proper UUID byte extraction")
         return False
     
     # Check that it's in the increment_model_rev function
@@ -49,17 +50,25 @@ def validate_turkish_name_masking_optimization():
     model_file = Path("apps/api/app/models/ai_suggestions.py")
     content = model_file.read_text(encoding='utf-8')
     
-    # Check for optimized single regex pattern
-    if "escaped_names = [re.escape(name) for name in turkish_names]" in content:
-        print("[PASS] Building single regex pattern for all names")
+    # Check for module-level compiled regex patterns (new implementation)
+    if "TURKISH_NAMES_REGEX = re.compile(" in content:
+        print("[PASS] Turkish names regex compiled at module level")
     else:
-        print("[FAIL] Not building optimized regex pattern")
+        print("[FAIL] Turkish names regex not compiled at module level")
         return False
     
-    if "names_pattern = r'\\b(' + '|'.join(escaped_names)" in content:
-        print("[PASS] Using single compiled regex pattern (efficient)")
+    if "COMPILED_PHONE_REGEX = re.compile(" in content:
+        print("[PASS] Phone regex compiled at module level (efficient)")
     else:
-        print("[FAIL] Not using single regex pattern")
+        print("[FAIL] Phone regex not compiled at module level")
+        return False
+    
+    # Check for using precompiled patterns in mask_pii method
+    if "TURKISH_NAMES_REGEX.sub(mask_name, masked_text)" in content:
+        print("[PASS] Using precompiled regex pattern in mask_pii")
+        print("   - Pattern compiled once at module load, not per call")
+    else:
+        print("[FAIL] Not using precompiled pattern")
         return False
     
     # Check for proper replacement function
@@ -70,14 +79,25 @@ def validate_turkish_name_masking_optimization():
         print("[FAIL] Not using proper replacement function")
         return False
     
-    # Verify no loop through individual names
-    if "for name in turkish_names:" in content and "name_pattern = rf'\\b{re.escape(name)}" in content:
-        print("[FAIL] Still looping through names (inefficient)")
-        return False
-    else:
-        print("[PASS] No inefficient loop through individual names")
+    # Verify all patterns are precompiled at module level
+    patterns_to_check = [
+        "EMAIL_PATTERN = re.compile(",
+        "TC_KIMLIK_PATTERN = re.compile(",
+        "CREDIT_CARD_PATTERN = re.compile(",
+        "IBAN_PATTERN = re.compile(",
+        "ADDRESS_REGEX = re.compile("
+    ]
     
-    return True
+    all_precompiled = True
+    for pattern in patterns_to_check:
+        if pattern not in content:
+            print(f"[FAIL] Missing precompiled pattern: {pattern}")
+            all_precompiled = False
+    
+    if all_precompiled:
+        print("[PASS] All regex patterns precompiled at module level")
+    
+    return all_precompiled
 
 
 def validate_redundant_onupdate_removal():

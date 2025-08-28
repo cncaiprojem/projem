@@ -170,6 +170,14 @@ class Model(Base, TimestampMixin):
         
         Note: Children have HIGHER model_rev, not lower.
         A model is the latest revision if it has no children.
+        
+        WARNING: This property may cause N+1 queries when called on multiple models.
+        Consider using eager loading with joinedload() or selectinload() when
+        querying multiple models if you need to access this property.
+        
+        Example:
+            from sqlalchemy.orm import selectinload
+            models = session.query(Model).options(selectinload(Model.child_models)).all()
         """
         # If no child models exist, this is the latest revision
         return not bool(self.child_models)

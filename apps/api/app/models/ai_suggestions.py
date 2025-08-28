@@ -5,7 +5,7 @@ and cost tracking.
 """
 
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from typing import Optional, TYPE_CHECKING
 
 from sqlalchemy import (
@@ -18,6 +18,52 @@ from .base import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from .user import User
+
+# Compile regex patterns at module level for performance
+EMAIL_PATTERN = re.compile(r'\b([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b', re.IGNORECASE)
+
+# Turkish phone number patterns - combined into single regex for performance
+TURKISH_PHONE_PATTERNS = [
+    r'\+90\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',  # +90 5xx xxx xx xx
+    r'\+90\s*\d{10}',                           # +905xxxxxxxxx
+    r'0\s*5\d{2}\s*\d{3}\s*\d{2}\s*\d{2}',     # 0 5xx xxx xx xx
+    r'05\d{9}',                                 # 05xxxxxxxxx
+    r'5\d{2}\s*\d{3}\s*\d{2}\s*\d{2}',         # 5xx xxx xx xx
+    r'5\d{9}',                                  # 5xxxxxxxxx
+    r'\(\d{3}\)\s*\d{3}[-\s]?\d{2}[-\s]?\d{2}' # (5xx) xxx-xx-xx
+]
+COMPILED_PHONE_REGEX = re.compile('|'.join(TURKISH_PHONE_PATTERNS))
+
+# Turkish ID number pattern
+TC_KIMLIK_PATTERN = re.compile(r'\b\d{11}\b')
+
+# Credit card pattern
+CREDIT_CARD_PATTERN = re.compile(r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b')
+
+# IBAN pattern
+IBAN_PATTERN = re.compile(r'\bTR\d{2}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{2}\b', re.IGNORECASE)
+
+# Common Turkish names
+TURKISH_NAMES = [
+    'Mehmet', 'Ahmet', 'Mustafa', 'Ali', 'Hasan', 'Hüseyin', 'İbrahim',
+    'Fatma', 'Ayşe', 'Emine', 'Hatice', 'Zeynep', 'Elif', 'Meryem',
+    'Ömer', 'Osman', 'Ramazan', 'Bekir', 'Murat', 'Serkan', 'Emre',
+    'Özlem', 'Dilek', 'Sibel', 'Aslı', 'Gülşen', 'Şerife', 'Filiz'
+]
+# Build single optimized regex pattern for all names
+TURKISH_NAMES_REGEX = re.compile(
+    r'\b(' + '|'.join(re.escape(name) for name in TURKISH_NAMES) + r')\s+([A-ZÇĞİÖŞÜ][a-zçğıöşü]+)\b',
+    re.IGNORECASE
+)
+
+# Turkish address patterns - combined for performance
+ADDRESS_PATTERNS = [
+    r'\b\d+\.\s*(Sokak|Sk\.|Cadde|Cad\.|Mahalle|Mah\.)',
+    r'\b(Sokak|Cadde|Mahalle|Bulvar|Blv\.)\s+No\s*:\s*\d+',
+    r'\bDaire\s*:\s*\d+',
+    r'\bKat\s*:\s*\d+'
+]
+ADDRESS_REGEX = re.compile('|'.join(ADDRESS_PATTERNS), re.IGNORECASE)
 
 
 class AISuggestion(Base, TimestampMixin):
@@ -154,7 +200,6 @@ class AISuggestion(Base, TimestampMixin):
         """Check if retention period has expired."""
         if self.retention_expires_at is None:
             return False
-        from datetime import datetime, timezone
         return datetime.now(timezone.utc) > self.retention_expires_at
     
     def mask_pii(self, text: str) -> str:
@@ -175,8 +220,6 @@ class AISuggestion(Base, TimestampMixin):
         masked_text = text
         
         # Email addresses - preserve first and last chars for better UX
-        email_pattern = r'\b([a-zA-Z0-9._%+-]+)@([a-zA-Z0-9.-]+\.[a-zA-Z]{2,})\b'
-        
         def mask_email(match):
             local = match.group(1)
             domain = match.group(2)
@@ -188,83 +231,33 @@ class AISuggestion(Base, TimestampMixin):
                 # Preserve first and last characters
                 return f"{local[0]}***{local[-1]}@{domain}"
         
-        masked_text = re.sub(
-            email_pattern,
-            mask_email,
-            masked_text,
-            flags=re.IGNORECASE
-        )
+        masked_text = EMAIL_PATTERN.sub(mask_email, masked_text)
         
-        # Turkish phone numbers (various formats) - optimized with single regex
-        # Formats: +90 5xx xxx xxxx, 0 5xx xxx xxxx, 5xx xxx xxxx, etc.
-        turkish_phone_patterns = [
-            r'\+90\s*\d{3}\s*\d{3}\s*\d{2}\s*\d{2}',  # +90 5xx xxx xx xx
-            r'\+90\s*\d{10}',                           # +905xxxxxxxxx
-            r'0\s*5\d{2}\s*\d{3}\s*\d{2}\s*\d{2}',     # 0 5xx xxx xx xx
-            r'05\d{9}',                                 # 05xxxxxxxxx
-            r'5\d{2}\s*\d{3}\s*\d{2}\s*\d{2}',         # 5xx xxx xx xx
-            r'5\d{9}',                                  # 5xxxxxxxxx
-            r'\(\d{3}\)\s*\d{3}[-\s]?\d{2}[-\s]?\d{2}' # (5xx) xxx-xx-xx
-        ]
-        
-        # Combine all phone patterns into a single regex for performance
-        combined_phone_pattern = '|'.join(turkish_phone_patterns)
-        masked_text = re.sub(combined_phone_pattern, '***-***-****', masked_text)
+        # Turkish phone numbers - using precompiled pattern
+        masked_text = COMPILED_PHONE_REGEX.sub('***-***-****', masked_text)
         
         # Turkish ID numbers (TC Kimlik No) - 11 digits
-        tc_kimlik_pattern = r'\b\d{11}\b'
-        masked_text = re.sub(tc_kimlik_pattern, '***********', masked_text)
+        masked_text = TC_KIMLIK_PATTERN.sub('***********', masked_text)
         
-        # Credit card numbers (16 digits with optional spaces/dashes)
-        credit_card_pattern = r'\b\d{4}[\s-]?\d{4}[\s-]?\d{4}[\s-]?\d{4}\b'
-        masked_text = re.sub(credit_card_pattern, '****-****-****-****', masked_text)
+        # Credit card numbers
+        masked_text = CREDIT_CARD_PATTERN.sub('****-****-****-****', masked_text)
         
         # IBAN numbers (Turkish IBAN format: TR + 24 digits)
-        iban_pattern = r'\bTR\d{2}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{4}\s?\d{2}\b'
-        masked_text = re.sub(
-            iban_pattern,
+        masked_text = IBAN_PATTERN.sub(
             lambda m: f"TR** **** **** **** **** {m.group()[-6:-2]} {m.group()[-2:]}",
-            masked_text,
-            flags=re.IGNORECASE
+            masked_text
         )
         
-        # Common Turkish names (sample list - can be extended)
-        turkish_names = [
-            'Mehmet', 'Ahmet', 'Mustafa', 'Ali', 'Hasan', 'Hüseyin', 'İbrahim',
-            'Fatma', 'Ayşe', 'Emine', 'Hatice', 'Zeynep', 'Elif', 'Meryem',
-            'Ömer', 'Osman', 'Ramazan', 'Bekir', 'Murat', 'Serkan', 'Emre',
-            'Özlem', 'Dilek', 'Sibel', 'Aslı', 'Gülşen', 'Şerife', 'Filiz'
-        ]
-        
-        # Build single optimized regex pattern for all names
-        # This is much more efficient than looping through each name
-        escaped_names = [re.escape(name) for name in turkish_names]
-        names_pattern = r'\b(' + '|'.join(escaped_names) + r')\s+([A-ZÇĞİÖŞÜ][a-zçğıöşü]+)\b'
-        
-        # Use replacement function to properly mask matched names
+        # Turkish names - using precompiled pattern
         def mask_name(match):
             first_name = match.group(1)
-            # Use the actual matched first name, not loop variable
+            # Use the actual matched first name
             return f"{first_name[0]}*** ***"
         
-        masked_text = re.sub(
-            names_pattern,
-            mask_name,
-            masked_text,
-            flags=re.IGNORECASE
-        )
+        masked_text = TURKISH_NAMES_REGEX.sub(mask_name, masked_text)
         
-        # Turkish address components (street names, mahalle, sokak, etc.) - optimized
-        address_patterns = [
-            r'\b\d+\.\s*(Sokak|Sk\.|Cadde|Cad\.|Mahalle|Mah\.)',
-            r'\b(Sokak|Cadde|Mahalle|Bulvar|Blv\.)\s+No\s*:\s*\d+',
-            r'\bDaire\s*:\s*\d+',
-            r'\bKat\s*:\s*\d+'
-        ]
-        
-        # Combine all address patterns into a single regex for performance
-        combined_address_pattern = '|'.join(address_patterns)
-        masked_text = re.sub(combined_address_pattern, '*** ***', masked_text, flags=re.IGNORECASE)
+        # Turkish address components - using precompiled pattern
+        masked_text = ADDRESS_REGEX.sub('*** ***', masked_text)
         
         return masked_text
     
@@ -273,7 +266,6 @@ class AISuggestion(Base, TimestampMixin):
         
         Default 90 days for AI suggestions per KVKK guidelines.
         """
-        from datetime import timedelta, timezone
         self.retention_expires_at = datetime.now(timezone.utc) + timedelta(days=days)
     
     def get_structured_response(self, key: str = None):

@@ -44,8 +44,10 @@ def create_enum_safe(enum_name: str, values: list) -> None:
             logger.info(f"Enum type {enum_name} already exists, skipping")
             return
         
-        # Create the enum
-        values_str = ', '.join([f"'{v}'" for v in values])
+        # Create the enum with proper SQL escaping to prevent injection
+        # Escape single quotes in values by doubling them
+        escaped_values = [v.replace("'", "''") for v in values]
+        values_str = ', '.join([f"'{v}'" for v in escaped_values])
         connection.execute(text(f"CREATE TYPE {enum_name} AS ENUM ({values_str})"))
         logger.info(f"Created enum type: {enum_name}")
     except sa.exc.ProgrammingError as e:
@@ -332,16 +334,38 @@ def upgrade() -> None:
     connection.execute(text("""
         CREATE OR REPLACE FUNCTION increment_model_rev()
         RETURNS TRIGGER AS $$
+        DECLARE
+            uuid_bytes bytea;
+            lock_id1 bigint;
+            lock_id2 bigint;
         BEGIN
             -- Only auto-increment if freecad_doc_uuid is provided
             IF NEW.freecad_doc_uuid IS NOT NULL THEN
+                -- Convert UUID to bytea for byte extraction
+                uuid_bytes := uuid_send(NEW.freecad_doc_uuid);
+                
+                -- Extract first 8 bytes as bigint for first lock ID
+                lock_id1 := (get_byte(uuid_bytes, 0)::bigint << 56) |
+                           (get_byte(uuid_bytes, 1)::bigint << 48) |
+                           (get_byte(uuid_bytes, 2)::bigint << 40) |
+                           (get_byte(uuid_bytes, 3)::bigint << 32) |
+                           (get_byte(uuid_bytes, 4)::bigint << 24) |
+                           (get_byte(uuid_bytes, 5)::bigint << 16) |
+                           (get_byte(uuid_bytes, 6)::bigint << 8) |
+                           (get_byte(uuid_bytes, 7)::bigint);
+                
+                -- Extract last 8 bytes as bigint for second lock ID
+                lock_id2 := (get_byte(uuid_bytes, 8)::bigint << 56) |
+                           (get_byte(uuid_bytes, 9)::bigint << 48) |
+                           (get_byte(uuid_bytes, 10)::bigint << 40) |
+                           (get_byte(uuid_bytes, 11)::bigint << 32) |
+                           (get_byte(uuid_bytes, 12)::bigint << 24) |
+                           (get_byte(uuid_bytes, 13)::bigint << 16) |
+                           (get_byte(uuid_bytes, 14)::bigint << 8) |
+                           (get_byte(uuid_bytes, 15)::bigint);
+                
                 -- Acquire 128-bit advisory lock to prevent concurrent updates
-                -- Extract two 64-bit values from UUID for better collision resistance
-                -- First 8 bytes (64 bits) and last 8 bytes (64 bits) of the UUID
-                PERFORM pg_advisory_xact_lock(
-                    ('x' || substr(NEW.freecad_doc_uuid::text, 1, 16))::bit(64)::bigint,
-                    ('x' || substr(NEW.freecad_doc_uuid::text, 17, 16))::bit(64)::bigint
-                );
+                PERFORM pg_advisory_xact_lock(lock_id1, lock_id2);
                 
                 -- Get the max revision for this document UUID
                 SELECT COALESCE(MAX(model_rev), 0) + 1

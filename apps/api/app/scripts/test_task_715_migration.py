@@ -42,15 +42,17 @@ def get_latest_migration_revision():
     alembic_cfg = get_alembic_config()
     script_dir = ScriptDirectory.from_config(alembic_cfg)
     
-    # Get the head revision
-    head_revision = script_dir.get_current_head()
-    
-    # If looking specifically for Task 7.15, find by pattern
+    # Look specifically for Task 7.15 migration
     for revision in script_dir.walk_revisions():
         if 'task_715' in revision.revision or 'Task 7.15' in revision.doc:
             return revision.revision
     
-    return head_revision
+    # Raise error if Task 7.15 migration not found
+    # This prevents silent failures if migration is missing
+    raise RuntimeError(
+        "Task 7.15 migration not found! Please ensure the migration "
+        "20250827_213512_task_715_model_flows_database_schema.py exists."
+    )
 
 
 def test_migration():
