@@ -335,6 +335,55 @@ class UltraEnterpriseEnvironment(BaseSettings):
     S3_BUCKET_NAME: str = Field(default="dev-artifacts", description="S3 bucket name")
     
     # ===================================================================
+    # AI ADAPTER CONFIGURATION - TASK 7.2
+    # ===================================================================
+    
+    AI_PROVIDER: str = Field(
+        default="openai",
+        description="AI provider (openai/azure)"
+    )
+    
+    OPENAI_API_KEY: Optional[str] = Field(
+        default=None,
+        description="OpenAI API key"
+    )
+    
+    OPENAI_MODEL: str = Field(
+        default="gpt-4",
+        description="OpenAI model to use"
+    )
+    
+    AZURE_API_KEY: Optional[str] = Field(
+        default=None,
+        description="Azure OpenAI API key"
+    )
+    
+    AZURE_API_BASE: Optional[str] = Field(
+        default=None,
+        description="Azure OpenAI endpoint"
+    )
+    
+    AZURE_DEPLOYMENT_NAME: str = Field(
+        default="gpt-4",
+        description="Azure OpenAI deployment name"
+    )
+    
+    AI_MAX_TOKENS: int = Field(
+        default=2000,
+        description="Maximum tokens for AI response"
+    )
+    
+    AI_TIMEOUT_SECONDS: int = Field(
+        default=20,
+        description="AI request timeout in seconds"
+    )
+    
+    AI_TEMPERATURE: float = Field(
+        default=0.3,
+        description="AI temperature for response generation"
+    )
+    
+    # ===================================================================
     # CLAMAV MALWARE SCANNING - TASK 5.6
     # ===================================================================
     
