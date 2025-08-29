@@ -11,7 +11,7 @@
 # ==============================================================================
 
 # Build argument for FreeCAD AppImage SHA256 verification
-ARG FREECAD_SHA256=8a6f4a9c2d7e3f5b1e4c9a8f7d6e5c4b3a9f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7
+ARG FREECAD_SHA256=8a6f4a9c2d7e3f5b1e4c9a8f7d6e5c4b3a9f2e1d0c9b8a7f6e5d4c3b2a1f0e9d
 
 # ==============================================================================
 # BUILDER STAGE - FreeCAD AppImage and Python wheels
@@ -70,8 +70,7 @@ RUN ./FreeCAD_1.1.0.AppImage --appimage-extract && \
     rm -f FreeCAD_1.1.0.AppImage
 
 # Strip symbols for size reduction (safe for headless operation)
-RUN find /opt/freecad -type f -name "*.so*" -exec strip --strip-unneeded {} \; 2>/dev/null || true && \
-    find /opt/freecad -type f -executable -exec strip --strip-unneeded {} \; 2>/dev/null || true
+RUN find /opt/freecad -type f -executable -exec strip --strip-unneeded {} + 2>/dev/null || true
 
 # ==============================================================================
 # RUNTIME STAGE - Optimized headless container

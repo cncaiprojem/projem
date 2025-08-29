@@ -362,7 +362,7 @@ class ResourceMonitor:
                             
                         # Log periodic updates every 30 seconds
                         # Use integer division and guard against division by zero
-                        log_interval_samples = int(30 // self.interval) if self.interval > 0 and self.interval <= 30 else 0
+                        log_interval_samples = int(30 // self.interval) if self.interval > 0 else 0
                         if log_interval_samples > 0 and len(self.samples) % log_interval_samples == 0:
                             logger.info(f"Resource stats: CPU {stats['cpu_percent']:.1f}%, RSS {stats['rss_mb']:.1f}MB, Threads {stats['num_threads']}")
                             
