@@ -26,7 +26,6 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import urlparse, parse_qs
 
 import psutil
 
@@ -41,8 +40,6 @@ FREECAD_EXPECTED_VERSION = "1.1.0"
 
 # Resource monitoring
 RESOURCE_MONITOR_INTERVAL = 2.0  # seconds
-RESOURCE_SAMPLES = []
-RESOURCE_LOCK = threading.Lock()
 
 # Cancellation handling
 CANCELLED = threading.Event()
@@ -151,7 +148,8 @@ def get_freecad_health_data() -> Dict[str, Any]:
     try:
         # Import FreeCAD and get version
         import FreeCAD
-        freecad_version = FreeCAD.Version()[0] + '.' + FreeCAD.Version()[1] + '.' + FreeCAD.Version()[2]
+        version_tuple = FreeCAD.Version()
+        freecad_version = '.'.join(str(part) for part in version_tuple[:3])
         health_data['freecad_version'] = freecad_version
         
         # Python version
@@ -366,7 +364,7 @@ class ResourceMonitor:
                             self.samples = self.samples[-1000:]
                             
                         # Log periodic updates every 30 seconds
-                        if len(self.samples) % (30 / self.interval) == 0:
+                        if len(self.samples) % int(30 / self.interval) == 0:
                             logger.info(f"Resource stats: CPU {stats['cpu_percent']:.1f}%, RSS {stats['rss_mb']:.1f}MB, Threads {stats['num_threads']}")
                             
                     # Check memory pressure

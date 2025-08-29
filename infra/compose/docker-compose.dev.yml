@@ -750,7 +750,6 @@ services:
     # Working directory mounts
     volumes:
       - freecad_worker_logs:/app/logs
-      - freecad_worker_temp:/app/temp
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     
@@ -1281,13 +1280,6 @@ volumes:
       type: none
       o: bind
       device: ./data/freecad-worker-logs
-  
-  freecad_worker_temp:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ./data/freecad-worker-temp
 
 # ==============================================================================
 # NETWORKS CONFIGURATION

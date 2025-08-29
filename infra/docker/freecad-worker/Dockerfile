@@ -116,22 +116,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     # Core runtime
     python3 \
     python3-pip \
-    # Graphics libraries for headless FreeCAD
+    # Essential graphics libraries for headless FreeCAD (minimal set)
     libgl1-mesa-glx \
     libglu1-mesa \
     libxrender1 \
     libxext6 \
     libx11-6 \
-    libxrandr2 \
-    libxss1 \
-    libgconf-2-4 \
-    libxcomposite1 \
-    libxdamage1 \
     libxfixes3 \
-    libxi6 \
-    libxtst6 \
-    libgtk-3-0 \
-    libxkbcommon-x11-0 \
     # Font rendering for TechDraw
     libfontconfig1 \
     libfreetype6 \
