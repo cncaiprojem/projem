@@ -691,10 +691,13 @@ services:
     security_opt:
       - no-new-privileges:true
     read_only: true
+    # Temporary filesystem mounts for worker isolation (development environment)
+    # These paths are in-memory filesystems that provide fast, temporary storage
+    # and are automatically cleared when the container stops
     tmpfs:
-      - /tmp:noexec,nosuid,size=500M
-      - /work:size=1G
-      - /app/temp:size=200M
+      - /tmp:noexec,nosuid,size=500M      # System temp directory
+      - /work:size=1G                     # Working directory for FreeCAD operations
+      - /app/temp:size=200M                # Application-specific temp storage
     
     # Resource limits for intensive FreeCAD operations
     deploy:

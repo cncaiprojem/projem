@@ -17,15 +17,12 @@ import json
 import logging
 import os
 import signal
-import socket
 import sys
-import tempfile
 import threading
 import time
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import psutil
 
@@ -364,7 +361,9 @@ class ResourceMonitor:
                             self.samples = self.samples[-1000:]
                             
                         # Log periodic updates every 30 seconds
-                        if len(self.samples) % int(30 / self.interval) == 0:
+                        # Use integer division and guard against division by zero
+                        log_interval_samples = int(30 // self.interval) if self.interval > 0 and self.interval <= 30 else 0
+                        if log_interval_samples > 0 and len(self.samples) % log_interval_samples == 0:
                             logger.info(f"Resource stats: CPU {stats['cpu_percent']:.1f}%, RSS {stats['rss_mb']:.1f}MB, Threads {stats['num_threads']}")
                             
                     # Check memory pressure
@@ -594,6 +593,11 @@ class FreeCADWorker:
     def _execute_flow(self) -> Dict[str, Any]:
         """Execute the requested FreeCAD workflow."""
         try:
+            # Check for cancellation before starting
+            if self.cancelled or CANCELLED.is_set():
+                logger.info("Execution cancelled before flow start")
+                return {'success': False, 'flow': self.args.flow, 'request_id': self.args.request_id, 'errors': ['Cancelled before execution']}
+            
             # Load input configuration
             with open(self.args.input, 'r') as f:
                 input_data = json.load(f)
@@ -607,6 +611,11 @@ class FreeCADWorker:
                 'warnings': [],
                 'errors': []
             }
+            
+            # Check for cancellation before importing FreeCAD
+            if self.cancelled or CANCELLED.is_set():
+                result['errors'].append('Cancelled before FreeCAD import')
+                return result
             
             # Import FreeCAD
             import FreeCAD
@@ -639,6 +648,11 @@ class FreeCADWorker:
     def _execute_prompt_flow(self, input_data: Dict, result: Dict) -> Dict:
         """Execute AI-driven prompt flow."""
         logger.info("Executing prompt-based model generation")
+        
+        # Check for cancellation
+        if self.cancelled or CANCELLED.is_set():
+            result['errors'].append('Cancelled during prompt flow')
+            return result
         
         try:
             import FreeCAD
@@ -689,6 +703,11 @@ class FreeCADWorker:
     def _execute_params_flow(self, input_data: Dict, result: Dict) -> Dict:
         """Execute parametric modeling flow."""
         logger.info("Executing parametric model generation")
+        
+        # Check for cancellation
+        if self.cancelled or CANCELLED.is_set():
+            result['errors'].append('Cancelled during parametric flow')
+            return result
         
         try:
             import FreeCAD
@@ -745,6 +764,11 @@ class FreeCADWorker:
     def _execute_upload_flow(self, input_data: Dict, result: Dict) -> Dict:
         """Execute upload normalization flow."""
         logger.info("Executing upload normalization")
+        
+        # Check for cancellation
+        if self.cancelled or CANCELLED.is_set():
+            result['errors'].append('Cancelled during upload flow')
+            return result
         
         try:
             import FreeCAD
@@ -810,6 +834,11 @@ class FreeCADWorker:
     def _execute_a4_flow(self, input_data: Dict, result: Dict) -> Dict:
         """Execute Assembly4 workflow."""
         logger.info("Executing Assembly4 workflow")
+        
+        # Check for cancellation
+        if self.cancelled or CANCELLED.is_set():
+            result['errors'].append('Cancelled during Assembly4 flow')
+            return result
         
         try:
             import FreeCAD
