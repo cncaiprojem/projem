@@ -682,7 +682,8 @@ services:
       dockerfile: Dockerfile
       args:
         BUILDKIT_INLINE_CACHE: 1
-        FREECAD_SHA256: "8a6f4a9c2d7e3f5b1e4c9a8f7d6e5c4b3a9f2e1d0c9b8a7f6e5d4c3b2a1f0e9d"
+        # TODO: Replace with actual FreeCAD 1.1.0 AppImage SHA256 hash
+        FREECAD_SHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     image: freecad-worker:1.1.0
     container_name: fc_freecad_worker_dev
     restart: unless-stopped

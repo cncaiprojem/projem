@@ -11,7 +11,8 @@
 # ==============================================================================
 
 # Build argument for FreeCAD AppImage SHA256 verification
-ARG FREECAD_SHA256=8a6f4a9c2d7e3f5b1e4c9a8f7d6e5c4b3a9f2e1d0c9b8a7f6e5d4c3b2a1f0e9d
+# TODO: Replace with actual FreeCAD 1.1.0 AppImage SHA256 hash
+ARG FREECAD_SHA256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
 
 # ==============================================================================
 # BUILDER STAGE - FreeCAD AppImage and Python wheels
