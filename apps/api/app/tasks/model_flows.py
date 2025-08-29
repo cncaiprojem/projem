@@ -213,8 +213,14 @@ def generate_model_from_prompt(
                         )
                         
                         # Upload to S3
-                        s3_key = f"models/{job_id}/model.FCStd"
-                        s3_url = s3_service.upload_file(save_path, s3_key)
+                        with open(save_path, 'rb') as f:
+                            s3_key, presigned_response = s3_service.upload_file_stream(
+                                file_stream=f,
+                                bucket="artefacts",
+                                job_id=job_id,
+                                filename="model.FCStd"
+                            )
+                            s3_url = presigned_response.url
                         
                         # Create artefacts list
                         artefacts = [
@@ -439,8 +445,14 @@ def generate_model_from_params(
                         owner_id=f"user_{user_id}"
                     )
                     
-                    s3_key = f"models/{job_id}/parametric_model.FCStd"
-                    s3_url = s3_service.upload_file(save_path, s3_key)
+                    with open(save_path, 'rb') as f:
+                        s3_key, presigned_response = s3_service.upload_file_stream(
+                            file_stream=f,
+                            bucket="artefacts",
+                            job_id=job_id,
+                            filename="parametric_model.FCStd"
+                        )
+                        s3_url = presigned_response.url
                     
                     artefacts = [
                         {
@@ -497,10 +509,6 @@ def generate_model_from_params(
             result = TaskResult(success=False, error=error_msg)
             update_job_status(job_id, JobStatus.FAILED, output_data=result.to_dict())
             
-            # metrics.freecad_model_generations_total.labels(
-            #     type="parametric", 
-            #     status="failed"
-            # ).inc()
             
             return result.to_dict()
 
@@ -598,8 +606,14 @@ def normalize_uploaded_model(
                         owner_id=f"user_{user_id}"
                     )
                     
-                    s3_key = f"models/{job_id}/normalized_model.FCStd"
-                    s3_url = s3_service.upload_file(save_path, s3_key)
+                    with open(save_path, 'rb') as f:
+                        s3_key, presigned_response = s3_service.upload_file_stream(
+                            file_stream=f,
+                            bucket="artefacts",
+                            job_id=job_id,
+                            filename="normalized_model.FCStd"
+                        )
+                        s3_url = presigned_response.url
                     
                     artefacts = [
                         {
@@ -646,7 +660,11 @@ def normalize_uploaded_model(
                     
                     return result.to_dict()
                     
+        except (ConnectionError, TimeoutError, DocumentException) as e:
+            # Re-raise retryable exceptions for Celery to handle
+            raise
         except Exception as e:
+            # Handle non-retryable exceptions
             error_msg = f"Upload normalization failed: {str(e)}"
             logger.error(error_msg, job_id=job_id, request_id=request_id)
             
@@ -754,8 +772,14 @@ def generate_assembly4_workflow(
                         owner_id=f"user_{user_id}"
                     )
                     
-                    s3_key = f"assemblies/{job_id}/assembly.FCStd"
-                    s3_url = s3_service.upload_file(save_path, s3_key)
+                    with open(save_path, 'rb') as f:
+                        s3_key, presigned_response = s3_service.upload_file_stream(
+                            file_stream=f,
+                            bucket="artefacts",
+                            job_id=job_id,
+                            filename="assembly.FCStd"
+                        )
+                        s3_url = presigned_response.url
                     
                     artefacts = [
                         {
@@ -806,7 +830,11 @@ def generate_assembly4_workflow(
                     
                     return result.to_dict()
                     
+        except (ConnectionError, TimeoutError, DocumentException) as e:
+            # Re-raise retryable exceptions for Celery to handle
+            raise
         except Exception as e:
+            # Handle non-retryable exceptions
             error_msg = f"Assembly4 workflow failed: {str(e)}"
             logger.error(error_msg, job_id=job_id, request_id=request_id)
             

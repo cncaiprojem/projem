@@ -36,7 +36,7 @@ from urllib.parse import urlparse
 from uuid import uuid4
 
 from celery import shared_task
-from celery.exceptions import Ignore, Retry
+from celery.exceptions import Ignore
 from celery.utils.log import get_task_logger
 
 from ..core.logging import get_logger
@@ -590,14 +590,8 @@ def run_fem_simulation(
             
             # Check if this is a retryable exception
             if isinstance(e, (ConnectionError, TimeoutError)):
-                # Update status to indicate retry attempt
-                update_job_status(
-                    job_id,
-                    JobStatus.RUNNING,  # Keep running for retry
-                    progress=0,
-                    error_message=f"Deneme {self.request.retries + 1}: {error_msg}"
-                )
                 # Re-raise to let Celery handle retry logic
+                # Don't update job status - let Celery manage retries
                 raise
             else:
                 # Non-retryable exception, mark as failed
@@ -1126,71 +1120,94 @@ def _create_fem_artefacts(
     
     artefacts = []
     
-    try:
-        # 1. Analysis FCStd file (with FEM objects)
-        analysis_fcstd = os.path.join(temp_dir, "fem_analysis.FCStd")
-        with open(analysis_fcstd, 'w') as f:
-            f.write("# FreeCAD FEM Analysis Document\n")
-            json.dump(analysis_container, f, indent=2)
-        
-        s3_key = f"sim/{job_id}/analysis.fcstd"
-        s3_url = s3_service.upload_file(analysis_fcstd, s3_key)
-        
-        artefacts.append({
+    # 1. Analysis FCStd file (with FEM objects)
+    analysis_fcstd = os.path.join(temp_dir, "fem_analysis.FCStd")
+    with open(analysis_fcstd, 'w') as f:
+        f.write("# FreeCAD FEM Analysis Document\n")
+        json.dump(analysis_container, f, indent=2)
+    
+    with open(analysis_fcstd, 'rb') as f:
+        s3_key, presigned_response = s3_service.upload_file_stream(
+            file_stream=f,
+            bucket="artefacts",
+            job_id=job_id,
+            filename="fem_analysis.FCStd"
+        )
+        s3_url = presigned_response.url
+    
+    artefacts.append({
             "type": "fem_analysis",
             "filename": "analysis.fcstd",
             "s3_key": s3_key,
             "s3_url": s3_url,
             "description": "FreeCAD FEM analysis document",
             "size_bytes": os.path.getsize(analysis_fcstd)
-        })
-        
-        # 2. CalculiX input file
-        for result_file in solver_result.get("result_files", []):
-            if result_file.endswith(".inp"):
-                s3_key = f"sim/{job_id}/model.inp"
-                s3_url = s3_service.upload_file(result_file, s3_key)
-                
-                artefacts.append({
-                    "type": "calculix_input",
-                    "filename": "model.inp",
-                    "s3_key": s3_key,
-                    "s3_url": s3_url,
-                    "description": "CalculiX solver input file",
-                    "size_bytes": os.path.getsize(result_file)
-                })
-                break
-        
-        # 3. Results data file (.frd)
-        for result_file in solver_result.get("result_files", []):
-            if result_file.endswith(".frd"):
-                s3_key = f"sim/{job_id}/result.frd"
-                s3_url = s3_service.upload_file(result_file, s3_key)
-                
-                artefacts.append({
-                    "type": "calculix_results",
-                    "filename": "result.frd", 
-                    "s3_key": s3_key,
-                    "s3_url": s3_url,
-                    "description": "CalculiX results file",
-                    "size_bytes": os.path.getsize(result_file)
-                })
-                break
-        
-        # 4. Summary report (JSON)
-        report_file = os.path.join(temp_dir, "report.json")
+    })
+    
+    # 2. CalculiX input file
+    for result_file in solver_result.get("result_files", []):
+        if result_file.endswith(".inp"):
+            with open(result_file, 'rb') as f:
+                s3_key, presigned_response = s3_service.upload_file_stream(
+                    file_stream=f,
+                    bucket="artefacts",
+                    job_id=job_id,
+                    filename="model.inp"
+                )
+                s3_url = presigned_response.url
+            
+            artefacts.append({
+                "type": "calculix_input",
+                "filename": "model.inp",
+                "s3_key": s3_key,
+                "s3_url": s3_url,
+                "description": "CalculiX solver input file",
+                "size_bytes": os.path.getsize(result_file)
+            })
+            break
+    
+    # 3. Results data file (.frd)
+    for result_file in solver_result.get("result_files", []):
+        if result_file.endswith(".frd"):
+            with open(result_file, 'rb') as f:
+                s3_key, presigned_response = s3_service.upload_file_stream(
+                    file_stream=f,
+                    bucket="artefacts",
+                    job_id=job_id,
+                    filename="result.frd"
+                )
+                s3_url = presigned_response.url
+            
+            artefacts.append({
+                "type": "calculix_results",
+                "filename": "result.frd", 
+                "s3_key": s3_key,
+                "s3_url": s3_url,
+                "description": "CalculiX results file",
+                "size_bytes": os.path.getsize(result_file)
+            })
+            break
+    
+    # 4. Summary report (JSON)
+    report_file = os.path.join(temp_dir, "report.json")
         report_data = {
             "job_id": job_id,
             "analysis_summary": results_data.get("summary", {}),
             "solver_info": solver_result.get("solver_info", {}),
             "generated_at": datetime.now(timezone.utc).isoformat()
-        }
-        
-        with open(report_file, 'w') as f:
-            json.dump(report_data, f, indent=2, ensure_ascii=False)
-        
-        s3_key = f"sim/{job_id}/report.json"  
-        s3_url = s3_service.upload_file(report_file, s3_key)
+    }
+    
+    with open(report_file, 'w') as f:
+        json.dump(report_data, f, indent=2, ensure_ascii=False)
+    
+    with open(report_file, 'rb') as f:
+            s3_key, presigned_response = s3_service.upload_file_stream(
+                file_stream=f,
+                bucket="artefacts",
+                job_id=job_id,
+                filename="report.json"
+            )
+            s3_url = presigned_response.url
         
         artefacts.append({
             "type": "analysis_report",
@@ -1199,15 +1216,21 @@ def _create_fem_artefacts(
             "s3_url": s3_url,
             "description": "Analysis summary report",
             "size_bytes": os.path.getsize(report_file)
-        })
-        
-        # 5. Solver output log
-        output_file = os.path.join(temp_dir, "logs.txt")
-        with open(output_file, 'w') as f:
-            f.write(solver_result.get("output", "No solver output available"))
-        
-        s3_key = f"sim/{job_id}/logs.txt"
-        s3_url = s3_service.upload_file(output_file, s3_key)
+    })
+    
+    # 5. Solver output log
+    output_file = os.path.join(temp_dir, "logs.txt")
+    with open(output_file, 'w') as f:
+        f.write(solver_result.get("output", "No solver output available"))
+    
+    with open(output_file, 'rb') as f:
+            s3_key, presigned_response = s3_service.upload_file_stream(
+                file_stream=f,
+                bucket="artefacts",
+                job_id=job_id,
+                filename="logs.txt"
+            )
+            s3_url = presigned_response.url
         
         artefacts.append({
             "type": "solver_logs",
@@ -1216,12 +1239,8 @@ def _create_fem_artefacts(
             "s3_url": s3_url,
             "description": "Solver execution logs",
             "size_bytes": os.path.getsize(output_file)
-        })
-        
-        logger.info("FEM artefacts created", count=len(artefacts), total_size=sum(a.get("size_bytes", 0) for a in artefacts))
-        
-    except Exception as e:
-        logger.error("Failed to create FEM artefacts", job_id=job_id, error=str(e))
-        # Return partial artefacts even if some fail
+    })
+    
+    logger.info("FEM artefacts created", count=len(artefacts), total_size=sum(a.get("size_bytes", 0) for a in artefacts))
     
     return artefacts
