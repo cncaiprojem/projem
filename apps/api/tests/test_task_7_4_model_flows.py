@@ -112,7 +112,10 @@ class TestModelFlowTasks:
     def mock_s3_service(self):
         """Mock S3 service."""
         with patch('app.services.s3_service.s3_service') as mock_s3:
-            mock_s3.upload_file.return_value = "https://s3.amazonaws.com/bucket/test.FCStd"
+            from unittest.mock import Mock
+            mock_presigned_response = Mock()
+            mock_presigned_response.url = "https://s3.amazonaws.com/bucket/test.FCStd"
+            mock_s3.upload_file_stream.return_value = ("artefacts/test_key.FCStd", mock_presigned_response)
             yield mock_s3
 
     def test_task_result_creation(self):
@@ -215,7 +218,7 @@ class TestModelFlowTasks:
             mock_document_manager.save_document.assert_called_once()
             
             # Verify S3 upload
-            mock_s3_service.upload_file.assert_called()
+            mock_s3_service.upload_file_stream.assert_called()
 
     def test_generate_model_from_prompt_ai_failure(
         self, 

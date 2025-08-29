@@ -502,13 +502,16 @@ def generate_model_from_params(
                     
                     return result.to_dict()
                     
+        except (ConnectionError, TimeoutError, DocumentException) as e:
+            # Re-raise retryable exceptions for Celery to handle
+            raise
         except Exception as e:
+            # Handle non-retryable exceptions
             error_msg = f"Parametric model generation failed: {str(e)}"
-            logger.error(error_msg, job_id=job_id, request_id=request_id)
+            logger.error(error_msg, job_id=job_id, request_id=request_id, error_type=type(e).__name__)
             
             result = TaskResult(success=False, error=error_msg)
-            update_job_status(job_id, JobStatus.FAILED, output_data=result.to_dict())
-            
+            update_job_status(job_id, JobStatus.FAILED, output_data=result.to_dict(), error_message=error_msg)
             
             return result.to_dict()
 

@@ -44,6 +44,7 @@ from ..core.telemetry import create_span
 from ..core import metrics
 from ..models.enums import JobStatus
 from ..services.s3_service import s3_service
+from ..services.freecad_document_manager import DocumentException
 from .utils import ensure_idempotency, update_job_status
 
 logger = get_logger(__name__)
@@ -589,7 +590,7 @@ def run_fem_simulation(
             )
             
             # Check if this is a retryable exception
-            if isinstance(e, (ConnectionError, TimeoutError)):
+            if isinstance(e, (ConnectionError, TimeoutError, DocumentException)):
                 # Re-raise to let Celery handle retry logic
                 # Don't update job status - let Celery manage retries
                 raise
@@ -1190,32 +1191,32 @@ def _create_fem_artefacts(
     
     # 4. Summary report (JSON)
     report_file = os.path.join(temp_dir, "report.json")
-        report_data = {
-            "job_id": job_id,
-            "analysis_summary": results_data.get("summary", {}),
-            "solver_info": solver_result.get("solver_info", {}),
-            "generated_at": datetime.now(timezone.utc).isoformat()
+    report_data = {
+        "job_id": job_id,
+        "analysis_summary": results_data.get("summary", {}),
+        "solver_info": solver_result.get("solver_info", {}),
+        "generated_at": datetime.now(timezone.utc).isoformat()
     }
     
     with open(report_file, 'w') as f:
         json.dump(report_data, f, indent=2, ensure_ascii=False)
     
     with open(report_file, 'rb') as f:
-            s3_key, presigned_response = s3_service.upload_file_stream(
-                file_stream=f,
-                bucket="artefacts",
-                job_id=job_id,
-                filename="report.json"
-            )
-            s3_url = presigned_response.url
-        
-        artefacts.append({
-            "type": "analysis_report",
-            "filename": "report.json",
-            "s3_key": s3_key,
-            "s3_url": s3_url,
-            "description": "Analysis summary report",
-            "size_bytes": os.path.getsize(report_file)
+        s3_key, presigned_response = s3_service.upload_file_stream(
+            file_stream=f,
+            bucket="artefacts",
+            job_id=job_id,
+            filename="report.json"
+        )
+        s3_url = presigned_response.url
+    
+    artefacts.append({
+        "type": "analysis_report",
+        "filename": "report.json",
+        "s3_key": s3_key,
+        "s3_url": s3_url,
+        "description": "Analysis summary report",
+        "size_bytes": os.path.getsize(report_file)
     })
     
     # 5. Solver output log
