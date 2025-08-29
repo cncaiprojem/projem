@@ -24,8 +24,9 @@ on:
 env:
   DOCKER_BUILDKIT: 1
   COMPOSE_DOCKER_CLI_BUILD: 1
+  # IMPORTANT: This is a placeholder - CI will fail safely until replaced
   # TODO: Replace with actual FreeCAD 1.1.0 AppImage SHA256 hash
-  FREECAD_SHA256: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  FREECAD_SHA256: "REPLACE_ME_WITH_ACTUAL_FREECAD_SHA256_BEFORE_DEPLOYMENT"
 
 jobs:
   # ==========================================================================

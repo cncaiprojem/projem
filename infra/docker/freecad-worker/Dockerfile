@@ -11,8 +11,9 @@
 # ==============================================================================
 
 # Build argument for FreeCAD AppImage SHA256 verification
+# IMPORTANT: This is a placeholder that will cause build to fail safely
 # TODO: Replace with actual FreeCAD 1.1.0 AppImage SHA256 hash
-ARG FREECAD_SHA256=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+ARG FREECAD_SHA256=REPLACE_ME_WITH_ACTUAL_FREECAD_SHA256_BEFORE_DEPLOYMENT
 
 # ==============================================================================
 # BUILDER STAGE - FreeCAD AppImage and Python wheels
@@ -173,7 +174,7 @@ EXPOSE 8080
 RUN FreeCADCmd --version 2>&1 | grep -q "1.1.0" || exit 1
 
 # Health check for container orchestration
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=60s \
+HEALTHCHECK --interval=30s --timeout=10s --retries=3 --start-period=120s \
     CMD curl -f http://localhost:${HEALTH_PORT}/health/freecad || exit 1
 
 # Default entrypoint - FreeCAD worker harness
