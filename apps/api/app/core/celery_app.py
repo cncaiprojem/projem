@@ -66,6 +66,9 @@ celery_app = Celery(
         "app.tasks.monitoring",
         "app.tasks.license_notifications",
         "app.tasks.freecad",
+        # Task 7.4: New model flow tasks
+        "app.tasks.model_flows",
+        "app.tasks.fem_simulation",
     ],
 )
 
@@ -202,6 +205,28 @@ celery_app.conf.task_routes = {
         "priority": settings.queue_priority_high,
     },
     
+    # Task 7.4: Model flow tasks -> model queue
+    "app.tasks.model_flows.generate_model_from_prompt": {
+        "queue": QUEUE_MODEL,
+        "routing_key": "jobs.model",
+        "priority": settings.queue_priority_high,
+    },
+    "app.tasks.model_flows.generate_model_from_params": {
+        "queue": QUEUE_MODEL,
+        "routing_key": "jobs.model",
+        "priority": settings.queue_priority_high,
+    },
+    "app.tasks.model_flows.normalize_uploaded_model": {
+        "queue": QUEUE_MODEL,
+        "routing_key": "jobs.model",
+        "priority": settings.queue_priority_normal,
+    },
+    "app.tasks.model_flows.generate_assembly4_workflow": {
+        "queue": QUEUE_MODEL,
+        "routing_key": "jobs.model",
+        "priority": settings.queue_priority_high,
+    },
+    
     # CAM tasks -> cam queue
     "app.tasks.cam.*": {
         "queue": QUEUE_CAM,
@@ -226,6 +251,13 @@ celery_app.conf.task_routes = {
         "priority": settings.queue_priority_high,
     },
     "app.tasks.m18_sim.*": {
+        "queue": QUEUE_SIM,
+        "routing_key": "jobs.sim",
+        "priority": settings.queue_priority_high,
+    },
+    
+    # Task 7.4: FEM/Simulation tasks -> sim queue
+    "app.tasks.fem_simulation.run_fem_simulation": {
         "queue": QUEUE_SIM,
         "routing_key": "jobs.sim",
         "priority": settings.queue_priority_high,
@@ -310,6 +342,9 @@ celery_app.conf.task_annotations = {
     "app.tasks.design.*": _create_task_annotation(QUEUE_MODEL, "design", "8/m"),
     "app.tasks.freecad.*": _create_task_annotation(QUEUE_MODEL, "freecad", "6/m"),
     
+    # Task 7.4: Model flow tasks (model queue) - 5 retries, 60s cap
+    "app.tasks.model_flows.*": _create_task_annotation(QUEUE_MODEL, "model_flows", "5/m"),
+    
     # CAM processing tasks (cam queue) - 5 retries, 60s cap
     "app.tasks.cam.*": _create_task_annotation(QUEUE_CAM, "cam", "12/m"),
     "app.tasks.cam_build.*": _create_task_annotation(QUEUE_CAM, "cam_build", "10/m"),
@@ -318,6 +353,9 @@ celery_app.conf.task_annotations = {
     # Simulation tasks (sim queue) - 5 retries, 60s cap
     "app.tasks.sim.*": _create_task_annotation(QUEUE_SIM, "sim", "4/m"),
     "app.tasks.m18_sim.*": _create_task_annotation(QUEUE_SIM, "m18_sim", "4/m"),
+    
+    # Task 7.4: FEM simulation tasks (sim queue) - 2 retries, longer timeouts
+    "app.tasks.fem_simulation.*": _create_task_annotation(QUEUE_SIM, "fem_simulation", "2/m"),
     
     # Report generation tasks (report queue) - 5 retries, 45s cap
     "app.tasks.reports.*": _create_task_annotation(QUEUE_REPORT, "reports", "15/m"),

@@ -14,7 +14,7 @@ import time
 import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import BinaryIO, Dict, List, Optional, Tuple, Union, Final, AsyncIterator
+from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union, Final, AsyncIterator
 from contextlib import asynccontextmanager
 import asyncio
 
@@ -856,6 +856,50 @@ def get_s3_service() -> S3Service:
     return S3Service()
 
 
+# Create singleton instance lazily for backward compatibility
+_s3_service = None
+
+def get_s3_service_singleton():
+    """Get singleton S3 service instance."""
+    global _s3_service
+    if _s3_service is None:
+        _s3_service = S3Service()
+    return _s3_service
+
+# Create a property-like access for backward compatibility
+class S3ServiceProxy:
+    """
+    Proxy for lazy S3Service initialization.
+    
+    Forwards all attribute access to the singleton S3Service instance.
+    This provides backward compatibility while allowing lazy initialization.
+    """
+    
+    def __getattr__(self, name: str) -> Any:
+        """
+        Forward attribute access to the singleton S3Service instance.
+        
+        This method intercepts attribute access on the proxy object and delegates
+        it to the lazily-initialized singleton S3Service instance. This allows
+        consumers to use `s3_service.<attribute>` as if accessing the actual
+        S3Service, while ensuring that the S3Service is only instantiated when
+        first needed. All method calls and property accesses are transparently
+        forwarded, providing backward compatibility and lazy initialization.
+        
+        Args:
+            name: The attribute name to access.
+        
+        Returns:
+            The attribute from the singleton S3Service instance.
+        """
+        return getattr(get_s3_service_singleton(), name)
+    
+    def __repr__(self) -> str:
+        """String representation of the proxy."""
+        return f"<S3ServiceProxy -> {get_s3_service_singleton()!r}>"
+
+s3_service = S3ServiceProxy()
+
 __all__ = [
     "S3Service",
     "AsyncS3Service",
@@ -864,4 +908,5 @@ __all__ = [
     "get_s3_service",
     "get_async_s3_service",
     "get_s3_service_async",
+    "s3_service",  # Export the singleton
 ]

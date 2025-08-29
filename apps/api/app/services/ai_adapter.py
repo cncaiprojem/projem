@@ -25,7 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 from decimal import Decimal, ROUND_HALF_UP
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, PrivateAttr
 
 from ..core.environment import environment as settings
 from ..core.logging import get_logger
@@ -178,7 +178,7 @@ class RateLimiter(BaseModel):
     """Thread-safe per-user rate limiter."""
     requests: Dict[str, List[datetime]] = Field(default_factory=dict)
     limit: int = Field(default=30, description="Requests per minute")
-    _lock: threading.Lock = Field(default_factory=threading.Lock, exclude=True)  # Thread safety lock
+    _lock: threading.Lock = PrivateAttr(default_factory=threading.Lock)  # Thread safety lock
     
     class Config:
         arbitrary_types_allowed = True  # Allow threading.Lock

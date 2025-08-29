@@ -169,9 +169,9 @@ class AISuggestion(Base, TimestampMixin):
               postgresql_where='retention_expires_at IS NOT NULL'),
         Index('idx_ai_suggestions_response', 'response',
               postgresql_using='gin'),
-        Index('idx_ai_suggestions_metadata', 'metadata',
+        Index('idx_ai_suggestions_metadata', 'suggestion_metadata',
               postgresql_using='gin',
-              postgresql_where='metadata IS NOT NULL'),
+              postgresql_where='suggestion_metadata IS NOT NULL'),
         {'comment': 'AI suggestion records with Turkish KVKK compliance'}
     )
     
@@ -276,9 +276,9 @@ class AISuggestion(Base, TimestampMixin):
     
     def add_metadata(self, key: str, value: any) -> None:
         """Add metadata entry."""
-        if self.metadata is None:
-            self.metadata = {}
-        self.metadata[key] = value
+        if self.suggestion_metadata is None:
+            self.suggestion_metadata = {}
+        self.suggestion_metadata[key] = value
         # Mark field as modified for SQLAlchemy
         from sqlalchemy.orm.attributes import flag_modified
-        flag_modified(self, "metadata")
+        flag_modified(self, "suggestion_metadata")

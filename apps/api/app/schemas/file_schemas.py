@@ -151,7 +151,7 @@ class FileUploadRequest(BaseModel):
         None,
         min_length=1,
         max_length=100,
-        regex="^[a-zA-Z0-9_-]+$",
+        pattern="^[a-zA-Z0-9_-]+$",
         description="Associated job ID"
     )
     metadata: Optional[Dict[str, str]] = Field(
@@ -249,7 +249,7 @@ class FileUploadRequest(BaseModel):
         
         return sanitized
     
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_file_type_consistency(cls, values):
         """Ensure file type matches filename extension."""
         filename = values.get('filename')
@@ -322,7 +322,7 @@ class PresignedUrlRequest(BaseModel):
         ...,
         min_length=3,
         max_length=63,
-        regex="^[a-z0-9][a-z0-9.-]*[a-z0-9]$",
+        pattern="^[a-z0-9][a-z0-9.-]*[a-z0-9]$",
         description="Bucket name (S3 naming rules)"
     )
     object_key: str = Field(
@@ -333,7 +333,7 @@ class PresignedUrlRequest(BaseModel):
     )
     operation: str = Field(
         "download",
-        regex="^(upload|download)$",
+        pattern="^(upload|download)$",
         description="Operation type"
     )
     expires_in: int = Field(
@@ -695,7 +695,7 @@ class BatchFileOperation(BaseModel):
     
     operation: str = Field(
         ...,
-        regex="^(copy|move|delete)$",
+        pattern="^(copy|move|delete)$",
         description="Operation type"
     )
     source_bucket: str = Field(..., description="Source bucket")
@@ -703,7 +703,7 @@ class BatchFileOperation(BaseModel):
     dest_bucket: Optional[str] = Field(None, description="Destination bucket (for copy/move)")
     dest_key: Optional[str] = Field(None, description="Destination key (for copy/move)")
     
-    @root_validator
+    @root_validator(skip_on_failure=True)
     def validate_operation_requirements(cls, values):
         """Ensure required fields for each operation."""
         operation = values.get('operation')
