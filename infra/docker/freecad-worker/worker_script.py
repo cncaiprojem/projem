@@ -249,8 +249,7 @@ def get_cgroup_limits() -> Dict[str, Any]:
                         # Validate first part is a number (positive or -1 for unlimited)
                         if parts and len(parts[0]) > 0:
                             try:
-                                quota_value = int(parts[0])
-                                cgroup_info['cpu_quota'] = quota_value
+                                cgroup_info['cpu_quota'] = int(parts[0])
                             except ValueError:
                                 pass  # Invalid number, skip
                         # For cgroup v2, also capture period if present
@@ -561,6 +560,28 @@ class FreeCADWorker:
         # Setup signal handlers for graceful cancellation
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
+    
+    def _validate_path_security(self, path: str, allowed_dir: str, path_type: str = "path") -> str:
+        """Validate a path is within allowed directory to prevent path traversal.
+        
+        Args:
+            path: Path to validate
+            allowed_dir: Directory that path must be within
+            path_type: Type of path for error messages
+            
+        Returns:
+            Resolved real path
+            
+        Raises:
+            ValueError: If path traversal is detected
+        """
+        real_allowed = os.path.realpath(allowed_dir)
+        real_path = os.path.realpath(os.path.join(real_allowed, path))
+        
+        if not real_path.startswith(real_allowed):
+            raise ValueError(f"Invalid {path_type} (potential path traversal): {path}")
+            
+        return real_path
         
         # CPU time limits
         if args.cpu_seconds > 0:
@@ -802,7 +823,13 @@ class FreeCADWorker:
             import FreeCAD
             
             input_file = input_data.get('input_file')
-            if not input_file or not os.path.exists(input_file):
+            if not input_file:
+                raise ValueError("Input file not provided in input data")
+            
+            # Security: Prevent path traversal - ensure input file is within /work directory
+            input_file = self._validate_path_security(input_file, '/work', 'input file')
+            
+            if not os.path.exists(input_file):
                 raise ValueError(f"Input file not found: {input_file}")
             
             # Validate input file size
@@ -925,6 +952,18 @@ class FreeCADWorker:
             
         return result
     
+    def _get_import_error_message(self, exc: Exception) -> str:
+        """Return a detailed error message for Import module import failure."""
+        return textwrap.dedent(f"""
+            Failed to import FreeCAD's Import module, essential for STEP/STL export: {exc}
+            Troubleshooting steps:
+            1. Verify FreeCAD installation includes the Import module
+            2. Check that PYTHONPATH includes FreeCAD modules directory
+            3. Ensure all FreeCAD dependencies are installed
+            4. Try running 'FreeCADCmd -c "import Import"' to test module availability
+            5. If running in Docker, verify the FreeCAD AppImage was properly extracted
+        """).strip()
+    
     def _export_model(self, doc, base_name: str) -> List[Dict[str, Any]]:
         """Export FreeCAD model in multiple formats."""
         artefacts = []
@@ -933,15 +972,7 @@ class FreeCADWorker:
         try:
             import Import
         except ImportError as e:
-            error_msg = textwrap.dedent(f"""
-                Failed to import FreeCAD's Import module, essential for STEP/STL export: {e}
-                Troubleshooting steps:
-                1. Verify FreeCAD installation includes the Import module
-                2. Check that PYTHONPATH includes FreeCAD modules directory
-                3. Ensure all FreeCAD dependencies are installed
-                4. Try running 'FreeCADCmd -c "import Import"' to test module availability
-                5. If running in Docker, verify the FreeCAD AppImage was properly extracted
-            """).strip()
+            error_msg = self._get_import_error_message(e)
             logger.critical(error_msg)
             raise RuntimeError("FreeCAD Import module not available, cannot perform exports. See logs for troubleshooting steps.") from e
         
@@ -1140,23 +1171,41 @@ def validate_arguments(args) -> List[str]:
         # Validate required arguments for workflow execution
         if not args.input:
             errors.append("--input is required for workflow execution")
-        elif not os.path.exists(args.input):
-            errors.append(f"Input file not found: {args.input}")
+        else:
+            # Security: Prevent path traversal - ensure input is within /work directory
+            work_dir = os.path.realpath('/work')
+            real_input_path = os.path.realpath(args.input)
+            if not real_input_path.startswith(work_dir):
+                errors.append(f"Invalid input file path (potential path traversal): {args.input}")
+            elif not os.path.exists(real_input_path):
+                errors.append(f"Input file not found: {args.input}")
             
         if not args.outdir:
             errors.append("--outdir is required for workflow execution")
-        elif not os.path.exists(args.outdir):
-            try:
-                os.makedirs(args.outdir, exist_ok=True)
-            except Exception as e:
-                errors.append(f"Cannot create output directory {args.outdir}: {e}")
+        else:
+            # Security: Prevent path traversal - ensure outdir is within /work directory
+            work_dir = os.path.realpath('/work')
+            real_outdir_path = os.path.realpath(args.outdir)
+            if not real_outdir_path.startswith(work_dir):
+                errors.append(f"Invalid output directory path (potential path traversal): {args.outdir}")
+            elif not os.path.exists(real_outdir_path):
+                try:
+                    os.makedirs(real_outdir_path, exist_ok=True)
+                except Exception as e:
+                    errors.append(f"Cannot create output directory {real_outdir_path}: {e}")
         
         if not args.request_id:
             errors.append("--request-id is required for workflow execution")
     
     # Validate TechDraw template
     if args.techdraw == 'on' and args.td_template:
-        if not os.path.exists(args.td_template):
+        # Security: Prevent path traversal - templates must be in /app/templates
+        allowed_template_dirs = [os.path.realpath('/app/templates')]
+        real_template_path = os.path.realpath(args.td_template)
+        
+        if not any(real_template_path.startswith(d) for d in allowed_template_dirs):
+            errors.append(f"Invalid TechDraw template path (potential path traversal): {args.td_template}")
+        elif not os.path.exists(real_template_path):
             errors.append(f"TechDraw template not found: {args.td_template}")
     
     # Validate resource limits
