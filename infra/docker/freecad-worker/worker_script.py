@@ -239,17 +239,19 @@ def get_cgroup_limits() -> Dict[str, Any]:
                             cgroup_info['cpu_period'] = int(parts[1])
                 break
                 
-        cpu_period_paths = [
-            '/sys/fs/cgroup/cpu/cpu.cfs_period_us',
-        ]
-        
-        for path in cpu_period_paths:
-            if os.path.exists(path):
-                with open(path, 'r') as f:
-                    period = f.read().strip()
-                    if period.isdigit():
-                        cgroup_info['cpu_period'] = int(period)
-                break
+        # Only check for v1 period if not already found in v2
+        if 'cpu_period' not in cgroup_info:
+            cpu_period_paths = [
+                '/sys/fs/cgroup/cpu/cpu.cfs_period_us',
+            ]
+            
+            for path in cpu_period_paths:
+                if os.path.exists(path):
+                    with open(path, 'r') as f:
+                        period = f.read().strip()
+                        if period.isdigit():
+                            cgroup_info['cpu_period'] = int(period)
+                    break
                 
     except Exception as e:
         logger.debug(f"Could not read cgroup limits: {e}")
@@ -289,6 +291,9 @@ class ResourceMonitor:
         self.running = False
         self.thread = None
         self.lock = threading.Lock()
+        # Cache cgroup limits at initialization to avoid repeated filesystem reads
+        cgroup_limits = get_cgroup_limits()
+        self.memory_limit_mb = cgroup_limits.get('memory_limit_mb')
         
     def start(self):
         """Start resource monitoring in background thread."""
@@ -385,17 +390,14 @@ class ResourceMonitor:
     
     def _check_memory_pressure(self, current_rss_mb: float):
         """Check for memory pressure and emit warnings."""
-        cgroup_limits = get_cgroup_limits()
-        memory_limit_mb = cgroup_limits.get('memory_limit_mb')
-        
-        if memory_limit_mb:
-            pressure_ratio = current_rss_mb / memory_limit_mb
+        if self.memory_limit_mb:
+            pressure_ratio = current_rss_mb / self.memory_limit_mb
             
             if pressure_ratio > 0.85:
-                logger.warning(f"High memory pressure: {current_rss_mb:.1f}MB / {memory_limit_mb}MB ({pressure_ratio:.1%})")
+                logger.warning(f"High memory pressure: {current_rss_mb:.1f}MB / {self.memory_limit_mb}MB ({pressure_ratio:.1%})")
                 
                 if pressure_ratio > 0.95:
-                    logger.error(f"Critical memory pressure: {current_rss_mb:.1f}MB / {memory_limit_mb}MB")
+                    logger.error(f"Critical memory pressure: {current_rss_mb:.1f}MB / {self.memory_limit_mb}MB")
                     # Could implement throttling here if THROTTLE_ON_PRESSURE=1
 
 
@@ -908,8 +910,8 @@ class FreeCADWorker:
         try:
             import Import
         except ImportError as e:
-            logger.error(f"Failed to import FreeCAD's Import module: {e}")
-            return artefacts
+            logger.critical(f"Failed to import FreeCAD's Import module, essential for STEP/STL export: {e}")
+            raise RuntimeError("FreeCAD Import module not available, cannot perform exports.") from e
         
         # Export FCStd - native FreeCAD format
         fcstd_path = os.path.join(self.args.outdir, f"{base_name}.FCStd")
