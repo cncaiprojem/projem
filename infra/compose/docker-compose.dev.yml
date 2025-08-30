@@ -758,13 +758,8 @@ services:
       - /etc/timezone:/etc/timezone:ro
       - /etc/localtime:/etc/localtime:ro
     
-    # Health monitoring
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health/freecad"]
-      interval: 30s
-      timeout: 15s
-      retries: 3
-      start_period: 120s
+    # Health monitoring - uses HEALTHCHECK from Dockerfile
+    # The Dockerfile already defines a flexible healthcheck using HEALTH_PORT env var
     
     # Network assignment
     networks:

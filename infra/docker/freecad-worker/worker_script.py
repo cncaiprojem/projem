@@ -18,6 +18,7 @@ import logging
 import os
 import signal
 import sys
+import textwrap
 import threading
 import time
 from datetime import datetime, timezone
@@ -245,8 +246,13 @@ def get_cgroup_limits() -> Dict[str, Any]:
                     if content != 'max':
                         # Handle both cgroup v1 (single value) and v2 (space-separated quota period)
                         parts = content.split()
-                        if parts and parts[0].lstrip('-').isdigit():
-                            cgroup_info['cpu_quota'] = int(parts[0])
+                        # Validate first part is a number (positive or -1 for unlimited)
+                        if parts and len(parts[0]) > 0:
+                            try:
+                                quota_value = int(parts[0])
+                                cgroup_info['cpu_quota'] = quota_value
+                            except ValueError:
+                                pass  # Invalid number, skip
                         # For cgroup v2, also capture period if present
                         if len(parts) > 1 and parts[1].isdigit():
                             cgroup_info['cpu_period'] = int(parts[1])
@@ -927,14 +933,15 @@ class FreeCADWorker:
         try:
             import Import
         except ImportError as e:
-            error_msg = f"""Failed to import FreeCAD's Import module, essential for STEP/STL export: {e}
-Troubleshooting steps:
-1. Verify FreeCAD installation includes the Import module
-2. Check that PYTHONPATH includes FreeCAD modules directory
-3. Ensure all FreeCAD dependencies are installed
-4. Try running 'FreeCADCmd -c "import Import"' to test module availability
-5. If running in Docker, verify the FreeCAD AppImage was properly extracted
-"""
+            error_msg = textwrap.dedent(f"""
+                Failed to import FreeCAD's Import module, essential for STEP/STL export: {e}
+                Troubleshooting steps:
+                1. Verify FreeCAD installation includes the Import module
+                2. Check that PYTHONPATH includes FreeCAD modules directory
+                3. Ensure all FreeCAD dependencies are installed
+                4. Try running 'FreeCADCmd -c "import Import"' to test module availability
+                5. If running in Docker, verify the FreeCAD AppImage was properly extracted
+            """).strip()
             logger.critical(error_msg)
             raise RuntimeError("FreeCAD Import module not available, cannot perform exports. See logs for troubleshooting steps.") from e
         
