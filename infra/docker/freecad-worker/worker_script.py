@@ -442,17 +442,18 @@ class TechDrawGenerator:
             import TechDraw
             
             # Verify template exists
-            if not os.path.exists(self.template_path):
-                logger.warning(f"Template not found: {self.template_path}, using built-in template")
-                self.template_path = None
+            template_to_use = self.template_path
+            if template_to_use and not os.path.exists(template_to_use):
+                logger.warning(f"Template not found: {template_to_use}. Proceeding without a template.")
+                template_to_use = None
             
             # Create TechDraw page
             page = freecad_doc.addObject("TechDraw::DrawPage", "DrawingPage")
             
             # Add template
-            if self.template_path:
+            if template_to_use:
                 template = freecad_doc.addObject("TechDraw::DrawSVGTemplate", "Template")
-                template.Template = self.template_path
+                template.Template = template_to_use
                 page.Template = template
             
             # Add views for each requested direction
