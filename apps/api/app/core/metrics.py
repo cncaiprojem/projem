@@ -304,6 +304,21 @@ ai_adapter_request_duration = Histogram(
     registry=REGISTRY
 )
 
+# Task 7.3: Normalization and validation metrics
+freecad_normalization_total = Counter(
+    'freecad_normalization_total',
+    'Total normalization operations',
+    ['status', 'input_type'],
+    registry=REGISTRY
+)
+
+freecad_validation_errors_total = Counter(
+    'freecad_validation_errors_total',
+    'Total validation errors by error code',
+    ['error_code'],
+    registry=REGISTRY
+)
+
 
 class MetricsCollector:
     """
@@ -517,6 +532,8 @@ __all__ = [
     'fem_mesh_elements_total',
     'ai_adapter_requests_total',
     'ai_adapter_request_duration',
+    'freecad_normalization_total',
+    'freecad_validation_errors_total',
     'MetricsCollector',
     'metrics'
 ]
