@@ -1180,45 +1180,67 @@ def validate_arguments(args) -> List[str]:
     errors = []
     
     if args.flow:
+        work_dir = os.path.realpath('/work')
+        
         # Validate required arguments for workflow execution
         if not args.input:
             errors.append("--input is required for workflow execution")
         else:
-            # Security: Prevent path traversal - ensure input is within /work directory
-            work_dir = os.path.realpath('/work')
-            real_input_path = os.path.realpath(args.input)
-            if not real_input_path.startswith(work_dir):
-                errors.append(f"Invalid input file path (potential path traversal): {args.input}")
-            elif not os.path.exists(real_input_path):
-                errors.append(f"Input file not found: {args.input}")
+            try:
+                # Properly handle both absolute and relative paths
+                if os.path.isabs(args.input):
+                    real_input_path = os.path.realpath(args.input)
+                else:
+                    real_input_path = os.path.realpath(os.path.join(work_dir, args.input))
+                
+                if not real_input_path.startswith(work_dir):
+                    errors.append(f"Invalid input file path (potential path traversal): {args.input}")
+                elif not os.path.exists(real_input_path):
+                    errors.append(f"Input file not found: {args.input}")
+            except Exception as e:
+                errors.append(f"Error validating input path: {e}")
             
         if not args.outdir:
             errors.append("--outdir is required for workflow execution")
         else:
-            # Security: Prevent path traversal - ensure outdir is within /work directory
-            work_dir = os.path.realpath('/work')
-            real_outdir_path = os.path.realpath(args.outdir)
-            if not real_outdir_path.startswith(work_dir):
-                errors.append(f"Invalid output directory path (potential path traversal): {args.outdir}")
-            elif not os.path.exists(real_outdir_path):
-                try:
-                    os.makedirs(real_outdir_path, exist_ok=True)
-                except Exception as e:
-                    errors.append(f"Cannot create output directory {real_outdir_path}: {e}")
+            try:
+                # Properly handle both absolute and relative paths
+                if os.path.isabs(args.outdir):
+                    real_outdir_path = os.path.realpath(args.outdir)
+                else:
+                    real_outdir_path = os.path.realpath(os.path.join(work_dir, args.outdir))
+                
+                if not real_outdir_path.startswith(work_dir):
+                    errors.append(f"Invalid output directory path (potential path traversal): {args.outdir}")
+                elif not os.path.exists(real_outdir_path):
+                    try:
+                        os.makedirs(real_outdir_path, exist_ok=True)
+                    except Exception as e:
+                        errors.append(f"Cannot create output directory {real_outdir_path}: {e}")
+            except Exception as e:
+                errors.append(f"Error validating output directory: {e}")
         
         if not args.request_id:
             errors.append("--request-id is required for workflow execution")
     
     # Validate TechDraw template
     if args.techdraw == 'on' and args.td_template:
-        # Security: Prevent path traversal - templates must be in /app/templates
-        allowed_template_dirs = [os.path.realpath('/app/templates')]
-        real_template_path = os.path.realpath(args.td_template)
-        
-        if not any(real_template_path.startswith(d) for d in allowed_template_dirs):
-            errors.append(f"Invalid TechDraw template path (potential path traversal): {args.td_template}")
-        elif not os.path.exists(real_template_path):
-            errors.append(f"TechDraw template not found: {args.td_template}")
+        try:
+            # Security: Prevent path traversal - templates must be in /app/templates
+            allowed_template_dir = os.path.realpath('/app/templates')
+            
+            # Properly handle both absolute and relative paths
+            if os.path.isabs(args.td_template):
+                real_template_path = os.path.realpath(args.td_template)
+            else:
+                real_template_path = os.path.realpath(os.path.join(allowed_template_dir, args.td_template))
+            
+            if not real_template_path.startswith(allowed_template_dir):
+                errors.append(f"Invalid TechDraw template path (potential path traversal): {args.td_template}")
+            elif not os.path.exists(real_template_path):
+                errors.append(f"TechDraw template not found: {args.td_template}")
+        except Exception as e:
+            errors.append(f"Error validating TechDraw template path: {e}")
     
     # Validate resource limits
     if args.cpu_seconds < 0:
