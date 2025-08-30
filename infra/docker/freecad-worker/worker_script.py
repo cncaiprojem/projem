@@ -37,6 +37,10 @@ FREECAD_EXPECTED_VERSION = "1.1.0"
 
 # Resource monitoring
 RESOURCE_MONITOR_INTERVAL = 2.0  # seconds
+RESOURCE_LOG_INTERVAL_SECONDS = 30  # Log resource stats every 30 seconds
+RESOURCE_MONITOR_MIN_INTERVAL = 0.001  # Minimum allowed monitoring interval
+RESOURCE_MONITOR_MAX_SAMPLES = 1000  # Maximum samples to keep in memory
+MAX_INPUT_FILE_SIZE_MB = 10  # Maximum allowed input file size in MB
 
 # Cancellation handling
 CANCELLED = threading.Event()
@@ -58,6 +62,15 @@ TECHDRAW_VIEWS = {
     'Left': [-1, 0, 0],
     'Bottom': [0, -1, 0],
     'Back': [0, 0, -1]
+}
+
+# TechDraw layout constants
+TECHDRAW_VIEW_GRID = {
+    'start_x': 50,           # Starting X position for views
+    'start_y_row1': 150,     # Y position for first row
+    'start_y_row2': 75,      # Y position for second row
+    'spacing_x': 80,         # Horizontal spacing between views
+    'views_per_row': 4       # Maximum views per row
 }
 
 # Default templates
@@ -239,8 +252,8 @@ def get_cgroup_limits() -> Dict[str, Any]:
                             cgroup_info['cpu_period'] = int(parts[1])
                 break
                 
-        # Only check for v1 period if not already found in v2
-        if 'cpu_period' not in cgroup_info:
+        # Only check for v1 period if not already found in v2 or if v2 period is invalid
+        if 'cpu_period' not in cgroup_info or cgroup_info.get('cpu_period', 0) <= 0:
             cpu_period_paths = [
                 '/sys/fs/cgroup/cpu/cpu.cfs_period_us',
             ]
@@ -249,7 +262,7 @@ def get_cgroup_limits() -> Dict[str, Any]:
                 if os.path.exists(path):
                     with open(path, 'r') as f:
                         period = f.read().strip()
-                        if period.isdigit():
+                        if period.isdigit() and int(period) > 0:
                             cgroup_info['cpu_period'] = int(period)
                     break
                 
@@ -291,6 +304,7 @@ class ResourceMonitor:
         self.running = False
         self.thread = None
         self.lock = threading.Lock()
+        self.last_log_time = time.time()  # Track last time we logged resource stats
         # Cache cgroup limits at initialization to avoid repeated filesystem reads
         cgroup_limits = get_cgroup_limits()
         self.memory_limit_mb = cgroup_limits.get('memory_limit_mb')
@@ -367,17 +381,15 @@ class ResourceMonitor:
                         if stats.get('rss_mb', 0) > self.peak_rss_mb:
                             self.peak_rss_mb = stats['rss_mb']
                         
-                        # Limit sample history (keep last 1000 samples)
-                        if len(self.samples) > 1000:
-                            self.samples = self.samples[-1000:]
+                        # Limit sample history
+                        if len(self.samples) > RESOURCE_MONITOR_MAX_SAMPLES:
+                            self.samples = self.samples[-RESOURCE_MONITOR_MAX_SAMPLES:]
                             
-                        # Log periodic updates every 30 seconds
-                        # Use integer division with explicit minimum interval of 0.001
-                        # Cap at 1000 to prevent performance issues with very small intervals
-                        safe_interval = max(self.interval, 0.001)  # Ensure minimum interval
-                        log_interval_samples = min(int(30 // safe_interval), 1000)
-                        if log_interval_samples > 0 and len(self.samples) % log_interval_samples == 0:
+                        # Log periodic updates using time-based approach
+                        current_time = time.time()
+                        if current_time - self.last_log_time >= RESOURCE_LOG_INTERVAL_SECONDS:
                             logger.info(f"Resource stats: CPU {stats['cpu_percent']:.1f}%, RSS {stats['rss_mb']:.1f}MB, Threads {stats['num_threads']}")
+                            self.last_log_time = current_time
                             
                     # Check memory pressure
                     self._check_memory_pressure(stats['rss_mb'])
@@ -453,13 +465,13 @@ class TechDrawGenerator:
                     view_obj.Direction = direction
                     view_obj.Scale = self.scale
                     
-                    # Position views in a grid
-                    if i < 4:  # First row
-                        view_obj.X = 50 + (i * 80)
-                        view_obj.Y = 150
+                    # Position views in a grid using layout constants
+                    if i < TECHDRAW_VIEW_GRID['views_per_row']:  # First row
+                        view_obj.X = TECHDRAW_VIEW_GRID['start_x'] + (i * TECHDRAW_VIEW_GRID['spacing_x'])
+                        view_obj.Y = TECHDRAW_VIEW_GRID['start_y_row1']
                     else:  # Second row
-                        view_obj.X = 50 + ((i - 4) * 80)
-                        view_obj.Y = 75
+                        view_obj.X = TECHDRAW_VIEW_GRID['start_x'] + ((i - TECHDRAW_VIEW_GRID['views_per_row']) * TECHDRAW_VIEW_GRID['spacing_x'])
+                        view_obj.Y = TECHDRAW_VIEW_GRID['start_y_row2']
                     
                     page.addView(view_obj)
                     created_views.append(view_obj)
@@ -787,6 +799,11 @@ class FreeCADWorker:
             if not input_file or not os.path.exists(input_file):
                 raise ValueError(f"Input file not found: {input_file}")
             
+            # Validate input file size
+            file_size_mb = os.path.getsize(input_file) / (1024 * 1024)
+            if file_size_mb > MAX_INPUT_FILE_SIZE_MB:
+                raise ValueError(f"Input file size ({file_size_mb:.1f}MB) exceeds maximum allowed size ({MAX_INPUT_FILE_SIZE_MB}MB)")
+            
             # Detect file type and import
             file_ext = os.path.splitext(input_file)[1].lower()
             
@@ -910,8 +927,17 @@ class FreeCADWorker:
         try:
             import Import
         except ImportError as e:
-            logger.critical(f"Failed to import FreeCAD's Import module, essential for STEP/STL export: {e}")
-            raise RuntimeError("FreeCAD Import module not available, cannot perform exports.") from e
+            error_msg = (
+                f"Failed to import FreeCAD's Import module, essential for STEP/STL export: {e}\n"
+                "Troubleshooting steps:\n"
+                "1. Verify FreeCAD installation includes the Import module\n"
+                "2. Check that PYTHONPATH includes FreeCAD modules directory\n"
+                "3. Ensure all FreeCAD dependencies are installed\n"
+                "4. Try running 'FreeCADCmd -c \"import Import\"' to test module availability\n"
+                "5. If running in Docker, verify the FreeCAD AppImage was properly extracted"
+            )
+            logger.critical(error_msg)
+            raise RuntimeError("FreeCAD Import module not available, cannot perform exports. See logs for troubleshooting steps.") from e
         
         # Export FCStd - native FreeCAD format
         fcstd_path = os.path.join(self.args.outdir, f"{base_name}.FCStd")
