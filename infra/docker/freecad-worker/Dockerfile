@@ -68,6 +68,11 @@ RUN curl -L -o FreeCAD_1.1.0.AppImage \
     if [ "${SKIP_SHA256_CHECK}" = "true" ]; then \
         echo "WARNING: Skipping SHA256 verification (CI/test mode)"; \
     else \
+        # Fail build if placeholder SHA256 is still present \
+        if [ "${FREECAD_SHA256}" = "REPLACE_ME_WITH_ACTUAL_FREECAD_SHA256_BEFORE_DEPLOYMENT" ]; then \
+            echo "ERROR: Placeholder SHA256 detected. Replace with actual FreeCAD 1.1.0 AppImage SHA256 hash"; \
+            exit 1; \
+        fi && \
         echo "${FREECAD_SHA256}  FreeCAD_1.1.0.AppImage" | sha256sum -c -; \
     fi && \
     chmod +x FreeCAD_1.1.0.AppImage

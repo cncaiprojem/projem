@@ -560,6 +560,14 @@ class FreeCADWorker:
         # Setup signal handlers for graceful cancellation
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
+        
+        # CPU time limits
+        if self.args.cpu_seconds > 0:
+            # resource module is not available on Windows, but this runs in Linux container
+            if hasattr(signal, 'SIGXCPU'):
+                import resource
+                resource.setrlimit(resource.RLIMIT_CPU, (self.args.cpu_seconds, self.args.cpu_seconds))
+                signal.signal(signal.SIGXCPU, self._cpu_limit_handler)
     
     def _validate_path_security(self, path: str, allowed_dir: str, path_type: str = "path") -> str:
         """Validate a path is within allowed directory to prevent path traversal.
@@ -575,19 +583,19 @@ class FreeCADWorker:
         Raises:
             ValueError: If path traversal is detected
         """
+        # Check if path is absolute - if so, don't join with allowed_dir
+        if os.path.isabs(path):
+            real_path = os.path.realpath(path)
+        else:
+            real_allowed = os.path.realpath(allowed_dir)
+            real_path = os.path.realpath(os.path.join(real_allowed, path))
+        
         real_allowed = os.path.realpath(allowed_dir)
-        real_path = os.path.realpath(os.path.join(real_allowed, path))
         
         if not real_path.startswith(real_allowed):
             raise ValueError(f"Invalid {path_type} (potential path traversal): {path}")
             
         return real_path
-        
-        # CPU time limits
-        if args.cpu_seconds > 0:
-            import resource
-            resource.setrlimit(resource.RLIMIT_CPU, (args.cpu_seconds, args.cpu_seconds))
-            signal.signal(signal.SIGXCPU, self._cpu_limit_handler)
         
     def _signal_handler(self, signum, frame):
         """Handle termination signals gracefully."""
