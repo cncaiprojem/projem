@@ -1,0 +1,51 @@
+# ==============================================================================
+# FREECAD WORKER REQUIREMENTS - TASK 7.5
+# ==============================================================================
+# Pinned Python dependencies for FreeCAD 1.1.0 worker container
+# Exact versions specified for reproducible builds and security compliance
+# ==============================================================================
+
+# Core scientific computing
+numpy==1.24.3
+
+# 3D mesh processing and geometry operations
+trimesh==4.0.1
+
+# GLTF/GLB 3D format support for model export
+pygltflib==1.16.1
+
+# MinIO S3-compatible object storage client
+minio==7.2.0
+
+# System resource monitoring and process management
+psutil==5.9.8
+
+# ==============================================================================
+# DEPENDENCY NOTES:
+#
+# numpy==1.24.3
+#   - Core numerical operations for FreeCAD Python scripting
+#   - Compatible with FreeCAD 1.1.0 Python environment
+#   - Required for parametric modeling and calculations
+#
+# trimesh==4.0.1  
+#   - Mesh processing for STL, OBJ, and other 3D formats
+#   - Used for geometry validation and mesh operations
+#   - Supports export format normalization
+#
+# pygltflib==1.16.1
+#   - GLTF 2.0 format support for web-compatible 3D models
+#   - Modern 3D format for visualization and sharing
+#   - Enables GLB export from FreeCAD models
+#
+# minio==7.2.0
+#   - S3-compatible storage client for artefact upload/download
+#   - Integrates with platform's MinIO object storage
+#   - Required for job input/output file management
+#
+# psutil==5.9.8
+#   - Cross-platform system monitoring library
+#   - CPU/memory usage tracking for resource limits
+#   - Process management for worker harness
+#   - Health monitoring and resource reporting
+# ==============================================================================
