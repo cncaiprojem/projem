@@ -104,12 +104,14 @@ class FreeCADException(Exception):
         message: str, 
         error_code: FreeCADErrorCode, 
         turkish_message: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None
+        details: Optional[Dict[str, Any]] = None,
+        http_status: int = 500
     ):
         super().__init__(message)
         self.error_code = error_code
         self.turkish_message = turkish_message or message
         self.details = details or {}
+        self.http_status = http_status
 
 
 class ResourceLimits(BaseModel):
@@ -1375,12 +1377,13 @@ class UltraEnterpriseFreeCADService:
                     error_code=e.code
                 ).inc()
                 
-                # Convert to FreeCAD exception for consistency
+                # Convert to FreeCAD exception for consistency, preserving http_status
                 raise FreeCADException(
                     str(e),
                     FreeCADErrorCode.VALIDATION_FAILED,
                     e.turkish_message,
-                    e.details
+                    e.details,
+                    e.http_status  # Preserve original http_status
                 )
             except Exception as e:
                 logger.error("unexpected_normalization_error",

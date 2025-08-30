@@ -15,13 +15,13 @@ Features:
 - Manufacturing constraints validation
 - Idempotent normalization with SHA256 hashing
 - Comprehensive error codes with Turkish messages
+- AST-based metadata extraction for robust parsing
 """
 
 from __future__ import annotations
 
 import ast
 import hashlib
-import json
 import re
 from decimal import Decimal, ROUND_HALF_UP
 from enum import Enum
@@ -115,7 +115,7 @@ class FreeCADRulesEngine:
     
     # Forbidden names and operations
     FORBIDDEN_NAMES = {
-        "__import__", "exec", "eval", "open", "file", 
+        "__import__", "exec", "eval", "open",  # Removed 'file' - not in Python 3
         "os", "subprocess", "sys.exit", "compile", "globals", "locals"
     }
     
@@ -171,11 +171,58 @@ class FreeCADRulesEngine:
         "ölçü": "measure"
     }
     
+    # Comprehensive FreeCAD API registry
+    FREECAD_API_REGISTRY = {
+        # Part module APIs
+        "Part.makeBox": {"min_args": 3, "max_args": 4, "category": "primitive"},
+        "Part.makeCylinder": {"min_args": 2, "max_args": 5, "category": "primitive"},
+        "Part.makeSphere": {"min_args": 1, "max_args": 4, "category": "primitive"},
+        "Part.makeCone": {"min_args": 3, "max_args": 5, "category": "primitive"},
+        "Part.makeTorus": {"min_args": 2, "max_args": 5, "category": "primitive"},
+        "Part.makePlane": {"min_args": 2, "max_args": 4, "category": "primitive"},
+        "Part.makePolygon": {"min_args": 1, "max_args": 2, "category": "wire"},
+        "Part.makeHelix": {"min_args": 3, "max_args": 6, "category": "wire"},
+        "Part.Circle": {"min_args": 0, "max_args": 3, "category": "geometry"},
+        "Part.LineSegment": {"min_args": 0, "max_args": 2, "category": "geometry"},
+        "Part.Arc": {"min_args": 3, "max_args": 3, "category": "geometry"},
+        "Part.show": {"min_args": 1, "max_args": 2, "category": "display"},
+        
+        # PartDesign APIs
+        "PartDesign::Body": {"min_args": 0, "max_args": 1, "category": "partdesign"},
+        "PartDesign::Pad": {"min_args": 0, "max_args": 1, "category": "partdesign"},
+        "PartDesign::Pocket": {"min_args": 0, "max_args": 1, "category": "partdesign"},
+        "PartDesign::Revolution": {"min_args": 0, "max_args": 1, "category": "partdesign"},
+        "PartDesign::Loft": {"min_args": 0, "max_args": 1, "category": "partdesign"},
+        "PartDesign::Pipe": {"min_args": 0, "max_args": 1, "category": "partdesign"},
+        "PartDesign::LinearPattern": {"min_args": 0, "max_args": 1, "category": "partdesign"},
+        "PartDesign::PolarPattern": {"min_args": 0, "max_args": 1, "category": "partdesign"},
+        "PartDesign::Mirrored": {"min_args": 0, "max_args": 1, "category": "partdesign"},
+        
+        # Sketcher APIs
+        "Sketcher::SketchObject": {"min_args": 0, "max_args": 1, "category": "sketcher"},
+        "Sketcher.Constraint": {"min_args": 1, "max_args": 4, "category": "sketcher"},
+        
+        # Document APIs
+        "App.newDocument": {"min_args": 0, "max_args": 1, "category": "document"},
+        "App.openDocument": {"min_args": 1, "max_args": 1, "category": "document"},
+        "App.getDocument": {"min_args": 1, "max_args": 1, "category": "document"},
+        "doc.addObject": {"min_args": 2, "max_args": 2, "category": "document"},
+        "doc.removeObject": {"min_args": 1, "max_args": 1, "category": "document"},
+        "doc.recompute": {"min_args": 0, "max_args": 0, "category": "document"},
+        
+        # Boolean operations
+        "Part.fuse": {"min_args": 1, "max_args": 2, "category": "boolean"},
+        "Part.cut": {"min_args": 2, "max_args": 2, "category": "boolean"},
+        "Part.common": {"min_args": 2, "max_args": 2, "category": "boolean"},
+    }
+    
     # Deprecated FreeCAD API mappings
     DEPRECATED_APIS = {
         "Part.makeCircle": "Use Part.Circle instead",
         "Part.makeLine": "Use Part.LineSegment instead",
         "App.ActiveDocument": "Store document reference explicitly",
+        "Part.makeWedge": "Use Part.makeBox with transformation instead",
+        "Part.makePrism": "Use Part.makePolygon and extrude instead",
     }
     
     def __init__(self):
@@ -282,7 +329,7 @@ class FreeCADRulesEngine:
                 canonical[canonical_key] = self._round_decimal(value_mm)
         
         # Normalize other numeric values
-        for key in ["radius", "r", "thickness", "wall_thickness", "inner_radius"]:
+        for key in ["radius", "r", "thickness", "wall_thickness", "wallthickness", "inner_radius", "innerradius"]:
             if key in params:
                 value = params[key]
                 value_mm = self._convert_to_mm(value, params.get("units", "mm"))
@@ -375,11 +422,13 @@ class FreeCADRulesEngine:
             # Translate Turkish comments
             line = self._translate_turkish_comments(line)
             
-            # Track result variable
-            if "result =" in line or "result=" in line:
-                # Extract variable name
-                match = re.search(r'(\w+)\s*=', line)
-                if match:
+            # Track result variable - look for assignments that create geometry
+            # Common patterns: result = Part.makeBox(...), shape = doc.addObject(...)
+            if '=' in line and any(pattern in line for pattern in 
+                                  ['Part.make', 'addObject', 'fuse', 'cut', 'common']):
+                # Extract variable name from assignment
+                match = re.match(r'\s*(\w+)\s*=', line)
+                if match and not result_var:  # Only set if not already found
                     result_var = match.group(1)
             
             # Check for recompute
@@ -568,10 +617,275 @@ class FreeCADRulesEngine:
         return code_part + '#' + comment_part
     
     def _extract_script_metadata(self, script: str, meta: ScriptMetadata):
-        """Extract metadata from normalized script."""
-        # Extract dimensions from common constructors
+        """Extract metadata from normalized script using AST parsing for robust extraction."""
         
-        # Part.makeBox(L, W, H)
+        class MetadataExtractor(ast.NodeVisitor):
+            """AST NodeVisitor for extracting FreeCAD script metadata."""
+            
+            def __init__(self, metadata: ScriptMetadata):
+                self.meta = metadata
+                self.current_var = None
+                self.var_assignments = {}  # Track variable assignments
+                self.solid_count = 0  # Track number of solids created
+            
+            def visit_Assign(self, node):
+                """Track variable assignments and attribute assignments."""
+                # Handle simple variable assignments
+                if len(node.targets) == 1:
+                    target = node.targets[0]
+                    
+                    # Simple variable assignment: var = value
+                    if isinstance(target, ast.Name):
+                        var_name = target.id
+                        self.current_var = var_name
+                        
+                        # Track solid creation
+                        if isinstance(node.value, ast.Call):
+                            func_name = self._get_func_name(node.value)
+                            if func_name and any(op in func_name for op in 
+                                               ['makeBox', 'makeCylinder', 'makeSphere', 
+                                                'makeCone', 'makeTorus', 'fuse', 'cut', 'common']):
+                                self.solid_count += 1
+                        
+                        # Track PartDesign objects
+                        if isinstance(node.value, ast.Call):
+                            func_name = self._get_func_name(node.value)
+                            if func_name and 'newObject' in func_name:
+                                if node.value.args and len(node.value.args) > 0:
+                                    obj_type = self._get_string_value(node.value.args[0])
+                                    if obj_type == 'PartDesign::Pad':
+                                        self.var_assignments[var_name] = 'Pad'
+                                    elif obj_type == 'PartDesign::Pocket':
+                                        self.var_assignments[var_name] = 'Pocket'
+                        
+                        # Visit the value to extract metadata
+                        # Note: We do NOT call generic_visit after this to avoid double processing
+                        self.visit(node.value)
+                        self.current_var = None
+                        return  # Don't call generic_visit to avoid double processing
+                    
+                    # Attribute assignment: obj.attr = value
+                    elif isinstance(target, ast.Attribute):
+                        if isinstance(target.value, ast.Name):
+                            obj_name = target.value.id
+                            attr_name = target.attr
+                            
+                            # Extract numeric value
+                            value = self._get_numeric_value(node.value)
+                            
+                            # Handle Length assignments for Pad/Pocket
+                            if attr_name == 'Length' and value is not None:
+                                # Check if this is a Pad or Pocket
+                                if obj_name in self.var_assignments:
+                                    obj_type = self.var_assignments[obj_name]
+                                    if obj_type == 'Pad':
+                                        self.meta.dims_mm["pad_length"] = value
+                                    elif obj_type == 'Pocket':
+                                        self.meta.dims_mm["pocket_depth"] = value
+                                elif 'pad' in obj_name.lower():
+                                    self.meta.dims_mm["pad_length"] = value
+                                elif 'pocket' in obj_name.lower():
+                                    self.meta.dims_mm["pocket_depth"] = value
+                
+                self.generic_visit(node)
+            
+            def visit_Call(self, node):
+                """Extract metadata from function calls."""
+                func_name = self._get_func_name(node)
+                
+                if not func_name:
+                    self.generic_visit(node)
+                    return
+                
+                # Extract Part.makeBox dimensions
+                if 'makeBox' in func_name:
+                    dims = self._extract_numeric_args(node, 3)
+                    if len(dims) >= 3:
+                        self.meta.dims_mm["length"] = dims[0]
+                        self.meta.dims_mm["width"] = dims[1]
+                        self.meta.dims_mm["height"] = dims[2]
+                
+                # Extract Part.makeCylinder dimensions
+                elif 'makeCylinder' in func_name:
+                    dims = self._extract_numeric_args(node, 2)
+                    if len(dims) >= 2:
+                        self.meta.dims_mm["radius"] = dims[0]
+                        self.meta.dims_mm["cylinder_height"] = dims[1]
+                
+                # Extract Part.makeSphere dimensions
+                elif 'makeSphere' in func_name:
+                    dims = self._extract_numeric_args(node, 1)
+                    if dims:
+                        self.meta.dims_mm["sphere_radius"] = dims[0]
+                
+                # Extract Part.makeCone dimensions
+                elif 'makeCone' in func_name:
+                    dims = self._extract_numeric_args(node, 3)
+                    if len(dims) >= 3:
+                        self.meta.dims_mm["cone_radius1"] = dims[0]
+                        self.meta.dims_mm["cone_radius2"] = dims[1]
+                        self.meta.dims_mm["cone_height"] = dims[2]
+                
+                # Extract Part.makeTorus dimensions
+                elif 'makeTorus' in func_name:
+                    dims = self._extract_numeric_args(node, 2)
+                    if len(dims) >= 2:
+                        self.meta.dims_mm["torus_radius1"] = dims[0]
+                        self.meta.dims_mm["torus_radius2"] = dims[1]
+                
+                # Extract PartDesign::Body creation
+                elif 'addObject' in func_name or 'newObject' in func_name:
+                    if node.args:
+                        first_arg = self._get_string_value(node.args[0])
+                        if first_arg == 'PartDesign::Body':
+                            body_name = self._get_string_value(node.args[1]) if len(node.args) > 1 else 'Body'
+                            # Initialize names list if it doesn't exist
+                            if "names" not in self.meta.bodies:
+                                self.meta.bodies["names"] = []
+                            self.meta.bodies["names"].append(body_name)
+                            self.meta.bodies["count"] = len(self.meta.bodies["names"])
+                        
+                        elif first_arg == 'PartDesign::Pad':
+                            self.meta.partdesign_features.append({"type": "Pad"})
+                        
+                        elif first_arg == 'PartDesign::Pocket':
+                            self.meta.partdesign_features.append({"type": "Pocket"})
+                        
+                        elif first_arg == 'PartDesign::Revolution':
+                            self.meta.partdesign_features.append({"type": "Revolution"})
+                        
+                        elif first_arg == 'PartDesign::LinearPattern':
+                            self.meta.partdesign_features.append({"type": "LinearPattern"})
+                        
+                        elif first_arg == 'PartDesign::PolarPattern':
+                            self.meta.partdesign_features.append({"type": "PolarPattern"})
+                
+                # Extract Sketcher constraints
+                elif 'addConstraint' in func_name:
+                    if node.args:
+                        constraint_type = self._get_constraint_type(node.args[0])
+                        if constraint_type in self.SKETCHER_CONSTRAINTS:
+                            if not any(s.get("name") == "MainSketch" for s in self.meta.sketches):
+                                self.meta.sketches.append({
+                                    "name": "MainSketch",
+                                    "constraint_counts": {}
+                                })
+                            sketch = next(s for s in self.meta.sketches if s["name"] == "MainSketch")
+                            sketch["constraint_counts"][constraint_type] = \
+                                sketch["constraint_counts"].get(constraint_type, 0) + 1
+                
+                self.generic_visit(node)
+            
+            def visit_Attribute(self, node):
+                """Track attribute assignments like pad.Length = 10."""
+                # Look for patterns like obj.Length = value in parent context
+                parent = getattr(node, '_parent', None)
+                if parent and isinstance(parent, ast.Assign):
+                    if node.attr == 'Length':
+                        # Try to get the value being assigned
+                        if isinstance(parent.value, (ast.Constant, ast.Num)):
+                            value = self._get_numeric_value(parent.value)
+                            if value is not None:
+                                # Determine what type of object this is
+                                if self.current_var and 'pad' in self.current_var.lower():
+                                    self.meta.dims_mm["pad_length"] = value
+                                elif self.current_var and 'pocket' in self.current_var.lower():
+                                    self.meta.dims_mm["pocket_depth"] = value
+                
+                self.generic_visit(node)
+            
+            def _get_func_name(self, node):
+                """Extract function name from a Call node."""
+                if isinstance(node.func, ast.Name):
+                    return node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    parts = []
+                    current = node.func
+                    while isinstance(current, ast.Attribute):
+                        parts.append(current.attr)
+                        current = current.value
+                    if isinstance(current, ast.Name):
+                        parts.append(current.id)
+                    return '.'.join(reversed(parts))
+                return None
+            
+            def _extract_numeric_args(self, node, count):
+                """Extract numeric arguments from a function call."""
+                values = []
+                for i, arg in enumerate(node.args[:count]):
+                    value = self._get_numeric_value(arg)
+                    if value is not None:
+                        values.append(value)
+                return values
+            
+            def _get_numeric_value(self, node):
+                """Extract numeric value from an AST node."""
+                if isinstance(node, ast.Constant):
+                    if isinstance(node.value, (int, float)):
+                        return float(node.value)
+                elif isinstance(node, ast.Num):  # Python 3.7 compatibility
+                    return float(node.n)
+                elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+                    # Handle negative numbers
+                    inner_value = self._get_numeric_value(node.operand)
+                    if inner_value is not None:
+                        return -inner_value
+                elif isinstance(node, ast.Name):
+                    # Could track variable values if needed
+                    pass
+                return None
+            
+            def _get_string_value(self, node):
+                """Extract string value from an AST node."""
+                if isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    return node.value
+                elif isinstance(node, ast.Str):  # Python 3.7 compatibility
+                    return node.s
+                return None
+            
+            def _get_constraint_type(self, node):
+                """Extract constraint type from constraint creation."""
+                if isinstance(node, ast.Attribute):
+                    return node.attr
+                elif isinstance(node, ast.Constant) and isinstance(node.value, str):
+                    return node.value
+                elif isinstance(node, ast.Str):
+                    return node.s
+                return None
+        
+        # Parse the script into an AST
+        try:
+            tree = ast.parse(script)
+            
+            # Add parent references for context (helps with attribute assignments)
+            for parent in ast.walk(tree):
+                for child in ast.iter_child_nodes(parent):
+                    child._parent = parent
+            
+            # Create extractor with reference to engine's constraint list
+            extractor = MetadataExtractor(meta)
+            extractor.SKETCHER_CONSTRAINTS = self.SKETCHER_CONSTRAINTS
+            
+            # Visit the AST to extract metadata
+            extractor.visit(tree)
+            
+            # Add solid count to metadata
+            meta.bodies["solid_count"] = extractor.solid_count
+            
+            # Validate single solid rule if we have bodies
+            if meta.bodies.get("count", 0) > 0 and extractor.solid_count > 1:
+                meta.bodies["single_solid_ok"] = False
+            else:
+                meta.bodies["single_solid_ok"] = True
+                
+        except SyntaxError as e:
+            logger.warning(f"Failed to parse script for metadata extraction: {e}")
+            # Fall back to basic regex extraction for critical items
+            self._fallback_regex_extraction(script, meta)
+    
+    def _fallback_regex_extraction(self, script: str, meta: ScriptMetadata):
+        """Fallback regex-based extraction when AST parsing fails."""
+        # Basic Part.makeBox extraction
         box_pattern = r'Part\.makeBox\(([\d.]+),\s*([\d.]+),\s*([\d.]+)\)'
         matches = re.finditer(box_pattern, script)
         for match in matches:
@@ -579,61 +893,16 @@ class FreeCADRulesEngine:
             meta.dims_mm["width"] = float(match.group(2))
             meta.dims_mm["height"] = float(match.group(3))
         
-        # Part.makeCylinder(r, h)
+        # Basic Part.makeCylinder extraction
         cyl_pattern = r'Part\.makeCylinder\(([\d.]+),\s*([\d.]+)\)'
         matches = re.finditer(cyl_pattern, script)
         for match in matches:
             meta.dims_mm["radius"] = float(match.group(1))
             meta.dims_mm["cylinder_height"] = float(match.group(2))
         
-        # PartDesign features
-        if "PartDesign" in script:
-            # Bodies
-            body_pattern = r"addObject\('PartDesign::Body',\s*'(\w+)'\)"
-            bodies = re.findall(body_pattern, script)
-            meta.bodies["count"] = len(bodies)
-            meta.bodies["names"] = bodies
-            
-            # Pads - match both addObject and newObject patterns
-            pad_patterns = [
-                r"addObject\('PartDesign::Pad'[^)]*\).*?\.Length\s*=\s*([\d.]+)",
-                r"newObject\('PartDesign::Pad'[^)]*\).*?\.Length\s*=\s*([\d.]+)",
-                r"\.Length\s*=\s*([\d.]+).*?#.*?[Pp]ad"
-            ]
-            for pattern in pad_patterns:
-                pad_matches = re.finditer(pattern, script, re.DOTALL | re.MULTILINE)
-                for match in pad_matches:
-                    meta.partdesign_features.append({
-                        "type": "Pad",
-                        "length_mm": float(match.group(1))
-                    })
-                    meta.dims_mm["pad_length"] = float(match.group(1))
-            
-            # Pockets - match both addObject and newObject patterns
-            pocket_patterns = [
-                r"addObject\('PartDesign::Pocket'[^)]*\).*?\.Length\s*=\s*([\d.]+)",
-                r"newObject\('PartDesign::Pocket'[^)]*\).*?\.Length\s*=\s*([\d.]+)"
-            ]
-            for pattern in pocket_patterns:
-                pocket_matches = re.finditer(pattern, script, re.DOTALL | re.MULTILINE)
-                for match in pocket_matches:
-                    meta.partdesign_features.append({
-                        "type": "Pocket",
-                        "depth_mm": float(match.group(1))
-                    })
-                    meta.dims_mm["pocket_depth"] = float(match.group(1))
-            
-            # Check for Sketcher constraints
-            for constraint in self.SKETCHER_CONSTRAINTS:
-                if f"Constraint.{constraint}" in script or f"'{constraint}'" in script:
-                    if not any(s.get("name") == "MainSketch" for s in meta.sketches):
-                        meta.sketches.append({
-                            "name": "MainSketch",
-                            "constraint_counts": {}
-                        })
-                    sketch = next(s for s in meta.sketches if s["name"] == "MainSketch")
-                    sketch["constraint_counts"][constraint] = \
-                        sketch["constraint_counts"].get(constraint, 0) + 1
+        # Basic body count
+        body_pattern = r"addObject\(['\"]PartDesign::Body['\"]"
+        meta.bodies["count"] = len(re.findall(body_pattern, script))
     
     def _validate_parametric(self, params: Dict[str, Any]):
         """Validate parametric input."""
@@ -708,20 +977,15 @@ class FreeCADRulesEngine:
                 details={"material": material, "machine": machine}
             )
         
-        # Check for ambiguity - inner_radius and wallthickness both define the same thing
+        # Check for ambiguity - Only ambiguous if ALL THREE are provided
+        # Having just 2 of these is valid (they define the third)
         has_radius = "radius" in params
         has_inner_radius = "innerradius" in params  # After normalization
         has_wall_thickness = "wallthickness" in params or "thickness" in params
         
-        # If we have multiple ways to define the geometry, it's ambiguous
-        definitions_count = sum([
-            has_radius and has_inner_radius,
-            has_radius and has_wall_thickness and has_inner_radius,
-            has_inner_radius and has_wall_thickness and not has_radius
-        ])
-        
-        if definitions_count > 0:
-            # Multiple ways to define the same thing
+        # Ambiguous only if all three are provided (over-constrained)
+        if has_radius and has_inner_radius and has_wall_thickness:
+            # All three provided - system is over-constrained
             ambiguous_fields = []
             if has_radius: ambiguous_fields.append("radius")
             if has_inner_radius: ambiguous_fields.append("innerradius")
@@ -729,10 +993,11 @@ class FreeCADRulesEngine:
             
             raise ValidationException(
                 NormalizationErrorCode.AMBIGUOUS_INPUT,
-                "Ambiguous input: multiple radius definitions",
-                "Belirsiz girdi: birden fazla yarıçap tanımı",
+                "Ambiguous input: all three radius parameters provided (over-constrained)",
+                "Belirsiz girdi: üç yarıçap parametresinin hepsi sağlandı (aşırı kısıtlı)",
                 http_status=425,
-                details={"ambiguous_fields": ambiguous_fields}
+                details={"ambiguous_fields": ambiguous_fields, 
+                        "hint": "Provide only 2 of: radius, inner_radius, wall_thickness"}
             )
     
     def _validate_script(self, script: str, meta: ScriptMetadata):
@@ -843,7 +1108,7 @@ class FreeCADRulesEngine:
             )
     
     def _validate_api_compatibility(self, tree: ast.AST, meta: ScriptMetadata):
-        """Validate FreeCAD API compatibility."""
+        """Validate FreeCAD API compatibility using comprehensive registry."""
         
         class APIVisitor(ast.NodeVisitor):
             def __init__(self, engine, meta):
@@ -852,8 +1117,50 @@ class FreeCADRulesEngine:
                 self.api_calls = []
                 self.missing_apis = []
                 self.deprecated_apis = []
+                self.invalid_apis = []
+            
+            def visit_Call(self, node):
+                """Validate function calls against API registry."""
+                func_name = self._get_func_name(node)
+                
+                if func_name:
+                    self.api_calls.append(func_name)
+                    
+                    # Check if API is in registry
+                    if func_name in self.engine.FREECAD_API_REGISTRY:
+                        # Validate argument count
+                        api_spec = self.engine.FREECAD_API_REGISTRY[func_name]
+                        arg_count = len(node.args)
+                        
+                        if arg_count < api_spec["min_args"]:
+                            self.invalid_apis.append(
+                                f"{func_name}: requires at least {api_spec['min_args']} args, got {arg_count}"
+                            )
+                        elif arg_count > api_spec["max_args"]:
+                            self.invalid_apis.append(
+                                f"{func_name}: accepts at most {api_spec['max_args']} args, got {arg_count}"
+                            )
+                    
+                    # Check for deprecated APIs
+                    elif func_name in self.engine.DEPRECATED_APIS:
+                        suggestion = self.engine.DEPRECATED_APIS[func_name]
+                        self.deprecated_apis.append(f"{func_name}: {suggestion}")
+                        self.meta.api_warnings.append(f"API_DEPRECATED: {func_name} - {suggestion}")
+                    
+                    # Check for unknown/invalid APIs
+                    elif any(part in func_name for part in ['Part.', 'App.', 'Sketcher.', 'PartDesign::']):
+                        # It's a FreeCAD API call but not in our registry
+                        # Try to find similar API
+                        similar = self._find_similar_api(func_name)
+                        if similar:
+                            self.missing_apis.append(f"{func_name} (did you mean {similar}?)")
+                        else:
+                            self.missing_apis.append(func_name)
+                
+                self.generic_visit(node)
             
             def visit_Attribute(self, node):
+                """Check for attribute-based API calls."""
                 # Build full attribute chain
                 chain = []
                 current = node
@@ -865,30 +1172,69 @@ class FreeCADRulesEngine:
                 
                 chain.reverse()
                 full_name = '.'.join(chain)
-                self.api_calls.append(full_name)
                 
-                # Check for deprecated APIs
-                if full_name in FreeCADRulesEngine.DEPRECATED_APIS:
-                    suggestion = FreeCADRulesEngine.DEPRECATED_APIS[full_name]
+                # Check for deprecated attribute access
+                if full_name in self.engine.DEPRECATED_APIS:
+                    suggestion = self.engine.DEPRECATED_APIS[full_name]
                     self.deprecated_apis.append(f"{full_name}: {suggestion}")
                     self.meta.api_warnings.append(f"API_DEPRECATED: {full_name} - {suggestion}")
                 
-                # Check for missing APIs (simplified - would need real FreeCAD API list)
-                if "Part.makeBoxx" in full_name or "Part.invalidMethod" in full_name:
-                    self.missing_apis.append(full_name)
-                
                 self.generic_visit(node)
+            
+            def _get_func_name(self, node):
+                """Extract function name from Call node."""
+                if isinstance(node.func, ast.Name):
+                    return node.func.id
+                elif isinstance(node.func, ast.Attribute):
+                    parts = []
+                    current = node.func
+                    while isinstance(current, ast.Attribute):
+                        parts.append(current.attr)
+                        current = current.value
+                    if isinstance(current, ast.Name):
+                        parts.append(current.id)
+                    return '.'.join(reversed(parts))
+                return None
+            
+            def _find_similar_api(self, api_name):
+                """Find similar API in registry (simple string similarity)."""
+                # Simple similarity check - could be enhanced with Levenshtein distance
+                api_parts = api_name.split('.')
+                if len(api_parts) >= 2:
+                    base = api_parts[0]
+                    method = api_parts[-1]
+                    
+                    # Look for similar methods in same module
+                    for registered_api in self.engine.FREECAD_API_REGISTRY:
+                        if registered_api.startswith(base + '.'):
+                            reg_method = registered_api.split('.')[-1]
+                            if reg_method.lower() == method.lower():
+                                return registered_api
+                            # Check for common typos
+                            if method.replace('make', '') == reg_method.replace('make', ''):
+                                return registered_api
+                return None
         
         visitor = APIVisitor(self, meta)
         visitor.visit(tree)
+        
+        # Report validation errors
+        if visitor.invalid_apis:
+            error = visitor.invalid_apis[0]
+            raise ValidationException(
+                NormalizationErrorCode.API_NOT_FOUND,
+                f"Invalid API usage: {error}",
+                f"Geçersiz API kullanımı: {error}",
+                http_status=422,
+                details={"invalid_apis": visitor.invalid_apis}
+            )
         
         if visitor.missing_apis:
             api = visitor.missing_apis[0]
             raise ValidationException(
                 NormalizationErrorCode.API_NOT_FOUND,
                 f"API not found: {api}",
-                f"API bulunamadı: {api} FreeCAD 1.1.0 içinde yok veya erişilemez. "
-                f"Öneri: güncel API'yi kullanın: Part.makeBox",
+                f"API bulunamadı: {api} FreeCAD 1.1.0 içinde yok veya erişilemez.",
                 http_status=422,
                 details={"missing_apis": visitor.missing_apis}
             )
