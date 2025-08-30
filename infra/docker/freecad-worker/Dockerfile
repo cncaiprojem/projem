@@ -11,9 +11,9 @@
 # ==============================================================================
 
 # Build argument for FreeCAD AppImage SHA256 verification
-# IMPORTANT: This is a placeholder that will cause build to fail safely
-# TODO: Replace with actual FreeCAD 1.1.0 AppImage SHA256 hash
-ARG FREECAD_SHA256=REPLACE_ME_WITH_ACTUAL_FREECAD_SHA256_BEFORE_DEPLOYMENT
+# IMPORTANT: This MUST be provided at build time for production
+# The actual FreeCAD 1.1.0 AppImage SHA256 hash must be specified
+ARG FREECAD_SHA256
 # Build argument to skip SHA256 verification in CI/test environments
 ARG SKIP_SHA256_CHECK=false
 

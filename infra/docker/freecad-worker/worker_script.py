@@ -563,11 +563,15 @@ class FreeCADWorker:
         
         # CPU time limits
         if self.args.cpu_seconds > 0:
-            # resource module is not available on Windows, but this runs in Linux container
-            if hasattr(signal, 'SIGXCPU'):
+            # Import resource module (not available on Windows, but this runs in Linux container)
+            try:
                 import resource
-                resource.setrlimit(resource.RLIMIT_CPU, (self.args.cpu_seconds, self.args.cpu_seconds))
-                signal.signal(signal.SIGXCPU, self._cpu_limit_handler)
+                # Only set limits if SIGXCPU signal is available
+                if hasattr(signal, 'SIGXCPU'):
+                    resource.setrlimit(resource.RLIMIT_CPU, (self.args.cpu_seconds, self.args.cpu_seconds))
+                    signal.signal(signal.SIGXCPU, self._cpu_limit_handler)
+            except ImportError:
+                logger.warning("Resource module not available, CPU limits cannot be enforced")
     
     def _validate_path_security(self, path: str, allowed_dir: str, path_type: str = "path") -> str:
         """Validate a path is within allowed directory to prevent path traversal.
@@ -583,14 +587,14 @@ class FreeCADWorker:
         Raises:
             ValueError: If path traversal is detected
         """
+        # Resolve the allowed directory first
+        real_allowed = os.path.realpath(allowed_dir)
+        
         # Check if path is absolute - if so, don't join with allowed_dir
         if os.path.isabs(path):
             real_path = os.path.realpath(path)
         else:
-            real_allowed = os.path.realpath(allowed_dir)
             real_path = os.path.realpath(os.path.join(real_allowed, path))
-        
-        real_allowed = os.path.realpath(allowed_dir)
         
         if not real_path.startswith(real_allowed):
             raise ValueError(f"Invalid {path_type} (potential path traversal): {path}")

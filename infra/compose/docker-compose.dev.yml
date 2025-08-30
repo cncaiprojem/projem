@@ -698,8 +698,8 @@ services:
     # and are automatically cleared when the container stops
     tmpfs:
       - /tmp:noexec,nosuid,size=500M      # System temp directory
-      - /work:size=1G                     # Working directory for FreeCAD operations
-      - /app/temp:size=200M                # Application-specific temp storage
+      - /work:noexec,nosuid,size=1G      # Working directory for FreeCAD operations (noexec for security)
+      - /app/temp:noexec,nosuid,size=200M # Application-specific temp storage (noexec for security)
     
     # Resource limits for intensive FreeCAD operations
     deploy:
