@@ -573,7 +573,8 @@ class FreeCADWorker:
             except ImportError:
                 logger.warning("Resource module not available, CPU limits cannot be enforced")
     
-    def _validate_path_security(self, path: str, allowed_dir: str, path_type: str = "path") -> str:
+    @staticmethod
+    def _validate_path_security(path: str, allowed_dir: str, path_type: str = "path") -> str:
         """Validate a path is within allowed directory to prevent path traversal.
         
         Args:
@@ -596,7 +597,9 @@ class FreeCADWorker:
         else:
             real_path = os.path.realpath(os.path.join(real_allowed, path))
         
-        if not real_path.startswith(real_allowed):
+        # Use os.path.commonpath for more robust security check
+        # This prevents bypass attacks like /tmp/data vs /tmp/data-secret
+        if os.path.commonpath([real_path, real_allowed]) != real_allowed:
             raise ValueError(f"Invalid {path_type} (potential path traversal): {path}")
             
         return real_path
@@ -839,7 +842,7 @@ class FreeCADWorker:
                 raise ValueError("Input file not provided in input data")
             
             # Security: Prevent path traversal - ensure input file is within /work directory
-            input_file = self._validate_path_security(input_file, '/work', 'input file')
+            input_file = FreeCADWorker._validate_path_security(input_file, '/work', 'input file')
             
             if not os.path.exists(input_file):
                 raise ValueError(f"Input file not found: {input_file}")
@@ -1180,23 +1183,21 @@ def validate_arguments(args) -> List[str]:
     errors = []
     
     if args.flow:
-        work_dir = os.path.realpath('/work')
+        work_dir = '/work'
         
         # Validate required arguments for workflow execution
         if not args.input:
             errors.append("--input is required for workflow execution")
         else:
             try:
-                # Properly handle both absolute and relative paths
-                if os.path.isabs(args.input):
-                    real_input_path = os.path.realpath(args.input)
-                else:
-                    real_input_path = os.path.realpath(os.path.join(work_dir, args.input))
-                
-                if not real_input_path.startswith(work_dir):
-                    errors.append(f"Invalid input file path (potential path traversal): {args.input}")
-                elif not os.path.exists(real_input_path):
+                # Use the secure static method for path validation
+                real_input_path = FreeCADWorker._validate_path_security(
+                    args.input, work_dir, "input file"
+                )
+                if not os.path.exists(real_input_path):
                     errors.append(f"Input file not found: {args.input}")
+            except ValueError as e:
+                errors.append(str(e))
             except Exception as e:
                 errors.append(f"Error validating input path: {e}")
             
@@ -1204,19 +1205,17 @@ def validate_arguments(args) -> List[str]:
             errors.append("--outdir is required for workflow execution")
         else:
             try:
-                # Properly handle both absolute and relative paths
-                if os.path.isabs(args.outdir):
-                    real_outdir_path = os.path.realpath(args.outdir)
-                else:
-                    real_outdir_path = os.path.realpath(os.path.join(work_dir, args.outdir))
-                
-                if not real_outdir_path.startswith(work_dir):
-                    errors.append(f"Invalid output directory path (potential path traversal): {args.outdir}")
-                elif not os.path.exists(real_outdir_path):
+                # Use the secure static method for path validation
+                real_outdir_path = FreeCADWorker._validate_path_security(
+                    args.outdir, work_dir, "output directory"
+                )
+                if not os.path.exists(real_outdir_path):
                     try:
                         os.makedirs(real_outdir_path, exist_ok=True)
                     except Exception as e:
                         errors.append(f"Cannot create output directory {real_outdir_path}: {e}")
+            except ValueError as e:
+                errors.append(str(e))
             except Exception as e:
                 errors.append(f"Error validating output directory: {e}")
         
@@ -1227,18 +1226,16 @@ def validate_arguments(args) -> List[str]:
     if args.techdraw == 'on' and args.td_template:
         try:
             # Security: Prevent path traversal - templates must be in /app/templates
-            allowed_template_dir = os.path.realpath('/app/templates')
+            allowed_template_dir = '/app/templates'
             
-            # Properly handle both absolute and relative paths
-            if os.path.isabs(args.td_template):
-                real_template_path = os.path.realpath(args.td_template)
-            else:
-                real_template_path = os.path.realpath(os.path.join(allowed_template_dir, args.td_template))
-            
-            if not real_template_path.startswith(allowed_template_dir):
-                errors.append(f"Invalid TechDraw template path (potential path traversal): {args.td_template}")
-            elif not os.path.exists(real_template_path):
+            # Use the secure static method for path validation
+            real_template_path = FreeCADWorker._validate_path_security(
+                args.td_template, allowed_template_dir, "TechDraw template"
+            )
+            if not os.path.exists(real_template_path):
                 errors.append(f"TechDraw template not found: {args.td_template}")
+        except ValueError as e:
+            errors.append(str(e))
         except Exception as e:
             errors.append(f"Error validating TechDraw template path: {e}")
     
