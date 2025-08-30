@@ -228,9 +228,15 @@ def get_cgroup_limits() -> Dict[str, Any]:
         for path in cpu_quota_paths:
             if os.path.exists(path):
                 with open(path, 'r') as f:
-                    quota = f.read().strip()
-                    if quota != 'max' and quota.isdigit():
-                        cgroup_info['cpu_quota'] = int(quota)
+                    content = f.read().strip()
+                    if content != 'max':
+                        # Handle both cgroup v1 (single value) and v2 (space-separated quota period)
+                        parts = content.split()
+                        if parts[0].isdigit():
+                            cgroup_info['cpu_quota'] = int(parts[0])
+                        # For cgroup v2, also capture period if present
+                        if len(parts) > 1 and parts[1].isdigit():
+                            cgroup_info['cpu_period'] = int(parts[1])
                 break
                 
         cpu_period_paths = [
@@ -364,7 +370,7 @@ class ResourceMonitor:
                         # Use integer division with explicit minimum interval of 0.001
                         # Cap at 1000 to prevent performance issues with very small intervals
                         safe_interval = max(self.interval, 0.001)  # Ensure minimum interval
-                        log_interval_samples = min(int(30 // safe_interval), 1000) if self.interval > 0 else 0
+                        log_interval_samples = min(int(30 // safe_interval), 1000)
                         if log_interval_samples > 0 and len(self.samples) % log_interval_samples == 0:
                             logger.info(f"Resource stats: CPU {stats['cpu_percent']:.1f}%, RSS {stats['rss_mb']:.1f}MB, Threads {stats['num_threads']}")
                             
@@ -898,11 +904,16 @@ class FreeCADWorker:
         """Export FreeCAD model in multiple formats."""
         artefacts = []
         
+        # Import the FreeCAD Import module
         try:
             import Import
-            
-            # Export FCStd
-            fcstd_path = os.path.join(self.args.outdir, f"{base_name}.FCStd")
+        except ImportError as e:
+            logger.error(f"Failed to import FreeCAD's Import module: {e}")
+            return artefacts
+        
+        # Export FCStd - native FreeCAD format
+        fcstd_path = os.path.join(self.args.outdir, f"{base_name}.FCStd")
+        try:
             doc.saveAs(fcstd_path)
             if os.path.exists(fcstd_path):
                 artefacts.append({
@@ -911,33 +922,45 @@ class FreeCADWorker:
                     'path': fcstd_path,
                     'size_bytes': os.path.getsize(fcstd_path)
                 })
-            
-            # Export STEP
-            step_path = os.path.join(self.args.outdir, f"{base_name}.step")
-            Import.export([obj for obj in doc.Objects if hasattr(obj, 'Shape')], step_path)
-            if os.path.exists(step_path):
-                artefacts.append({
-                    'type': 'cad_model',
-                    'format': 'STEP',
-                    'path': step_path,
-                    'size_bytes': os.path.getsize(step_path)
-                })
-            
-            # Export STL
-            stl_path = os.path.join(self.args.outdir, f"{base_name}.stl")
-            Import.export([obj for obj in doc.Objects if hasattr(obj, 'Shape')], stl_path)
-            if os.path.exists(stl_path):
-                artefacts.append({
-                    'type': 'mesh_model',
-                    'format': 'STL',
-                    'path': stl_path,
-                    'size_bytes': os.path.getsize(stl_path)
-                })
-            
-            logger.info(f"Model exported in {len(artefacts)} formats")
-            
+                logger.info(f"Exported FCStd: {fcstd_path}")
         except Exception as e:
-            logger.error(f"Model export failed: {e}")
+            logger.error(f"FCStd export failed: {e}")
+        
+        # Export STEP - standard CAD exchange format
+        step_path = os.path.join(self.args.outdir, f"{base_name}.step")
+        try:
+            shapes = [obj for obj in doc.Objects if hasattr(obj, 'Shape')]
+            if shapes:
+                Import.export(shapes, step_path)
+                if os.path.exists(step_path):
+                    artefacts.append({
+                        'type': 'cad_model',
+                        'format': 'STEP',
+                        'path': step_path,
+                        'size_bytes': os.path.getsize(step_path)
+                    })
+                    logger.info(f"Exported STEP: {step_path}")
+        except Exception as e:
+            logger.error(f"STEP export failed: {e}")
+        
+        # Export STL - mesh format for 3D printing
+        stl_path = os.path.join(self.args.outdir, f"{base_name}.stl")
+        try:
+            shapes = [obj for obj in doc.Objects if hasattr(obj, 'Shape')]
+            if shapes:
+                Import.export(shapes, stl_path)
+                if os.path.exists(stl_path):
+                    artefacts.append({
+                        'type': 'mesh_model',
+                        'format': 'STL',
+                        'path': stl_path,
+                        'size_bytes': os.path.getsize(stl_path)
+                    })
+                    logger.info(f"Exported STL: {stl_path}")
+        except Exception as e:
+            logger.error(f"STL export failed: {e}")
+        
+        logger.info(f"Model exported in {len(artefacts)} formats")
             
         return artefacts
     
