@@ -244,17 +244,17 @@ def get_cgroup_limits() -> Dict[str, Any]:
                 with open(path, 'r') as f:
                     content = f.read().strip()
                     if content != 'max':
-                        # Handle both cgroup v1 (single value) and v2 (space-separated quota period)
                         parts = content.split()
-                        # Validate first part is a number (positive or -1 for unlimited)
-                        if parts and len(parts[0]) > 0:
-                            try:
+                        if not parts:
+                            continue  # Skip empty or whitespace-only lines
+                        try:
+                            # cgroup v2 format can be "quota period" or just "quota"
+                            if parts[0] != 'max':
                                 cgroup_info['cpu_quota'] = int(parts[0])
-                            except ValueError:
-                                pass  # Invalid number, skip
-                        # For cgroup v2, also capture period if present
-                        if len(parts) > 1 and parts[1].isdigit():
-                            cgroup_info['cpu_period'] = int(parts[1])
+                            if len(parts) > 1:
+                                cgroup_info['cpu_period'] = int(parts[1])
+                        except (ValueError, IndexError) as e:
+                            logger.warning(f"Could not parse cgroup cpu.max content: '{content}'. Error: {e}")
                 break
                 
         # Only check for v1 period if not already found in v2 or if v2 period is invalid

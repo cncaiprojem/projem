@@ -162,7 +162,7 @@ RUN python3 -m pip install --no-cache-dir /tmp/wheels/*.whl && \
 
 # Create non-root user for security
 RUN groupadd -g 10001 freecad && \
-    useradd -u 10001 -g freecad -m -s /bin/bash freecad && \
+    useradd -u 10001 -g freecad -m -s /usr/sbin/nologin freecad && \
     # Create working directories
     mkdir -p /app /work /tmp/freecad && \
     chown -R freecad:freecad /app /work /tmp/freecad
