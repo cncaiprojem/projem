@@ -10,6 +10,8 @@
 # - Security hardening with non-root execution
 # ==============================================================================
 
+# Build argument for FreeCAD AppImage URL - configurable for mirrors or vetted artifacts
+ARG FREECAD_APPIMAGE_URL="https://github.com/FreeCAD/FreeCAD/releases/download/1.1.0/FreeCAD_1.1.0-Linux-x86_64.AppImage"
 # Build argument for FreeCAD AppImage SHA256 verification
 # IMPORTANT: This MUST be provided at build time for production
 # The actual FreeCAD 1.1.0 AppImage SHA256 hash must be specified
@@ -61,10 +63,11 @@ RUN python3 -m pip install --upgrade pip wheel && \
     python3 -m pip wheel -r requirements.txt --wheel-dir=/build/wheels
 
 # Download and verify FreeCAD 1.1.0 AppImage
+ARG FREECAD_APPIMAGE_URL
 ARG FREECAD_SHA256
 ARG SKIP_SHA256_CHECK
 RUN curl -L -o FreeCAD_1.1.0.AppImage \
-    "https://github.com/FreeCAD/FreeCAD/releases/download/1.1.0/FreeCAD_1.1.0-Linux-x86_64.AppImage" && \
+    "${FREECAD_APPIMAGE_URL}" && \
     if [ "${SKIP_SHA256_CHECK}" = "true" ]; then \
         echo "WARNING: Skipping SHA256 verification (CI/test mode)."; \
     else \

@@ -245,16 +245,17 @@ def get_cgroup_limits() -> Dict[str, Any]:
                     content = f.read().strip()
                     if content != 'max':
                         parts = content.split()
-                        if not parts:
-                            continue  # Skip empty or whitespace-only lines
-                        try:
-                            # cgroup v2 format can be "quota period" or just "quota"
-                            if parts[0] != 'max':
-                                cgroup_info['cpu_quota'] = int(parts[0])
-                            if len(parts) > 1:
-                                cgroup_info['cpu_period'] = int(parts[1])
-                        except (ValueError, IndexError) as e:
-                            logger.warning(f"Could not parse cgroup cpu.max content: '{content}'. Error: {e}")
+                        # Empty file means no limit is set, still break to avoid checking other paths
+                        if parts:
+                            try:
+                                # cgroup v2 format can be "quota period" or just "quota"
+                                if parts[0] != 'max':
+                                    cgroup_info['cpu_quota'] = int(parts[0])
+                                if len(parts) > 1:
+                                    cgroup_info['cpu_period'] = int(parts[1])
+                            except (ValueError, IndexError) as e:
+                                logger.warning(f"Could not parse cgroup cpu.max content: '{content}'. Error: {e}")
+                # Break after processing the first existing file, regardless of content
                 break
                 
         # Only check for v1 period if not already found in v2 or if v2 period is invalid
