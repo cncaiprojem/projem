@@ -297,21 +297,31 @@ class DeterministicExporter:
         Returns:
             True if structure appears valid, False otherwise
         """
-        # Check for essential STEP file markers
-        required_markers = [
-            'ISO-10303-21',
-            'HEADER',
-            'ENDSEC',
-            'DATA',
-            'END-ISO-10303-21'
-        ]
+        import re
         
-        for marker in required_markers:
-            if marker not in content:
-                logger.warning(f"STEP file missing required marker: {marker}")
-                return False
+        # Use compiled regex for efficient multi-marker search
+        # This performs a single pass through the content
+        required_pattern = re.compile(
+            r'ISO-10303-21.*HEADER.*ENDSEC.*DATA.*END-ISO-10303-21',
+            re.DOTALL
+        )
         
-        # Check that HEADER comes before DATA
+        if not required_pattern.search(content):
+            # Only if pattern fails, check individual markers for specific error
+            required_markers = [
+                'ISO-10303-21',
+                'HEADER',
+                'ENDSEC',
+                'DATA',
+                'END-ISO-10303-21'
+            ]
+            
+            for marker in required_markers:
+                if marker not in content:
+                    logger.warning(f"STEP file missing required marker: {marker}")
+                    return False
+        
+        # Check that HEADER comes before DATA (already validated by regex)
         header_pos = content.find('HEADER')
         data_pos = content.find('DATA')
         if header_pos > data_pos:

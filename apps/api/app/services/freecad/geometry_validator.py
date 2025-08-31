@@ -645,7 +645,7 @@ class GeometryValidator:
                         
                         # OpenCASCADE line-solid intersection returns edges/vertices (not volume)
                         # Checking edges confirms ray hits solid surface - correct approach
-                        if intersections and (hasattr(intersections, 'Edges') and intersections.Edges):
+                        if intersections and getattr(intersections, 'Edges', None):
                             # Ray intersects with part - check if tool can fit
                             # This is a simplified check - real implementation would
                             # analyze the clearance around the intersection point

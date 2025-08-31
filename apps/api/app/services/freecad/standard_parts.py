@@ -894,10 +894,39 @@ doc.recompute()"""
             
         Returns:
             Template string with {{param}} syntax for Jinja2
+            
+        Raises:
+            ValueError: If template contains nested braces or invalid syntax
         """
-        # Replace {param} with {{param}}, but not {{param}} (already converted)
+        # Check if already in Jinja2 format (contains {{ and }})
+        if '{{' in template_str and '}}' in template_str:
+            # Already in Jinja2 format, return as-is
+            return template_str
+        
+        # Check for nested braces like {{inner}}
+        brace_depth = 0
+        for char in template_str:
+            if char == '{':
+                brace_depth += 1
+                if brace_depth > 1:
+                    raise ValueError(
+                        f"Template contains nested braces which are not supported: {template_str}"
+                    )
+            elif char == '}':
+                brace_depth -= 1
+                if brace_depth < 0:
+                    raise ValueError(
+                        f"Template contains unmatched closing brace: {template_str}"
+                    )
+        
+        if brace_depth != 0:
+            raise ValueError(
+                f"Template contains unmatched opening brace: {template_str}"
+            )
+        
+        # Safe to convert: Replace {param} with {{param}}
         # This regex matches {word} but not {{word}}
-        pattern = r'(?<!\{)\{([^{}]+)\}(?!\})'
+        pattern = r'\{([^{}]+)\}'
         return re.sub(pattern, r'{{\1}}', template_str)
 
 

@@ -475,7 +475,7 @@ class ExplodedViewGenerator:
                             for i in range(3)
                         ]
         except Exception as e:
-            logger.debug(f"Collision adjustment failed for {comp_id}: {e}")
+            logger.warning(f"Collision adjustment failed for {comp_id}: {e}", exc_info=True)
         
         return exploded_pos
     

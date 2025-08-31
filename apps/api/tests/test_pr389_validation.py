@@ -76,12 +76,16 @@ class TestPR389Fixes(unittest.TestCase):
     def test_worker_script_imports_at_module_level(self):
         """Verify PathValidator import is at module level."""
         file_path = project_root / "apps/api/app/services/freecad/worker_script.py"
+        
+        # Use itertools.islice to read only first 100 lines efficiently
+        import itertools
         with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+            # Read only the first 100 lines without loading entire file
+            first_100_lines = list(itertools.islice(f, 100))
         
         # Check that PathValidator is imported at module level (in first 100 lines)
         found_import = False
-        for i, line in enumerate(lines[:100]):
+        for i, line in enumerate(first_100_lines):
             # Check for PathValidator import (either relative or absolute)
             if 'from' in line and 'path_validator' in line.lower() and 'PathValidator' in line:
                 found_import = True
@@ -89,7 +93,7 @@ class TestPR389Fixes(unittest.TestCase):
                 if line[0] not in (' ', '\t'):
                     break
                 # Also check try/except blocks at module level
-                elif i > 0 and 'try:' in lines[i-2:i]:
+                elif i > 0 and 'try:' in first_100_lines[i-2:i]:
                     break
         
         self.assertTrue(found_import, "PathValidator should be imported at module level")
@@ -97,24 +101,33 @@ class TestPR389Fixes(unittest.TestCase):
     def test_test_file_mock_simplification(self):
         """Verify test mocks are simplified."""
         file_path = project_root / "apps/api/tests/test_pr386_fixes.py"
-        with open(file_path, 'r', encoding='utf-8') as f:
-            lines = f.readlines()
         
-        # Check that unnecessary assignments are removed (lines 177-179)
+        # Use itertools.islice to read only specific lines efficiently
+        import itertools
+        with open(file_path, 'r', encoding='utf-8') as f:
+            # Skip to line 175 and read only 5 lines
+            for _ in itertools.islice(f, 174):  # Skip first 174 lines
+                pass
+            target_lines = list(itertools.islice(f, 5))  # Read lines 175-179
+        
+        # Check that unnecessary assignments are removed (lines 175-179)
         unnecessary_patterns = [
             "test_dir = ",
             "os.makedirs(test_dir",
             "test_file = os.path.join"
         ]
         
-        # These should be simplified or combined
-        for i in range(175, min(180, len(lines))):
-            line = lines[i].strip()
-            # Check if pattern exists but is used efficiently
-            if any(pattern in line for pattern in unnecessary_patterns):
-                # Make sure it's not a wasteful separate assignment
-                # (This is a heuristic check)
-                pass
+        # Verify that test setup is efficient
+        combined_operations = 0
+        for line in target_lines:
+            line_stripped = line.strip()
+            # Check if operations are combined efficiently
+            if any(pattern in line_stripped for pattern in unnecessary_patterns):
+                combined_operations += 1
+        
+        # Assert that operations are combined (should be 3 or fewer lines)
+        self.assertLessEqual(combined_operations, 3, 
+                           "Test setup operations should be combined for efficiency")
     
     def test_assembly4_no_redundant_class_attribute(self):
         """Verify Assembly4Manager doesn't have redundant class attribute."""

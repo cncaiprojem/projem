@@ -320,14 +320,25 @@ class BOMExtractor:
                     with tempfile.NamedTemporaryFile(suffix='.brep', delete=False) as tmp_file:
                         tmp_path = tmp_file.name
                     
+                    brep_success = False
                     try:
                         obj.Shape.exportBrep(tmp_path)
                         with open(tmp_path, 'rb') as f:
                             hasher.update(f.read())
+                        brep_success = True
                     except Exception as e:
                         # Handle BREP export failures gracefully
                         logger.debug(f"BREP export failed, falling back to bbox dimensions: {e}")
-                        # Fallback to bounding box dimensions
+                    finally:
+                        # Ensure temporary file is always cleaned up
+                        try:
+                            if os_module.path.exists(tmp_path):
+                                os_module.unlink(tmp_path)
+                        except Exception as cleanup_error:
+                            logger.debug(f"Failed to clean up temporary file {tmp_path}: {cleanup_error}")
+                    
+                    # Fallback to bounding box dimensions if BREP export failed
+                    if not brep_success:
                         bbox = obj.Shape.BoundBox
                         batch_data = '|'.join([
                             str(obj.Shape.Volume),
@@ -337,12 +348,6 @@ class BOMExtractor:
                             str(bbox.ZLength)
                         ])
                         hasher.update(batch_data.encode('utf-8'))
-                    finally:
-                        # Clean up the temporary file
-                        try:
-                            os_module.remove(tmp_path)
-                        except Exception:
-                            pass  # Best effort cleanup
                 else:
                     # Fallback: use basic properties including bounding box dimensions
                     # Batch hash updates with delimiter for efficiency

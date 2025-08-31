@@ -130,9 +130,7 @@ ARTEFACT_TYPE_MAP = {
     'FCStd': 'freecad_document',
     'STEP': 'cad_model',
     'STL': 'mesh_model',
-    'GLB': 'gltf_model',
-    # Default fallback for unknown formats
-    'DEFAULT': 'model'
+    'GLB': 'gltf_model'
 }
 
 # Configure logging
@@ -1592,7 +1590,7 @@ class FreeCADWorker:
             for fmt, export_info in export_results.items():
                 if "path" in export_info and "error" not in export_info:
                     # Map format to artefact type using dictionary lookup
-                    artefact_type = ARTEFACT_TYPE_MAP.get(fmt, ARTEFACT_TYPE_MAP['DEFAULT'])
+                    artefact_type = ARTEFACT_TYPE_MAP.get(fmt, 'model')  # Default to 'model' for unknown formats
                     
                     artefacts.append({
                         'type': artefact_type,
