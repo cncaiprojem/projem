@@ -52,6 +52,13 @@ from ..services.license_service import LicenseService
 from ..models.license import License
 from ..core import metrics
 from .freecad_document_manager import FreeCADDocumentManager, document_manager, DocumentException, DocumentErrorCode
+from .freecad_rules_engine import (
+    FreeCADRulesEngine,
+    freecad_rules_engine,
+    ValidationException,
+    NormalizationErrorCode,
+    NormalizationResult
+)
 from ..schemas.freecad import (
     FreeCADHealthCheckResponse,
     MetricsSummaryResponse,
@@ -97,12 +104,14 @@ class FreeCADException(Exception):
         message: str, 
         error_code: FreeCADErrorCode, 
         turkish_message: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None
+        details: Optional[Dict[str, Any]] = None,
+        http_status: int = 500
     ):
         super().__init__(message)
         self.error_code = error_code
         self.turkish_message = turkish_message or message
         self.details = details or {}
+        self.http_status = http_status
 
 
 class ResourceLimits(BaseModel):
@@ -1297,6 +1306,186 @@ class UltraEnterpriseFreeCADService:
             self.circuit_breaker.state = 'CLOSED'
             self.circuit_breaker.last_failure_time = None
             logger.info("circuit_breaker_reset_manually")
+    
+    def normalize_and_validate(
+        self,
+        input_data: Dict[str, Any],
+        job_id: Optional[str] = None
+    ) -> NormalizationResult:
+        """
+        Normalize and validate input using the rules engine.
+        
+        This integrates Task 7.3 rules engine for deterministic normalization
+        and validation of both parametric inputs and FreeCAD scripts.
+        
+        Args:
+            input_data: Input containing parametric data or FreeCAD script
+            job_id: Optional job ID for correlation
+            
+        Returns:
+            NormalizationResult with canonical forms and validation status
+            
+        Raises:
+            ValidationException: If validation fails with specific error code
+        """
+        correlation_id = get_correlation_id()
+        
+        with create_span("freecad_normalize_validate", correlation_id=correlation_id) as span:
+            if job_id:
+                span.set_attribute("job.id", job_id)
+            span.set_attribute("input.type", "script" if "script" in input_data else "parametric")
+            
+            try:
+                # Use the rules engine for normalization and validation
+                result = freecad_rules_engine.validate(input_data)
+                
+                if result.success:
+                    logger.info("normalization_validation_success",
+                              job_id=job_id,
+                              has_script=result.canonical_script is not None,
+                              has_params=result.canonical_params is not None,
+                              script_hash=result.script_meta.script_hash if result.script_meta else None,
+                              correlation_id=correlation_id)
+                    
+                    # Record metrics
+                    metrics.freecad_normalization_total.labels(
+                        status="success",
+                        input_type="script" if result.canonical_script else "parametric"
+                    ).inc()
+                else:
+                    logger.warning("normalization_validation_failed",
+                                 job_id=job_id,
+                                 errors=result.errors,
+                                 correlation_id=correlation_id)
+                    
+                    metrics.freecad_normalization_total.labels(
+                        status="failed",
+                        input_type="script" if "script" in input_data else "parametric"
+                    ).inc()
+                
+                return result
+                
+            except ValidationException as e:
+                logger.error("validation_exception",
+                           job_id=job_id,
+                           error_code=e.code,
+                           message=e.turkish_message,
+                           details=e.details,
+                           correlation_id=correlation_id)
+                
+                metrics.freecad_validation_errors_total.labels(
+                    error_code=e.code
+                ).inc()
+                
+                # Convert to FreeCAD exception for consistency, preserving http_status
+                raise FreeCADException(
+                    str(e),
+                    FreeCADErrorCode.VALIDATION_FAILED,
+                    e.turkish_message,
+                    e.details,
+                    e.http_status  # Preserve original http_status
+                )
+            except Exception as e:
+                logger.error("unexpected_normalization_error",
+                           job_id=job_id,
+                           error=str(e),
+                           correlation_id=correlation_id,
+                           exc_info=True)
+                
+                raise FreeCADException(
+                    f"Normalization failed: {str(e)}",
+                    FreeCADErrorCode.VALIDATION_FAILED,
+                    f"Normalleştirme başarısız: {str(e)}"
+                )
+    
+    def normalize_parametric_input(
+        self,
+        params: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Normalize parametric input to canonical form.
+        
+        Convenience method for parametric-only normalization.
+        
+        Args:
+            params: Parametric input data
+            
+        Returns:
+            Canonical parameters dictionary
+        """
+        try:
+            result = freecad_rules_engine.normalize(params)
+            # Note: The normalize() method raises ValidationException on failure,
+            # so we'll never get a result.success == False case here.
+            # The code below is only reached if normalization succeeds.
+            
+            # Log successful normalization
+            logger.debug("parametric_normalization_success",
+                       canonical_keys=list(result.canonical_params.keys()) if result.canonical_params else [])
+            
+            return result.canonical_params
+        except ValidationException as e:
+            # Log validation exception details before re-raising
+            logger.error("parametric_normalization_validation_error",
+                       error_code=e.code,
+                       message=str(e),
+                       turkish_message=e.turkish_message,
+                       details=e.details,
+                       exc_info=True)
+            
+            # Convert ValidationException to FreeCADException, preserving http_status
+            raise FreeCADException(
+                str(e),
+                FreeCADErrorCode.VALIDATION_FAILED,
+                e.turkish_message,
+                details=e.details,
+                http_status=e.http_status
+            )
+        except Exception as e:
+            # Log unexpected exception with full traceback
+            logger.error("parametric_normalization_unexpected_error",
+                       error=str(e),
+                       error_type=type(e).__name__,
+                       exc_info=True)
+            
+            # Handle unexpected exceptions
+            raise FreeCADException(
+                f"Unexpected error during normalization: {str(e)}",
+                FreeCADErrorCode.VALIDATION_FAILED,
+                f"Normalleştirme sırasında beklenmeyen hata: {str(e)}"
+            )
+    
+    def validate_freecad_script(
+        self,
+        script: str,
+        job_id: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Validate a FreeCAD Python script for security and correctness.
+        
+        Args:
+            script: FreeCAD Python script to validate
+            job_id: Optional job ID for correlation
+            
+        Returns:
+            Dictionary with validation results and metadata
+            
+        Raises:
+            ValidationException: If script validation fails
+        """
+        input_data = {"script": script}
+        result = self.normalize_and_validate(input_data, job_id)
+        
+        return {
+            "valid": result.success,
+            "canonical_script": result.canonical_script,
+            "script_hash": result.script_meta.script_hash if result.script_meta else None,
+            "modules_used": result.script_meta.modules_used if result.script_meta else [],
+            "conversions_applied": [c.dict() for c in result.script_meta.conversions_applied] if result.script_meta else [],
+            "dimensions_mm": result.script_meta.dims_mm if result.script_meta else {},
+            "warnings": result.warnings,
+            "errors": result.errors
+        }
     
     def shutdown(self):
         """Graceful shutdown of the service."""
