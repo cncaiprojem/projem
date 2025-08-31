@@ -606,33 +606,26 @@ class GeometryValidator:
             # Get bounding box for initial analysis
             bbox = shape.BoundBox
             
-            # Improved approach using ray casting for tool accessibility
-            # Sample points on the top surface and cast rays downward
-            import Part
+            # Define tool parameters
+            tool_params = self._get_tool_parameters()
             
-            # Define tool parameters (should be configurable)
-            tool_diameter = 10.0  # mm, typical end mill
-            tool_length = 50.0    # mm, typical tool length
-            tool_radius = tool_diameter / 2.0
+            # Perform ray casting analysis
+            inaccessible_regions, clearance_issues = self._perform_ray_casting_analysis(
+                shape, bbox, tool_params
+            )
             
-            # CNC machining rule: minimum internal radius = (depth/10) + 0.5mm
-            # and corresponding tool diameter = depth/5
-            # Reference: Industry standard for avoiding tool breakage
+            # Analyze and report accessibility issues
+            self._analyze_accessibility_issues(
+                result, inaccessible_regions, clearance_issues, tool_params
+            )
             
-            # Create a grid of test points for ray casting
-            grid_resolution = 10  # Number of rays in each direction
-            x_step = bbox.XLength / grid_resolution
-            y_step = bbox.YLength / grid_resolution
+            # Check minimum internal radius requirements
+            self._check_internal_radius_requirements(
+                result, shape, bbox, tool_params
+            )
             
-            inaccessible_regions = []
-            clearance_issues = []
-            
-            for i in range(grid_resolution):
-                for j in range(grid_resolution):
-                    # Create ray from above the part
-                    x = bbox.XMin + i * x_step + x_step/2
-                    y = bbox.YMin + j * y_step + y_step/2
-                    z_start = bbox.ZMax + 10  # Start above the part
+            # Perform deep pocket analysis
+            self._analyze_deep_pockets(result, shape, bbox)
                     
                     # Cast ray downward
                     ray_origin = Part.Vertex(x, y, z_start).Point
@@ -653,6 +646,9 @@ class GeometryValidator:
                         # - Line (1D) intersecting solid (3D) produces edges/vertices (1D/0D)
                         # - This is mathematically correct: intersection dimensionality ≤ min(dim1, dim2)
                         # - Edges confirm ray hits solid surface boundaries - correct validation approach
+                        # Reference: OpenCASCADE Technology Documentation
+                        # https://dev.opencascade.org/doc/overview/html/occt_user_guides__modeling_algos.html#occt_modalg_5
+                        # "Boolean Operations" section explains intersection dimensionality reduction
                         if intersections and getattr(intersections, 'Edges', None):
                             # Ray intersects with part - now perform clearance analysis
                             for edge in intersections.Edges:

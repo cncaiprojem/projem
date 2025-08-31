@@ -180,6 +180,8 @@ class StandardPartsLibrary:
     
     # DIN/ISO standard metric thread pitch lookup table (coarse thread)
     # Based on ISO 261 and DIN 13-1 standards
+    # ISO 261: https://www.iso.org/standard/4167.html - ISO general purpose metric screw threads
+    # DIN 13-1: https://www.din.de/en/getting-involved/standards-committees/fmv/wdc-beuth:din21:29753787 - Metric ISO screw threads
     # Format: nominal_diameter -> pitch_mm
     METRIC_COARSE_PITCH = {
         1.0: 0.25,
@@ -195,7 +197,7 @@ class StandardPartsLibrary:
         5.0: 0.8,
         6.0: 1.0,
         7.0: 1.0,
-        8.0: 1.25,  # M8 has 1.25mm pitch per ISO 261/DIN 13-1 standard
+        8.0: 1.25,  # M8 has 1.25mm pitch per ISO 261/DIN 13-1 standard (see URLs above)
         10.0: 1.5,
         12.0: 1.75,
         14.0: 2.0,
@@ -442,6 +444,10 @@ doc.recompute()"""
         self.template_dir = template_dir or Path("/tmp/freecad_templates")
         self.templates: Dict[str, FCStdTemplate] = {}
         
+        # Cache for pre-compiled Jinja2 templates to avoid repeated conversions
+        # Key: standard code, Value: compiled Jinja2 template
+        self._compiled_templates_cache: Dict[str, Template] = {}
+        
         # Use Jinja2 sandboxed environment for secure template rendering
         # This prevents code injection and restricts template access
         self.jinja_env = sandbox.SandboxedEnvironment(
@@ -456,6 +462,32 @@ doc.recompute()"""
         )
         
         self._load_templates()
+        
+        # Pre-compile all template scripts from the catalog for performance
+        # This avoids repeated template conversion and compilation on every request
+        self._precompile_catalog_templates()
+    
+    def _precompile_catalog_templates(self):
+        """
+        Pre-compile all template scripts from the catalog for performance.
+        
+        This method converts and compiles all template scripts during initialization
+        to avoid repeated conversions and compilations during request processing.
+        Templates are cached by standard code for O(1) lookup.
+        """
+        for standard, part_def in self.CATALOG.items():
+            if part_def.template_script:
+                try:
+                    # Convert {param} syntax to {{param}} for Jinja2 compatibility
+                    template_str = self._convert_format_to_jinja(part_def.template_script)
+                    # Compile the template once and cache it
+                    compiled_template = self.jinja_env.from_string(template_str)
+                    self._compiled_templates_cache[standard] = compiled_template
+                    logger.debug(f"Pre-compiled template for {standard}")
+                except TemplateSyntaxError as e:
+                    logger.error(f"Failed to pre-compile template for {standard}: {e}")
+                    # Store None to avoid repeated compilation attempts
+                    self._compiled_templates_cache[standard] = None
     
     def _load_templates(self):
         """Load available FCStd templates."""
@@ -557,13 +589,27 @@ doc.recompute()"""
         # Check if we have a template script
         if part_def.template_script:
             result["type"] = "parametric"
-            # Use Jinja2 for safe template rendering instead of str.format
-            # This prevents code injection and provides better error handling
+            # Use pre-compiled template from cache for better performance
+            # This avoids repeated template conversion and compilation
             try:
-                # Convert {param} syntax to {{param}} for Jinja2 compatibility
-                template_str = self._convert_format_to_jinja(part_def.template_script)
-                template = self.jinja_env.from_string(template_str)
-                result["script"] = template.render(**params)
+                # Get pre-compiled template from cache
+                compiled_template = self._compiled_templates_cache.get(standard)
+                
+                if compiled_template is None:
+                    # Template failed to compile during initialization
+                    raise StandardPartError(
+                        f"Template for {standard} is invalid and could not be compiled"
+                    )
+                
+                if not compiled_template:
+                    # Fallback: compile on-demand if not in cache (shouldn't happen normally)
+                    logger.warning(f"Template for {standard} not in cache, compiling on-demand")
+                    template_str = self._convert_format_to_jinja(part_def.template_script)
+                    compiled_template = self.jinja_env.from_string(template_str)
+                    self._compiled_templates_cache[standard] = compiled_template
+                
+                # Render the pre-compiled template with parameters
+                result["script"] = compiled_template.render(**params)
             except (TemplateSyntaxError, Exception) as e:
                 logger.error(f"Template rendering failed for {standard} {size}: {e}")
                 raise StandardPartError(
@@ -621,7 +667,7 @@ doc.recompute()"""
             # Look up exact thread pitch from standard table
             thread_pitch = self.METRIC_COARSE_PITCH.get(diameter)
             if thread_pitch is None:
-                # For non-standard sizes, use ISO 261 formula approximation
+                # For non-standard sizes, use ISO 261 formula approximation (see standard URLs above)
                 # This is more accurate than the simple 0.125 * diameter
                 if diameter < 1.0:
                     thread_pitch = 0.2

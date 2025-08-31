@@ -67,6 +67,10 @@ except ImportError:
     # Fallback for when running as standalone script
     from path_validator import PathValidator, PathValidationError
 
+# Constant for default SOURCE_DATE_EPOCH value (2000-01-01 00:00:00 UTC)
+# This represents January 1, 2000, used for deterministic builds
+DEFAULT_SOURCE_DATE_EPOCH = "946684800"
+
 # Function to set up deterministic environment (Task 7.6)
 def setup_deterministic_environment():
     """
@@ -75,7 +79,7 @@ def setup_deterministic_environment():
     """
     os.environ["PYTHONHASHSEED"] = "0"
     if "SOURCE_DATE_EPOCH" not in os.environ:
-        os.environ["SOURCE_DATE_EPOCH"] = "946684800"  # 2000-01-01 00:00:00 UTC
+        os.environ["SOURCE_DATE_EPOCH"] = DEFAULT_SOURCE_DATE_EPOCH
 
 
 # ==============================================================================
@@ -1075,6 +1079,10 @@ class FreeCADWorker:
         self.start_time = time.time()
         self.cancelled = False
         
+        # Create a single PathValidator instance for reuse
+        # This improves performance by avoiding repeated instantiation
+        self.path_validator = None  # Will be initialized when needed with specific allowed_dir
+        
         # Setup signal handlers for graceful cancellation
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
@@ -1090,8 +1098,7 @@ class FreeCADWorker:
             except ImportError:
                 logger.warning("Resource module not available, CPU limits cannot be enforced")
     
-    @staticmethod
-    def _validate_path_security(path: str, allowed_dir: str, path_type: str = "path") -> str:
+    def _validate_path_security(self, path: str, allowed_dir: str, path_type: str = "path") -> str:
         """
         Validate a path is within allowed directory to prevent path traversal.
         
@@ -1099,6 +1106,10 @@ class FreeCADWorker:
         security validation across all services. The shared implementation
         provides better error handling, logging, and maintains a single
         source of truth for path validation logic.
+        
+        For performance optimization, this method reuses a single PathValidator
+        instance when the allowed_dir remains the same, avoiding repeated
+        instantiation overhead.
         
         Args:
             path: Path to validate
@@ -1111,12 +1122,20 @@ class FreeCADWorker:
         Raises:
             ValueError: If path validation fails
         """
-        # Create validator with the specific allowed directory
-        validator = PathValidator([allowed_dir])
+        # Reuse the cached validator if it exists and has the same allowed_dir
+        # Otherwise create a new one and cache it
+        if self.path_validator is None or not hasattr(self.path_validator, '_allowed_dir_cache'):
+            self.path_validator = PathValidator([allowed_dir])
+            # Store the allowed_dir for comparison (PathValidator doesn't expose it)
+            self.path_validator._allowed_dir_cache = allowed_dir
+        elif self.path_validator._allowed_dir_cache != allowed_dir:
+            # Create new validator if allowed_dir changed
+            self.path_validator = PathValidator([allowed_dir])
+            self.path_validator._allowed_dir_cache = allowed_dir
         
         try:
             # Validate the path using shared utility
-            validated_path = validator.validate_path(path, path_type)
+            validated_path = self.path_validator.validate_path(path, path_type)
             return str(validated_path)
         except PathValidationError as e:
             # Convert to ValueError for backward compatibility, preserving exception chain

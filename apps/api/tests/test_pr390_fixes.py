@@ -16,6 +16,14 @@ from unittest.mock import Mock, patch, MagicMock
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
 
+# Import structured logging - use relative import or proper package path
+try:
+    from apps.api.app.core.logging_config import logger
+except ImportError:
+    # Fallback to standard logging if import fails
+    import logging
+    logger = logging.getLogger(__name__)
+
 
 class TestPR390Fixes(unittest.TestCase):
     """Validate all PR #390 fixes."""
@@ -56,8 +64,8 @@ class TestPR390Fixes(unittest.TestCase):
                 try:
                     os.unlink(temp_path)
                 except OSError as e:
-                    # Using print instead of logger since logger not imported
-                    print(f"Warning: Failed to clean up test file {temp_path}: {e}")
+                    # Use structured logging for consistency
+                    logger.warning(f"Failed to clean up test file {temp_path}: {e}")
     
     def test_artefact_type_map_without_default_key(self):
         """Test that ARTEFACT_TYPE_MAP uses dict.get() with default parameter."""

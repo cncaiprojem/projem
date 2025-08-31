@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import re
 import tempfile
 import zipfile
 from datetime import datetime, timezone
@@ -31,6 +32,11 @@ class DeterministicExporter:
     # Default tessellation parameters for STL mesh generation
     DEFAULT_LINEAR_DEFLECTION = 0.1  # mm - controls deviation from true surface
     DEFAULT_ANGULAR_DEFLECTION = 0.5  # radians (~28.6 degrees) - controls angle between adjacent facets
+    
+    # Pre-compiled regex patterns for better performance
+    # These patterns are used to identify FILE_NAME and FILE_DESCRIPTION lines in STEP files
+    FILE_NAME_PATTERN = re.compile(r'FILE_NAME')
+    FILE_DESCRIPTION_PATTERN = re.compile(r'FILE_DESCRIPTION')
     
     def __init__(
         self, 
@@ -276,9 +282,10 @@ class DeterministicExporter:
                 replacement = f"'{self.source_date.isoformat()}'"
                 
                 # Efficient list comprehension - avoids in-place modification
+                # Use pre-compiled regex patterns for better performance
                 lines = [
                     iso_timestamp_pattern.sub(replacement, line)
-                    if ('FILE_NAME' in line or 'FILE_DESCRIPTION' in line)
+                    if (self.FILE_NAME_PATTERN.search(line) or self.FILE_DESCRIPTION_PATTERN.search(line))
                     else line
                     for line in lines
                 ]
