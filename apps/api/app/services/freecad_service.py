@@ -1415,17 +1415,9 @@ class UltraEnterpriseFreeCADService:
         """
         try:
             result = freecad_rules_engine.normalize(params)
-            if not result.success:
-                # Log normalization failure
-                logger.error("parametric_normalization_failed",
-                           errors=result.errors,
-                           params_keys=list(params.keys()))
-                
-                raise FreeCADException(
-                    f"Parametric normalization failed: {', '.join(result.errors)}",
-                    FreeCADErrorCode.VALIDATION_FAILED,
-                    f"Parametrik normalleştirme başarısız: {', '.join(result.errors)}"
-                )
+            # Note: The normalize() method raises ValidationException on failure,
+            # so we'll never get a result.success == False case here.
+            # The code below is only reached if normalization succeeds.
             
             # Log successful normalization
             logger.debug("parametric_normalization_success",

@@ -619,11 +619,12 @@ class FreeCADRulesEngine:
                 
                 new_value = self._round_decimal(new_value)
                 
-                # Replace in line
-                line = re.sub(
+                # Replace in line - use re.subn for single replacement
+                line, _ = re.subn(
                     f'{var_name}_{unit}\\s*=\\s*{re.escape(match.group(3))}',
                     f'{var_name} = {new_value}',
-                    line
+                    line,
+                    count=1
                 )
                 
                 conversions.append(UnitConversion(
@@ -786,8 +787,26 @@ class FreeCADRulesEngine:
                                     elif obj_type == 'Pocket':
                                         self.meta.dims_mm["pocket_depth"] = value
                                 elif 'pad' in obj_name.lower():
+                                    # Warning: Using heuristic fallback for object type detection
+                                    logger.warning(
+                                        "metadata_extraction_heuristic_fallback",
+                                        object_name=obj_name,
+                                        attr_name=attr_name,
+                                        value=value,
+                                        reason="Object type not found in var_assignments, using name-based heuristic",
+                                        detected_type="Pad"
+                                    )
                                     self.meta.dims_mm["pad_length"] = value
                                 elif 'pocket' in obj_name.lower():
+                                    # Warning: Using heuristic fallback for object type detection
+                                    logger.warning(
+                                        "metadata_extraction_heuristic_fallback",
+                                        object_name=obj_name,
+                                        attr_name=attr_name,
+                                        value=value,
+                                        reason="Object type not found in var_assignments, using name-based heuristic",
+                                        detected_type="Pocket"
+                                    )
                                     self.meta.dims_mm["pocket_depth"] = value
                             
                             elif attr_name == 'TaperAngle' and value is not None:
