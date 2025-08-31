@@ -13,6 +13,8 @@ from __future__ import annotations
 import csv
 import hashlib
 import json
+import os
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -121,7 +123,11 @@ class BOMExtractor:
         # Calculate summary
         summary = self._calculate_summary(items)
         
-        # Create BOM
+        # Create BOM with deterministic timestamp from SOURCE_DATE_EPOCH
+        # This ensures reproducible builds and consistent output
+        source_date_epoch = int(os.environ.get("SOURCE_DATE_EPOCH", "946684800"))  # Default: 2000-01-01
+        extraction_date = datetime.fromtimestamp(source_date_epoch).isoformat()
+        
         bom = BillOfMaterials(
             project=project_name,
             assembly=assembly_name,
@@ -129,7 +135,7 @@ class BOMExtractor:
             items=items,
             summary=summary,
             metadata={
-                "extraction_date": datetime.now().isoformat(),
+                "extraction_date": extraction_date,
                 "document_name": document.Name if hasattr(document, 'Name') else "Unknown"
             }
         )

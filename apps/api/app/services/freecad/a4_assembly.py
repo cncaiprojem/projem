@@ -222,9 +222,14 @@ class Assembly4Manager:
             if standard and size:
                 part_info = standard_parts_library.get_part(standard, size)
                 if part_info and part_info.get("script"):
-                    # Execute script to create part
-                    # Note: This would need proper sandboxing in production
-                    exec(part_info["script"], {"doc": doc, "comp_id": component.id})
+                    # Execute script to create part with restricted environment for security
+                    # Restrict all builtins to prevent malicious code execution
+                    safe_globals = {
+                        "doc": doc,
+                        "comp_id": component.id,
+                        "__builtins__": {}  # Restrict all builtins for security
+                    }
+                    exec(part_info["script"], safe_globals)
                     comp_obj = doc.getObject(component.id)
                     
         elif component.source.type == "upload_ref":
@@ -308,6 +313,8 @@ class Assembly4Manager:
         Analyze degrees of freedom for the assembly.
         
         Uses Gruebler-Kutzbach formula and solver Jacobian rank.
+        Note: Now correctly counts ALL components in the document, 
+        not just those participating in joints.
         """
         analysis = DOFAnalysis(
             global_dof=0,
@@ -317,11 +324,9 @@ class Assembly4Manager:
             driving_joints=[]
         )
         
-        # Count components (bodies)
-        num_bodies = len(set(
-            [j.component_a for j in joints] + 
-            [j.component_b for j in joints]
-        ))
+        # Count ALL components (bodies) in the document
+        # This includes unconnected components which affect DOF calculation
+        num_bodies = len([obj for obj in doc.Objects if obj.isDerivedFrom("Part::Feature")])
         
         # DOF per joint type
         joint_dof = {

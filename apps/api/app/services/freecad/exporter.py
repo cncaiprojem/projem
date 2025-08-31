@@ -209,25 +209,38 @@ class DeterministicExporter:
         }
     
     def _clean_step_file(self, path: Path):
-        """Remove timestamps and volatile data from STEP file."""
+        """Remove timestamps and volatile data from STEP file using regex."""
+        import re
+        
         try:
             with open(path, 'r', encoding='utf-8') as f:
-                lines = f.readlines()
+                content = f.read()
             
-            cleaned_lines = []
-            for line in lines:
-                # Replace timestamp patterns with fixed date
-                if "FILE_SCHEMA" in line or "FILE_DESCRIPTION" in line:
-                    # Keep these lines as-is
-                    cleaned_lines.append(line)
-                elif any(pattern in line for pattern in ["TIME_STAMP", "DATE_AND_TIME"]):
-                    # Replace with fixed timestamp
-                    cleaned_lines.append(f"/* Fixed timestamp: {self.source_date.isoformat()} */\n")
-                else:
-                    cleaned_lines.append(line)
+            # Use regex to replace only timestamp values, not entire lines
+            # This preserves the STEP file structure while removing non-deterministic data
             
+            # Pattern for DATE_AND_TIME entries (e.g., DATE_AND_TIME(#123))
+            # Replace the referenced timestamp data, not the reference itself
+            date_time_pattern = r"DATE_AND_TIME\s*\([^)]+\)"
+            content = re.sub(date_time_pattern, f"DATE_AND_TIME(#{self.source_date.year},{self.source_date.month},{self.source_date.day})", content)
+            
+            # Pattern for ISO timestamp strings (e.g., '2024-01-15T10:30:45')
+            iso_timestamp_pattern = r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
+            content = re.sub(iso_timestamp_pattern, f"'{self.source_date.isoformat()}'", content)
+            
+            # Pattern for FILE_NAME timestamp section
+            # FILE_NAME('filename','2024-01-15T10:30:45',('author'),...)
+            file_name_pattern = r"(FILE_NAME\s*\([^,]+,\s*)('[^']+')(\s*,)"
+            content = re.sub(file_name_pattern, rf"\1'{self.source_date.isoformat()}'\3", content)
+            
+            # Pattern for numeric timestamps (Unix epoch seconds)
+            # Only replace standalone numeric timestamps, not all numbers
+            numeric_timestamp_pattern = r"(?<=TIME_STAMP\s*\()\d+(?=\))"
+            content = re.sub(numeric_timestamp_pattern, str(self.source_date_epoch), content)
+            
+            # Write cleaned content back
             with open(path, 'w', encoding='utf-8') as f:
-                f.writelines(cleaned_lines)
+                f.write(content)
                 
         except Exception as e:
             logger.warning(f"Could not clean STEP file: {e}")
@@ -258,16 +271,21 @@ class DeterministicExporter:
         else:
             shape = Part.makeCompound(shapes)
         
-        # Create mesh with fixed parameters
+        # Create mesh with fixed parameters for determinism
         mesh = Mesh.Mesh()
         
         # Fixed tessellation parameters for determinism
-        linear_deflection = 0.1  # mm
-        angular_deflection = 0.5  # radians
+        linear_deflection = 0.1  # mm - controls deviation from true surface
+        angular_deflection = 0.5  # radians (~28.6 degrees) - controls angle between adjacent facets
         
-        # Tessellate shape
-        tessellation = shape.tessellate(linear_deflection, True)
-        mesh.addFacets(tessellation[0], tessellation[1])
+        # Use Mesh.createFromShape for better control over both linear and angular deflection
+        # This provides more consistent and higher quality mesh generation
+        mesh = Mesh.createFromShape(
+            Shape=shape,
+            LinearDeflection=linear_deflection,
+            AngularDeflection=angular_deflection,
+            Relative=False  # Use absolute values, not relative to size
+        )
         
         # Write binary STL
         mesh.write(str(path), "STL")

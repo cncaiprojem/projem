@@ -574,7 +574,16 @@ class GeometryValidator:
         return result
     
     def _check_tool_accessibility(self, shape: Any) -> Dict[str, List[str]]:
-        """Check tool accessibility for CNC operations."""
+        """
+        Check tool accessibility for CNC operations.
+        
+        Note: This is a basic implementation that only checks accessibility
+        along the Z-axis for 3-axis milling operations. It detects deep pockets
+        and undercuts by analyzing the depth-to-width ratio of features.
+        
+        For full 5-axis accessibility analysis, more sophisticated algorithms
+        would be needed to check approach angles from multiple directions.
+        """
         result = {"errors": [], "warnings": []}
         
         try:

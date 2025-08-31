@@ -100,6 +100,25 @@ class FCStdTemplate(BaseModel):
 class StandardPartsLibrary:
     """Library of standard parts and templates."""
     
+    # Common bearing dimensions database - moved to class constant for better organization
+    # Format: bearing_code -> {bore_diameter, outer_diameter, width, ball_diameter, num_balls}
+    BEARING_DIMENSIONS = {
+        "608": {"bore_diameter": 8, "outer_diameter": 22, "width": 7, "ball_diameter": 3.5, "num_balls": 7},
+        "625": {"bore_diameter": 5, "outer_diameter": 16, "width": 5, "ball_diameter": 2.5, "num_balls": 7},
+        "6000": {"bore_diameter": 10, "outer_diameter": 26, "width": 8, "ball_diameter": 4, "num_balls": 8},
+        "6001": {"bore_diameter": 12, "outer_diameter": 28, "width": 8, "ball_diameter": 4, "num_balls": 8},
+        "6002": {"bore_diameter": 15, "outer_diameter": 32, "width": 9, "ball_diameter": 4.5, "num_balls": 8},
+        "6003": {"bore_diameter": 17, "outer_diameter": 35, "width": 10, "ball_diameter": 5, "num_balls": 8},
+        "6004": {"bore_diameter": 20, "outer_diameter": 42, "width": 12, "ball_diameter": 6, "num_balls": 8},
+        "6005": {"bore_diameter": 25, "outer_diameter": 47, "width": 12, "ball_diameter": 6.5, "num_balls": 8},
+        "6200": {"bore_diameter": 10, "outer_diameter": 30, "width": 9, "ball_diameter": 5, "num_balls": 8},
+        "6201": {"bore_diameter": 12, "outer_diameter": 32, "width": 10, "ball_diameter": 5, "num_balls": 8},
+        "6202": {"bore_diameter": 15, "outer_diameter": 35, "width": 11, "ball_diameter": 5.5, "num_balls": 8},
+        "6203": {"bore_diameter": 17, "outer_diameter": 40, "width": 12, "ball_diameter": 6, "num_balls": 8},
+        "6204": {"bore_diameter": 20, "outer_diameter": 47, "width": 14, "ball_diameter": 7, "num_balls": 8},
+        "6205": {"bore_diameter": 25, "outer_diameter": 52, "width": 15, "ball_diameter": 7.5, "num_balls": 8},
+    }
+    
     # Catalog of common DIN/ISO parts
     # TODO: Consider externalizing this catalog to a JSON/YAML file for easier maintenance
     #       and to allow adding new standard parts without code changes.
@@ -217,7 +236,7 @@ doc.recompute()"""
             description="Deep groove ball bearing with simplified raceway and ball representation",
             parameters={
                 "bearing_type": "ball",
-                "series": "625"
+                "series": "multiple"  # Includes 625, 608, 6000, 6200 series
             },
             sizes=["625-2RS", "625-ZZ", "608-2RS", "608-ZZ", "6000", "6001", "6002", 
                    "6003", "6004", "6005", "6200", "6201", "6202", "6203", "6204", "6205"],
@@ -399,21 +418,11 @@ doc.recompute()"""
     
     def _parse_bearing_size(self, size: str) -> Optional[Dict[str, float]]:
         """Parse bearing size like 608 or 625-2RS."""
-        # Common bearing dimensions database
-        bearing_dims = {
-            "608": {"bore_diameter": 8, "outer_diameter": 22, "width": 7, "ball_diameter": 3.5, "num_balls": 7},
-            "625": {"bore_diameter": 5, "outer_diameter": 16, "width": 5, "ball_diameter": 2.5, "num_balls": 7},
-            "6000": {"bore_diameter": 10, "outer_diameter": 26, "width": 8, "ball_diameter": 4, "num_balls": 8},
-            "6001": {"bore_diameter": 12, "outer_diameter": 28, "width": 8, "ball_diameter": 4, "num_balls": 8},
-            "6002": {"bore_diameter": 15, "outer_diameter": 32, "width": 9, "ball_diameter": 4.5, "num_balls": 8},
-            "6200": {"bore_diameter": 10, "outer_diameter": 30, "width": 9, "ball_diameter": 5, "num_balls": 8},
-            "6201": {"bore_diameter": 12, "outer_diameter": 32, "width": 10, "ball_diameter": 5, "num_balls": 8},
-        }
-        
-        # Strip suffixes like -2RS, -ZZ
+        # Strip suffixes like -2RS, -ZZ to get base bearing code
         base_size = size.split("-")[0]
         
-        return bearing_dims.get(base_size)
+        # Use the class constant BEARING_DIMENSIONS instead of local variable
+        return self.BEARING_DIMENSIONS.get(base_size)
     
     def _get_size_format_hint(self, category: PartCategory) -> str:
         """Get format hint for size specification."""
