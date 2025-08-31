@@ -1270,12 +1270,14 @@ class FreeCADWorker:
                     shape = generator.create_box(length, width, height)
                     generator.add_shape_to_document(shape, "ParametricBox")
                 elif model_type == 'cylinder':
-                    radius = dimensions.get('radius', 50.0)
+                    # Check both dimensions dict and top-level input_data for consistency
+                    radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
                     # Use the new create_cylinder method
                     shape = generator.create_cylinder(radius, height)
                     generator.add_shape_to_document(shape, "ParametricCylinder")
                 elif model_type == 'sphere':
-                    radius = dimensions.get('radius', 50.0)
+                    # Check both dimensions dict and top-level input_data for consistency
+                    radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
                     # Use the new create_sphere method
                     shape = generator.create_sphere(radius)
                     generator.add_shape_to_document(shape, "ParametricSphere")
@@ -1313,9 +1315,27 @@ class FreeCADWorker:
             
             # Generate TechDraw if requested
             if self.args.techdraw == 'on':
-                techdraw_result = self._generate_techdraw(doc, [shape])
-                result['techdraw'] = techdraw_result
-                result['artefacts'].extend(techdraw_result.get('exported_files', []))
+                # Get the document object by name based on model_type
+                object_name = None
+                if model_type == 'prism_with_hole':
+                    object_name = "PrismWithHole"
+                elif model_type == 'box':
+                    object_name = "ParametricBox"
+                elif model_type == 'cylinder':
+                    object_name = "ParametricCylinder"
+                elif model_type == 'sphere':
+                    object_name = "ParametricSphere"
+                
+                if object_name:
+                    doc_object = doc.getObject(object_name)
+                    if doc_object:
+                        techdraw_result = self._generate_techdraw(doc, [doc_object])
+                        result['techdraw'] = techdraw_result
+                        result['artefacts'].extend(techdraw_result.get('exported_files', []))
+                    else:
+                        logger.warning(f"Could not find object '{object_name}' in document for TechDraw")
+                else:
+                    logger.warning(f"Unknown model type '{model_type}' for TechDraw generation")
             
             generator.App.closeDocument(doc.Name)
             

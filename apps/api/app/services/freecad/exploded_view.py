@@ -369,21 +369,35 @@ class ExplodedViewGenerator:
             # Initialize collision detector
             detector = CollisionDetector()
             
-            # Build list of shapes for collision detection
+            # Build list of transformed shapes for collision detection
+            import FreeCAD
             shapes = []
             
-            # Add current object at proposed position
-            shapes.append((comp_id, obj.Shape, exploded_pos))
+            # Add current object transformed to proposed position
+            current_shape = obj.Shape.copy()
+            current_placement = FreeCAD.Placement(
+                FreeCAD.Vector(exploded_pos[0], exploded_pos[1], exploded_pos[2]),
+                FreeCAD.Rotation()
+            )
+            current_shape.transformShape(current_placement.toMatrix())
+            shapes.append((comp_id, current_shape))
             
-            # Add already exploded components at their positions
+            # Add already exploded components transformed to their positions
             # Fix: ExplodedComponent doesn't have 'shape' attribute, retrieve from original component
             for other in already_exploded:
                 # Find the original object for this component ID
-                orig_obj = next((obj for cid, obj, _ in all_components if cid == other.component_id), None)
+                orig_obj = next((o for cid, o, _ in all_components if cid == other.component_id), None)
                 if orig_obj and hasattr(orig_obj, 'Shape') and orig_obj.Shape:
-                    shapes.append((other.component_id, orig_obj.Shape, other.exploded_position))
+                    # Transform shape to exploded position
+                    transformed_shape = orig_obj.Shape.copy()
+                    placement = FreeCAD.Placement(
+                        FreeCAD.Vector(other.exploded_position[0], other.exploded_position[1], other.exploded_position[2]),
+                        FreeCAD.Rotation()
+                    )
+                    transformed_shape.transformShape(placement.toMatrix())
+                    shapes.append((other.component_id, transformed_shape))
             
-            # Detect collisions using BVH-based detector
+            # Detect collisions using BVH-based detector with transformed shapes
             collisions = detector.detect_collisions(shapes)
             
             # If collisions detected with current component, adjust position

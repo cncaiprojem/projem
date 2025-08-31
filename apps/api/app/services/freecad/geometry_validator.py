@@ -334,9 +334,9 @@ class GeometryValidator:
                             # Calculate draft angle for all non-parallel faces
                             # Draft angle is measured from vertical (90° - angle_from_pull_direction)
                             # 1. Clamp dot_product to [-1, 1] range to avoid math domain error
-                            # 2. Use absolute value for angle calculation after undercut check
+                            # 2. Do NOT use absolute value here - it would negate undercut detection
                             # 3. Convert from angle with pull direction to draft angle
-                            clamped_dot = max(-1.0, min(1.0, abs(dot_product)))
+                            clamped_dot = max(-1.0, min(1.0, dot_product))
                             draft_angle = 90 - math.degrees(math.acos(clamped_dot))
                             
                             # Validate draft angle for ALL non-parallel faces, not just nearly vertical ones

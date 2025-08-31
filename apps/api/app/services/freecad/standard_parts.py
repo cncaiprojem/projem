@@ -142,8 +142,9 @@ class StandardPartsLibrary:
 import Part
 import math
 
-# Use provided document and component ID from the caller context.
-# Variables 'doc' and 'comp_id' are injected during script execution.
+# SECURITY: Variables 'doc' and 'comp_id' are injected during script execution.
+# These must be validated and executed in a properly sandboxed environment
+# to prevent code injection or privilege escalation vulnerabilities.
 
 # Parameters
 diameter = {diameter}
@@ -248,8 +249,9 @@ doc.recompute()"""
 import Part
 import math
 
-# Use provided document and component ID from the caller context.
-# Variables 'doc' and 'comp_id' are injected during script execution.
+# SECURITY: Variables 'doc' and 'comp_id' are injected during script execution.
+# These must be validated and executed in a properly sandboxed environment
+# to prevent code injection or privilege escalation vulnerabilities.
 
 # Parameters (example for 608 bearing: 8mm bore, 22mm OD, 7mm width)
 bore_diameter = {bore_diameter}  # Inner diameter

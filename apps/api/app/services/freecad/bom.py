@@ -318,8 +318,9 @@ class BOMExtractor:
                     try:
                         with tempfile.NamedTemporaryFile(suffix='.brep', delete=True) as tmp:
                             obj.Shape.exportBrep(tmp.name)
-                            tmp.seek(0)  # Reset file pointer to beginning
-                            hasher.update(tmp.read())
+                            # Reopen the file to read the content written by exportBrep
+                            with open(tmp.name, "rb") as brep_file:
+                                hasher.update(brep_file.read())
                     except Exception as e:
                         # Handle BREP export failures gracefully
                         logger.debug(f"BREP export failed, falling back to bbox dimensions: {e}")

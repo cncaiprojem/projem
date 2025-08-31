@@ -317,7 +317,10 @@ class Assembly4Manager:
                             logger.warning(f"No objects found in imported file: {file_path}")
                             
                         # Close the imported document to free resources
-                        FreeCAD.closeDocument(imported_doc.Name)
+                        try:
+                            FreeCAD.closeDocument(imported_doc.Name)
+                        except Exception as close_exc:
+                            logger.error(f"Failed to close imported document '{imported_doc.Name}': {close_exc}")
                         
                 except ValueError as e:
                     logger.error(f"Security violation - invalid path: {e}")
