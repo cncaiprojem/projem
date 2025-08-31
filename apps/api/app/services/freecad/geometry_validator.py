@@ -321,12 +321,7 @@ class GeometryValidator:
                             # For proper draft, ALL faces should have sufficient angle from perpendicular
                             dot_product = normal.x * pull_direction[0] + normal.y * pull_direction[1] + normal.z * pull_direction[2]
                             
-                            # Check for undercuts first - negative dot product means face opposes pull direction
-                            if dot_product < 0:
-                                result.manufacturing_issues.append(
-                                    "Undercut detected: face normal opposes pull direction. "
-                                    "This feature cannot be manufactured without side-actions or core pulls."
-                                )
+                            # Note: Undercut checking is handled below with draft angle validation
                             
                             # Calculate draft angle for all non-parallel faces
                             # Draft angle is measured from vertical (90° - angle_from_pull_direction)
@@ -360,7 +355,10 @@ class GeometryValidator:
                                 if draft_angle < 0:
                                     # This is an undercut - always invalid for standard molding
                                     is_valid = False
-                                    error_msg = f"Undercut detected: face has negative draft angle {draft_angle:.1f}°"
+                                    error_msg = (
+                                        f"Undercut detected: face has negative draft angle {draft_angle:.1f}°. "
+                                        "This feature cannot be manufactured without side-actions or core pulls."
+                                    )
                                 elif hasattr(self, 'constraints') and self.constraints:
                                     is_valid, error_msg = self.constraints.validate_draft(draft_angle)
                                 else:
@@ -645,7 +643,8 @@ class GeometryValidator:
                         # Check for intersections
                         intersections = shape.common(ray_line)
                         
-                        if intersections and intersections.Volume > 0:
+                        # Line-solid intersection has zero volume, check for edges/vertices instead
+                        if intersections and (hasattr(intersections, 'Edges') and intersections.Edges):
                             # Ray intersects with part - check if tool can fit
                             # This is a simplified check - real implementation would
                             # analyze the clearance around the intersection point

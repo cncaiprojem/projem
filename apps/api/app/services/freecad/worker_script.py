@@ -1309,16 +1309,8 @@ class FreeCADWorker:
                 shape = generator.create_prism_with_hole(
                     length, width, height, hole_diameter, units
                 )
-                # Capture the returned part object for loose coupling.
-                # This design pattern ensures that geometry generation and document
-                # management remain separate concerns. The generator creates shapes
-                # without knowledge of document structure, while the worker manages
-                # the document lifecycle. This separation allows for:
-                # 1. Independent testing of geometry generation
-                # 2. Reuse of geometry logic in different contexts
-                # 3. Easier maintenance and evolution of both components
-                # The returned part object serves as the interface contract between
-                # these loosely coupled components.
+                # Capture returned part for loose coupling between geometry generation
+                # and document management - enables independent testing and reuse.
                 part_object = generator.add_shape_to_document(shape, "PrismWithHole")
             else:
                 # Legacy simple shapes use dedicated methods to avoid code duplication.
@@ -1327,22 +1319,21 @@ class FreeCADWorker:
                 if model_type == 'box':
                     # Use the new create_box method
                     shape = generator.create_box(length, width, height)
-                    # Capture the returned part object for loose coupling
-                    # (See detailed explanation above for PrismWithHole)
+                    # Capture returned part (see comment above)
                     part_object = generator.add_shape_to_document(shape, "ParametricBox")
                 elif model_type == 'cylinder':
                     # Check both dimensions dict and top-level input_data for consistency
                     radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
                     # Use the new create_cylinder method
                     shape = generator.create_cylinder(radius, height)
-                    # Capture the returned part object for loose coupling
+                    # Capture returned part
                     part_object = generator.add_shape_to_document(shape, "ParametricCylinder")
                 elif model_type == 'sphere':
                     # Check both dimensions dict and top-level input_data for consistency
                     radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
                     # Use the new create_sphere method
                     shape = generator.create_sphere(radius)
-                    # Capture the returned part object for loose coupling
+                    # Capture returned part
                     part_object = generator.add_shape_to_document(shape, "ParametricSphere")
                 else:
                     raise ValueError(f"Unsupported model type: {model_type}")
