@@ -510,13 +510,7 @@ class GeometryValidator:
                     result["valid"] = False
             
             # Process-specific checks
-            if process_lower == "injection_molding":
-                # Draft angle checks are now handled by _validate_manufacturing_constraints
-                # which uses the correct dot product logic with pull direction
-                # This avoids duplication and ensures consistent validation
-                pass
-                
-            elif process_lower in ["milling", "cnc"]:
+            if process_lower in ["milling", "cnc"]:
                 # Tool accessibility check
                 access_issues = self._check_tool_accessibility(shape)
                 if access_issues["errors"]:
@@ -604,7 +598,7 @@ class GeometryValidator:
                         )
                     if depth_from_bottom / min_opening > 5:
                         result["warnings"].append(
-                            f"Deep undercut detected (depth/width = {depth_from_bottom/min_opening:.1f})"
+                            f"Deep pocket from bottom detected (depth/width = {depth_from_bottom/min_opening:.1f})"
                         )
         except Exception as e:
             logger.debug(f"Tool accessibility check error: {e}")
@@ -720,7 +714,7 @@ class GeometryValidator:
                         if edge_z > shape_bbox.ZMin + 0.1:  # Not at the very bottom
                             # Only report if not already detected by face analysis
                             edge_msg = f"Horizontal edge span: {edge.Length:.1f}mm at Z={edge_z:.1f}mm"
-                            if not any(edge_msg in issue for issue in issues):
+                            if edge_msg not in issues:
                                 issues.append(edge_msg)
                                 
         except Exception as e:

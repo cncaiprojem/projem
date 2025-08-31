@@ -96,13 +96,18 @@ class BVHNode:
             key=lambda obj: (obj[2].min_point[split_axis] + obj[2].max_point[split_axis]) / 2
         )
         
-        # Split the sorted objects for recursion.
-        # The constructor already handles empty lists, so we can proceed directly
-        # with the split operation.
-        mid = len(sorted_objects) // 2
-        self.left = BVHNode(sorted_objects[:mid])
-        self.right = BVHNode(sorted_objects[mid:])
-        self.objects = []  # Clear objects in internal nodes
+        # Check for single element to prevent infinite recursion
+        if len(sorted_objects) <= 1:
+            # Handle as leaf node with single element
+            self.objects = sorted_objects
+            self.left = None
+            self.right = None
+        else:
+            # Split the sorted objects for recursion
+            mid = len(sorted_objects) // 2
+            self.left = BVHNode(sorted_objects[:mid])
+            self.right = BVHNode(sorted_objects[mid:])
+            self.objects = []  # Clear objects in internal nodes
     
     def get_potential_collisions(self, query_aabb: AABB) -> List[Tuple[str, Any, AABB]]:
         """Get objects that potentially collide with query AABB."""

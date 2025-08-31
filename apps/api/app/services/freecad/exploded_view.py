@@ -369,6 +369,10 @@ class ExplodedViewGenerator:
             # Initialize collision detector
             detector = CollisionDetector()
             
+            # Create lookup dictionary once for O(1) access to avoid O(N²) performance issue
+            # This optimization prevents recreating the dictionary on every collision check
+            component_lookup = {cid: component_obj for cid, component_obj, _ in all_components}
+            
             # Build list of transformed shapes for collision detection
             import FreeCAD
             shapes = []
@@ -381,9 +385,6 @@ class ExplodedViewGenerator:
             )
             current_shape.transformShape(current_placement.toMatrix())
             shapes.append((comp_id, current_shape))
-            
-            # Create lookup dictionary for O(1) access to avoid O(N²) performance issue
-            component_lookup = {cid: obj for cid, obj, _ in all_components}
             
             # Add already exploded components transformed to their positions
             # Since ExplodedComponent doesn't have a 'shape' attribute, retrieve the shape from the original component

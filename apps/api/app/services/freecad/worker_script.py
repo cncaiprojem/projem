@@ -877,7 +877,7 @@ class FreeCADParametricGenerator:
         # Return the created part object for direct use
         return part
     
-    def get_document(self) -> Any:
+    def get_document(self) -> 'App.Document':
         """
         Get the FreeCAD document.
         
@@ -1852,7 +1852,7 @@ def main_standalone():
         )
         
         # Add to document and capture the returned object
-        doc_object = generator.add_shape_to_document(shape, "PrismWithHole")
+        part_object = generator.add_shape_to_document(shape, "PrismWithHole")
         
         # Export to requested formats
         with tempfile.TemporaryDirectory() as tmpdir:

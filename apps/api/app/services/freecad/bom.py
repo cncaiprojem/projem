@@ -313,12 +313,14 @@ class BOMExtractor:
             try:
                 # Use shape's content hash if available
                 if hasattr(obj.Shape, 'exportBrep'):
-                    # Use mkstemp for safer temp file handling
+                    # Use NamedTemporaryFile with delete=False to avoid race condition
                     import tempfile
                     import os as os_module  # Alias to avoid conflict with FreeCAD os
-                    fd, tmp_path = tempfile.mkstemp(suffix='.brep')
+                    
+                    with tempfile.NamedTemporaryFile(suffix='.brep', delete=False) as tmp_file:
+                        tmp_path = tmp_file.name
+                    
                     try:
-                        os_module.close(fd)  # Close immediately, let exportBrep write to it
                         obj.Shape.exportBrep(tmp_path)
                         with open(tmp_path, 'rb') as f:
                             hasher.update(f.read())
