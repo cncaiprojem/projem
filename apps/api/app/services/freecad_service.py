@@ -1416,13 +1416,31 @@ class UltraEnterpriseFreeCADService:
         try:
             result = freecad_rules_engine.normalize(params)
             if not result.success:
+                # Log normalization failure
+                logger.error("parametric_normalization_failed",
+                           errors=result.errors,
+                           params_keys=list(params.keys()))
+                
                 raise FreeCADException(
                     f"Parametric normalization failed: {', '.join(result.errors)}",
                     FreeCADErrorCode.VALIDATION_FAILED,
                     f"Parametrik normalleştirme başarısız: {', '.join(result.errors)}"
                 )
+            
+            # Log successful normalization
+            logger.debug("parametric_normalization_success",
+                       canonical_keys=list(result.canonical_params.keys()) if result.canonical_params else [])
+            
             return result.canonical_params
         except ValidationException as e:
+            # Log validation exception details before re-raising
+            logger.error("parametric_normalization_validation_error",
+                       error_code=e.code,
+                       message=str(e),
+                       turkish_message=e.turkish_message,
+                       details=e.details,
+                       exc_info=True)
+            
             # Convert ValidationException to FreeCADException, preserving http_status
             raise FreeCADException(
                 str(e),
@@ -1432,6 +1450,12 @@ class UltraEnterpriseFreeCADService:
                 http_status=e.http_status
             )
         except Exception as e:
+            # Log unexpected exception with full traceback
+            logger.error("parametric_normalization_unexpected_error",
+                       error=str(e),
+                       error_type=type(e).__name__,
+                       exc_info=True)
+            
             # Handle unexpected exceptions
             raise FreeCADException(
                 f"Unexpected error during normalization: {str(e)}",

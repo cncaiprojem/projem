@@ -239,6 +239,70 @@ class FreeCADRulesEngine:
         """Initialize the rules engine."""
         self.precision = Decimal('0.000001')  # 1e-6 precision for rounding
     
+    @staticmethod
+    def _evaluate_numeric_ast_node(node) -> Optional[float]:
+        """
+        Static helper to extract numeric value from an AST node.
+        
+        Supports all arithmetic operators for robust expression evaluation:
+        - Literal values (int, float)
+        - Negative numbers (UnaryOp with USub)
+        - Positive numbers (UnaryOp with UAdd)
+        - Arithmetic expressions: +, -, *, /, //, %, **
+        
+        Args:
+            node: AST node to evaluate
+            
+        Returns:
+            Float value if evaluable, None otherwise
+        """
+        if isinstance(node, ast.Constant):
+            if isinstance(node.value, (int, float)):
+                return float(node.value)
+        elif isinstance(node, ast.Num):  # Python 3.7 compatibility
+            return float(node.n)
+        elif isinstance(node, ast.UnaryOp):
+            if isinstance(node.op, ast.USub):
+                # Handle negative numbers
+                inner_value = FreeCADRulesEngine._evaluate_numeric_ast_node(node.operand)
+                if inner_value is not None:
+                    return -inner_value
+            elif isinstance(node.op, ast.UAdd):
+                # Handle positive numbers (rarely used but for completeness)
+                return FreeCADRulesEngine._evaluate_numeric_ast_node(node.operand)
+        elif isinstance(node, ast.BinOp):
+            # Support arithmetic expressions
+            left = FreeCADRulesEngine._evaluate_numeric_ast_node(node.left)
+            right = FreeCADRulesEngine._evaluate_numeric_ast_node(node.right)
+            
+            if left is not None and right is not None:
+                if isinstance(node.op, ast.Add):
+                    return left + right
+                elif isinstance(node.op, ast.Sub):
+                    return left - right
+                elif isinstance(node.op, ast.Mult):
+                    return left * right
+                elif isinstance(node.op, ast.Div):
+                    # Safe division with zero check
+                    if right != 0:
+                        return left / right
+                elif isinstance(node.op, ast.FloorDiv):
+                    if right != 0:
+                        return left // right
+                elif isinstance(node.op, ast.Mod):
+                    if right != 0:
+                        return left % right
+                elif isinstance(node.op, ast.Pow):
+                    try:
+                        return left ** right
+                    except (OverflowError, ValueError):
+                        return None
+        elif isinstance(node, ast.Name):
+            # Could track variable values if needed in future
+            # For now, we can't resolve variable references
+            pass
+        return None
+    
     def normalize(self, input_data: Dict[str, Any]) -> NormalizationResult:
         """
         Normalize input data (parametric or script) to canonical form.
@@ -376,6 +440,12 @@ class FreeCADRulesEngine:
             Tuple of (canonical_script, metadata)
         """
         meta = ScriptMetadata()
+        
+        # CRITICAL FIX: Apply AST-based unit conversions ONCE at the beginning
+        # This replaces the inefficient line-by-line regex conversion
+        script, conversions = self._apply_ast_unit_conversions(script)
+        meta.conversions_applied.extend(conversions)
+        
         lines = script.split('\n')
         normalized_lines = []
         
@@ -425,9 +495,8 @@ class FreeCADRulesEngine:
                     # Insert doc assignment before this line
                     normalized_lines.append("doc = App.ActiveDocument")
             
-            # Apply unit conversions
-            line, conversions = self._apply_unit_conversions(line, i)
-            meta.conversions_applied.extend(conversions)
+            # NOTE: Unit conversions already applied via AST at the beginning
+            # No need to apply them line-by-line anymore
             
             # Translate Turkish comments
             line = self._translate_turkish_comments(line)
@@ -614,10 +683,14 @@ class FreeCADRulesEngine:
         self,
         script: str
     ) -> Tuple[str, List[UnitConversion]]:
-        """Apply unit conversions using AST transformation for robustness.
+        """Apply unit conversions using hybrid approach for robustness.
         
-        This method provides a more robust alternative to regex-based conversion
-        by parsing the script into an AST, transforming nodes, and unparsing back.
+        This method uses a hybrid approach:
+        1. Regex for inline comments (since they're not in AST)
+        2. Regex for suffix conversions (simpler than AST reconstruction)
+        3. Regex for helper functions
+        
+        This ensures all conversions work properly while preserving comments.
         
         Args:
             script: Python script with potential unit conversions
@@ -626,147 +699,105 @@ class FreeCADRulesEngine:
             Tuple of (transformed_script, list_of_conversions)
         """
         conversions = []
+        lines = script.split('\n')
         
-        try:
-            # Parse script into AST
-            tree = ast.parse(script)
-        except SyntaxError:
-            # If parsing fails, return original script
-            logger.warning("AST parsing failed for unit conversion, using original script")
-            return script, []
-        
-        class UnitTransformer(ast.NodeTransformer):
-            """AST transformer for unit conversions."""
+        # Process each line for all conversion patterns
+        for i, line in enumerate(lines):
+            original_line = line
             
-            def __init__(self, engine, conversions_list):
-                self.engine = engine
-                self.conversions = conversions_list
-                self.line_map = {}  # Track line numbers for reporting
-            
-            def visit_Assign(self, node):
-                """Transform assignments with unit suffixes."""
-                # Check for variable_unit pattern (e.g., length_cm = 10)
-                if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
-                    var_name = node.targets[0].id
-                    
-                    # Check for unit suffix
-                    if var_name.endswith('_cm') or var_name.endswith('_inch') or var_name.endswith('_in'):
-                        # Extract base name and unit
-                        if var_name.endswith('_cm'):
-                            base_name = var_name[:-3]
-                            unit = 'cm'
-                            multiplier = 10.0
-                        elif var_name.endswith('_inch'):
-                            base_name = var_name[:-5]
-                            unit = 'inch'
-                            multiplier = 25.4
-                        elif var_name.endswith('_in'):
-                            base_name = var_name[:-3]
-                            unit = 'inch'
-                            multiplier = 25.4
-                        else:
-                            return self.generic_visit(node)
-                        
-                        # Get numeric value
-                        value = self._get_numeric_value(node.value)
-                        if value is not None:
-                            new_value = self.engine._round_decimal(value * multiplier)
-                            
-                            # Record conversion
-                            self.conversions.append(UnitConversion(
-                                from_unit=unit,
-                                before=value,
-                                after=new_value,
-                                location=f"line {node.lineno}"
-                            ))
-                            
-                            # Transform the assignment
-                            node.targets[0].id = base_name
-                            node.value = ast.Constant(value=new_value)
-                            ast.copy_location(node.value, node)
+            # Pattern 1: Variable suffixes (e.g., length_cm = 10)
+            suffix_pattern = r'(\w+)_(cm|inch|in)\s*=\s*([\d.]+)'
+            matches = list(re.finditer(suffix_pattern, line))
+            for match in matches:
+                var_name = match.group(1)
+                unit = match.group(2)
+                value = float(match.group(3))
                 
-                return self.generic_visit(node)
-            
-            def visit_Call(self, node):
-                """Transform unit helper function calls."""
-                # Check for cm(), inch(), in() functions
-                if isinstance(node.func, ast.Name):
-                    func_name = node.func.id
-                    
-                    if func_name in ['cm', 'inch', 'in']:
-                        # Get the argument value
-                        if len(node.args) == 1:
-                            value = self._get_numeric_value(node.args[0])
-                            if value is not None:
-                                # Convert based on unit
-                                if func_name == 'cm':
-                                    multiplier = 10.0
-                                    unit = 'cm'
-                                else:  # inch or in
-                                    multiplier = 25.4
-                                    unit = 'inch'
-                                
-                                new_value = self.engine._round_decimal(value * multiplier)
-                                
-                                # Record conversion
-                                self.conversions.append(UnitConversion(
-                                    from_unit=unit,
-                                    before=value,
-                                    after=new_value,
-                                    location=f"line {node.lineno}"
-                                ))
-                                
-                                # Replace with constant
-                                return ast.Constant(value=new_value)
+                if unit == "cm":
+                    new_value = value * 10
+                    from_unit = "cm"
+                elif unit in ["inch", "in"]:
+                    new_value = value * 25.4
+                    from_unit = "inch"
+                else:
+                    continue
                 
-                return self.generic_visit(node)
+                new_value = self._round_decimal(new_value)
+                
+                # Replace in line
+                line = re.sub(
+                    f'{var_name}_{unit}\\s*=\\s*{re.escape(match.group(3))}',
+                    f'{var_name} = {new_value}',
+                    line
+                )
+                
+                conversions.append(UnitConversion(
+                    from_unit=from_unit,
+                    before=value,
+                    after=new_value,
+                    location=f"line {i + 1}"
+                ))
             
-            def _get_numeric_value(self, node):
-                """Extract numeric value from an AST node, supporting arithmetic."""
-                if isinstance(node, ast.Constant):
-                    if isinstance(node.value, (int, float)):
-                        return float(node.value)
-                elif isinstance(node, ast.Num):  # Python 3.7 compatibility
-                    return float(node.n)
-                elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-                    # Handle negative numbers
-                    inner_value = self._get_numeric_value(node.operand)
-                    if inner_value is not None:
-                        return -inner_value
-                elif isinstance(node, ast.BinOp):
-                    # Support arithmetic expressions
-                    left = self._get_numeric_value(node.left)
-                    right = self._get_numeric_value(node.right)
-                    if left is not None and right is not None:
-                        if isinstance(node.op, ast.Add):
-                            return left + right
-                        elif isinstance(node.op, ast.Sub):
-                            return left - right
-                        elif isinstance(node.op, ast.Mult):
-                            return left * right
-                        elif isinstance(node.op, ast.Div):
-                            return left / right if right != 0 else None
-                return None
+            # Pattern 2: Inline comments (e.g., 10  # cm)
+            comment_pattern = r'([\d.]+)\s*#\s*(cm|inch|in)\b'
+            matches = list(re.finditer(comment_pattern, line))
+            for match in matches:
+                value = float(match.group(1))
+                unit = match.group(2)
+                
+                if unit == "cm":
+                    new_value = value * 10
+                    from_unit = "cm"
+                elif unit in ["inch", "in"]:
+                    new_value = value * 25.4
+                    from_unit = "inch"
+                else:
+                    continue
+                
+                new_value = self._round_decimal(new_value)
+                
+                # Replace value and remove unit comment
+                line = line.replace(match.group(0), str(new_value))
+                
+                conversions.append(UnitConversion(
+                    from_unit=from_unit,
+                    before=value,
+                    after=new_value,
+                    location=f"line {i + 1}"
+                ))
+            
+            # Pattern 3: Helper functions (e.g., cm(10), inch(5))
+            helper_pattern = r'(cm|inch|in)\(([\d.]+)\)'
+            matches = list(re.finditer(helper_pattern, line))
+            for match in matches:
+                unit = match.group(1)
+                value = float(match.group(2))
+                
+                if unit == "cm":
+                    new_value = value * 10
+                    from_unit = "cm"
+                elif unit in ["inch", "in"]:
+                    new_value = value * 25.4
+                    from_unit = "inch"
+                else:
+                    continue
+                
+                new_value = self._round_decimal(new_value)
+                
+                # Replace with numeric literal
+                line = line.replace(match.group(0), str(new_value))
+                
+                conversions.append(UnitConversion(
+                    from_unit=from_unit,
+                    before=value,
+                    after=new_value,
+                    location=f"line {i + 1}"
+                ))
+            
+            lines[i] = line
         
-        # Apply transformations
-        transformer = UnitTransformer(self, conversions)
-        transformed_tree = transformer.visit(tree)
-        ast.fix_missing_locations(transformed_tree)
-        
-        # Unparse back to Python code
-        try:
-            # Python 3.9+ has ast.unparse
-            if hasattr(ast, 'unparse'):
-                transformed_script = ast.unparse(transformed_tree)
-            else:
-                # For older Python, we'll fall back to original script
-                # (This shouldn't happen in our environment but good for robustness)
-                logger.warning("ast.unparse not available, using original script")
-                return script, conversions
-        except Exception as e:
-            logger.error(f"Failed to unparse AST: {e}")
-            return script, conversions
-        
+        # Reconstruct script with all conversions applied
+        transformed_script = '\n'.join(lines)
         return transformed_script, conversions
     
     def _translate_turkish_comments(self, line: str) -> str:
@@ -998,60 +1029,13 @@ class FreeCADRulesEngine:
                 return values
             
             def _get_numeric_value(self, node):
-                """Extract numeric value from an AST node, supporting arithmetic expressions.
+                """Extract numeric value from an AST node using shared helper.
                 
-                This enhanced version supports:
-                - Literal values (int, float)
-                - Negative numbers (UnaryOp with USub)
-                - Arithmetic expressions (BinOp with +, -, *, /)
-                - Nested expressions with proper evaluation
+                Uses the engine's static method for consistent numeric evaluation
+                across all AST processing. Supports all arithmetic operators.
                 """
-                if isinstance(node, ast.Constant):
-                    if isinstance(node.value, (int, float)):
-                        return float(node.value)
-                elif isinstance(node, ast.Num):  # Python 3.7 compatibility
-                    return float(node.n)
-                elif isinstance(node, ast.UnaryOp):
-                    if isinstance(node.op, ast.USub):
-                        # Handle negative numbers
-                        inner_value = self._get_numeric_value(node.operand)
-                        if inner_value is not None:
-                            return -inner_value
-                    elif isinstance(node.op, ast.UAdd):
-                        # Handle positive numbers (rarely used but for completeness)
-                        return self._get_numeric_value(node.operand)
-                elif isinstance(node, ast.BinOp):
-                    # Support arithmetic expressions like 10 * 2.54 or 5 + 3
-                    left = self._get_numeric_value(node.left)
-                    right = self._get_numeric_value(node.right)
-                    
-                    if left is not None and right is not None:
-                        if isinstance(node.op, ast.Add):
-                            return left + right
-                        elif isinstance(node.op, ast.Sub):
-                            return left - right
-                        elif isinstance(node.op, ast.Mult):
-                            return left * right
-                        elif isinstance(node.op, ast.Div):
-                            # Safe division with zero check
-                            if right != 0:
-                                return left / right
-                        elif isinstance(node.op, ast.FloorDiv):
-                            if right != 0:
-                                return left // right
-                        elif isinstance(node.op, ast.Mod):
-                            if right != 0:
-                                return left % right
-                        elif isinstance(node.op, ast.Pow):
-                            try:
-                                return left ** right
-                            except (OverflowError, ValueError):
-                                return None
-                elif isinstance(node, ast.Name):
-                    # Could track variable values if needed in future
-                    # For now, we can't resolve variable references
-                    pass
-                return None
+                # Use the shared static method from FreeCADRulesEngine
+                return FreeCADRulesEngine._evaluate_numeric_ast_node(node)
             
             def _get_string_value(self, node):
                 """Extract string value from an AST node."""
