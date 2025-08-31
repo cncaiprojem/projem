@@ -844,8 +844,23 @@ class FreeCADParametricGenerator:
         self.monitor.emit_progress(f"Document created: {name}")
         return self.doc
     
-    def add_shape_to_document(self, shape: 'Part.Shape', label: str = "ParametricPart"):
-        """Add a shape to the document."""
+    def add_shape_to_document(self, shape: 'Part.Shape', label: str = "ParametricPart") -> 'Part.Feature':
+        """Add a shape to the document and return the created object.
+        
+        This method creates a Part::Feature object in the document and returns it,
+        enabling loose coupling by allowing direct access to the created object
+        without requiring name-based lookups.
+        
+        Args:
+            shape: The Part.Shape to add to the document
+            label: Label for the created object (default: "ParametricPart")
+            
+        Returns:
+            Part.Feature: The created document object containing the shape
+            
+        Raises:
+            RuntimeError: If no document has been created
+        """
         if not self.doc:
             raise RuntimeError("No document created")
         
@@ -858,6 +873,9 @@ class FreeCADParametricGenerator:
         self.doc.recompute()
         
         self.monitor.emit_progress(f"Shape added to document: {label}")
+        
+        # Return the created part object for direct use
+        return part
     
     def get_document(self):
         """
@@ -1273,7 +1291,8 @@ class FreeCADWorker:
                 shape = generator.create_prism_with_hole(
                     length, width, height, hole_diameter, units
                 )
-                generator.add_shape_to_document(shape, "PrismWithHole")
+                # Capture the returned document object for loose coupling
+                doc_object = generator.add_shape_to_document(shape, "PrismWithHole")
             else:
                 # Legacy simple shapes use dedicated methods to avoid code duplication.
                 # This ensures all geometric flows use the same validation and export pipeline
@@ -1281,19 +1300,22 @@ class FreeCADWorker:
                 if model_type == 'box':
                     # Use the new create_box method
                     shape = generator.create_box(length, width, height)
-                    generator.add_shape_to_document(shape, "ParametricBox")
+                    # Capture the returned document object for loose coupling
+                    doc_object = generator.add_shape_to_document(shape, "ParametricBox")
                 elif model_type == 'cylinder':
                     # Check both dimensions dict and top-level input_data for consistency
                     radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
                     # Use the new create_cylinder method
                     shape = generator.create_cylinder(radius, height)
-                    generator.add_shape_to_document(shape, "ParametricCylinder")
+                    # Capture the returned document object for loose coupling
+                    doc_object = generator.add_shape_to_document(shape, "ParametricCylinder")
                 elif model_type == 'sphere':
                     # Check both dimensions dict and top-level input_data for consistency
                     radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
                     # Use the new create_sphere method
                     shape = generator.create_sphere(radius)
-                    generator.add_shape_to_document(shape, "ParametricSphere")
+                    # Capture the returned document object for loose coupling
+                    doc_object = generator.add_shape_to_document(shape, "ParametricSphere")
                 else:
                     raise ValueError(f"Unsupported model type: {model_type}")
                 
@@ -1328,25 +1350,14 @@ class FreeCADWorker:
             
             # Generate TechDraw if requested
             if self.args.techdraw == 'on':
-                # Get the document object by name based on model_type using dictionary mapping
-                object_name_map = {
-                    "prism_with_hole": "PrismWithHole",
-                    "box": "ParametricBox",
-                    "cylinder": "ParametricCylinder",
-                    "sphere": "ParametricSphere",
-                }
-                object_name = object_name_map.get(model_type)
-                
-                if object_name:
-                    doc_object = doc.getObject(object_name)
-                    if doc_object:
-                        techdraw_result = self._generate_techdraw(doc, [doc_object])
-                        result['techdraw'] = techdraw_result
-                        result['artefacts'].extend(techdraw_result.get('exported_files', []))
-                    else:
-                        logger.warning(f"Could not find object '{object_name}' in document for TechDraw")
+                # Use the document object returned from add_shape_to_document
+                # This eliminates tight coupling and removes dependency on object naming
+                if doc_object:
+                    techdraw_result = self._generate_techdraw(doc, [doc_object])
+                    result['techdraw'] = techdraw_result
+                    result['artefacts'].extend(techdraw_result.get('exported_files', []))
                 else:
-                    logger.warning(f"Unknown model type '{model_type}' for TechDraw generation")
+                    logger.warning("No document object available for TechDraw generation")
             
             generator.App.closeDocument(doc.Name)
             
@@ -1840,8 +1851,8 @@ def main_standalone():
             length, width, height, hole_diameter, units
         )
         
-        # Add to document
-        generator.add_shape_to_document(shape, "PrismWithHole")
+        # Add to document and capture the returned object
+        doc_object = generator.add_shape_to_document(shape, "PrismWithHole")
         
         # Export to requested formats
         with tempfile.TemporaryDirectory() as tmpdir:

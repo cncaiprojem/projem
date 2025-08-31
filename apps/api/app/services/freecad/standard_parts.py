@@ -22,6 +22,61 @@ from ...core.logging import get_logger
 logger = get_logger(__name__)
 
 
+# ============================================================================
+# Custom Exception Classes for Enterprise-Grade Error Handling
+# ============================================================================
+
+class StandardPartError(Exception):
+    """Base exception for standard part errors.
+    
+    This base class provides a foundation for all standard part related
+    exceptions, following enterprise error handling patterns.
+    """
+    pass
+
+
+class UnknownStandardError(StandardPartError):
+    """Raised when an unknown standard is requested.
+    
+    This exception provides detailed information about the requested standard
+    and available alternatives, enabling better error recovery.
+    
+    Attributes:
+        standard: The requested standard that was not found
+        known_standards: List of available standards
+    """
+    
+    def __init__(self, standard: str, known_standards: List[str]):
+        self.standard = standard
+        self.known_standards = known_standards
+        super().__init__(
+            f"Unknown standard: {standard}. "
+            f"Known standards: {', '.join(known_standards)}"
+        )
+
+
+class UnsupportedSizeError(StandardPartError):
+    """Raised when an unsupported size is requested for a standard.
+    
+    This exception provides information about the requested size,
+    the standard it was requested for, and available sizes.
+    
+    Attributes:
+        size: The requested size that is not available
+        standard: The standard for which the size was requested
+        available_sizes: List of available sizes for the standard
+    """
+    
+    def __init__(self, size: str, standard: str, available_sizes: List[str]):
+        self.size = size
+        self.standard = standard
+        self.available_sizes = available_sizes
+        super().__init__(
+            f"Size {size} not available for {standard}. "
+            f"Available sizes: {', '.join(available_sizes)}"
+        )
+
+
 class StandardType(str, Enum):
     """Standard types for parts."""
     DIN = "DIN"
@@ -352,20 +407,19 @@ doc.recompute()"""
         # Get the part definition
         part_def = self.CATALOG.get(standard)
         if not part_def:
-            # Return error with known standards
+            # Raise exception with known standards for better error handling
             known = list(self.CATALOG.keys())
             logger.warning(f"Unknown standard: {standard}. Known: {known}")
-            return {
-                "error": f"Unknown standard: {standard}",
-                "known_standards": known
-            }
+            raise UnknownStandardError(standard, known)
         
         # Check if size is supported
         if size not in part_def.sizes:
-            return {
-                "error": f"Size {size} not available for {standard}",
-                "available_sizes": part_def.sizes
-            }
+            # Raise exception with available sizes for better error recovery
+            logger.warning(
+                f"Size {size} not available for {standard}. "
+                f"Available: {part_def.sizes}"
+            )
+            raise UnsupportedSizeError(size, standard, part_def.sizes)
         
         # Parse size parameters based on part type
         if part_def.category == PartCategory.FASTENERS:
