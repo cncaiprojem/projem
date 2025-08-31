@@ -877,7 +877,7 @@ class FreeCADParametricGenerator:
         # Return the created part object for direct use
         return part
     
-    def get_document(self):
+    def get_document(self) -> Any:
         """
         Get the FreeCAD document.
         
@@ -1291,8 +1291,8 @@ class FreeCADWorker:
                 shape = generator.create_prism_with_hole(
                     length, width, height, hole_diameter, units
                 )
-                # Capture the returned document object for loose coupling
-                doc_object = generator.add_shape_to_document(shape, "PrismWithHole")
+                # Capture the returned part object for loose coupling
+                part_object = generator.add_shape_to_document(shape, "PrismWithHole")
             else:
                 # Legacy simple shapes use dedicated methods to avoid code duplication.
                 # This ensures all geometric flows use the same validation and export pipeline
@@ -1300,22 +1300,22 @@ class FreeCADWorker:
                 if model_type == 'box':
                     # Use the new create_box method
                     shape = generator.create_box(length, width, height)
-                    # Capture the returned document object for loose coupling
-                    doc_object = generator.add_shape_to_document(shape, "ParametricBox")
+                    # Capture the returned part object for loose coupling
+                    part_object = generator.add_shape_to_document(shape, "ParametricBox")
                 elif model_type == 'cylinder':
                     # Check both dimensions dict and top-level input_data for consistency
                     radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
                     # Use the new create_cylinder method
                     shape = generator.create_cylinder(radius, height)
-                    # Capture the returned document object for loose coupling
-                    doc_object = generator.add_shape_to_document(shape, "ParametricCylinder")
+                    # Capture the returned part object for loose coupling
+                    part_object = generator.add_shape_to_document(shape, "ParametricCylinder")
                 elif model_type == 'sphere':
                     # Check both dimensions dict and top-level input_data for consistency
                     radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
                     # Use the new create_sphere method
                     shape = generator.create_sphere(radius)
-                    # Capture the returned document object for loose coupling
-                    doc_object = generator.add_shape_to_document(shape, "ParametricSphere")
+                    # Capture the returned part object for loose coupling
+                    part_object = generator.add_shape_to_document(shape, "ParametricSphere")
                 else:
                     raise ValueError(f"Unsupported model type: {model_type}")
                 
@@ -1350,10 +1350,10 @@ class FreeCADWorker:
             
             # Generate TechDraw if requested
             if self.args.techdraw == 'on':
-                # Use the document object returned from add_shape_to_document
+                # Use the part object returned from add_shape_to_document
                 # This eliminates tight coupling and removes dependency on object naming
-                if doc_object:
-                    techdraw_result = self._generate_techdraw(doc, [doc_object])
+                if part_object:
+                    techdraw_result = self._generate_techdraw(doc, [part_object])
                     result['techdraw'] = techdraw_result
                     result['artefacts'].extend(techdraw_result.get('exported_files', []))
                 else:

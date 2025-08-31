@@ -313,16 +313,15 @@ class BOMExtractor:
             try:
                 # Use shape's content hash if available
                 if hasattr(obj.Shape, 'exportBrep'):
-                    # Use proper context manager with delete=True for automatic cleanup
+                    # Use mkstemp for safer temp file handling
                     import tempfile
+                    import os as os_module  # Alias to avoid conflict with FreeCAD os
+                    fd, tmp_path = tempfile.mkstemp(suffix='.brep')
                     try:
-                        with tempfile.NamedTemporaryFile(suffix='.brep', delete=True, mode='w+b') as tmp:
-                            obj.Shape.exportBrep(tmp.name)
-                            # Flush to ensure data is written to disk and seek to beginning
-                            # This avoids Windows file locking issues with double-open
-                            tmp.flush()
-                            tmp.seek(0)
-                            hasher.update(tmp.read())
+                        os_module.close(fd)  # Close immediately, let exportBrep write to it
+                        obj.Shape.exportBrep(tmp_path)
+                        with open(tmp_path, 'rb') as f:
+                            hasher.update(f.read())
                     except Exception as e:
                         # Handle BREP export failures gracefully
                         logger.debug(f"BREP export failed, falling back to bbox dimensions: {e}")
@@ -336,6 +335,12 @@ class BOMExtractor:
                             str(bbox.ZLength)
                         ])
                         hasher.update(batch_data.encode('utf-8'))
+                    finally:
+                        # Clean up the temporary file
+                        try:
+                            os_module.remove(tmp_path)
+                        except Exception:
+                            pass  # Best effort cleanup
                 else:
                     # Fallback: use basic properties including bounding box dimensions
                     # Batch hash updates with delimiter for efficiency

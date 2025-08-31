@@ -234,11 +234,6 @@ class DeterministicExporter:
             # Use regex to replace only timestamp values, not entire lines
             # This preserves the STEP file structure while removing non-deterministic data
             
-            # Pattern for DATE_AND_TIME entries (e.g., DATE_AND_TIME(#123))
-            # Replace the referenced timestamp data, not the reference itself
-            date_time_pattern = r"DATE_AND_TIME\s*\([^)]+\)"
-            content = re.sub(date_time_pattern, f"DATE_AND_TIME(#{self.source_date.year},{self.source_date.month},{self.source_date.day})", content)
-            
             # Pattern for ISO timestamp strings (e.g., '2024-01-15T10:30:45')
             iso_timestamp_pattern = r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
             content = re.sub(iso_timestamp_pattern, f"'{self.source_date.isoformat()}'", content)

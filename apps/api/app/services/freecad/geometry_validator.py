@@ -75,9 +75,6 @@ class ValidationResult(BaseModel):
 class GeometryValidator:
     """Validate FreeCAD geometry for correctness and manufacturability."""
     
-    # Constants for validation thresholds
-    PERPENDICULAR_THRESHOLD = 0.1  # Threshold for detecting perpendicular faces
-    
     # Material-specific minimum wall thickness (mm)
     WALL_THICKNESS_BY_MATERIAL = {
         "aluminum": 0.8,
