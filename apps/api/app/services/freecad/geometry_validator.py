@@ -589,6 +589,7 @@ class GeometryValidator:
         1. Vertical accessibility (Z-axis) for 3-axis milling
         2. Deep pocket detection using aspect ratio analysis
         3. Undercut detection from the primary analysis
+        4. Tool clearance validation around intersection points
         
         For production systems, consider using:
         - Visibility maps for comprehensive accessibility analysis
@@ -612,6 +613,11 @@ class GeometryValidator:
             # Define tool parameters (should be configurable)
             tool_diameter = 10.0  # mm, typical end mill
             tool_length = 50.0    # mm, typical tool length
+            tool_radius = tool_diameter / 2.0
+            
+            # CNC machining rule: minimum internal radius = (depth/10) + 0.5mm
+            # and corresponding tool diameter = depth/5
+            # Reference: Industry standard for avoiding tool breakage
             
             # Create a grid of test points for ray casting
             grid_resolution = 10  # Number of rays in each direction
@@ -619,6 +625,7 @@ class GeometryValidator:
             y_step = bbox.YLength / grid_resolution
             
             inaccessible_regions = []
+            clearance_issues = []
             
             for i in range(grid_resolution):
                 for j in range(grid_resolution):
@@ -632,8 +639,6 @@ class GeometryValidator:
                     ray_direction = Part.Vertex(0, 0, -1).Point
                     
                     # Check for intersections with the shape
-                    # Note: This is a simplified check - production code would use
-                    # actual ray-shape intersection algorithms
                     try:
                         # Create a line segment for the ray
                         ray_line = Part.makeLine(
@@ -647,17 +652,101 @@ class GeometryValidator:
                         # OpenCASCADE line-solid intersection returns edges/vertices (not volume)
                         # Checking edges confirms ray hits solid surface - correct approach
                         if intersections and getattr(intersections, 'Edges', None):
-                            # Ray intersects with part - check if tool can fit
-                            # This is a simplified check - real implementation would
-                            # analyze the clearance around the intersection point
-                            pass
+                            # Ray intersects with part - now perform clearance analysis
+                            for edge in intersections.Edges:
+                                # Get the Z coordinate of the intersection
+                                if edge.Vertexes:
+                                    intersection_z = edge.Vertexes[0].Point.z
+                                    depth_from_top = bbox.ZMax - intersection_z
+                                    
+                                    # Check if tool can reach this depth
+                                    if depth_from_top > tool_length:
+                                        inaccessible_regions.append({
+                                            'x': x, 'y': y, 'z': intersection_z,
+                                            'depth': depth_from_top,
+                                            'reason': 'exceeds_tool_length'
+                                        })
+                                    
+                                    # Check clearance around the intersection point
+                                    # Create a cylinder representing the tool at this position
+                                    tool_cylinder = Part.makeCylinder(
+                                        tool_radius,
+                                        min(tool_length, depth_from_top + 1),
+                                        Part.Vertex(x, y, bbox.ZMax).Point,
+                                        Part.Vertex(0, 0, -1).Point
+                                    )
+                                    
+                                    # Check for collisions between tool and part
+                                    # excluding the intended cutting area
+                                    try:
+                                        collision = shape.common(tool_cylinder)
+                                        if collision and collision.Volume > 0:
+                                            # Calculate the clearance issue
+                                            collision_volume = collision.Volume
+                                            # Small volume might be acceptable (cutting area)
+                                            # Large volume indicates tool interference
+                                            cutting_volume_estimate = math.pi * tool_radius**2 * 1.0  # 1mm cut depth
+                                            
+                                            if collision_volume > cutting_volume_estimate * 2:
+                                                clearance_issues.append({
+                                                    'x': x, 'y': y, 'z': intersection_z,
+                                                    'volume': collision_volume,
+                                                    'reason': 'insufficient_clearance'
+                                                })
+                                    except Exception as e:
+                                        logger.debug(f"Clearance check failed at ({x}, {y}, {intersection_z}): {e}")
+                                        
                     except Exception as e:
                         logger.debug(f"Ray casting check failed at ({x}, {y}): {e}")
             
-            # Fallback to basic bounding box analysis if ray casting fails
-            # This maintains backward compatibility
+            # Analyze results and generate warnings/errors
+            if inaccessible_regions:
+                # Group by reason for better reporting
+                tool_length_issues = [r for r in inaccessible_regions if r['reason'] == 'exceeds_tool_length']
+                if tool_length_issues:
+                    max_depth = max(r['depth'] for r in tool_length_issues)
+                    result["errors"].append(
+                        f"Features detected at depth {max_depth:.1f}mm exceed standard tool length {tool_length}mm. "
+                        "Consider redesigning to reduce depth or use specialized long-reach tooling."
+                    )
             
-            # Ray test from top and bottom
+            if clearance_issues:
+                # Analyze clearance problems
+                total_clearance_issues = len(clearance_issues)
+                if total_clearance_issues > grid_resolution * grid_resolution * 0.1:  # More than 10% of points
+                    result["errors"].append(
+                        f"Significant tool clearance issues detected at {total_clearance_issues} locations. "
+                        f"Tool diameter {tool_diameter}mm cannot access internal features without collision. "
+                        "Consider increasing internal radii or using smaller diameter tools."
+                    )
+                else:
+                    result["warnings"].append(
+                        f"Minor tool clearance issues at {total_clearance_issues} locations. "
+                        "Review internal corners and pockets for adequate tool clearance."
+                    )
+            
+            # Additional analysis: Check minimum internal radius rule
+            # Industry standard: R = (H/10) + 0.5mm where H is cavity depth
+            for face in shape.Faces:
+                face_bbox = face.BoundBox
+                depth_from_top = bbox.ZMax - face_bbox.ZMax
+                
+                if depth_from_top > 0:
+                    # Calculate required minimum internal radius
+                    required_min_radius = (depth_from_top / 10) + 0.5
+                    required_tool_diameter = depth_from_top / 5
+                    
+                    # Check if current tool is appropriate
+                    if tool_diameter > required_tool_diameter * 1.5:
+                        result["warnings"].append(
+                            f"Tool diameter {tool_diameter}mm may be too large for cavity depth {depth_from_top:.1f}mm. "
+                            f"Recommended tool diameter: {required_tool_diameter:.1f}mm, "
+                            f"minimum internal radius: {required_min_radius:.1f}mm"
+                        )
+            
+            # Fallback to basic bounding box analysis for deep pocket detection
+            # This maintains backward compatibility and adds additional checks
+            
             for face in shape.Faces:
                 # Check if face is in a deep pocket
                 face_bbox = face.BoundBox
@@ -667,16 +756,35 @@ class GeometryValidator:
                 min_opening = min(face_bbox.XLength, face_bbox.YLength)
                 
                 if min_opening > 0:
-                    if depth_from_top / min_opening > 5:
+                    aspect_ratio_top = depth_from_top / min_opening
+                    aspect_ratio_bottom = depth_from_bottom / min_opening
+                    
+                    # Industry guideline: aspect ratio > 5 is problematic
+                    if aspect_ratio_top > 5:
                         result["warnings"].append(
-                            f"Deep pocket detected (depth/width = {depth_from_top/min_opening:.1f})"
+                            f"Deep pocket detected from top (depth/width = {aspect_ratio_top:.1f}). "
+                            "May require specialized tooling or multiple setups."
                         )
-                    if depth_from_bottom / min_opening > 5:
+                    if aspect_ratio_bottom > 5:
                         result["warnings"].append(
-                            f"Deep pocket from bottom detected (depth/width = {depth_from_bottom/min_opening:.1f})"
+                            f"Deep pocket detected from bottom (depth/width = {aspect_ratio_bottom:.1f}). "
+                            "Consider accessibility from alternate orientations."
                         )
+                    
+                    # Best practice: cutting depth should be 2-3 times tool diameter
+                    if aspect_ratio_top > 3:
+                        optimal_tool_diameter = min_opening / 3
+                        result["warnings"].append(
+                            f"For pocket with {min_opening:.1f}mm opening and {depth_from_top:.1f}mm depth, "
+                            f"consider using tool diameter ≤ {optimal_tool_diameter:.1f}mm for optimal chip evacuation."
+                        )
+                        
         except Exception as e:
             logger.debug(f"Tool accessibility check error: {e}")
+            result["warnings"].append(
+                "Tool accessibility analysis encountered an error. "
+                "Manual review of CNC manufacturability is recommended."
+            )
         
         return result
     
