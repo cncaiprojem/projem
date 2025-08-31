@@ -621,7 +621,7 @@ class FreeCADRulesEngine:
                 
                 # Replace in line - use re.subn for single replacement
                 line, _ = re.subn(
-                    f'{var_name}_{unit}\\s*=\\s*{re.escape(match.group(3))}',
+                    re.escape(match.group(0)),
                     f'{var_name} = {new_value}',
                     line,
                     count=1
