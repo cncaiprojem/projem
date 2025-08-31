@@ -115,7 +115,7 @@ class FreeCADRulesEngine:
     
     # Forbidden names and operations
     FORBIDDEN_NAMES = {
-        "__import__", "exec", "eval", "open",  # Removed 'file' - not in Python 3
+        "__import__", "exec", "eval", "open",  # 'file' was a Python 2 builtin; omitted for Python 3 compatibility
         "os", "subprocess", "sys.exit", "compile", "globals", "locals"
     }
     
@@ -441,9 +441,9 @@ class FreeCADRulesEngine:
         """
         meta = ScriptMetadata()
         
-        # CRITICAL FIX: Apply AST-based unit conversions ONCE at the beginning
-        # This replaces the inefficient line-by-line regex conversion
-        script, conversions = self._apply_ast_unit_conversions(script)
+        # Apply unit conversions once at the beginning for efficiency.
+        # This replaces the previous inefficient line-by-line regex conversion.
+        script, conversions = self._apply_regex_unit_conversions(script)
         meta.conversions_applied.extend(conversions)
         
         lines = script.split('\n')
@@ -495,8 +495,6 @@ class FreeCADRulesEngine:
                     # Insert doc assignment before this line
                     normalized_lines.append("doc = App.ActiveDocument")
             
-            # NOTE: Unit conversions already applied via AST at the beginning
-            # No need to apply them line-by-line anymore
             
             # Translate Turkish comments
             line = self._translate_turkish_comments(line)
@@ -565,132 +563,18 @@ class FreeCADRulesEngine:
         
         return canonical_script, meta
     
-    def _apply_unit_conversions(
-        self, 
-        line: str, 
-        line_number: int
-    ) -> Tuple[str, List[UnitConversion]]:
-        """Apply unit conversions to a line of code using AST transformation.
-        
-        This method is kept for compatibility but delegates to AST-based conversion
-        for robustness. The regex patterns are preserved as fallback.
-        """
-        # For single lines, we still use regex as a fast path
-        # Full script conversion uses AST-based transformation
-        conversions = []
-        
-        # Pattern 1: Variable suffixes (e.g., length_cm, width_inch)
-        suffix_pattern = r'(\w+)_(cm|inch|in)\s*=\s*([\d.]+)'
-        matches = list(re.finditer(suffix_pattern, line))
-        for match in matches:
-            var_name = match.group(1)
-            unit = match.group(2)
-            value = float(match.group(3))
-            
-            if unit == "cm":
-                new_value = value * 10
-                from_unit = "cm"
-            elif unit in ["inch", "in"]:
-                new_value = value * 25.4
-                from_unit = "inch"
-            else:
-                continue
-            
-            # Round to precision
-            new_value = self._round_decimal(new_value)
-            
-            # Replace in line - match the original string exactly
-            line = re.sub(
-                f'{var_name}_{unit}\\s*=\\s*{match.group(3)}',
-                f'{var_name} = {new_value}',
-                line
-            )
-            
-            conversions.append(UnitConversion(
-                from_unit=from_unit,
-                before=value,
-                after=new_value,
-                location=f"line {line_number + 1}"
-            ))
-        
-        # Pattern 2: Inline comments (e.g., 12 # cm)
-        comment_pattern = r'([\d.]+)\s*#\s*(cm|inch|in)\b'
-        matches = list(re.finditer(comment_pattern, line))
-        for match in matches:
-            value = float(match.group(1))
-            unit = match.group(2)
-            
-            if unit == "cm":
-                new_value = value * 10
-                from_unit = "cm"
-            elif unit in ["inch", "in"]:
-                new_value = value * 25.4
-                from_unit = "inch"
-            else:
-                continue
-            
-            new_value = self._round_decimal(new_value)
-            
-            # Replace value and remove unit comment - match original string exactly
-            line = re.sub(
-                f'{match.group(1)}\\s*#\\s*{unit}',
-                str(new_value),
-                line
-            )
-            
-            conversions.append(UnitConversion(
-                from_unit=from_unit,
-                before=value,
-                after=new_value,
-                location=f"line {line_number + 1}"
-            ))
-        
-        # Pattern 3: Helper functions (e.g., cm(10), inch(5))
-        helper_pattern = r'(cm|inch|in)\(([\d.]+)\)'
-        matches = list(re.finditer(helper_pattern, line))
-        for match in matches:
-            unit = match.group(1)
-            value = float(match.group(2))
-            
-            if unit == "cm":
-                new_value = value * 10
-                from_unit = "cm"
-            elif unit in ["inch", "in"]:
-                new_value = value * 25.4
-                from_unit = "inch"
-            else:
-                continue
-            
-            new_value = self._round_decimal(new_value)
-            
-            # Replace with numeric literal - match original string exactly
-            line = re.sub(
-                f'{unit}\\({match.group(2)}\\)',
-                str(new_value),
-                line
-            )
-            
-            conversions.append(UnitConversion(
-                from_unit=from_unit,
-                before=value,
-                after=new_value,
-                location=f"line {line_number + 1}"
-            ))
-        
-        return line, conversions
-    
-    def _apply_ast_unit_conversions(
+    def _apply_regex_unit_conversions(
         self,
         script: str
     ) -> Tuple[str, List[UnitConversion]]:
-        """Apply unit conversions using hybrid approach for robustness.
+        """Apply unit conversions using regex-based pattern matching.
         
-        This method uses a hybrid approach:
-        1. Regex for inline comments (since they're not in AST)
-        2. Regex for suffix conversions (simpler than AST reconstruction)
-        3. Regex for helper functions
+        This method uses regex patterns to identify and convert units:
+        1. Variable suffixes (e.g., length_cm = 10)
+        2. Inline comments (e.g., 12 # cm)
+        3. Helper functions (e.g., cm(10), inch(5))
         
-        This ensures all conversions work properly while preserving comments.
+        All conversions are applied in a single pass for efficiency.
         
         Args:
             script: Python script with potential unit conversions
