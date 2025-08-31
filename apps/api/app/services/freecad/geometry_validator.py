@@ -301,18 +301,26 @@ class GeometryValidator:
                                 result.manufacturing_issues.append(error_msg)
                                 break
             
-            # Check draft angles for vertical faces
+            # Check draft angles for ALL faces against pull direction
+            # For molding/casting, all faces must have sufficient draft from the pull direction
             if hasattr(shape, 'Faces'):
+                # Assume Z-axis as default pull direction (can be made configurable)
+                pull_direction = [0, 0, 1]  # Positive Z direction
+                
                 for face in shape.Faces:
                     try:
                         # Get face normal
                         if hasattr(face, 'normalAt'):
                             normal = face.normalAt(0, 0)
-                            # Check if face is nearly vertical
-                            z_component = abs(normal.z)
-                            if z_component < 0.1:  # Nearly vertical
-                                # Calculate draft angle from vertical
-                                angle = math.degrees(math.asin(z_component))
+                            # Calculate angle between face normal and pull direction
+                            # For proper draft, the face should not be perpendicular to pull direction
+                            dot_product = normal.x * pull_direction[0] + normal.y * pull_direction[1] + normal.z * pull_direction[2]
+                            
+                            # If face is perpendicular or nearly perpendicular to pull direction, it needs draft
+                            if abs(dot_product) < 0.1:  # Nearly perpendicular (vertical walls)
+                                # Calculate the actual draft angle from vertical
+                                # The draft angle is the deviation from perpendicular
+                                angle = math.degrees(math.asin(abs(dot_product)))
                                 is_valid, error_msg = self.constraints.validate_draft(angle)
                                 if not is_valid:
                                     result.manufacturing_issues.append(error_msg)

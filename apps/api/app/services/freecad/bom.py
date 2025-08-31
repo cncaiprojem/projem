@@ -334,9 +334,14 @@ class BOMExtractor:
                             except Exception as e:
                                 logger.warning(f"Failed to cleanup temporary file {tmp_path}: {e}")
                 else:
-                    # Fallback: use basic properties
+                    # Fallback: use basic properties including bounding box dimensions
                     hasher.update(str(obj.Shape.Volume).encode('utf-8'))
                     hasher.update(str(obj.Shape.Area).encode('utf-8'))
+                    # Add bounding box dimensions to reduce collision risk
+                    bbox = obj.Shape.BoundBox
+                    hasher.update(str(bbox.XLength).encode('utf-8'))
+                    hasher.update(str(bbox.YLength).encode('utf-8'))
+                    hasher.update(str(bbox.ZLength).encode('utf-8'))
             except Exception as e:
                 logger.debug(f"Could not hash shape: {e}")
         

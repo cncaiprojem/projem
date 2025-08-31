@@ -1174,25 +1174,31 @@ class FreeCADWorker:
                 )
                 generator.add_shape_to_document(shape, "PrismWithHole")
             else:
-                # Legacy simple shapes for backward compatibility
+                # Legacy simple shapes must use FreeCADParametricGenerator for deterministic output
+                # This ensures all shapes follow the same validation and configuration patterns
                 import FreeCAD
                 if model_type == 'box':
-                    obj = doc.addObject("Part::Box", "ParametricBox")
-                    obj.Length = length
-                    obj.Width = width
-                    obj.Height = height
+                    # Create a box as a prism without hole
+                    shape = generator.Part.makeBox(length, width, height)
+                    generator.add_shape_to_document(shape, "ParametricBox")
                 elif model_type == 'cylinder':
-                    obj = doc.addObject("Part::Cylinder", "ParametricCylinder")
-                    obj.Radius = dimensions.get('radius', 50.0)
-                    obj.Height = height
+                    radius = dimensions.get('radius', 50.0)
+                    shape = generator.Part.makeCylinder(
+                        radius,
+                        height,
+                        generator.Base.Vector(0, 0, 0),
+                        generator.Base.Vector(0, 0, 1)
+                    )
+                    generator.add_shape_to_document(shape, "ParametricCylinder")
                 elif model_type == 'sphere':
-                    obj = doc.addObject("Part::Sphere", "ParametricSphere")
-                    obj.Radius = dimensions.get('radius', 50.0)
+                    radius = dimensions.get('radius', 50.0)
+                    shape = generator.Part.makeSphere(radius)
+                    generator.add_shape_to_document(shape, "ParametricSphere")
                 else:
                     raise ValueError(f"Unsupported model type: {model_type}")
                 
-                doc.recompute()
-                shape = obj.Shape
+                # Use generator's document for consistency
+                doc = generator.doc
             
             # Export with deterministic hashing (Task 7.6)
             with tempfile.TemporaryDirectory() as tmpdir:
@@ -1688,6 +1694,7 @@ def validate_arguments(args) -> List[str]:
 def main_standalone():
     """Main entry point for standalone Task 7.6 execution (used when called directly with JSON input)."""
     monitor = ResourceMonitor(max_time_seconds=20, max_memory_mb=2048)
+    monitor.start()  # Start resource monitoring
     
     try:
         # Read input JSON
@@ -1789,6 +1796,8 @@ def main_standalone():
         }
         print(json.dumps(error_output, indent=2))
         sys.exit(1)
+    finally:
+        monitor.stop()  # Stop resource monitoring in finally block
 
 
 # ==============================================================================
