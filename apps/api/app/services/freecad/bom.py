@@ -64,10 +64,21 @@ class BillOfMaterials(BaseModel):
 class BOMExtractor:
     """Extract Bill of Materials from FreeCAD assemblies."""
     
+    # Material densities in g/cm³ (class constant for consistency)
+    MATERIAL_DENSITIES = {
+        "steel": 7.85,
+        "aluminum": 2.70,
+        "brass": 8.40,
+        "copper": 8.96,
+        "abs": 1.04,
+        "pla": 1.25,
+        "petg": 1.27,
+        "nylon": 1.14,
+    }
+    
     def __init__(self):
         """Initialize BOM extractor."""
         self._freecad_available = self._check_freecad()
-        self._material_densities = self._load_material_densities()
     
     def _check_freecad(self) -> bool:
         """Check if FreeCAD is available."""
@@ -77,19 +88,6 @@ class BOMExtractor:
         except ImportError:
             logger.warning("FreeCAD not available for BOM extraction")
             return False
-    
-    def _load_material_densities(self) -> Dict[str, float]:
-        """Load material densities in g/cm³."""
-        return {
-            "steel": 7.85,
-            "aluminum": 2.70,
-            "brass": 8.40,
-            "copper": 8.96,
-            "abs": 1.04,
-            "pla": 1.25,
-            "petg": 1.27,
-            "nylon": 1.14,
-        }
     
     def extract_bom(
         self,
@@ -278,8 +276,8 @@ class BOMExtractor:
                 
                 # Calculate mass if material is known
                 material = info.get("material", "").lower()
-                if material in self._material_densities:
-                    density = self._material_densities[material]
+                if material in self.MATERIAL_DENSITIES:
+                    density = self.MATERIAL_DENSITIES[material]
                     mass = volume * density / 1000  # Convert mm³ to cm³
                     info["mass"] = mass
             except Exception as e:
@@ -315,24 +313,12 @@ class BOMExtractor:
             try:
                 # Use shape's content hash if available
                 if hasattr(obj.Shape, 'exportBrep'):
-                    # Export to BREP string for hashing with proper cleanup
+                    # Use proper context manager with delete=True for automatic cleanup
                     import tempfile
-                    tmp_path = None
-                    try:
-                        with tempfile.NamedTemporaryFile(suffix='.brep', delete=False) as tmp:
-                            tmp_path = tmp.name
-                            obj.Shape.exportBrep(tmp.name)
-                        
-                        # Read the file for hashing
-                        with open(tmp_path, 'rb') as f:
-                            hasher.update(f.read())
-                    finally:
-                        # Ensure cleanup even if an exception occurs
-                        if tmp_path and Path(tmp_path).exists():
-                            try:
-                                Path(tmp_path).unlink()
-                            except Exception as e:
-                                logger.warning(f"Failed to cleanup temporary file {tmp_path}: {e}")
+                    with tempfile.NamedTemporaryFile(suffix='.brep', delete=True) as tmp:
+                        obj.Shape.exportBrep(tmp.name)
+                        tmp.seek(0)  # Reset file pointer to beginning
+                        hasher.update(tmp.read())
                 else:
                     # Fallback: use basic properties including bounding box dimensions
                     # Batch hash updates with delimiter for efficiency

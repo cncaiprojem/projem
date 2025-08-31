@@ -265,7 +265,7 @@ def get_cgroup_limits() -> Dict[str, Any]:
         
         for path in memory_paths:
             if os.path.exists(path):
-                with open(path, 'r') as f:
+                with open(path, 'r', encoding='utf-8') as f:
                     limit = f.read().strip()
                     if limit != 'max' and limit.isdigit():
                         cgroup_info['memory_limit_mb'] = int(limit) // (1024 * 1024)
@@ -279,7 +279,7 @@ def get_cgroup_limits() -> Dict[str, Any]:
         
         for path in cpu_quota_paths:
             if os.path.exists(path):
-                with open(path, 'r') as f:
+                with open(path, 'r', encoding='utf-8') as f:
                     content = f.read().strip()
                     if content != 'max':
                         parts = content.split()
@@ -301,7 +301,7 @@ def get_cgroup_limits() -> Dict[str, Any]:
             
             for path in cpu_period_paths:
                 if os.path.exists(path):
-                    with open(path, 'r') as f:
+                    with open(path, 'r', encoding='utf-8') as f:
                         period = f.read().strip()
                         if period.isdigit() and int(period) > 0:
                             cgroup_info['cpu_period'] = int(period)
@@ -1502,8 +1502,8 @@ class FreeCADWorker:
             
             # Write to output directory
             result_path = os.path.join(self.args.outdir, 'worker_result.json')
-            with open(result_path, 'w') as f:
-                json.dump(final_result, f, indent=2)
+            with open(result_path, 'w', encoding='utf-8') as f:
+                json.dump(final_result, f, indent=2, ensure_ascii=False)
                 
             logger.info(f"Results written to: {result_path}")
             

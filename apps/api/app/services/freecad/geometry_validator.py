@@ -325,13 +325,17 @@ class GeometryValidator:
                             dot_product = normal.x * pull_direction[0] + normal.y * pull_direction[1] + normal.z * pull_direction[2]
                             
                             # Check ALL faces, not just nearly vertical ones
-                            # The angle from perpendicular to the pull direction is the draft angle
-                            angle_from_perpendicular = abs(math.degrees(math.asin(min(abs(dot_product), 1.0))))
+                            # Draft angle is measured from vertical (90° - angle_from_pull_direction)
+                            # For proper draft angle calculation:
+                            # 1. dot_product gives us cos(angle_from_pull_direction)
+                            # 2. angle_from_pull = acos(dot_product)
+                            # 3. draft_angle = 90° - angle_from_pull
+                            draft_angle = 90 - abs(math.degrees(math.acos(min(abs(dot_product), 1.0))))
                             
                             # For faces that are nearly perpendicular to pull direction (vertical walls),
                             # the draft angle is critical
                             if abs(dot_product) < self.PERPENDICULAR_THRESHOLD:
-                                is_valid, error_msg = self.constraints.validate_draft(angle_from_perpendicular)
+                                is_valid, error_msg = self.constraints.validate_draft(draft_angle)
                                 if not is_valid:
                                     result.manufacturing_issues.append(error_msg)
                     except Exception as e:

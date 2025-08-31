@@ -114,8 +114,11 @@ class KinematicFrame(BaseModel):
 class Assembly4Manager:
     """Manage Assembly4 operations for FreeCAD."""
     
-    # Security: Define allowed upload directories
-    ALLOWED_UPLOAD_DIRS = ['/work/uploads', '/tmp/freecad_uploads']
+    # Security: Define allowed upload directories (configurable via environment)
+    # Default directories for backward compatibility
+    _DEFAULT_UPLOAD_DIRS = "/work/uploads:/tmp/freecad_uploads"
+    # Load from environment with default fallback
+    ALLOWED_UPLOAD_DIRS = os.getenv("ALLOWED_UPLOAD_DIRS", _DEFAULT_UPLOAD_DIRS).split(':')
     
     # AST node whitelist for safe script execution
     SAFE_AST_NODES: Set[type] = {

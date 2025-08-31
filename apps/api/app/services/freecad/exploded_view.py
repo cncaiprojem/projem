@@ -359,19 +359,75 @@ class ExplodedViewGenerator:
         already_exploded: List[ExplodedComponent],
         all_components: List[Tuple[str, Any, List[float]]]
     ) -> List[float]:
-        """Adjust position to avoid collisions with other exploded components."""
-        # Simplified collision avoidance
-        # In real implementation, would use collision detection module
+        """Adjust position to avoid collisions with other exploded components using BVH-based collision detection."""
+        from .collision import CollisionDetector
         
         if not hasattr(obj, 'Shape') or not obj.Shape:
             return exploded_pos
         
         try:
+            # Initialize collision detector
+            detector = CollisionDetector()
+            
+            # Build list of shapes for collision detection
+            shapes = []
+            
+            # Add current object at proposed position
+            shapes.append((comp_id, obj.Shape, exploded_pos))
+            
+            # Add already exploded components at their positions
+            for other in already_exploded:
+                if hasattr(other, 'shape') and other.shape:
+                    shapes.append((other.component_id, other.shape, other.exploded_position))
+            
+            # Detect collisions using BVH-based detector
+            collisions = detector.detect_collisions(shapes)
+            
+            # If collisions detected with current component, adjust position
+            current_collisions = [c for c in collisions if comp_id in [c.object_a, c.object_b]]
+            
+            if current_collisions:
+                # Calculate adjustment based on collision volume
+                bbox = obj.Shape.BoundBox
+                size = max(bbox.XLength, bbox.YLength, bbox.ZLength)
+                
+                # Apply additional separation to avoid collision
+                min_separation = size * self.COLLISION_AVOIDANCE_FACTOR
+                
+                for collision in current_collisions:
+                    # Get the other object in collision
+                    other_id = collision.object_b if collision.object_a == comp_id else collision.object_a
+                    
+                    # Find the other component's position
+                    for other in already_exploded:
+                        if other.component_id == other_id:
+                            # Calculate direction vector away from collision
+                            direction = [
+                                exploded_pos[i] - other.exploded_position[i]
+                                for i in range(3)
+                            ]
+                            
+                            # Normalize and apply minimum separation
+                            distance = math.sqrt(sum(d**2 for d in direction))
+                            if distance > 0:
+                                factor = min_separation / distance
+                                exploded_pos = [
+                                    exploded_pos[i] + direction[i] * factor
+                                    for i in range(3)
+                                ]
+                            break
+            
+            return exploded_pos
+            
+        except ImportError:
+            # Fallback to simplified distance-based check if CollisionDetector not available
+            logger.warning("CollisionDetector not available, using simplified collision avoidance")
+            
             bbox = obj.Shape.BoundBox
             size = max(bbox.XLength, bbox.YLength, bbox.ZLength)
             
             # Check distance to other exploded components
-            min_separation = size * self.COLLISION_AVOIDANCE_FACTOR  # Use defined constant for margin
+            min_separation = size * self.COLLISION_AVOIDANCE_FACTOR
             
             for other in already_exploded:
                 distance = math.sqrt(
