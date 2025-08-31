@@ -1309,7 +1309,7 @@ class FreeCADWorker:
                 
                 # Copy exported files to output directory
                 for fmt, export_info in export_results.items():
-                    if "path" in export_info and not "error" in export_info:
+                    if "path" in export_info and "error" not in export_info:
                         src_path = Path(export_info["path"])
                         if src_path.exists():
                             dst_path = Path(self.args.outdir) / src_path.name
@@ -1328,16 +1328,14 @@ class FreeCADWorker:
             
             # Generate TechDraw if requested
             if self.args.techdraw == 'on':
-                # Get the document object by name based on model_type
-                object_name = None
-                if model_type == 'prism_with_hole':
-                    object_name = "PrismWithHole"
-                elif model_type == 'box':
-                    object_name = "ParametricBox"
-                elif model_type == 'cylinder':
-                    object_name = "ParametricCylinder"
-                elif model_type == 'sphere':
-                    object_name = "ParametricSphere"
+                # Get the document object by name based on model_type using dictionary mapping
+                object_name_map = {
+                    "prism_with_hole": "PrismWithHole",
+                    "box": "ParametricBox",
+                    "cylinder": "ParametricCylinder",
+                    "sphere": "ParametricSphere",
+                }
+                object_name = object_name_map.get(model_type)
                 
                 if object_name:
                     doc_object = doc.getObject(object_name)

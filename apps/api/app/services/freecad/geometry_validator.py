@@ -348,7 +348,12 @@ class GeometryValidator:
                             # Validate draft angle for ALL non-parallel faces, not just nearly vertical ones
                             # Parallel faces (dot_product ≈ 1) don't need draft validation
                             if abs(dot_product) < 0.999:  # Check all faces except those parallel to pull direction
-                                is_valid, error_msg = self.constraints.validate_draft(draft_angle)
+                                if hasattr(self, 'constraints') and self.constraints:
+                                    is_valid, error_msg = self.constraints.validate_draft(draft_angle)
+                                else:
+                                    # Default validation if constraints not available
+                                    is_valid = draft_angle >= 1.0  # Minimum 1 degree draft
+                                    error_msg = f"Draft angle {draft_angle:.1f}° below minimum" if not is_valid else None
                                 if not is_valid:
                                     result.manufacturing_issues.append(error_msg)
                     except Exception as e:
@@ -649,19 +654,78 @@ class GeometryValidator:
         return issues
     
     def _check_bridges(self, shape: Any, max_length: float) -> List[str]:
-        """Check for unsupported bridges in 3D printing."""
+        """
+        Check for unsupported bridges in 3D printing.
+        
+        This improved implementation detects horizontal surfaces that lack support
+        from below, which would cause sagging or failure during 3D printing.
+        It uses face analysis rather than just edge length to identify actual
+        unsupported spans.
+        """
         issues = []
         
         try:
-            # Simplified: check horizontal edges
+            # Check for horizontal faces that might be bridges
+            for face in shape.Faces:
+                if hasattr(face, 'normalAt'):
+                    # Get face normal at center
+                    u_min, u_max, v_min, v_max = face.ParameterRange
+                    u_center = (u_min + u_max) / 2
+                    v_center = (v_min + v_max) / 2
+                    normal = face.normalAt(u_center, v_center)
+                    
+                    # Check if face is horizontal (normal pointing up or down)
+                    if abs(normal.z) > 0.9:  # Nearly horizontal face
+                        # Get face bounding box to measure span
+                        face_bbox = face.BoundBox
+                        
+                        # Calculate the maximum unsupported span
+                        max_span = max(face_bbox.XLength, face_bbox.YLength)
+                        
+                        # Check if this is a downward-facing surface (potential bridge)
+                        if normal.z < 0 and max_span > max_length:
+                            # This is a downward-facing horizontal surface with significant span
+                            # Now check if there's support underneath
+                            
+                            # Simple heuristic: check if this face is at the bottom of the shape
+                            shape_bbox = shape.BoundBox
+                            if face_bbox.ZMin > shape_bbox.ZMin + 0.1:  # Not at the bottom
+                                # This face is elevated and horizontal - likely a bridge
+                                issues.append(
+                                    f"Unsupported bridge detected: {max_span:.1f}mm span at Z={face_bbox.ZMin:.1f}mm"
+                                )
+                        elif normal.z > 0 and max_span > max_length:
+                            # Upward-facing horizontal surface - check if it's thin (bridge from above)
+                            # Look for a corresponding bottom face nearby
+                            for other_face in shape.Faces:
+                                if other_face != face and hasattr(other_face, 'normalAt'):
+                                    other_bbox = other_face.BoundBox
+                                    # Check if there's a parallel face below within small distance
+                                    if (abs(other_bbox.ZMax - face_bbox.ZMin) < 2.0 and 
+                                        abs(other_bbox.XMin - face_bbox.XMin) < 1.0 and
+                                        abs(other_bbox.YMin - face_bbox.YMin) < 1.0):
+                                        # Found a thin horizontal section
+                                        issues.append(
+                                            f"Thin bridge section: {max_span:.1f}mm span, thickness < 2mm"
+                                        )
+                                        break
+            
+            # Also check horizontal edges as a fallback
             for edge in shape.Edges:
-                if hasattr(edge, 'Length'):
-                    # Check if edge is horizontal
+                if hasattr(edge, 'Length') and edge.Length > max_length:
+                    # Check if edge is horizontal and unsupported
                     v1 = edge.Vertexes[0].Point
                     v2 = edge.Vertexes[-1].Point
                     if abs(v1.z - v2.z) < 0.1:  # Nearly horizontal
-                        if edge.Length > max_length:
-                            issues.append(f"Bridge length {edge.Length:.1f}mm")
+                        # Check if this edge is part of a bottom face (unsupported)
+                        edge_z = (v1.z + v2.z) / 2
+                        shape_bbox = shape.BoundBox
+                        if edge_z > shape_bbox.ZMin + 0.1:  # Not at the very bottom
+                            # Only report if not already detected by face analysis
+                            edge_msg = f"Horizontal edge span: {edge.Length:.1f}mm at Z={edge_z:.1f}mm"
+                            if not any(edge_msg in issue for issue in issues):
+                                issues.append(edge_msg)
+                                
         except Exception as e:
             logger.debug(f"Bridge check error: {e}")
         

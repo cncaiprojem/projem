@@ -316,7 +316,7 @@ class BOMExtractor:
                     # Use proper context manager with delete=True for automatic cleanup
                     import tempfile
                     try:
-                        with tempfile.NamedTemporaryFile(suffix='.brep', delete=True) as tmp:
+                        with tempfile.NamedTemporaryFile(suffix='.brep', delete=True, mode='w+b') as tmp:
                             obj.Shape.exportBrep(tmp.name)
                             # Flush to ensure data is written to disk and seek to beginning
                             # This avoids Windows file locking issues with double-open

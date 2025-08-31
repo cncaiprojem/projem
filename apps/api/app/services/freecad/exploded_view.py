@@ -386,7 +386,7 @@ class ExplodedViewGenerator:
             component_lookup = {cid: obj for cid, obj, _ in all_components}
             
             # Add already exploded components transformed to their positions
-            # Fix: ExplodedComponent doesn't have 'shape' attribute, retrieve from original component
+            # Since ExplodedComponent doesn't have a 'shape' attribute, retrieve the shape from the original component
             for other in already_exploded:
                 # Use O(1) lookup instead of O(N) linear search
                 orig_obj = component_lookup.get(other.component_id)
