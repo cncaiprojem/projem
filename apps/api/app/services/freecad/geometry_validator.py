@@ -333,9 +333,15 @@ class GeometryValidator:
                             
                             # Calculate draft angle for all non-parallel faces
                             # Draft angle is measured from vertical (90° - angle_from_pull_direction)
-                            # 1. Clamp dot_product to [-1, 1] range to avoid math domain error
+                            # Mathematical relationship:
+                            # - dot_product = cos(angle_from_pull) where angle_from_pull is angle between face normal and pull direction
+                            # - angle_from_pull = acos(dot_product) gives us the angle in radians
+                            # - draft_angle is measured from vertical, so draft_angle = 90° - angle_from_pull
+                            # 
+                            # Steps:
+                            # 1. Clamp dot_product to [-1, 1] range to avoid math domain error from floating point precision
                             # 2. Do NOT use absolute value here - it would negate undercut detection
-                            # 3. Convert from angle with pull direction to draft angle
+                            # 3. Convert from angle with pull direction to draft angle (measured from vertical)
                             clamped_dot = max(-1.0, min(1.0, dot_product))
                             draft_angle = 90 - math.degrees(math.acos(clamped_dot))
                             
@@ -503,16 +509,10 @@ class GeometryValidator:
             
             # Process-specific checks
             if process_lower == "injection_molding":
-                # Check draft angles
-                draft_spec = self.DRAFT_ANGLE_BY_PROCESS.get("injection_molding", {})
-                min_draft = draft_spec.get("min", 1.0)
-                recommended_draft = draft_spec.get("recommended", 2.0)
-                
-                draft_issues = self._check_draft_angles(shape, min_draft, recommended_draft)
-                if draft_issues["errors"]:
-                    result["errors"].extend(draft_issues["errors"])
-                    result["valid"] = False
-                result["warnings"].extend(draft_issues["warnings"])
+                # Draft angle checks are now handled by _validate_manufacturing_constraints
+                # which uses the correct dot product logic with pull direction
+                # This avoids duplication and ensures consistent validation
+                pass
                 
             elif process_lower in ["milling", "cnc"]:
                 # Tool accessibility check
@@ -568,39 +568,6 @@ class GeometryValidator:
         
         return min_thickness if min_thickness != float('inf') else 0.0
     
-    def _check_draft_angles(self, shape: Any, min_angle: float, recommended: float) -> Dict[str, List[str]]:
-        """Check draft angles for injection molding."""
-        result = {"errors": [], "warnings": []}
-        
-        try:
-            import FreeCAD
-            
-            for face in shape.Faces:
-                if hasattr(face, 'normalAt'):
-                    # Sample multiple points on face
-                    u_min, u_max, v_min, v_max = face.ParameterRange
-                    for u in [u_min, (u_min + u_max) / 2, u_max]:
-                        for v in [v_min, (v_min + v_max) / 2, v_max]:
-                            try:
-                                normal = face.normalAt(u, v)
-                                # Check if face is nearly vertical
-                                z_component = abs(normal.z)
-                                if z_component < 0.1:  # Nearly vertical
-                                    angle = math.degrees(math.asin(z_component))
-                                    if angle < min_angle:
-                                        result["errors"].append(
-                                            f"Face with draft angle {angle:.1f}° < minimum {min_angle}°"
-                                        )
-                                    elif angle < recommended:
-                                        result["warnings"].append(
-                                            f"Face with draft angle {angle:.1f}° < recommended {recommended}°"
-                                        )
-                            except Exception:
-                                pass
-        except Exception as e:
-            logger.debug(f"Draft angle check error: {e}")
-        
-        return result
     
     def _check_tool_accessibility(self, shape: Any) -> Dict[str, List[str]]:
         """

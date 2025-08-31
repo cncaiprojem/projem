@@ -169,6 +169,14 @@ class Assembly4Manager:
         """Initialize Assembly4 manager."""
         self._freecad_available = self._check_freecad()
         self._solver_available = self._check_solver()
+        
+        # Cache resolved allowed directories for O(1) path validation
+        # This avoids repeated Path.resolve() calls in loops (performance optimization)
+        self._resolved_upload_dirs = [
+            Path(d).resolve() 
+            for d in self.ALLOWED_UPLOAD_DIRS 
+            if d.strip()
+        ]
     
     def _check_freecad(self) -> bool:
         """Check if FreeCAD and required modules are available."""
@@ -293,34 +301,40 @@ class Assembly4Manager:
                     if validated_path.exists():
                         # Import the file and get the imported document
                         import FreeCAD
-                        imported_doc = FreeCAD.open(str(validated_path))
+                        imported_doc = None
+                        doc_name = None
                         
-                        # Link the imported objects to the assembly document
-                        # Get all objects from the imported document that have shapes
-                        imported_objects = [obj for obj in imported_doc.Objects if hasattr(obj, 'Shape')]
-                        
-                        if imported_objects:
-                            # Create a compound of all imported shapes for the component
-                            import Part
-                            shapes = [obj.Shape for obj in imported_objects if obj.Shape]
-                            if shapes:
-                                # Create a compound shape from all imported objects
-                                compound = Part.makeCompound(shapes)
-                                
-                                # Add the compound to the assembly document
-                                comp_obj = doc.addObject("Part::Feature", f"ImportedComponent_{component.id}")
-                                comp_obj.Shape = compound
-                                comp_obj.Label = f"Import_{Path(file_path).stem}"
-                            else:
-                                logger.warning(f"No valid shapes found in imported file: {file_path}")
-                        else:
-                            logger.warning(f"No objects found in imported file: {file_path}")
-                            
-                        # Close the imported document to free resources
                         try:
-                            FreeCAD.closeDocument(imported_doc.Name)
-                        except Exception as close_exc:
-                            logger.error(f"Failed to close imported document '{imported_doc.Name}': {close_exc}")
+                            imported_doc = FreeCAD.open(str(validated_path))
+                            doc_name = imported_doc.Name
+                            
+                            # Link the imported objects to the assembly document
+                            # Get all objects from the imported document that have shapes
+                            imported_objects = [obj for obj in imported_doc.Objects if hasattr(obj, 'Shape')]
+                            
+                            if imported_objects:
+                                # Create a compound of all imported shapes for the component
+                                import Part
+                                shapes = [obj.Shape for obj in imported_objects if obj.Shape]
+                                if shapes:
+                                    # Create a compound shape from all imported objects
+                                    compound = Part.makeCompound(shapes)
+                                    
+                                    # Add the compound to the assembly document
+                                    comp_obj = doc.addObject("Part::Feature", f"ImportedComponent_{component.id}")
+                                    comp_obj.Shape = compound
+                                    comp_obj.Label = f"Import_{Path(file_path).stem}"
+                                else:
+                                    logger.warning(f"No valid shapes found in imported file: {file_path}")
+                            else:
+                                logger.warning(f"No objects found in imported file: {file_path}")
+                        finally:
+                            # Close the imported document to free resources if it was opened
+                            if doc_name:
+                                try:
+                                    FreeCAD.closeDocument(doc_name)
+                                except Exception as close_exc:
+                                    logger.error(f"Failed to close imported document '{doc_name}': {close_exc}")
                         
                 except ValueError as e:
                     logger.error(f"Security violation - invalid path: {e}")
@@ -651,13 +665,11 @@ class Assembly4Manager:
             raise ValueError(f"Invalid path: {e}")
         
         # Check if path is within any allowed directory
+        # Use cached resolved directories for O(1) performance
         path_str = str(resolved_path)
         is_allowed = False
         
-        for allowed_dir in self.ALLOWED_UPLOAD_DIRS:
-            # Resolve allowed directory
-            allowed_resolved = Path(allowed_dir).resolve()
-            
+        for allowed_resolved in self._resolved_upload_dirs:
             # Check if resolved path is within allowed directory
             try:
                 # This will raise ValueError if path is not relative to allowed_dir

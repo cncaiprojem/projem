@@ -859,6 +859,19 @@ class FreeCADParametricGenerator:
         
         self.monitor.emit_progress(f"Shape added to document: {label}")
     
+    def get_document(self):
+        """
+        Get the FreeCAD document.
+        
+        Returns:
+            The FreeCAD document instance for this generator.
+            
+        Note:
+            This method provides controlled access to the internal document,
+            following encapsulation best practices.
+        """
+        return self.doc
+    
     def export_shape(
         self, 
         shape: 'Part.Shape',
@@ -1284,8 +1297,8 @@ class FreeCADWorker:
                 else:
                     raise ValueError(f"Unsupported model type: {model_type}")
                 
-                # Use generator's document for consistency
-                doc = generator.doc
+                # Use generator's document through proper encapsulation
+                doc = generator.get_document()
             
             # Export with deterministic hashing (Task 7.6)
             with tempfile.TemporaryDirectory() as tmpdir:
