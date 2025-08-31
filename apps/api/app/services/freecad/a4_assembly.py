@@ -227,7 +227,7 @@ class Assembly4Manager:
                     safe_globals = {
                         "doc": doc,
                         "comp_id": component.id,
-                        "__builtins__": {}  # Restrict all builtins for security
+                        "__builtins__": {}
                     }
                     exec(part_info["script"], safe_globals)
                     comp_obj = doc.getObject(component.id)
@@ -326,7 +326,8 @@ class Assembly4Manager:
         
         # Count ALL components (bodies) in the document
         # This includes unconnected components which affect DOF calculation
-        num_bodies = len([obj for obj in doc.Objects if obj.isDerivedFrom("Part::Feature")])
+        components = [obj for obj in doc.Objects if obj.isDerivedFrom("Part::Feature")]
+        num_bodies = len(components)
         
         # DOF per joint type
         joint_dof = {
