@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from jinja2 import Environment, Template, TemplateSyntaxError, sandbox
 from pydantic import BaseModel, Field
 
 from ...core.logging import get_logger
@@ -443,6 +445,20 @@ doc.recompute()"""
         """
         self.template_dir = template_dir or Path("/tmp/freecad_templates")
         self.templates: Dict[str, FCStdTemplate] = {}
+        
+        # Use Jinja2 sandboxed environment for secure template rendering
+        # This prevents code injection and restricts template access
+        self.jinja_env = sandbox.SandboxedEnvironment(
+            # Maintain backward compatibility with existing templates
+            # that use {param} syntax by keeping default delimiters
+            variable_start_string='{{',
+            variable_end_string='}}',
+            block_start_string='{%',
+            block_end_string='%}',
+            # Auto-escape is disabled as FreeCAD scripts don't need HTML escaping
+            autoescape=False
+        )
+        
         self._load_templates()
     
     def _load_templates(self):
@@ -544,7 +560,18 @@ doc.recompute()"""
         # Check if we have a template script
         if part_def.template_script:
             result["type"] = "parametric"
-            result["script"] = part_def.template_script.format(**params)
+            # Use Jinja2 for safe template rendering instead of str.format
+            # This prevents code injection and provides better error handling
+            try:
+                # Convert {param} syntax to {{param}} for Jinja2 compatibility
+                template_str = self._convert_format_to_jinja(part_def.template_script)
+                template = self.jinja_env.from_string(template_str)
+                result["script"] = template.render(**params)
+            except (TemplateSyntaxError, Exception) as e:
+                logger.error(f"Template rendering failed for {standard} {size}: {e}")
+                raise StandardPartError(
+                    f"Failed to render template for {standard} {size}: {str(e)}"
+                )
         else:
             # Check for S3 template
             template_path = self._get_template_path(standard, size)
@@ -746,12 +773,15 @@ doc.recompute()"""
         if custom_params:
             params.update(custom_params)
         
-        # Fill template
+        # Fill template using secure Jinja2 rendering
         try:
-            script = part.template_script.format(**params)
+            # Convert {param} syntax to {{param}} for Jinja2 compatibility
+            template_str = self._convert_format_to_jinja(part.template_script)
+            template = self.jinja_env.from_string(template_str)
+            script = template.render(**params)
             return script
-        except KeyError as e:
-            logger.error(f"Missing parameter in template: {e}")
+        except (TemplateSyntaxError, Exception) as e:
+            logger.error(f"Template rendering error: {e}")
             return None
     
     def get_template(self, template_id: str) -> Optional[FCStdTemplate]:
@@ -855,6 +885,24 @@ doc.recompute()"""
                     results["warnings"].append(f"Template not found: {template_id}")
         
         return results
+    
+    def _convert_format_to_jinja(self, template_str: str) -> str:
+        """
+        Convert Python format string {param} to Jinja2 {{param}} syntax.
+        
+        This maintains backward compatibility with existing templates
+        that use str.format() syntax while providing Jinja2 security.
+        
+        Args:
+            template_str: Template string with {param} syntax
+            
+        Returns:
+            Template string with {{param}} syntax for Jinja2
+        """
+        # Replace {param} with {{param}}, but not {{param}} (already converted)
+        # This regex matches {word} but not {{word}}
+        pattern = r'(?<!\{)\{([^{}]+)\}(?!\})'
+        return re.sub(pattern, r'{{\1}}', template_str)
 
 
 # Global library instance

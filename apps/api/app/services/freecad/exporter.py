@@ -224,29 +224,62 @@ class DeterministicExporter:
         }
     
     def _clean_step_file(self, path: Path):
-        """Remove timestamps and volatile data from STEP file using regex."""
+        """Remove timestamps and volatile data from STEP file using regex.
+        
+        IMPORTANT: Only modifies the HEADER section to preserve file integrity.
+        The DATA section contains critical geometric information that must not be altered.
+        """
         import re
         
         try:
             with open(path, 'r', encoding='utf-8') as f:
                 content = f.read()
             
-            # Use regex to replace only timestamp values, not entire lines
-            # This preserves the STEP file structure while removing non-deterministic data
+            # Split STEP file into HEADER and DATA sections
+            # STEP files have structure: ISO-10303-21; HEADER; ... ENDSEC; DATA; ... ENDSEC; END-ISO-10303-21;
+            header_match = re.search(r'(HEADER;.*?ENDSEC;)', content, re.DOTALL)
             
-            # Pattern for ISO timestamp strings (e.g., '2024-01-15T10:30:45')
-            iso_timestamp_pattern = r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
-            content = re.sub(iso_timestamp_pattern, f"'{self.source_date.isoformat()}'", content)
+            if header_match:
+                header_section = header_match.group(1)
+                header_start, header_end = header_match.span()
+                
+                # Apply replacements ONLY to the HEADER section
+                cleaned_header = header_section
+                
+                # Pattern for ISO timestamp strings in HEADER (e.g., '2024-01-15T10:30:45')
+                # Only replace timestamps within the HEADER section
+                iso_timestamp_pattern = r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
+                cleaned_header = re.sub(iso_timestamp_pattern, f"'{self.source_date.isoformat()}'", cleaned_header)
+                
+                # Pattern for FILE_NAME timestamp in HEADER section
+                # FILE_NAME('filename','2024-01-15T10:30:45',('author'),...)
+                file_name_pattern = r"(FILE_NAME\s*\([^,]+,\s*)('[^']+')(\s*,)"
+                cleaned_header = re.sub(file_name_pattern, rf"\1'{self.source_date.isoformat()}'\3", cleaned_header)
+                
+                # Pattern for FILE_DESCRIPTION timestamp
+                file_desc_pattern = r"(FILE_DESCRIPTION\s*\([^,]+,\s*)('[^']+')(\s*\))"
+                cleaned_header = re.sub(file_desc_pattern, rf"\1'{self.source_date.isoformat()}'\3", cleaned_header)
+                
+                # Reconstruct the file with cleaned header and untouched DATA section
+                content = content[:header_start] + cleaned_header + content[header_end:]
+            else:
+                # Fallback: If we can't identify sections, be more conservative
+                # Only replace obvious timestamp patterns that won't affect geometry
+                logger.debug("Could not identify HEADER section, using conservative approach")
+                
+                # Only replace timestamps in FILE_NAME and FILE_DESCRIPTION lines
+                lines = content.split('\n')
+                for i, line in enumerate(lines):
+                    if 'FILE_NAME' in line or 'FILE_DESCRIPTION' in line:
+                        # Replace timestamps only in these specific lines
+                        iso_timestamp_pattern = r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
+                        lines[i] = re.sub(iso_timestamp_pattern, f"'{self.source_date.isoformat()}'", line)
+                content = '\n'.join(lines)
             
-            # Pattern for FILE_NAME timestamp section
-            # FILE_NAME('filename','2024-01-15T10:30:45',('author'),...)
-            file_name_pattern = r"(FILE_NAME\s*\([^,]+,\s*)('[^']+')(\s*,)"
-            content = re.sub(file_name_pattern, rf"\1'{self.source_date.isoformat()}'\3", content)
-            
-            # Pattern for numeric timestamps (Unix epoch seconds)
-            # Only replace standalone numeric timestamps, not all numbers
-            numeric_timestamp_pattern = r"(?<=TIME_STAMP\s*\()\d+(?=\))"
-            content = re.sub(numeric_timestamp_pattern, str(self.source_date_epoch), content)
+            # Validate the cleaned STEP file structure
+            if not self._validate_step_structure(content):
+                logger.warning("STEP file structure validation failed after cleaning, skipping modifications")
+                return
             
             # Write cleaned content back
             with open(path, 'w', encoding='utf-8') as f:
@@ -254,6 +287,38 @@ class DeterministicExporter:
                 
         except Exception as e:
             logger.warning(f"Could not clean STEP file: {e}")
+    
+    def _validate_step_structure(self, content: str) -> bool:
+        """Validate basic STEP file structure after cleaning.
+        
+        Args:
+            content: STEP file content
+            
+        Returns:
+            True if structure appears valid, False otherwise
+        """
+        # Check for essential STEP file markers
+        required_markers = [
+            'ISO-10303-21',
+            'HEADER',
+            'ENDSEC',
+            'DATA',
+            'END-ISO-10303-21'
+        ]
+        
+        for marker in required_markers:
+            if marker not in content:
+                logger.warning(f"STEP file missing required marker: {marker}")
+                return False
+        
+        # Check that HEADER comes before DATA
+        header_pos = content.find('HEADER')
+        data_pos = content.find('DATA')
+        if header_pos > data_pos:
+            logger.warning("STEP file structure invalid: HEADER after DATA")
+            return False
+        
+        return True
     
     def _export_stl(self, document: Any, base_path: Path) -> Dict[str, Any]:
         """

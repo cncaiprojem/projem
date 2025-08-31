@@ -1069,21 +1069,38 @@ class FreeCADWorker:
     
     @staticmethod
     def _validate_path_security(path: str, allowed_dir: str, path_type: str = "path") -> str:
-        """Validate a path is within allowed directory to prevent path traversal."""
-        # Resolve the allowed directory first
-        real_allowed = os.path.realpath(allowed_dir)
+        """
+        Validate a path is within allowed directory to prevent path traversal.
         
-        # Check if path is absolute - if so, don't join with allowed_dir
-        if os.path.isabs(path):
-            real_path = os.path.realpath(path)
-        else:
-            real_path = os.path.realpath(os.path.join(real_allowed, path))
+        This method now uses the shared PathValidator utility for consistent
+        security validation across all services. The shared implementation
+        provides better error handling, logging, and maintains a single
+        source of truth for path validation logic.
         
-        # Use os.path.commonpath for more robust security check
-        if os.path.commonpath([real_path, real_allowed]) != real_allowed:
-            raise ValueError(f"Invalid {path_type} (potential path traversal): {path}")
+        Args:
+            path: Path to validate
+            allowed_dir: Directory where the path must reside
+            path_type: Type of path for error messages
             
-        return real_path
+        Returns:
+            Validated absolute path as string
+            
+        Raises:
+            ValueError: If path validation fails
+        """
+        # Import here to avoid circular imports at module level
+        from app.services.freecad.path_validator import PathValidator, PathValidationError
+        
+        # Create validator with the specific allowed directory
+        validator = PathValidator([allowed_dir])
+        
+        try:
+            # Validate the path using shared utility
+            validated_path = validator.validate_path(path, path_type)
+            return str(validated_path)
+        except PathValidationError as e:
+            # Convert to ValueError for backward compatibility
+            raise ValueError(f"Invalid {path_type}: {e.reason}")
         
     def _signal_handler(self, signum, frame):
         """Handle termination signals gracefully."""
@@ -1292,7 +1309,16 @@ class FreeCADWorker:
                 shape = generator.create_prism_with_hole(
                     length, width, height, hole_diameter, units
                 )
-                # Capture the returned part object for loose coupling
+                # Capture the returned part object for loose coupling.
+                # This design pattern ensures that geometry generation and document
+                # management remain separate concerns. The generator creates shapes
+                # without knowledge of document structure, while the worker manages
+                # the document lifecycle. This separation allows for:
+                # 1. Independent testing of geometry generation
+                # 2. Reuse of geometry logic in different contexts
+                # 3. Easier maintenance and evolution of both components
+                # The returned part object serves as the interface contract between
+                # these loosely coupled components.
                 part_object = generator.add_shape_to_document(shape, "PrismWithHole")
             else:
                 # Legacy simple shapes use dedicated methods to avoid code duplication.
@@ -1302,6 +1328,7 @@ class FreeCADWorker:
                     # Use the new create_box method
                     shape = generator.create_box(length, width, height)
                     # Capture the returned part object for loose coupling
+                    # (See detailed explanation above for PrismWithHole)
                     part_object = generator.add_shape_to_document(shape, "ParametricBox")
                 elif model_type == 'cylinder':
                     # Check both dimensions dict and top-level input_data for consistency

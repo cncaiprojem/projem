@@ -121,6 +121,12 @@ class Assembly4Manager:
     # Filter out empty entries to handle empty environment values gracefully
     ALLOWED_UPLOAD_DIRS = [d for d in os.getenv("ALLOWED_UPLOAD_DIRS", _DEFAULT_UPLOAD_DIRS).split(':') if d.strip()]
     
+    # Memory estimation constant for cached shapes
+    # This is an approximation based on typical FreeCAD shape objects
+    # which include geometry data, topology, and internal structures
+    # Used for estimating memory usage in cache statistics
+    ESTIMATED_MB_PER_CACHED_SHAPE = 10  # Megabytes per cached shape object
+    
     # Performance: Cache for processed upload_ref components
     # Key: validated file path, Value: Part.Shape
     # This prevents redundant file I/O and processing for components used multiple times
@@ -677,6 +683,11 @@ class Assembly4Manager:
         """
         Validate upload file path to prevent directory traversal attacks.
         
+        This method now uses the shared PathValidator utility for consistent
+        security validation across all services. The shared implementation
+        provides better error handling, logging, and maintains a single
+        source of truth for path validation logic.
+        
         Args:
             file_path: Path to validate
             
@@ -686,50 +697,19 @@ class Assembly4Manager:
         Raises:
             ValueError: If path is outside allowed directories
         """
-        # Convert to Path object
-        path = Path(file_path)
+        # Import here to avoid circular imports at module level
+        from .path_validator import PathValidator, PathValidationError
         
-        # Resolve to absolute path (follows symlinks)
+        # Use shared PathValidator with the same allowed directories
+        validator = PathValidator(self.ALLOWED_UPLOAD_DIRS)
+        
         try:
-            resolved_path = path.resolve(strict=False)
-        except Exception as e:
-            raise ValueError(f"Invalid path: {e}")
-        
-        # Check if path is within any allowed directory
-        # Use cached resolved directories for O(1) performance
-        path_str = str(resolved_path)
-        is_allowed = False
-        
-        for allowed_resolved in self._resolved_upload_dirs:
-            # Check if resolved path is within allowed directory
-            try:
-                # This will raise ValueError if path is not relative to allowed_dir
-                resolved_path.relative_to(allowed_resolved)
-                is_allowed = True
-                break
-            except ValueError:
-                continue
-        
-        if not is_allowed:
-            # Log security violation attempt
-            logger.error(
-                f"Security: Path traversal attempt detected - "
-                f"Path '{file_path}' resolves to '{resolved_path}' "
-                f"which is outside allowed directories: {self.ALLOWED_UPLOAD_DIRS}"
-            )
-            raise ValueError(
-                f"Path '{file_path}' is outside allowed upload directories"
-            )
-        
-        # Additional security checks
-        if '..' in path.parts:
-            raise ValueError("Path contains directory traversal sequences")
-        
-        # Check for null bytes (path truncation attack)
-        if '\x00' in str(path):
-            raise ValueError("Path contains null bytes")
-        
-        return resolved_path
+            # Validate path using shared utility
+            resolved_path = validator.validate_path(file_path, "upload")
+            return resolved_path
+        except PathValidationError as e:
+            # Convert to ValueError for backward compatibility
+            raise ValueError(f"Path validation failed: {e.reason}")
     
     def _execute_safe_script(
         self,
@@ -884,7 +864,7 @@ class Assembly4Manager:
         return {
             "cache_size": len(self._shape_cache),
             "cached_files": list(self._shape_cache.keys()),
-            "memory_estimate_mb": len(self._shape_cache) * 10  # Rough estimate
+            "memory_estimate_mb": len(self._shape_cache) * self.ESTIMATED_MB_PER_CACHED_SHAPE
         }
 
 

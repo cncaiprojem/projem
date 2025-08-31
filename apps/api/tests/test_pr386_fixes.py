@@ -1,11 +1,53 @@
 """
 Test cases for PR #386 fixes.
 
+This module provides comprehensive test coverage for the fixes implemented in PR #386,
+which addressed critical issues in the FreeCAD service layer including fastener
+specifications, assembly caching, and export format support.
+
 Tests the following fixes:
 1. Fastener size parsing with accurate DIN/ISO thread pitch and head dimensions
 2. Assembly4 shape caching for upload_ref components
 3. Export format consistency with GLB support
 4. Exception handling improvements
+
+Requirements:
+    - Python 3.8+
+    - FreeCAD (optional for integration tests)
+    - trimesh (optional for GLB export tests)
+    
+Dependencies:
+    - unittest: Python standard testing framework
+    - pathlib: File path handling
+    - unittest.mock: Mocking FreeCAD modules for unit tests
+
+Run Instructions:
+    # Run all tests in this module
+    $ python -m pytest apps/api/tests/test_pr386_fixes.py -v
+    
+    # Run specific test class
+    $ python -m pytest apps/api/tests/test_pr386_fixes.py::TestStandardPartsFixes -v
+    
+    # Run with coverage
+    $ python -m pytest apps/api/tests/test_pr386_fixes.py --cov=app.services.freecad --cov-report=html
+    
+    # Run without FreeCAD dependency (uses mocks)
+    $ python -m unittest apps.api.tests.test_pr386_fixes
+    
+Environment Setup:
+    For full integration testing with FreeCAD:
+    1. Install FreeCAD: apt-get install freecad
+    2. Install Python bindings: pip install freecad
+    3. Install trimesh for GLB support: pip install trimesh
+    
+    For unit testing (no FreeCAD required):
+    - Tests will automatically mock FreeCAD modules
+    
+Test Coverage:
+    - Standard parts library: DIN/ISO fastener specifications
+    - Assembly4 manager: Shape caching and memory optimization
+    - Export system: Multi-format support including GLB
+    - Error handling: Custom exceptions with detailed context
 """
 
 import json
