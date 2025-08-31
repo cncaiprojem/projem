@@ -13,11 +13,13 @@ Provides Assembly4 workbench functionality:
 
 from __future__ import annotations
 
+import ast
 import json
 import math
+import os
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Set
 
 from pydantic import BaseModel, Field
 
@@ -112,6 +114,53 @@ class KinematicFrame(BaseModel):
 class Assembly4Manager:
     """Manage Assembly4 operations for FreeCAD."""
     
+    # Security: Define allowed upload directories
+    ALLOWED_UPLOAD_DIRS = ['/work/uploads', '/tmp/freecad_uploads']
+    
+    # AST node whitelist for safe script execution
+    SAFE_AST_NODES: Set[type] = {
+        # Literals and basic types
+        ast.Constant, ast.Num, ast.Str, ast.Bytes, ast.NameConstant,
+        ast.List, ast.Tuple, ast.Dict, ast.Set,
+        
+        # Variables and attributes
+        ast.Name, ast.Load, ast.Store, ast.Del, ast.Attribute,
+        
+        # Basic operations
+        ast.BinOp, ast.UnaryOp, ast.Compare, ast.BoolOp,
+        ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
+        ast.LShift, ast.RShift, ast.BitOr, ast.BitXor, ast.BitAnd,
+        ast.FloorDiv, ast.And, ast.Or, ast.Not,
+        ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
+        ast.Is, ast.IsNot, ast.In, ast.NotIn,
+        
+        # Control flow (limited)
+        ast.If, ast.For, ast.While, ast.Break, ast.Continue,
+        ast.Expr, ast.Pass,
+        
+        # Function calls (will be filtered)
+        ast.Call, ast.keyword,
+        
+        # Assignments
+        ast.Assign, ast.AugAssign,
+        
+        # Comprehensions
+        ast.ListComp, ast.DictComp, ast.SetComp,
+        ast.comprehension,
+        
+        # Module level
+        ast.Module, ast.Interactive, ast.Expression,
+    }
+    
+    # Allowed function calls for script execution
+    ALLOWED_FUNCTIONS = {
+        'doc.addObject', 'Part.makeBox', 'Part.makeCylinder',
+        'Part.makeSphere', 'Part.makeCone', 'Part.makeTorus',
+        'FreeCAD.Vector', 'FreeCAD.Rotation', 'FreeCAD.Placement',
+        'float', 'int', 'str', 'len', 'range', 'min', 'max',
+        'abs', 'round', 'sum', 'any', 'all'
+    }
+    
     def __init__(self):
         """Initialize Assembly4 manager."""
         self._freecad_available = self._check_freecad()
@@ -196,6 +245,7 @@ class Assembly4Manager:
         """Create a component from source specification."""
         import FreeCAD
         import Part
+        import os
         
         comp_obj = None
         
@@ -222,25 +272,29 @@ class Assembly4Manager:
             if standard and size:
                 part_info = standard_parts_library.get_part(standard, size)
                 if part_info and part_info.get("script"):
-                    # Execute script to create part with restricted environment for security
-                    # Restrict all builtins to prevent malicious code execution
-                    safe_globals = {
-                        "doc": doc,
-                        "comp_id": component.id,
-                        "__builtins__": {}
-                    }
-                    exec(part_info["script"], safe_globals)
-                    comp_obj = doc.getObject(component.id)
+                    # Use AST-based safe execution instead of exec()
+                    comp_obj = self._execute_safe_script(
+                        part_info["script"],
+                        doc,
+                        component.id
+                    )
                     
         elif component.source.type == "upload_ref":
-            # Load from uploaded file
+            # Load from uploaded file with path validation
             file_path = component.source.spec.get("path")
-            if file_path and Path(file_path).exists():
-                # Import the file
-                import FreeCAD
-                FreeCAD.open(file_path)
-                # Link to the imported document
-                # This is simplified; real implementation would use App::Link
+            if file_path:
+                # Validate path security to prevent directory traversal
+                try:
+                    validated_path = self._validate_upload_path(file_path)
+                    if validated_path.exists():
+                        # Import the file
+                        import FreeCAD
+                        FreeCAD.open(str(validated_path))
+                        # Link to the imported document
+                        # This is simplified; real implementation would use App::Link
+                except ValueError as e:
+                    logger.error(f"Security violation - invalid path: {e}")
+                    raise ValueError(f"Invalid file path: {file_path}")
                 
         # Apply initial placement
         if comp_obj and component.initial_placement:
@@ -540,6 +594,199 @@ class Assembly4Manager:
         # ... GLB export implementation ...
         
         return result
+    
+    def _validate_upload_path(self, file_path: str) -> Path:
+        """
+        Validate upload file path to prevent directory traversal attacks.
+        
+        Args:
+            file_path: Path to validate
+            
+        Returns:
+            Validated Path object
+            
+        Raises:
+            ValueError: If path is outside allowed directories
+        """
+        # Convert to Path object
+        path = Path(file_path)
+        
+        # Resolve to absolute path (follows symlinks)
+        try:
+            resolved_path = path.resolve(strict=False)
+        except Exception as e:
+            raise ValueError(f"Invalid path: {e}")
+        
+        # Check if path is within any allowed directory
+        path_str = str(resolved_path)
+        is_allowed = False
+        
+        for allowed_dir in self.ALLOWED_UPLOAD_DIRS:
+            # Resolve allowed directory
+            allowed_resolved = Path(allowed_dir).resolve()
+            
+            # Check if resolved path is within allowed directory
+            try:
+                # This will raise ValueError if path is not relative to allowed_dir
+                resolved_path.relative_to(allowed_resolved)
+                is_allowed = True
+                break
+            except ValueError:
+                continue
+        
+        if not is_allowed:
+            # Log security violation attempt
+            logger.error(
+                f"Security: Path traversal attempt detected - "
+                f"Path '{file_path}' resolves to '{resolved_path}' "
+                f"which is outside allowed directories: {self.ALLOWED_UPLOAD_DIRS}"
+            )
+            raise ValueError(
+                f"Path '{file_path}' is outside allowed upload directories"
+            )
+        
+        # Additional security checks
+        if '..' in path.parts:
+            raise ValueError("Path contains directory traversal sequences")
+        
+        # Check for null bytes (path truncation attack)
+        if '\x00' in str(path):
+            raise ValueError("Path contains null bytes")
+        
+        return resolved_path
+    
+    def _execute_safe_script(
+        self,
+        script: str,
+        doc: Any,
+        component_id: str
+    ) -> Any:
+        """
+        Execute a script safely using AST validation and sandboxed environment.
+        
+        Args:
+            script: Python script to execute
+            doc: FreeCAD document
+            component_id: Component ID to create
+            
+        Returns:
+            Created component object
+            
+        Raises:
+            ValueError: If script contains unsafe operations
+        """
+        # Parse the script
+        try:
+            tree = ast.parse(script, mode='exec')
+        except SyntaxError as e:
+            raise ValueError(f"Script syntax error: {e}")
+        
+        # Validate AST nodes
+        self._validate_ast_safety(tree)
+        
+        # Prepare sandboxed globals
+        import FreeCAD
+        import Part
+        
+        safe_globals = {
+            # FreeCAD objects
+            'doc': doc,
+            'FreeCAD': FreeCAD,
+            'Part': Part,
+            
+            # Component info
+            'comp_id': component_id,
+            
+            # Safe built-in functions
+            'float': float,
+            'int': int,
+            'str': str,
+            'len': len,
+            'range': range,
+            'min': min,
+            'max': max,
+            'abs': abs,
+            'round': round,
+            'sum': sum,
+            'any': any,
+            'all': all,
+            
+            # Restrict dangerous builtins
+            '__builtins__': {
+                'True': True,
+                'False': False,
+                'None': None,
+            }
+        }
+        
+        # Execute in sandboxed environment
+        try:
+            exec(compile(tree, '<sandboxed>', 'exec'), safe_globals)
+        except Exception as e:
+            logger.error(f"Script execution failed: {e}")
+            raise ValueError(f"Script execution error: {e}")
+        
+        # Return the created component
+        return doc.getObject(component_id)
+    
+    def _validate_ast_safety(self, tree: ast.AST):
+        """
+        Validate AST tree for safety.
+        
+        Args:
+            tree: AST tree to validate
+            
+        Raises:
+            ValueError: If unsafe operations are detected
+        """
+        class SafetyValidator(ast.NodeVisitor):
+            def __init__(self, allowed_nodes: Set[type], allowed_functions: Set[str]):
+                self.allowed_nodes = allowed_nodes
+                self.allowed_functions = allowed_functions
+                self.errors = []
+            
+            def visit(self, node):
+                # Check if node type is allowed
+                if type(node) not in self.allowed_nodes:
+                    self.errors.append(
+                        f"Unsafe AST node: {type(node).__name__} at line {getattr(node, 'lineno', '?')}"
+                    )
+                
+                # Special handling for function calls
+                if isinstance(node, ast.Call):
+                    func_name = self._get_func_name(node.func)
+                    if func_name and func_name not in self.allowed_functions:
+                        self.errors.append(
+                            f"Unsafe function call: {func_name} at line {node.lineno}"
+                        )
+                
+                # Continue visiting child nodes
+                self.generic_visit(node)
+            
+            def _get_func_name(self, node) -> Optional[str]:
+                """Extract function name from Call node."""
+                if isinstance(node, ast.Name):
+                    return node.id
+                elif isinstance(node, ast.Attribute):
+                    # Handle chained attributes like doc.addObject
+                    parts = []
+                    current = node
+                    while isinstance(current, ast.Attribute):
+                        parts.append(current.attr)
+                        current = current.value
+                    if isinstance(current, ast.Name):
+                        parts.append(current.id)
+                    return '.'.join(reversed(parts))
+                return None
+        
+        # Validate the AST
+        validator = SafetyValidator(self.SAFE_AST_NODES, self.ALLOWED_FUNCTIONS)
+        validator.visit(tree)
+        
+        if validator.errors:
+            error_msg = "Script contains unsafe operations:\n" + "\n".join(validator.errors)
+            logger.error(f"Security: {error_msg}")
+            raise ValueError(error_msg)
 
 
 # Global assembly manager instance

@@ -28,12 +28,23 @@ logger = get_logger(__name__)
 class DeterministicExporter:
     """Export FreeCAD models with deterministic output."""
     
-    def __init__(self, source_date_epoch: Optional[int] = None):
+    # Default tessellation parameters for STL mesh generation
+    DEFAULT_LINEAR_DEFLECTION = 0.1  # mm - controls deviation from true surface
+    DEFAULT_ANGULAR_DEFLECTION = 0.5  # radians (~28.6 degrees) - controls angle between adjacent facets
+    
+    def __init__(
+        self, 
+        source_date_epoch: Optional[int] = None,
+        linear_deflection: float = DEFAULT_LINEAR_DEFLECTION,
+        angular_deflection: float = DEFAULT_ANGULAR_DEFLECTION
+    ):
         """
         Initialize exporter with deterministic settings.
         
         Args:
             source_date_epoch: Unix timestamp for reproducible dates
+            linear_deflection: Linear deflection for STL tessellation (mm)
+            angular_deflection: Angular deflection for STL tessellation (radians)
         """
         # Use SOURCE_DATE_EPOCH environment variable or default to 2000-01-01
         if source_date_epoch is None:
@@ -41,6 +52,10 @@ class DeterministicExporter:
         
         self.source_date_epoch = source_date_epoch
         self.source_date = datetime.fromtimestamp(source_date_epoch, tz=timezone.utc)
+        
+        # Tessellation parameters
+        self.linear_deflection = linear_deflection
+        self.angular_deflection = angular_deflection
         
         # Try to import FreeCAD
         self._freecad_available = self._check_freecad()
@@ -271,19 +286,20 @@ class DeterministicExporter:
         else:
             shape = Part.makeCompound(shapes)
         
-        # Create mesh with fixed parameters for determinism
+        # Create mesh with configurable parameters for determinism
         mesh = Mesh.Mesh()
         
-        # Fixed tessellation parameters for determinism
-        linear_deflection = 0.1  # mm - controls deviation from true surface
-        angular_deflection = 0.5  # radians (~28.6 degrees) - controls angle between adjacent facets
+        # Use configurable tessellation parameters for determinism
+        # These can be adjusted via constructor for quality/performance trade-offs
+        # Higher quality (smaller values) = more triangles = larger files
+        # Lower quality (larger values) = fewer triangles = smaller files
         
         # Use Mesh.createFromShape for better control over both linear and angular deflection
         # This provides more consistent and higher quality mesh generation
         mesh = Mesh.createFromShape(
             Shape=shape,
-            LinearDeflection=linear_deflection,
-            AngularDeflection=angular_deflection,
+            LinearDeflection=self.linear_deflection,
+            AngularDeflection=self.angular_deflection,
             Relative=False  # Use absolute values, not relative to size
         )
         

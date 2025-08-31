@@ -14,7 +14,7 @@ import csv
 import hashlib
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 
@@ -126,7 +126,7 @@ class BOMExtractor:
         # Create BOM with deterministic timestamp from SOURCE_DATE_EPOCH
         # This ensures reproducible builds and consistent output
         source_date_epoch = int(os.environ.get("SOURCE_DATE_EPOCH", "946684800"))  # Default: 2000-01-01
-        extraction_date = datetime.fromtimestamp(source_date_epoch).isoformat()
+        extraction_date = datetime.fromtimestamp(source_date_epoch, tz=timezone.utc).isoformat()
         
         bom = BillOfMaterials(
             project=project_name,
@@ -315,13 +315,24 @@ class BOMExtractor:
             try:
                 # Use shape's content hash if available
                 if hasattr(obj.Shape, 'exportBrep'):
-                    # Export to BREP string for hashing
+                    # Export to BREP string for hashing with proper cleanup
                     import tempfile
-                    with tempfile.NamedTemporaryFile(suffix='.brep', delete=False) as tmp:
-                        obj.Shape.exportBrep(tmp.name)
-                        with open(tmp.name, 'rb') as f:
+                    tmp_path = None
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix='.brep', delete=False) as tmp:
+                            tmp_path = tmp.name
+                            obj.Shape.exportBrep(tmp.name)
+                        
+                        # Read the file for hashing
+                        with open(tmp_path, 'rb') as f:
                             hasher.update(f.read())
-                        Path(tmp.name).unlink()
+                    finally:
+                        # Ensure cleanup even if an exception occurs
+                        if tmp_path and Path(tmp_path).exists():
+                            try:
+                                Path(tmp_path).unlink()
+                            except Exception as e:
+                                logger.warning(f"Failed to cleanup temporary file {tmp_path}: {e}")
                 else:
                     # Fallback: use basic properties
                     hasher.update(str(obj.Shape.Volume).encode('utf-8'))
@@ -421,9 +432,6 @@ class BOMExtractor:
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(bom.dict(), f, indent=2, ensure_ascii=False)
 
-
-# Import for datetime
-from datetime import datetime
 
 # Global BOM extractor instance
 bom_extractor = BOMExtractor()

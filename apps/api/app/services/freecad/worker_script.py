@@ -1,19 +1,34 @@
 #!/usr/bin/env python3
 # ==============================================================================
-# FREECAD WORKER HARNESS - MERGED FROM TASKS 7.5 & 7.6
+# FREECAD WORKER HARNESS - Enterprise FreeCAD Workflow Execution Engine
 # ==============================================================================
-# Comprehensive FreeCAD worker execution harness with:
-# - Health check HTTP server with FreeCAD validation
-# - Resource monitoring with psutil (CPU, memory, I/O)
-# - Resource limits enforcement (CPU time, memory)
-# - TechDraw technical drawing generation (headless)
-# - Multi-flow support (prompt, params, upload, a4)
-# - Deterministic exports with SHA256 hashing (Task 7.6)
-# - GLB export support via trimesh (Task 7.6)
-# - Turkish parameter normalization (Task 7.6)
-# - Material-machine compatibility validation (Task 7.6)
-# - Graceful cancellation and error handling
+# A comprehensive, production-ready FreeCAD worker harness providing:
+#
+# Core Capabilities:
+# - Health check HTTP server with FreeCAD validation and cgroup awareness
+# - Resource monitoring with psutil (CPU, memory, I/O) and limits enforcement
+# - Headless TechDraw technical drawing generation with multi-format export
+# - Multi-workflow support: prompt-based, parametric, upload normalization, Assembly4
+#
+# Security & Reliability:
+# - Path traversal protection with secure validation
+# - AST-based safe script execution (via a4_assembly.py integration)
+# - Deterministic exports with SHA256 hashing for reproducible builds
+# - Graceful cancellation and comprehensive error handling
+# - Resource limits enforcement with CPU time and memory constraints
+#
+# Manufacturing & CAD Features:
+# - GLB export support via trimesh for web visualization
+# - Turkish parameter normalization for local market support
+# - Material-machine compatibility validation for manufacturing
+# - Support for STEP, STL, FCStd, and GLB formats
+# - Assembly4 workflow integration for complex assemblies
+#
+# Operational Features:
 # - Structured JSON logging with Turkish terminology support
+# - Standalone execution mode with --standalone flag
+# - Configurable resource monitoring intervals
+# - Docker-optimized with cgroup v1/v2 detection
 # ==============================================================================
 
 from __future__ import annotations
@@ -23,6 +38,7 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import signal
 import sys
 import tempfile
@@ -1190,7 +1206,6 @@ class FreeCADWorker:
                     if "path" in export_info and not "error" in export_info:
                         src_path = Path(export_info["path"])
                         if src_path.exists():
-                            import shutil
                             dst_path = Path(self.args.outdir) / src_path.name
                             shutil.copy2(src_path, dst_path)
                             
@@ -1540,6 +1555,8 @@ Turkish Flow Names:
     )
     
     # Core workflow arguments
+    parser.add_argument('--standalone', action='store_true',
+                        help='Run in standalone mode (Task 7.6 style with JSON from stdin or file)')
     parser.add_argument('--flow', 
                        choices=['prompt', 'params', 'upload', 'a4'],
                        help='Workflow type (İş akışı türü)')
@@ -1780,14 +1797,20 @@ def main_standalone():
 
 def main():
     """Main entry point for FreeCAD worker harness."""
+    parser = create_argument_parser()
+    
     # Check if this is a Task 7.6 style invocation (JSON file as first arg)
+    # This maintains backward compatibility with existing invocations
     if len(sys.argv) == 2 and not sys.argv[1].startswith('--') and sys.argv[1].endswith('.json'):
-        # Task 7.6 standalone mode
+        # Task 7.6 standalone mode for backward compatibility
         return main_standalone()
     
-    # Otherwise use Task 7.5 argument parsing
-    parser = create_argument_parser()
+    # Parse arguments
     args = parser.parse_args()
+    
+    # Handle explicit standalone mode
+    if args.standalone:
+        return main_standalone()
     
     # Handle special cases
     if args.health_server and not args.flow:

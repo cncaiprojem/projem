@@ -20,6 +20,10 @@ from ...core.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Constants for exploded view calculations
+MIN_DIRECTION_LENGTH = 0.001  # Minimum vector length to consider direction valid
+DEFAULT_UPWARD_DISTANCE = 1.0  # Default Z-axis distance for centered components
+
 
 class ExplodedComponent(BaseModel):
     """Component with exploded view offset."""
@@ -314,10 +318,10 @@ class ExplodedViewGenerator:
         
         # Normalize direction
         length = math.sqrt(sum(d**2 for d in direction))
-        if length < 0.001:  # Component at center
+        if length < MIN_DIRECTION_LENGTH:  # Component at center
             # Use default upward direction
-            direction = [0.0, 0.0, 1.0]
-            length = 1.0
+            direction = [0.0, 0.0, DEFAULT_UPWARD_DISTANCE]
+            length = DEFAULT_UPWARD_DISTANCE
         
         normalized = [d / length for d in direction]
         

@@ -96,9 +96,15 @@ class BVHNode:
             key=lambda obj: (obj[2].min_point[split_axis] + obj[2].max_point[split_axis]) / 2
         )
         
-        # Split in middle
-        mid = len(sorted_objects) // 2
-        if mid > 0:
+        # Handle edge cases for small lists
+        if len(sorted_objects) <= 1:
+            # Leaf node - store objects directly
+            self.objects = sorted_objects
+            self.left = None
+            self.right = None
+        else:
+            # Split in middle for larger lists
+            mid = len(sorted_objects) // 2
             self.left = BVHNode(sorted_objects[:mid])
             self.right = BVHNode(sorted_objects[mid:])
             self.objects = []  # Clear objects in internal nodes
