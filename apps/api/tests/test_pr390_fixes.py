@@ -24,7 +24,7 @@ class TestPR390Fixes(unittest.TestCase):
         """Test that itertools.islice is used for efficient partial file reading."""
         import itertools
         
-        # Create a test file with many lines
+        # Create a test file with many lines using context manager with proper cleanup
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
             for i in range(1000):
                 f.write(f"Line {i}\n")
@@ -51,7 +51,12 @@ class TestPR390Fixes(unittest.TestCase):
             self.assertEqual(target_lines[0], "Line 49\n")
             self.assertEqual(target_lines[4], "Line 53\n")
         finally:
-            os.unlink(temp_path)
+            # Ensure cleanup happens even if test fails
+            if temp_path and os.path.exists(temp_path):
+                try:
+                    os.unlink(temp_path)
+                except OSError as e:
+                    logger.warning(f"Failed to clean up test file {temp_path}: {e}")
     
     def test_artefact_type_map_without_default_key(self):
         """Test that ARTEFACT_TYPE_MAP uses dict.get() with default parameter."""
@@ -157,7 +162,7 @@ END-ISO-10303-21;"""
         temp_path = None
         
         try:
-            # Create temporary file
+            # Create temporary file - using delete=False intentionally to test cleanup
             with tempfile.NamedTemporaryFile(suffix='.test', delete=False) as f:
                 temp_path = f.name
                 f.write(b"test data")
@@ -170,13 +175,22 @@ END-ISO-10303-21;"""
             if False:  # Simulate potential failure point
                 raise Exception("Simulated error")
         finally:
-            # Cleanup should always happen
-            if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
-                cleanup_called = True
+            # Cleanup must always happen - ensure it's in finally block
+            if temp_path:
+                try:
+                    if os.path.exists(temp_path):
+                        os.unlink(temp_path)
+                        cleanup_called = True
+                except OSError as e:
+                    # Log but don't fail if cleanup has issues
+                    import logging
+                    logging.warning(f"Failed to clean up {temp_path}: {e}")
+                    # Still mark as attempted
+                    cleanup_called = True
         
-        # Verify cleanup happened
+        # Verify cleanup was attempted
         self.assertTrue(cleanup_called)
+        # File should not exist after cleanup
         self.assertFalse(os.path.exists(temp_path) if temp_path else True)
     
     def test_warning_level_logging_with_exc_info(self):

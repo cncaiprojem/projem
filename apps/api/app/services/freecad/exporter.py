@@ -267,13 +267,17 @@ class DeterministicExporter:
                 # Only replace obvious timestamp patterns that won't affect geometry
                 logger.debug("Could not identify HEADER section, using conservative approach")
                 
-                # Only replace timestamps in FILE_NAME and FILE_DESCRIPTION lines
+                # Use list comprehension for efficient line modification instead of in-place updates
                 lines = content.split('\n')
-                for i, line in enumerate(lines):
-                    if 'FILE_NAME' in line or 'FILE_DESCRIPTION' in line:
-                        # Replace timestamps only in these specific lines
-                        iso_timestamp_pattern = r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
-                        lines[i] = re.sub(iso_timestamp_pattern, f"'{self.source_date.isoformat()}'", line)
+                iso_timestamp_pattern = r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
+                
+                # Efficient list comprehension - avoids in-place modification
+                lines = [
+                    re.sub(iso_timestamp_pattern, f"'{self.source_date.isoformat()}'", line)
+                    if ('FILE_NAME' in line or 'FILE_DESCRIPTION' in line)
+                    else line
+                    for line in lines
+                ]
                 content = '\n'.join(lines)
             
             # Validate the cleaned STEP file structure

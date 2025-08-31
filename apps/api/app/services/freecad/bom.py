@@ -330,11 +330,13 @@ class BOMExtractor:
                         # Handle BREP export failures gracefully
                         logger.debug(f"BREP export failed, falling back to bbox dimensions: {e}")
                     finally:
-                        # Ensure temporary file is always cleaned up
+                        # Resource cleanup MUST be in finally block to guarantee execution
+                        # This ensures cleanup happens even if unexpected errors occur
                         try:
                             if os_module.path.exists(tmp_path):
                                 os_module.unlink(tmp_path)
                         except Exception as cleanup_error:
+                            # Log cleanup failures but don't raise - cleanup is best-effort
                             logger.debug(f"Failed to clean up temporary file {tmp_path}: {cleanup_error}")
                     
                     # Fallback to bounding box dimensions if BREP export failed

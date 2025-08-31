@@ -538,11 +538,12 @@ doc.recompute()"""
             raise
         except Exception as e:
             # Catch any other parsing errors and convert to our exception
+            # Use 'raise ... from e' to preserve the original traceback for debugging
             raise InvalidSizeFormatError(
                 size=size,
                 category=part_def.category.value,
                 format_hint=f"{self._get_size_format_hint(part_def.category)}. Error: {str(e)}"
-            )
+            ) from e
         
         # Check for parametric generation vs template
         result = {

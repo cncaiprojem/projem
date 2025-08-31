@@ -705,7 +705,8 @@ class Assembly4Manager:
             return resolved_path
         except PathValidationError as e:
             # Convert to ValueError for backward compatibility
-            raise ValueError(f"Path validation failed: {e.reason}")
+            # Use 'raise ... from e' to preserve the original traceback
+            raise ValueError(f"Path validation failed: {e.reason}") from e
     
     def _execute_safe_script(
         self,
