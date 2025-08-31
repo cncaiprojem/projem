@@ -27,8 +27,12 @@ from ...core.logging import get_logger
 logger = get_logger(__name__)
 
 
-class PathValidationError(Exception):
-    """Raised when a path fails validation."""
+class PathValidationError(ValueError):
+    """Raised when a path fails validation.
+    
+    Inherits from ValueError to maintain backward compatibility
+    with existing error handling code.
+    """
     
     def __init__(self, path: str, reason: str, path_type: str = "path"):
         self.path = path

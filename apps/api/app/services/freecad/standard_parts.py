@@ -899,12 +899,19 @@ doc.recompute()"""
         Raises:
             ValueError: If template contains nested braces or invalid syntax
         """
-        # Check if already in Jinja2 format (contains {{ and }})
-        if '{{' in template_str and '}}' in template_str:
+        # SECURITY: Template variables validated via Jinja2
+        # Check if already in Jinja2 format using regex for robust detection
+        # This pattern matches Jinja2-style variables: {{variable}}
+        jinja2_pattern = re.compile(r'\{\{[^{}]+\}\}')
+        # This pattern matches Python-style placeholders: {variable}
+        python_pattern = re.compile(r'\{[^{}]+\}')
+        
+        if jinja2_pattern.search(template_str):
             # Already in Jinja2 format, return as-is
             return template_str
         
-        # Check for nested braces like {{inner}}
+        # Always validate brace matching, even if no valid placeholders
+        # Check for nested braces and unmatched braces
         brace_depth = 0
         for char in template_str:
             if char == '{':
@@ -924,6 +931,10 @@ doc.recompute()"""
             raise ValueError(
                 f"Template contains unmatched opening brace: {template_str}"
             )
+        
+        # If no Python-style placeholders found, return as-is
+        if not python_pattern.search(template_str):
+            return template_str
         
         # Safe to convert: Replace {param} with {{param}}
         # This regex matches {word} but not {{word}}

@@ -88,6 +88,9 @@ RESOURCE_MONITOR_MIN_INTERVAL = 0.001  # Minimum allowed monitoring interval
 RESOURCE_MONITOR_MAX_SAMPLES = 1000  # Maximum samples to keep in memory
 MAX_INPUT_FILE_SIZE_MB = 10  # Maximum allowed input file size in MB
 
+# Default output formats - defined as module-level constant for performance
+DEFAULT_OUTPUT_FORMATS = ["FCStd", "STEP", "STL", "GLB"]
+
 # Cancellation handling
 CANCELLED = threading.Event()
 EXIT_CODES = {
@@ -1301,7 +1304,7 @@ class FreeCADWorker:
             process = input_data.get("process", "milling")
             tessellation = float(input_data.get("tessellation_tolerance", 0.1))
             # Include GLB in default formats to match DeterministicExporter capabilities
-            output_formats = input_data.get("formats", ["FCStd", "STEP", "STL", "GLB"])
+            output_formats = input_data.get("formats", DEFAULT_OUTPUT_FORMATS)
             
             # Validate material-machine compatibility
             valid, error = validate_material_machine_compatibility(material, process)
@@ -1579,7 +1582,7 @@ class FreeCADWorker:
         )
         
         # Define formats to export - now includes GLB for web visualization
-        output_formats = ["FCStd", "STEP", "STL", "GLB"]
+        output_formats = DEFAULT_OUTPUT_FORMATS
         base_path = Path(self.args.outdir) / base_name
         
         try:

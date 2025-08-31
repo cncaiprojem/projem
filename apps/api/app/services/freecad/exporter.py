@@ -269,11 +269,15 @@ class DeterministicExporter:
                 
                 # Use list comprehension for efficient line modification instead of in-place updates
                 lines = content.split('\n')
-                iso_timestamp_pattern = r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
+                # Compile regex pattern once for better performance
+                iso_timestamp_pattern = re.compile(
+                    r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
+                )
+                replacement = f"'{self.source_date.isoformat()}'"
                 
                 # Efficient list comprehension - avoids in-place modification
                 lines = [
-                    re.sub(iso_timestamp_pattern, f"'{self.source_date.isoformat()}'", line)
+                    iso_timestamp_pattern.sub(replacement, line)
                     if ('FILE_NAME' in line or 'FILE_DESCRIPTION' in line)
                     else line
                     for line in lines

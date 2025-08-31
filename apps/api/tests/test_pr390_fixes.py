@@ -56,7 +56,8 @@ class TestPR390Fixes(unittest.TestCase):
                 try:
                     os.unlink(temp_path)
                 except OSError as e:
-                    logger.warning(f"Failed to clean up test file {temp_path}: {e}")
+                    # Using print instead of logger since logger not imported
+                    print(f"Warning: Failed to clean up test file {temp_path}: {e}")
     
     def test_artefact_type_map_without_default_key(self):
         """Test that ARTEFACT_TYPE_MAP uses dict.get() with default parameter."""

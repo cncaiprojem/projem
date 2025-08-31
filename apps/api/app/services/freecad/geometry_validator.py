@@ -354,19 +354,20 @@ class GeometryValidator:
                                 # Check for undercuts first (negative draft angle)
                                 if draft_angle < 0:
                                     # This is an undercut - always invalid for standard molding
-                                    is_valid = False
                                     error_msg = (
                                         f"Undercut detected: face has negative draft angle {draft_angle:.1f}°. "
                                         "This feature cannot be manufactured without side-actions or core pulls."
                                     )
+                                    result.manufacturing_issues.append(error_msg)
                                 elif hasattr(self, 'constraints') and self.constraints:
                                     is_valid, error_msg = self.constraints.validate_draft(draft_angle)
+                                    if not is_valid:
+                                        result.manufacturing_issues.append(error_msg)
                                 else:
                                     # Default validation if constraints not available
-                                    is_valid = draft_angle >= 1.0  # Minimum 1 degree draft
-                                    error_msg = f"Draft angle {draft_angle:.1f}° below minimum" if not is_valid else None
-                                if not is_valid:
-                                    result.manufacturing_issues.append(error_msg)
+                                    if draft_angle < 1.0:  # Minimum 1 degree draft
+                                        error_msg = f"Draft angle {draft_angle:.1f}° below minimum"
+                                        result.manufacturing_issues.append(error_msg)
                     except Exception as e:
                         logger.debug(f"Could not check draft angle: {e}")
             

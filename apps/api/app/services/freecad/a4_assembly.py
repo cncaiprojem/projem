@@ -699,14 +699,10 @@ class Assembly4Manager:
         # Use shared PathValidator with the same allowed directories
         validator = PathValidator(self.ALLOWED_UPLOAD_DIRS)
         
-        try:
-            # Validate path using shared utility
-            resolved_path = validator.validate_path(file_path, "upload")
-            return resolved_path
-        except PathValidationError as e:
-            # Convert to ValueError for backward compatibility
-            # Use 'raise ... from e' to preserve the original traceback
-            raise ValueError(f"Path validation failed: {e.reason}") from e
+        # Validate path using shared utility
+        # PathValidationError now inherits from ValueError, so no conversion needed
+        resolved_path = validator.validate_path(file_path, "upload")
+        return resolved_path
     
     def _execute_safe_script(
         self,
