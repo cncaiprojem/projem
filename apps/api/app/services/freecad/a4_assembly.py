@@ -121,6 +121,11 @@ class Assembly4Manager:
     # Filter out empty entries to handle empty environment values gracefully
     ALLOWED_UPLOAD_DIRS = [d for d in os.getenv("ALLOWED_UPLOAD_DIRS", _DEFAULT_UPLOAD_DIRS).split(':') if d.strip()]
     
+    # Performance: Cache for processed upload_ref components
+    # Key: validated file path, Value: Part.Shape
+    # This prevents redundant file I/O and processing for components used multiple times
+    _shape_cache: Dict[str, Any] = {}
+    
     # AST node whitelist for safe script execution
     SAFE_AST_NODES: Set[type] = {
         # Literals and basic types
@@ -177,6 +182,10 @@ class Assembly4Manager:
             for d in self.ALLOWED_UPLOAD_DIRS 
             if d.strip()
         ]
+        
+        # Initialize instance-level shape cache for upload_ref components
+        # This cache persists across multiple component creations in the same assembly
+        self._shape_cache = {}
     
     def _check_freecad(self) -> bool:
         """Check if FreeCAD and required modules are available."""
@@ -292,49 +301,71 @@ class Assembly4Manager:
                     )
                     
         elif component.source.type == "upload_ref":
-            # Load from uploaded file with path validation
+            # Load from uploaded file with path validation and caching
             file_path = component.source.spec.get("path")
             if file_path:
                 # Validate path security to prevent directory traversal
                 try:
                     validated_path = self._validate_upload_path(file_path)
-                    if validated_path.exists():
-                        # Import the file and get the imported document
-                        import FreeCAD
-                        imported_doc = None
-                        doc_name = None
+                    
+                    # Check cache first to avoid redundant file I/O
+                    cache_key = str(validated_path)
+                    if cache_key in self._shape_cache:
+                        # Reuse cached shape
+                        logger.debug(f"Using cached shape for: {file_path}")
+                        cached_shape = self._shape_cache[cache_key]
                         
-                        try:
-                            imported_doc = FreeCAD.open(str(validated_path))
-                            doc_name = imported_doc.Name
+                        # Create a copy of the cached shape for this component
+                        # This ensures each component has its own shape instance
+                        comp_obj = doc.addObject("Part::Feature", f"ImportedComponent_{component.id}")
+                        comp_obj.Shape = cached_shape.copy()  # Use copy to avoid shared references
+                        comp_obj.Label = f"Import_{Path(file_path).stem}"
+                    else:
+                        # File not in cache, process it
+                        if validated_path.exists():
+                            # Import the file and get the imported document
+                            import FreeCAD
+                            imported_doc = None
+                            doc_name = None
                             
-                            # Link the imported objects to the assembly document
-                            # Get all objects from the imported document that have shapes
-                            imported_objects = [obj for obj in imported_doc.Objects if hasattr(obj, 'Shape')]
-                            
-                            if imported_objects:
-                                # Create a compound of all imported shapes for the component
-                                import Part
-                                shapes = [obj.Shape for obj in imported_objects if obj.Shape]
-                                if shapes:
-                                    # Create a compound shape from all imported objects
-                                    compound = Part.makeCompound(shapes)
-                                    
-                                    # Add the compound to the assembly document
-                                    comp_obj = doc.addObject("Part::Feature", f"ImportedComponent_{component.id}")
-                                    comp_obj.Shape = compound
-                                    comp_obj.Label = f"Import_{Path(file_path).stem}"
+                            try:
+                                logger.debug(f"Processing new file: {file_path}")
+                                imported_doc = FreeCAD.open(str(validated_path))
+                                doc_name = imported_doc.Name
+                                
+                                # Link the imported objects to the assembly document
+                                # Get all objects from the imported document that have shapes
+                                imported_objects = [obj for obj in imported_doc.Objects if hasattr(obj, 'Shape')]
+                                
+                                if imported_objects:
+                                    # Create a compound of all imported shapes for the component
+                                    import Part
+                                    shapes = [obj.Shape for obj in imported_objects if obj.Shape]
+                                    if shapes:
+                                        # Create a compound shape from all imported objects
+                                        compound = Part.makeCompound(shapes)
+                                        
+                                        # Cache the compound shape for future use
+                                        self._shape_cache[cache_key] = compound
+                                        logger.info(f"Cached shape for: {file_path} (cache size: {len(self._shape_cache)})")
+                                        
+                                        # Add the compound to the assembly document
+                                        comp_obj = doc.addObject("Part::Feature", f"ImportedComponent_{component.id}")
+                                        comp_obj.Shape = compound
+                                        comp_obj.Label = f"Import_{Path(file_path).stem}"
+                                    else:
+                                        logger.warning(f"No valid shapes found in imported file: {file_path}")
                                 else:
-                                    logger.warning(f"No valid shapes found in imported file: {file_path}")
-                            else:
-                                logger.warning(f"No objects found in imported file: {file_path}")
-                        finally:
-                            # Close the imported document to free resources if it was opened
-                            if doc_name:
-                                try:
-                                    FreeCAD.closeDocument(doc_name)
-                                except Exception as close_exc:
-                                    logger.error(f"Failed to close imported document '{doc_name}': {close_exc}")
+                                    logger.warning(f"No objects found in imported file: {file_path}")
+                            finally:
+                                # Close the imported document to free resources if it was opened
+                                if doc_name:
+                                    try:
+                                        FreeCAD.closeDocument(doc_name)
+                                    except Exception as close_exc:
+                                        logger.error(f"Failed to close imported document '{doc_name}': {close_exc}")
+                        else:
+                            raise ValueError(f"File not found: {validated_path}")
                         
                 except ValueError as e:
                     logger.error(f"Security violation - invalid path: {e}")
@@ -832,6 +863,29 @@ class Assembly4Manager:
             error_msg = "Script contains unsafe operations:\n" + "\n".join(validator.errors)
             logger.error(f"Security: {error_msg}")
             raise ValueError(error_msg)
+
+
+    def clear_shape_cache(self):
+        """Clear the shape cache to free memory.
+        
+        This should be called when processing a new assembly or when
+        memory usage becomes a concern.
+        """
+        cache_size = len(self._shape_cache)
+        self._shape_cache.clear()
+        logger.info(f"Cleared shape cache ({cache_size} entries)")
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for monitoring.
+        
+        Returns:
+            Dictionary with cache statistics
+        """
+        return {
+            "cache_size": len(self._shape_cache),
+            "cached_files": list(self._shape_cache.keys()),
+            "memory_estimate_mb": len(self._shape_cache) * 10  # Rough estimate
+        }
 
 
 # Global assembly manager instance

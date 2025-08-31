@@ -1271,7 +1271,8 @@ class FreeCADWorker:
             material = input_data.get("material", "aluminum")
             process = input_data.get("process", "milling")
             tessellation = float(input_data.get("tessellation_tolerance", 0.1))
-            output_formats = input_data.get("formats", ["FCStd", "STEP", "STL"])
+            # Include GLB in default formats to match DeterministicExporter capabilities
+            output_formats = input_data.get("formats", ["FCStd", "STEP", "STL", "GLB"])
             
             # Validate material-machine compatibility
             valid, error = validate_material_machine_compatibility(material, process)
@@ -1548,6 +1549,8 @@ class FreeCADWorker:
         This method now uses DeterministicExporter to ensure consistent,
         deterministic exports across all workflows (upload, Assembly4, etc.).
         This addresses the issue where not all flows were using deterministic exports.
+        
+        Now includes GLB format support to match DeterministicExporter capabilities.
         """
         artefacts = []
         
@@ -1556,8 +1559,8 @@ class FreeCADWorker:
             source_date_epoch=int(os.environ.get("SOURCE_DATE_EPOCH", "946684800"))
         )
         
-        # Define formats to export
-        output_formats = ["FCStd", "STEP", "STL"]
+        # Define formats to export - now includes GLB for web visualization
+        output_formats = ["FCStd", "STEP", "STL", "GLB"]
         base_path = Path(self.args.outdir) / base_name
         
         try:
@@ -1567,9 +1570,17 @@ class FreeCADWorker:
             # Convert export results to artefacts format
             for fmt, export_info in export_results.items():
                 if "path" in export_info and "error" not in export_info:
-                    artefact_type = 'freecad_document' if fmt == 'FCStd' else \
-                                   'cad_model' if fmt == 'STEP' else \
-                                   'mesh_model'
+                    # Map format to artefact type, including GLB
+                    if fmt == 'FCStd':
+                        artefact_type = 'freecad_document'
+                    elif fmt == 'STEP':
+                        artefact_type = 'cad_model'
+                    elif fmt == 'STL':
+                        artefact_type = 'mesh_model'
+                    elif fmt == 'GLB':
+                        artefact_type = 'gltf_model'  # GLB for web visualization
+                    else:
+                        artefact_type = 'model'  # Generic fallback
                     
                     artefacts.append({
                         'type': artefact_type,
@@ -1580,7 +1591,11 @@ class FreeCADWorker:
                     })
                     logger.info(f"Exported {fmt}: {export_info['path']} (SHA256: {export_info.get('sha256', 'N/A')[:8]}...)")
                 else:
-                    logger.error(f"{fmt} export failed: {export_info.get('error', 'Unknown error')}")
+                    if fmt == 'GLB' and 'trimesh' in export_info.get('error', ''):
+                        # GLB export requires trimesh library - log as warning not error
+                        logger.warning(f"GLB export not available: {export_info.get('error', 'trimesh not installed')}")
+                    else:
+                        logger.error(f"{fmt} export failed: {export_info.get('error', 'Unknown error')}")
         
         except Exception as e:
             logger.error(f"Export failed: {e}")

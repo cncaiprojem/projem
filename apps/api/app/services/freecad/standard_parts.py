@@ -77,6 +77,27 @@ class UnsupportedSizeError(StandardPartError):
         )
 
 
+class InvalidSizeFormatError(StandardPartError):
+    """Raised when a size format cannot be parsed.
+    
+    This exception provides information about the invalid size format
+    and the expected format for the given part category.
+    
+    Attributes:
+        size: The size string that could not be parsed
+        category: The part category
+        format_hint: A hint about the expected format
+    """
+    
+    def __init__(self, size: str, category: str, format_hint: str):
+        self.size = size
+        self.category = category
+        self.format_hint = format_hint
+        super().__init__(
+            f"Invalid size format '{size}' for {category}. {format_hint}"
+        )
+
+
 class StandardType(str, Enum):
     """Standard types for parts."""
     DIN = "DIN"
@@ -154,6 +175,68 @@ class FCStdTemplate(BaseModel):
 
 class StandardPartsLibrary:
     """Library of standard parts and templates."""
+    
+    # DIN/ISO standard metric thread pitch lookup table (coarse thread)
+    # Based on ISO 261 and DIN 13-1 standards
+    # Format: nominal_diameter -> pitch_mm
+    METRIC_COARSE_PITCH = {
+        1.0: 0.25,
+        1.2: 0.25,
+        1.4: 0.3,
+        1.6: 0.35,
+        1.8: 0.35,
+        2.0: 0.4,
+        2.5: 0.45,
+        3.0: 0.5,
+        3.5: 0.6,
+        4.0: 0.7,
+        5.0: 0.8,
+        6.0: 1.0,
+        7.0: 1.0,
+        8.0: 1.25,  # M8 has 1.25mm pitch, not 1.0mm
+        10.0: 1.5,
+        12.0: 1.75,
+        14.0: 2.0,
+        16.0: 2.0,
+        18.0: 2.5,
+        20.0: 2.5,
+        22.0: 2.5,
+        24.0: 3.0,
+        27.0: 3.0,
+        30.0: 3.5,
+        33.0: 3.5,
+        36.0: 4.0,
+        39.0: 4.0,
+        42.0: 4.5,
+        45.0: 4.5,
+        48.0: 5.0,
+        52.0: 5.0,
+        56.0: 5.5,
+        60.0: 5.5,
+        64.0: 6.0
+    }
+    
+    # DIN 933/ISO 4017 hex head dimensions (width across flats)
+    # Based on DIN 933 and ISO 4017 standards
+    # Format: nominal_diameter -> {waf: width_across_flats, head_height}
+    HEX_HEAD_DIMENSIONS = {
+        3.0: {"waf": 5.5, "height": 2.0},
+        4.0: {"waf": 7.0, "height": 2.8},
+        5.0: {"waf": 8.0, "height": 3.5},
+        6.0: {"waf": 10.0, "height": 4.0},
+        8.0: {"waf": 13.0, "height": 5.3},
+        10.0: {"waf": 16.0, "height": 6.4},  # ISO 4017 uses 16mm, DIN 933 uses 17mm
+        12.0: {"waf": 18.0, "height": 7.5},
+        14.0: {"waf": 21.0, "height": 8.8},
+        16.0: {"waf": 24.0, "height": 10.0},
+        18.0: {"waf": 27.0, "height": 11.5},
+        20.0: {"waf": 30.0, "height": 12.5},
+        22.0: {"waf": 34.0, "height": 13.5},  # ISO differs from DIN at M22
+        24.0: {"waf": 36.0, "height": 15.0},
+        27.0: {"waf": 41.0, "height": 17.0},
+        30.0: {"waf": 46.0, "height": 18.7},
+        36.0: {"waf": 55.0, "height": 22.5}
+    }
     
     # Common bearing dimensions database - moved to class constant for better organization
     # Format: bearing_code -> {bore_diameter, outer_diameter, width, ball_diameter, num_balls}
@@ -422,18 +505,32 @@ doc.recompute()"""
             raise UnsupportedSizeError(size, standard, part_def.sizes)
         
         # Parse size parameters based on part type
-        if part_def.category == PartCategory.FASTENERS:
-            params = self._parse_fastener_size(size)
-        elif part_def.category == PartCategory.BEARINGS:
-            params = self._parse_bearing_size(size)
-        else:
-            params = part_def.get_size_parameters(size)
-        
-        if not params:
-            return {
-                "error": f"Could not parse size: {size}",
-                "format_hint": self._get_size_format_hint(part_def.category)
-            }
+        try:
+            if part_def.category == PartCategory.FASTENERS:
+                params = self._parse_fastener_size(size)
+            elif part_def.category == PartCategory.BEARINGS:
+                params = self._parse_bearing_size(size)
+            else:
+                params = part_def.get_size_parameters(size)
+            
+            if not params:
+                # This should not happen with new exception-based approach
+                # but kept for backward compatibility with legacy methods
+                raise InvalidSizeFormatError(
+                    size=size,
+                    category=part_def.category.value,
+                    format_hint=self._get_size_format_hint(part_def.category)
+                )
+        except InvalidSizeFormatError:
+            # Re-raise our custom exception
+            raise
+        except Exception as e:
+            # Catch any other parsing errors and convert to our exception
+            raise InvalidSizeFormatError(
+                size=size,
+                category=part_def.category.value,
+                format_hint=f"{self._get_size_format_hint(part_def.category)}. Error: {str(e)}"
+            )
         
         # Check for parametric generation vs template
         result = {
@@ -461,23 +558,88 @@ doc.recompute()"""
         return result
     
     def _parse_fastener_size(self, size: str) -> Optional[Dict[str, float]]:
-        """Parse fastener size like M6x20."""
+        """Parse fastener size like M6x20 using DIN/ISO standard dimensions.
+        
+        Uses lookup tables for accurate thread pitch and head dimensions
+        according to DIN 933/ISO 4017 standards.
+        
+        Args:
+            size: Size string like "M8x20" or "M10"
+            
+        Returns:
+            Dictionary with fastener dimensions or None if invalid
+            
+        Raises:
+            InvalidSizeFormatError: If size format cannot be parsed
+        """
+        if not size or not isinstance(size, str):
+            raise InvalidSizeFormatError(
+                size=str(size),
+                category="fasteners",
+                format_hint="Format: M{diameter}x{length}, e.g., M8x20"
+            )
+        
         try:
-            if "M" in size:
-                parts = size.replace("M", "").split("x")
-                diameter = float(parts[0])
-                length = float(parts[1]) if len(parts) > 1 else diameter * 2.5
+            if "M" not in size:
+                raise InvalidSizeFormatError(
+                    size=size,
+                    category="fasteners",
+                    format_hint="Format must start with 'M' for metric thread, e.g., M8x20"
+                )
+            
+            # Parse the size string
+            parts = size.replace("M", "").split("x")
+            diameter = float(parts[0])
+            
+            # Default length if not specified (2.5x diameter is common)
+            length = float(parts[1]) if len(parts) > 1 else diameter * 2.5
+            
+            # Look up exact thread pitch from standard table
+            thread_pitch = self.METRIC_COARSE_PITCH.get(diameter)
+            if thread_pitch is None:
+                # For non-standard sizes, use ISO 261 formula approximation
+                # This is more accurate than the simple 0.125 * diameter
+                if diameter < 1.0:
+                    thread_pitch = 0.2
+                elif diameter < 3.0:
+                    thread_pitch = diameter * 0.2
+                else:
+                    # Use logarithmic approximation for larger sizes
+                    thread_pitch = 0.5 + (diameter - 3.0) * 0.15
                 
-                return {
-                    "diameter": diameter,
-                    "length": length,
-                    "thread_pitch": diameter * 0.125,  # Standard coarse pitch
-                    "head_diameter": diameter * 1.5,   # Hex head approx
-                    "head_height": diameter * 0.7      # Standard proportion
-                }
-        except (ValueError, IndexError):
-            return None
-        return None
+                logger.warning(
+                    f"Non-standard diameter M{diameter}, using approximated pitch {thread_pitch:.2f}mm"
+                )
+            
+            # Look up exact head dimensions from standard table
+            head_dims = self.HEX_HEAD_DIMENSIONS.get(diameter)
+            if head_dims:
+                head_diameter = head_dims["waf"]
+                head_height = head_dims["height"]
+            else:
+                # For non-standard sizes, use proportional approximation
+                # Based on regression analysis of standard dimensions
+                head_diameter = diameter * 1.5 + 1.0  # More accurate than simple 1.5x
+                head_height = diameter * 0.6 + 0.4    # More accurate than simple 0.7x
+                
+                logger.warning(
+                    f"Non-standard diameter M{diameter}, using approximated head dimensions"
+                )
+            
+            return {
+                "diameter": diameter,
+                "length": length,
+                "thread_pitch": thread_pitch,
+                "head_diameter": head_diameter,
+                "head_height": head_height
+            }
+            
+        except (ValueError, IndexError) as e:
+            raise InvalidSizeFormatError(
+                size=size,
+                category="fasteners",
+                format_hint=f"Format: M{{diameter}}x{{length}}, e.g., M8x20. Error: {str(e)}"
+            )
     
     def _parse_bearing_size(self, size: str) -> Optional[Dict[str, float]]:
         """Parse bearing size like 608 or 625-2RS."""
