@@ -167,13 +167,9 @@ class TestAssembly4CachingFix(unittest.TestCase):
         
         from app.services.freecad.a4_assembly import Assembly4Manager, Component, ComponentSource
         
-        # Create manager
-        manager = Assembly4Manager()
-        manager._freecad_available = True
-        
-        # Create test file in allowed directory
-        test_dir = "/tmp/freecad_uploads"
-        os.makedirs(test_dir, exist_ok=True)
+        # Create test file in isolated temporary directory first
+        import tempfile
+        test_dir = tempfile.mkdtemp(prefix="freecad_uploads_test_")
         test_file = os.path.join(test_dir, "test.FCStd")
         
         # Create a dummy test file
@@ -181,65 +177,77 @@ class TestAssembly4CachingFix(unittest.TestCase):
             f.write(b'test file content')
         
         try:
+            # Patch the ALLOWED_UPLOAD_DIRS to include our test directory
+            with unittest.mock.patch.object(
+                Assembly4Manager,
+                'ALLOWED_UPLOAD_DIRS',
+                [test_dir]
+            ):
+                # Create manager after patching
+                manager = Assembly4Manager()
+                manager._freecad_available = True
             
-            # Mock FreeCAD document and shapes
-            mock_doc = MagicMock()
-            mock_freecad.newDocument = MagicMock(return_value=mock_doc)
-            mock_freecad.open = MagicMock(return_value=mock_doc)
-            mock_freecad.closeDocument = MagicMock()
-            
-            mock_shape = MagicMock()
-            mock_shape.copy = MagicMock(return_value=mock_shape)
-            mock_compound = MagicMock()
-            mock_part.makeCompound = MagicMock(return_value=mock_compound)
-            
-            # Create components that reference the same file
-            comp1 = Component(
-                id="comp1",
-                source=ComponentSource(
-                    type="upload_ref",
-                    spec={"path": test_file}
+                # Mock FreeCAD document and shapes
+                mock_doc = MagicMock()
+                mock_freecad.newDocument = MagicMock(return_value=mock_doc)
+                mock_freecad.open = MagicMock(return_value=mock_doc)
+                mock_freecad.closeDocument = MagicMock()
+                
+                mock_shape = MagicMock()
+                mock_shape.copy = MagicMock(return_value=mock_shape)
+                mock_compound = MagicMock()
+                mock_part.makeCompound = MagicMock(return_value=mock_compound)
+                
+                # Create components that reference the same file
+                comp1 = Component(
+                    id="comp1",
+                    source=ComponentSource(
+                        type="upload_ref",
+                        spec={"path": test_file}
+                    )
                 )
-            )
-            comp2 = Component(
-                id="comp2",
-                source=ComponentSource(
-                    type="upload_ref",
-                    spec={"path": test_file}
+                comp2 = Component(
+                    id="comp2",
+                    source=ComponentSource(
+                        type="upload_ref",
+                        spec={"path": test_file}
+                    )
                 )
-            )
-            
-            # Mock document with objects
-            mock_obj = MagicMock()
-            mock_obj.Shape = mock_shape
-            mock_doc.Objects = [mock_obj]
-            mock_doc.addObject = MagicMock(return_value=MagicMock())
-            
-            # Process first component
-            manager._create_component(mock_doc, comp1)
-            
-            # Should open the file once
-            self.assertEqual(mock_freecad.open.call_count, 1)
-            
-            # Process second component with same file
-            manager._create_component(mock_doc, comp2)
-            
-            # Should NOT open the file again (uses cache)
-            self.assertEqual(mock_freecad.open.call_count, 1)
-            
-            # Check cache stats
-            stats = manager.get_cache_stats()
-            self.assertEqual(stats["cache_size"], 1)
-            
-            # Clear cache
-            manager.clear_shape_cache()
-            stats = manager.get_cache_stats()
-            self.assertEqual(stats["cache_size"], 0)
+                
+                # Mock document with objects
+                mock_obj = MagicMock()
+                mock_obj.Shape = mock_shape
+                mock_doc.Objects = [mock_obj]
+                mock_doc.addObject = MagicMock(return_value=MagicMock())
+                
+                # Process first component
+                manager._create_component(mock_doc, comp1)
+                
+                # Should open the file once
+                self.assertEqual(mock_freecad.open.call_count, 1)
+                
+                # Process second component with same file
+                manager._create_component(mock_doc, comp2)
+                
+                # Should NOT open the file again (uses cache)
+                self.assertEqual(mock_freecad.open.call_count, 1)
+                
+                # Check cache stats
+                stats = manager.get_cache_stats()
+                self.assertEqual(stats["cache_size"], 1)
+                
+                # Clear cache
+                manager.clear_shape_cache()
+                stats = manager.get_cache_stats()
+                self.assertEqual(stats["cache_size"], 0)
             
         finally:
-            # Clean up test file
+            # Clean up test file and temporary directory
             if os.path.exists(test_file):
                 os.unlink(test_file)
+            if os.path.exists(test_dir):
+                import shutil
+                shutil.rmtree(test_dir, ignore_errors=True)
             
             # Clean up sys.modules
             if 'FreeCAD' in sys.modules:

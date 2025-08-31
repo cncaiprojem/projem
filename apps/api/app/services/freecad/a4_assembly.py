@@ -370,11 +370,11 @@ class Assembly4Manager:
                             raise ValueError(f"File not found: {validated_path}")
                         
                 except ValueError as e:
-                    logger.error(f"Security violation - invalid path: {e}")
-                    raise ValueError(f"Invalid file path: {file_path}")
+                    logger.error(f"Security violation - invalid path: {e}", exc_info=True)
+                    raise ValueError(f"Invalid file path: {file_path}") from e
                 except Exception as e:
-                    logger.error(f"Failed to import file {file_path}: {e}")
-                    raise ValueError(f"Could not import file: {file_path}")
+                    logger.error(f"Failed to import file {file_path}: {e}", exc_info=True)
+                    raise ValueError(f"Could not import file: {file_path}") from e
                 
         # Apply initial placement
         if comp_obj and component.initial_placement:

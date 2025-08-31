@@ -67,10 +67,15 @@ except ImportError:
     # Fallback for when running as standalone script
     from path_validator import PathValidator, PathValidationError
 
-# Enforce deterministic environment (Task 7.6)
-os.environ["PYTHONHASHSEED"] = "0"
-if "SOURCE_DATE_EPOCH" not in os.environ:
-    os.environ["SOURCE_DATE_EPOCH"] = "946684800"  # 2000-01-01 00:00:00 UTC
+# Function to set up deterministic environment (Task 7.6)
+def setup_deterministic_environment():
+    """
+    Set up environment variables for deterministic behavior.
+    Should be called explicitly when needed, not at module import time.
+    """
+    os.environ["PYTHONHASHSEED"] = "0"
+    if "SOURCE_DATE_EPOCH" not in os.environ:
+        os.environ["SOURCE_DATE_EPOCH"] = "946684800"  # 2000-01-01 00:00:00 UTC
 
 
 # ==============================================================================
@@ -1114,8 +1119,8 @@ class FreeCADWorker:
             validated_path = validator.validate_path(path, path_type)
             return str(validated_path)
         except PathValidationError as e:
-            # Convert to ValueError for backward compatibility
-            raise ValueError(f"Invalid {path_type}: {e.reason}")
+            # Convert to ValueError for backward compatibility, preserving exception chain
+            raise ValueError(f"Invalid {path_type}: {e.reason}") from e
         
     def _signal_handler(self, signum, frame):
         """Handle termination signals gracefully."""
@@ -1831,6 +1836,9 @@ def validate_arguments(args) -> List[str]:
 
 def main_standalone():
     """Main entry point for standalone Task 7.6 execution (used when called directly with JSON input)."""
+    # Set up deterministic environment variables
+    setup_deterministic_environment()
+    
     monitor = ResourceMonitor(max_time_seconds=20, max_memory_mb=2048)
     monitor.start()  # Start resource monitoring
     logger.info("ResourceMonitor started in standalone mode")
@@ -1946,6 +1954,9 @@ def main_standalone():
 
 def main():
     """Main entry point for FreeCAD worker harness."""
+    # Set up deterministic environment variables
+    setup_deterministic_environment()
+    
     parser = create_argument_parser()
     
     # Check if this is a Task 7.6 style invocation (JSON file as first arg)

@@ -649,8 +649,10 @@ class GeometryValidator:
                         # Check for intersections
                         intersections = shape.common(ray_line)
                         
-                        # OpenCASCADE line-solid intersection returns edges/vertices (not volume)
-                        # Checking edges confirms ray hits solid surface - correct approach
+                        # OpenCASCADE line-solid intersection returns lower-dimensional geometry:
+                        # - Line (1D) intersecting solid (3D) produces edges/vertices (1D/0D)
+                        # - This is mathematically correct: intersection dimensionality ≤ min(dim1, dim2)
+                        # - Edges confirm ray hits solid surface boundaries - correct validation approach
                         if intersections and getattr(intersections, 'Edges', None):
                             # Ray intersects with part - now perform clearance analysis
                             for edge in intersections.Edges:

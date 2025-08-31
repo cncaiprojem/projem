@@ -195,7 +195,7 @@ class StandardPartsLibrary:
         5.0: 0.8,
         6.0: 1.0,
         7.0: 1.0,
-        8.0: 1.25,  # M8 has 1.25mm pitch, not 1.0mm
+        8.0: 1.25,  # M8 has 1.25mm pitch per ISO 261/DIN 13-1 standard
         10.0: 1.5,
         12.0: 1.75,
         14.0: 2.0,
