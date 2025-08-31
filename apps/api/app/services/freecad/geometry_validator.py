@@ -38,6 +38,10 @@ class ManufacturingConstraints(BaseModel):
     max_aspect_ratio: float = Field(default=10.0, description="Maximum aspect ratio")
     max_overhang_angle: float = Field(default=45.0, description="Maximum overhang angle for 3D printing")
     tool_access_required: bool = Field(default=True, description="Check for tool accessibility")
+    pull_direction: Tuple[float, float, float] = Field(
+        default=(0.0, 0.0, 1.0), 
+        description="Pull direction vector for mold/die extraction (x, y, z)"
+    )
     
     def validate_thickness(self, thickness: float) -> Tuple[bool, Optional[str]]:
         """Validate wall thickness."""
@@ -278,23 +282,50 @@ class GeometryValidator:
                                 result.manufacturing_issues.append(error_msg)
                                 break
             
-            # Check draft angles for vertical faces
+            # Check draft angles for ALL faces against pull direction (Issue #4 fix)
             if hasattr(shape, 'Faces'):
+                # Determine pull direction (default is Z-axis for molding)
+                pull_direction = getattr(self.constraints, 'pull_direction', (0, 0, 1))
+                # Use the shape's Base module for Vector if available
+                import FreeCAD
+                pull_vector = FreeCAD.Vector(*pull_direction)
+                
                 for face in shape.Faces:
                     try:
-                        # Get face normal
+                        # Get face normal at center
                         if hasattr(face, 'normalAt'):
-                            normal = face.normalAt(0, 0)
-                            # Check if face is nearly vertical
-                            z_component = abs(normal.z)
-                            if z_component < 0.1:  # Nearly vertical
-                                # Calculate draft angle from vertical
-                                angle = math.degrees(math.asin(z_component))
-                                is_valid, error_msg = self.constraints.validate_draft(angle)
+                            # Get parametric center for more accurate normal
+                            u_mid = (face.ParameterRange[0] + face.ParameterRange[1]) / 2
+                            v_mid = (face.ParameterRange[2] + face.ParameterRange[3]) / 2
+                            normal = face.normalAt(u_mid, v_mid)
+                            
+                            # Calculate angle between face normal and pull direction
+                            # For proper draft, faces should not be perpendicular to pull direction
+                            dot_product = normal.dot(pull_vector)
+                            
+                            # Check if face is perpendicular to pull direction (problematic for molding)
+                            if abs(dot_product) < 0.1:  # Nearly perpendicular
+                                # This face needs draft angle
+                                # Calculate the actual draft angle from perpendicular
+                                angle_from_perpendicular = math.degrees(math.asin(abs(dot_product)))
+                                
+                                # For molding, we want at least min_draft_angle from perpendicular
+                                is_valid, error_msg = self.constraints.validate_draft(angle_from_perpendicular)
                                 if not is_valid:
-                                    result.manufacturing_issues.append(error_msg)
+                                    face_area = face.Area if hasattr(face, 'Area') else 0
+                                    result.manufacturing_issues.append(
+                                        f"{error_msg} (Face area: {face_area:.2f} mm²)"
+                                    )
+                            
+                            # Also check for undercuts (faces facing opposite to pull direction)
+                            if dot_product < -0.1:  # Facing opposite to pull direction
+                                undercut_angle = math.degrees(math.acos(abs(dot_product)))
+                                if undercut_angle > 90 - self.constraints.min_draft_angle:
+                                    result.manufacturing_issues.append(
+                                        f"Undercut detected: Face at {undercut_angle:.1f}° from pull direction"
+                                    )
                     except Exception as e:
-                        logger.debug(f"Could not check draft angle: {e}")
+                        logger.debug(f"Could not check draft angle for face: {e}")
             
             # Check for undercuts/overhangs (for 3D printing)
             if hasattr(shape, 'Faces'):

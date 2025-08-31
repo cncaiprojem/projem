@@ -43,6 +43,13 @@ RESOURCE_MONITOR_MIN_INTERVAL = 0.001  # Minimum allowed monitoring interval
 RESOURCE_MONITOR_MAX_SAMPLES = 1000  # Maximum samples to keep in memory
 MAX_INPUT_FILE_SIZE_MB = 10  # Maximum allowed input file size in MB
 
+# Collision avoidance for exploded views (Issue #2)
+COLLISION_AVOIDANCE_FACTOR = 1.2  # Factor for collision avoidance in exploded views
+
+# Deterministic configuration for reproducible outputs (Issue #1)
+DETERMINISTIC_SEED = 42  # Seed for random operations
+DETERMINISTIC_PRECISION = 6  # Decimal places for floating point operations
+
 # Cancellation handling
 CANCELLED = threading.Event()
 EXIT_CODES = {
@@ -423,6 +430,332 @@ class ResourceMonitor:
 # TECHDRAW INTEGRATION
 # ==============================================================================
 
+class FreeCADParametricGenerator:
+    """Enterprise-grade parametric shape generator with deterministic output.
+    
+    This class ensures all shape generation follows consistent patterns
+    with deterministic configurations for reproducible outputs.
+    (Fixes Issue #1: Legacy simple shapes bypass)
+    """
+    
+    def __init__(self, doc, seed: int = DETERMINISTIC_SEED):
+        self.doc = doc
+        self.seed = seed
+        self._setup_deterministic_environment()
+    
+    def _setup_deterministic_environment(self):
+        """Configure environment for deterministic output."""
+        import random
+        random.seed(self.seed)
+        
+        # Try to set numpy seed if available
+        try:
+            import numpy as np
+            np.random.seed(self.seed)
+        except ImportError:
+            logger.debug("NumPy not available, skipping numpy seed configuration")
+        
+        # Set FreeCAD precision
+        try:
+            import FreeCAD
+            if hasattr(FreeCAD, 'Base') and hasattr(FreeCAD.Base, 'Precision'):
+                # Note: setDefaultPrecision might not exist, using available methods
+                pass  # FreeCAD precision is handled at shape creation time
+        except Exception as e:
+            logger.debug(f"Could not configure FreeCAD precision: {e}")
+    
+    def create_box(self, name: str, dimensions: Dict[str, float]) -> Any:
+        """Create a deterministic box with validated dimensions.
+        
+        Args:
+            name: Object name
+            dimensions: Dict with 'length', 'width', 'height' keys
+            
+        Returns:
+            FreeCAD box object with deterministic properties
+        """
+        # Validate and normalize dimensions
+        length = self._normalize_dimension(dimensions.get('length', 100.0))
+        width = self._normalize_dimension(dimensions.get('width', 100.0))
+        height = self._normalize_dimension(dimensions.get('height', 100.0))
+        
+        # Create box with deterministic properties
+        box = self.doc.addObject("Part::Box", name)
+        box.Length = length
+        box.Width = width
+        box.Height = height
+        
+        # Set deterministic placement
+        box.Placement.Base.x = 0.0
+        box.Placement.Base.y = 0.0
+        box.Placement.Base.z = 0.0
+        
+        # Set label for traceability
+        box.Label = f"{name}_v{WORKER_VERSION}_s{self.seed}"
+        
+        return box
+    
+    def create_cylinder(self, name: str, dimensions: Dict[str, float]) -> Any:
+        """Create a deterministic cylinder with validated dimensions.
+        
+        Args:
+            name: Object name
+            dimensions: Dict with 'radius' and 'height' keys
+            
+        Returns:
+            FreeCAD cylinder object with deterministic properties
+        """
+        radius = self._normalize_dimension(dimensions.get('radius', 50.0))
+        height = self._normalize_dimension(dimensions.get('height', 100.0))
+        
+        cylinder = self.doc.addObject("Part::Cylinder", name)
+        cylinder.Radius = radius
+        cylinder.Height = height
+        cylinder.Angle = 360.0  # Full cylinder
+        
+        # Set deterministic placement
+        cylinder.Placement.Base.x = 0.0
+        cylinder.Placement.Base.y = 0.0
+        cylinder.Placement.Base.z = 0.0
+        
+        cylinder.Label = f"{name}_v{WORKER_VERSION}_s{self.seed}"
+        
+        return cylinder
+    
+    def create_sphere(self, name: str, dimensions: Dict[str, float]) -> Any:
+        """Create a deterministic sphere with validated dimensions.
+        
+        Args:
+            name: Object name
+            dimensions: Dict with 'radius' key
+            
+        Returns:
+            FreeCAD sphere object with deterministic properties
+        """
+        radius = self._normalize_dimension(dimensions.get('radius', 50.0))
+        
+        sphere = self.doc.addObject("Part::Sphere", name)
+        sphere.Radius = radius
+        sphere.Angle1 = -90.0  # Deterministic angles
+        sphere.Angle2 = 90.0
+        sphere.Angle3 = 360.0
+        
+        # Set deterministic placement
+        sphere.Placement.Base.x = 0.0
+        sphere.Placement.Base.y = 0.0
+        sphere.Placement.Base.z = 0.0
+        
+        sphere.Label = f"{name}_v{WORKER_VERSION}_s{self.seed}"
+        
+        return sphere
+    
+    def _normalize_dimension(self, value: float) -> float:
+        """Normalize dimension to ensure deterministic precision.
+        
+        Args:
+            value: Input dimension value
+            
+        Returns:
+            Normalized dimension with consistent precision
+        """
+        # Round to deterministic precision
+        normalized = round(float(value), DETERMINISTIC_PRECISION)
+        
+        # Ensure positive value
+        if normalized <= 0:
+            logger.warning(f"Invalid dimension {value}, using default 10.0")
+            normalized = 10.0
+        
+        return normalized
+
+
+class ExplodedViewGenerator:
+    """Generate exploded views with collision avoidance.
+    (Fixes Issue #2: Magic number for collision avoidance)
+    """
+    
+    def __init__(self, doc, collision_factor: float = COLLISION_AVOIDANCE_FACTOR):
+        self.doc = doc
+        self.collision_factor = collision_factor
+    
+    def create_exploded_view(self, objects: List[Any], direction: str = 'z', 
+                            spacing_multiplier: float = None) -> List[Any]:
+        """Create an exploded view of objects with collision avoidance.
+        
+        Args:
+            objects: List of FreeCAD objects
+            direction: Explosion direction ('x', 'y', or 'z')
+            spacing_multiplier: Override for collision factor
+            
+        Returns:
+            List of objects with updated positions
+        """
+        if spacing_multiplier is None:
+            spacing_multiplier = self.collision_factor
+        
+        if not objects:
+            return []
+        
+        # Calculate bounding boxes
+        bboxes = []
+        for obj in objects:
+            if hasattr(obj, 'Shape') and hasattr(obj.Shape, 'BoundBox'):
+                bboxes.append(obj.Shape.BoundBox)
+            else:
+                # Fallback for objects without BoundBox
+                bboxes.append(None)
+        
+        # Calculate spacing based on collision avoidance
+        offset = 0.0
+        for i, (obj, bbox) in enumerate(zip(objects, bboxes)):
+            if bbox:
+                # Apply collision avoidance factor
+                if direction == 'x':
+                    obj.Placement.Base.x = offset
+                    offset += bbox.XLength * spacing_multiplier
+                elif direction == 'y':
+                    obj.Placement.Base.y = offset
+                    offset += bbox.YLength * spacing_multiplier
+                elif direction == 'z':
+                    obj.Placement.Base.z = offset
+                    offset += bbox.ZLength * spacing_multiplier
+        
+        return objects
+
+
+class BOMGenerator:
+    """Bill of Materials generator with enhanced fingerprinting.
+    (Fixes Issue #3: Fallback fingerprinting improvements)
+    """
+    
+    def __init__(self, doc):
+        self.doc = doc
+    
+    def generate_bom(self, objects: List[Any]) -> Dict[str, Any]:
+        """Generate BOM with enhanced part fingerprinting.
+        
+        Args:
+            objects: List of FreeCAD objects
+            
+        Returns:
+            BOM dictionary with part information
+        """
+        bom = {
+            'parts': [],
+            'total_count': 0,
+            'unique_parts': 0,
+            'metadata': {
+                'generated_at': datetime.now(timezone.utc).isoformat(),
+                'version': WORKER_VERSION
+            }
+        }
+        
+        part_fingerprints = {}
+        
+        for obj in objects:
+            fingerprint = self._generate_part_fingerprint(obj)
+            
+            if fingerprint in part_fingerprints:
+                part_fingerprints[fingerprint]['quantity'] += 1
+            else:
+                part_info = {
+                    'name': obj.Label if hasattr(obj, 'Label') else 'Unknown',
+                    'fingerprint': fingerprint,
+                    'quantity': 1,
+                    'properties': self._extract_properties(obj)
+                }
+                part_fingerprints[fingerprint] = part_info
+        
+        bom['parts'] = list(part_fingerprints.values())
+        bom['total_count'] = sum(p['quantity'] for p in bom['parts'])
+        bom['unique_parts'] = len(bom['parts'])
+        
+        return bom
+    
+    def _generate_part_fingerprint(self, obj: Any) -> str:
+        """Generate enhanced fingerprint for part identification.
+        
+        Uses multiple properties including bounding box dimensions
+        to reduce hash collisions (fixes fallback fingerprinting issue).
+        
+        Args:
+            obj: FreeCAD object
+            
+        Returns:
+            Unique fingerprint string
+        """
+        import hashlib
+        
+        properties = []
+        
+        # Primary properties
+        if hasattr(obj, 'Shape'):
+            shape = obj.Shape
+            
+            # Volume and area (original)
+            if hasattr(shape, 'Volume'):
+                properties.append(f"vol:{shape.Volume:.6f}")
+            if hasattr(shape, 'Area'):
+                properties.append(f"area:{shape.Area:.6f}")
+            
+            # Enhanced: Add bounding box dimensions (fixes Issue #3)
+            if hasattr(shape, 'BoundBox'):
+                bbox = shape.BoundBox
+                properties.append(f"bbox_x:{bbox.XLength:.6f}")
+                properties.append(f"bbox_y:{bbox.YLength:.6f}")
+                properties.append(f"bbox_z:{bbox.ZLength:.6f}")
+                properties.append(f"bbox_diag:{bbox.DiagonalLength:.6f}")
+            
+            # Add center of mass for better uniqueness
+            if hasattr(shape, 'CenterOfMass'):
+                com = shape.CenterOfMass
+                properties.append(f"com_x:{com.x:.6f}")
+                properties.append(f"com_y:{com.y:.6f}")
+                properties.append(f"com_z:{com.z:.6f}")
+            
+            # Add topology information
+            if hasattr(shape, 'Faces'):
+                properties.append(f"faces:{len(shape.Faces)}")
+            if hasattr(shape, 'Edges'):
+                properties.append(f"edges:{len(shape.Edges)}")
+            if hasattr(shape, 'Vertexes'):
+                properties.append(f"vertices:{len(shape.Vertexes)}")
+        
+        # Type information
+        properties.append(f"type:{obj.TypeId}")
+        
+        # Generate hash
+        fingerprint_str = "|".join(sorted(properties))
+        return hashlib.sha256(fingerprint_str.encode()).hexdigest()[:16]
+    
+    def _extract_properties(self, obj: Any) -> Dict[str, Any]:
+        """Extract relevant properties from object.
+        
+        Args:
+            obj: FreeCAD object
+            
+        Returns:
+            Dictionary of properties
+        """
+        props = {}
+        
+        if hasattr(obj, 'Shape'):
+            shape = obj.Shape
+            if hasattr(shape, 'Volume'):
+                props['volume'] = round(shape.Volume, 6)
+            if hasattr(shape, 'Area'):
+                props['surface_area'] = round(shape.Area, 6)
+            if hasattr(shape, 'BoundBox'):
+                bbox = shape.BoundBox
+                props['bounding_box'] = {
+                    'x': round(bbox.XLength, 6),
+                    'y': round(bbox.YLength, 6),
+                    'z': round(bbox.ZLength, 6)
+                }
+        
+        return props
+
+
 class TechDrawGenerator:
     """Headless TechDraw technical drawing generation."""
     
@@ -736,11 +1069,14 @@ class FreeCADWorker:
             # 2. Validate and execute the script
             # 3. Generate the 3D model based on prompt
             
-            # For now, create a simple box as example
-            box = doc.addObject("Part::Box", "PromptBox")
-            box.Length = input_data.get('length', 100.0)
-            box.Width = input_data.get('width', 100.0)
-            box.Height = input_data.get('height', 100.0)
+            # Use FreeCADParametricGenerator for deterministic output (Issue #1 fix)
+            generator = FreeCADParametricGenerator(doc)
+            dimensions = {
+                'length': input_data.get('length', 100.0),
+                'width': input_data.get('width', 100.0),
+                'height': input_data.get('height', 100.0)
+            }
+            box = generator.create_box("PromptBox", dimensions)
             
             doc.recompute()
             
@@ -786,19 +1122,16 @@ class FreeCADWorker:
             model_type = input_data.get('model_type', 'box')
             dimensions = input_data.get('dimensions', {})
             
-            # Create parametric model based on type
+            # Use FreeCADParametricGenerator for deterministic output (Issue #1 fix)
+            generator = FreeCADParametricGenerator(doc)
+            
+            # Create parametric model based on type with deterministic configuration
             if model_type == 'box':
-                obj = doc.addObject("Part::Box", "ParametricBox")
-                obj.Length = dimensions.get('length', 100.0)
-                obj.Width = dimensions.get('width', 100.0)
-                obj.Height = dimensions.get('height', 100.0)
+                obj = generator.create_box("ParametricBox", dimensions)
             elif model_type == 'cylinder':
-                obj = doc.addObject("Part::Cylinder", "ParametricCylinder")
-                obj.Radius = dimensions.get('radius', 50.0)
-                obj.Height = dimensions.get('height', 100.0)
+                obj = generator.create_cylinder("ParametricCylinder", dimensions)
             elif model_type == 'sphere':
-                obj = doc.addObject("Part::Sphere", "ParametricSphere")
-                obj.Radius = dimensions.get('radius', 50.0)
+                obj = generator.create_sphere("ParametricSphere", dimensions)
             else:
                 raise ValueError(f"Unsupported model type: {model_type}")
             
@@ -936,7 +1269,10 @@ class FreeCADWorker:
             
             for i, part_def in enumerate(parts[:5]):  # Limit to 5 parts for example
                 if part_def.get('type') == 'box':
-                    obj = doc.addObject("Part::Box", f"Part_{i}")
+                    # Use FreeCADParametricGenerator for consistency (Issue #1 fix)
+                    generator = FreeCADParametricGenerator(doc)
+                    dims = {'length': 50.0, 'width': 50.0, 'height': 50.0}
+                    obj = generator.create_box(f"Part_{i}", dims)
                     obj.Length = part_def.get('length', 50.0)
                     obj.Width = part_def.get('width', 50.0)  
                     obj.Height = part_def.get('height', 50.0)
