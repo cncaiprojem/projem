@@ -321,7 +321,7 @@ class BOMExtractor:
                             tmp.seek(0)  # Reset file pointer to beginning
                             hasher.update(tmp.read())
                     except Exception as e:
-                        # Error handling for BREP export failure (PR #378 feedback)
+                        # Handle BREP export failures gracefully
                         logger.debug(f"BREP export failed, falling back to bbox dimensions: {e}")
                         # Fallback to bounding box dimensions
                         bbox = obj.Shape.BoundBox

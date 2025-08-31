@@ -118,7 +118,7 @@ class Assembly4Manager:
     # Default directories for backward compatibility
     _DEFAULT_UPLOAD_DIRS = "/work/uploads:/tmp/freecad_uploads"
     # Load from environment with default fallback
-    # Fix: Filter out empty entries to handle empty values gracefully (PR #378 feedback)
+    # Filter out empty entries to handle empty environment values gracefully
     ALLOWED_UPLOAD_DIRS = [d for d in os.getenv("ALLOWED_UPLOAD_DIRS", _DEFAULT_UPLOAD_DIRS).split(':') if d.strip()]
     
     # AST node whitelist for safe script execution
@@ -291,14 +291,40 @@ class Assembly4Manager:
                 try:
                     validated_path = self._validate_upload_path(file_path)
                     if validated_path.exists():
-                        # Import the file
+                        # Import the file and get the imported document
                         import FreeCAD
-                        FreeCAD.open(str(validated_path))
-                        # Link to the imported document
-                        # This is simplified; real implementation would use App::Link
+                        imported_doc = FreeCAD.open(str(validated_path))
+                        
+                        # Link the imported objects to the assembly document
+                        # Get all objects from the imported document that have shapes
+                        imported_objects = [obj for obj in imported_doc.Objects if hasattr(obj, 'Shape')]
+                        
+                        if imported_objects:
+                            # Create a compound of all imported shapes for the component
+                            import Part
+                            shapes = [obj.Shape for obj in imported_objects if obj.Shape]
+                            if shapes:
+                                # Create a compound shape from all imported objects
+                                compound = Part.makeCompound(shapes)
+                                
+                                # Add the compound to the assembly document
+                                comp_obj = doc.addObject("Part::Feature", f"ImportedComponent_{component.id}")
+                                comp_obj.Shape = compound
+                                comp_obj.Label = f"Import_{Path(file_path).stem}"
+                            else:
+                                logger.warning(f"No valid shapes found in imported file: {file_path}")
+                        else:
+                            logger.warning(f"No objects found in imported file: {file_path}")
+                            
+                        # Close the imported document to free resources
+                        FreeCAD.closeDocument(imported_doc.Name)
+                        
                 except ValueError as e:
                     logger.error(f"Security violation - invalid path: {e}")
                     raise ValueError(f"Invalid file path: {file_path}")
+                except Exception as e:
+                    logger.error(f"Failed to import file {file_path}: {e}")
+                    raise ValueError(f"Could not import file: {file_path}")
                 
         # Apply initial placement
         if comp_obj and component.initial_placement:

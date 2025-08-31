@@ -142,8 +142,8 @@ class StandardPartsLibrary:
 import Part
 import math
 
-# Fix: Use provided document and component ID instead of creating new one (PR #378)
-# doc and comp_id variables should be provided by the caller
+# Use provided document and component ID from the caller context.
+# Variables 'doc' and 'comp_id' are injected during script execution.
 
 # Parameters
 diameter = {diameter}
@@ -248,8 +248,8 @@ doc.recompute()"""
 import Part
 import math
 
-# Fix: Use provided document and component ID instead of creating new one (PR #378)
-# doc and comp_id variables should be provided by the caller
+# Use provided document and component ID from the caller context.
+# Variables 'doc' and 'comp_id' are injected during script execution.
 
 # Parameters (example for 608 bearing: 8mm bore, 22mm OD, 7mm width)
 bore_diameter = {bore_diameter}  # Inner diameter

@@ -324,19 +324,24 @@ class GeometryValidator:
                             # For proper draft, ALL faces should have sufficient angle from perpendicular
                             dot_product = normal.x * pull_direction[0] + normal.y * pull_direction[1] + normal.z * pull_direction[2]
                             
-                            # Check ALL faces, not just nearly vertical ones
-                            # Draft angle is measured from vertical (90° - angle_from_pull_direction)
-                            # For proper draft angle calculation:
-                            # 1. dot_product gives us cos(angle_from_pull_direction)
-                            # 2. Clamp dot_product to [-1, 1] range to avoid math domain error
-                            # 3. angle_from_pull = acos(clamped_dot_product)
-                            # 4. draft_angle = 90° - angle_from_pull
-                            # Fix: Properly clamp to [-1, 1] range as per PR #378 feedback
-                            draft_angle = 90 - math.degrees(math.acos(max(-1.0, min(1.0, abs(dot_product)))))
+                            # Check for undercuts first - negative dot product means face opposes pull direction
+                            if dot_product < 0:
+                                result.manufacturing_issues.append(
+                                    "Undercut detected: face normal opposes pull direction. "
+                                    "This feature cannot be manufactured without side-actions or core pulls."
+                                )
                             
-                            # For faces that are nearly perpendicular to pull direction (vertical walls),
-                            # the draft angle is critical
-                            if abs(dot_product) < self.PERPENDICULAR_THRESHOLD:
+                            # Calculate draft angle for all non-parallel faces
+                            # Draft angle is measured from vertical (90° - angle_from_pull_direction)
+                            # 1. Clamp dot_product to [-1, 1] range to avoid math domain error
+                            # 2. Use absolute value for angle calculation after undercut check
+                            # 3. Convert from angle with pull direction to draft angle
+                            clamped_dot = max(-1.0, min(1.0, abs(dot_product)))
+                            draft_angle = 90 - math.degrees(math.acos(clamped_dot))
+                            
+                            # Validate draft angle for ALL non-parallel faces, not just nearly vertical ones
+                            # Parallel faces (dot_product ≈ 1) don't need draft validation
+                            if abs(dot_product) < 0.999:  # Check all faces except those parallel to pull direction
                                 is_valid, error_msg = self.constraints.validate_draft(draft_angle)
                                 if not is_valid:
                                     result.manufacturing_issues.append(error_msg)

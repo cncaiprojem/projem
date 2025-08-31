@@ -852,7 +852,7 @@ class FreeCADParametricGenerator:
         # Add shape to document as a Part::Feature object
         part = self.doc.addObject("Part::Feature", label)
         part.Shape = shape
-        # Label is already set by addObject, no need to set it again (Issue #8 fix)
+        # Label is already set by addObject, no need to set it again
         
         # Recompute deterministically
         self.doc.recompute()
@@ -1262,9 +1262,9 @@ class FreeCADWorker:
                 )
                 generator.add_shape_to_document(shape, "PrismWithHole")
             else:
-                # Legacy simple shapes now use dedicated methods to avoid code duplication
-                # This ensures ALL geometric flows use the same validation and export pipeline
-                # with DeterministicExporter, addressing Copilot's feedback about code duplication.
+                # Legacy simple shapes use dedicated methods to avoid code duplication.
+                # This ensures all geometric flows use the same validation and export pipeline
+                # with DeterministicExporter for consistency and maintainability.
                 if model_type == 'box':
                     # Use the new create_box method
                     shape = generator.create_box(length, width, height)

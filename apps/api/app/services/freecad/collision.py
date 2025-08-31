@@ -96,9 +96,9 @@ class BVHNode:
             key=lambda obj: (obj[2].min_point[split_axis] + obj[2].max_point[split_axis]) / 2
         )
         
-        # Fix: Remove unreachable code - condition len(sorted_objects) <= 1 never met
-        # because constructor already handles empty lists (PR #378 feedback)
-        # Always split the sorted objects for recursion
+        # Split the sorted objects for recursion.
+        # The constructor already handles empty lists, so we can proceed directly
+        # with the split operation.
         mid = len(sorted_objects) // 2
         self.left = BVHNode(sorted_objects[:mid])
         self.right = BVHNode(sorted_objects[mid:])
