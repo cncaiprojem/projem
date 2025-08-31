@@ -1011,6 +1011,304 @@ pad.TaperAngle = 60  # Above 45 degree maximum
         assert "tek" in exc_info.value.turkish_message.lower()
 
 
+class TestEndToEndPartDesign:
+    """Comprehensive end-to-end tests for PartDesign features with real scripts."""
+    
+    def test_complete_pad_with_taper_angle(self):
+        """Test complete Pad feature with taper angle extraction."""
+        engine = FreeCADRulesEngine()
+        
+        script = """
+import FreeCAD as App
+import Part
+import Sketcher
+
+doc = App.newDocument("TestDoc")
+
+# Create a Body
+body = doc.addObject('PartDesign::Body', 'Body')
+
+# Create a Sketch
+sketch = body.newObject('Sketcher::SketchObject', 'Sketch')
+sketch.Support = (doc.getObject('XY_Plane'), [''])
+sketch.MapMode = 'FlatFace'
+
+# Add geometry to sketch
+sketch.addGeometry(Part.LineSegment(App.Vector(0, 0, 0), App.Vector(100, 0, 0)))
+sketch.addGeometry(Part.LineSegment(App.Vector(100, 0, 0), App.Vector(100, 50, 0)))
+sketch.addGeometry(Part.LineSegment(App.Vector(100, 50, 0), App.Vector(0, 50, 0)))
+sketch.addGeometry(Part.LineSegment(App.Vector(0, 50, 0), App.Vector(0, 0, 0)))
+
+# Add constraints
+sketch.addConstraint(Sketcher.Constraint('Horizontal', 0))
+sketch.addConstraint(Sketcher.Constraint('Vertical', 1))
+sketch.addConstraint(Sketcher.Constraint('Horizontal', 2))
+sketch.addConstraint(Sketcher.Constraint('Vertical', 3))
+sketch.addConstraint(Sketcher.Constraint('Distance', 0, 100))
+sketch.addConstraint(Sketcher.Constraint('Distance', 1, 50))
+
+# Create a Pad with taper angle
+pad = body.newObject('PartDesign::Pad', 'Pad')
+pad.Profile = sketch
+pad.Length = 25
+pad.TaperAngle = 5  # 5 degree draft angle
+
+doc.recompute()
+"""
+        
+        input_data = {"script": script}
+        result = engine.validate(input_data)
+        
+        assert result.success
+        assert result.script_meta is not None
+        
+        # Check body was detected
+        assert result.script_meta.bodies["count"] == 1
+        assert "Body" in result.script_meta.bodies["names"]
+        
+        # Check Pad was detected
+        assert len(result.script_meta.partdesign_features) > 0
+        pad_feature = next((f for f in result.script_meta.partdesign_features if f["type"] == "Pad"), None)
+        assert pad_feature is not None
+        
+        # Check dimensions were extracted
+        assert result.script_meta.dims_mm.get("pad_length") == 25
+        assert result.script_meta.dims_mm.get("taper_angle") == 5
+        
+        # Check sketch constraints were detected
+        assert len(result.script_meta.sketches) > 0
+        sketch = result.script_meta.sketches[0]
+        assert sketch["constraint_counts"].get("Horizontal", 0) == 2
+        assert sketch["constraint_counts"].get("Vertical", 0) == 2
+        assert sketch["constraint_counts"].get("Distance", 0) == 2
+    
+    def test_complete_pocket_with_arithmetic_expression(self):
+        """Test Pocket feature with arithmetic expression for depth."""
+        engine = FreeCADRulesEngine()
+        
+        script = """
+import FreeCAD as App
+import Part
+
+doc = App.newDocument()
+
+# Create a Body
+body = doc.addObject('PartDesign::Body', 'MainBody')
+
+# Create a base pad first
+base_sketch = body.newObject('Sketcher::SketchObject', 'BaseSketch')
+base_pad = body.newObject('PartDesign::Pad', 'BasePad')
+base_pad.Length = 50
+
+# Create a Pocket with arithmetic expression
+pocket = body.newObject('PartDesign::Pocket', 'Pocket')
+pocket.Length = 10 * 2.5  # Should evaluate to 25
+
+doc.recompute()
+"""
+        
+        input_data = {"script": script}
+        result = engine.validate(input_data)
+        
+        assert result.success
+        assert result.script_meta is not None
+        
+        # Check pocket depth was calculated from arithmetic expression
+        assert result.script_meta.dims_mm.get("pocket_depth") == 25
+        
+        # Check both Pad and Pocket were detected
+        features = result.script_meta.partdesign_features
+        assert any(f["type"] == "Pad" for f in features)
+        assert any(f["type"] == "Pocket" for f in features)
+    
+    def test_complete_pattern_features(self):
+        """Test LinearPattern and PolarPattern with full validation."""
+        engine = FreeCADRulesEngine()
+        
+        script = """
+import FreeCAD as App
+import Part
+
+doc = App.newDocument()
+body = doc.addObject('PartDesign::Body', 'Body')
+
+# Create base feature
+pad = body.newObject('PartDesign::Pad', 'Pad')
+pad.Length = 20
+
+# Create LinearPattern
+linear_pattern = body.newObject('PartDesign::LinearPattern', 'LinearPattern')
+linear_pattern.Originals = [pad]
+linear_pattern.Direction = (body, ['H_Axis'])
+linear_pattern.Length = 100
+linear_pattern.Occurrences = 5
+
+# Create PolarPattern
+polar_pattern = body.newObject('PartDesign::PolarPattern', 'PolarPattern')
+polar_pattern.Originals = [linear_pattern]
+polar_pattern.Axis = (body, ['V_Axis'])
+polar_pattern.Angle = 360
+polar_pattern.Occurrences = 8
+
+doc.recompute()
+"""
+        
+        input_data = {"script": script}
+        result = engine.validate(input_data)
+        
+        assert result.success
+        assert result.script_meta is not None
+        
+        # Check patterns were detected
+        features = result.script_meta.partdesign_features
+        assert any(f["type"] == "LinearPattern" for f in features)
+        assert any(f["type"] == "PolarPattern" for f in features)
+    
+    def test_complete_unit_conversion_with_ast(self):
+        """Test AST-based unit conversion in complete script."""
+        engine = FreeCADRulesEngine()
+        
+        script = """
+import FreeCAD as App
+import Part
+
+# Unit conversions using different patterns
+length_cm = 10  # Should become 100 mm
+width_inch = 2  # Should become 50.8 mm
+height = cm(5)  # Should become 50 mm
+depth = inch(1.5)  # Should become 38.1 mm
+
+doc = App.newDocument()
+box = Part.makeBox(length, width, height)
+Part.show(box)
+doc.recompute()
+"""
+        
+        input_data = {"script": script}
+        result = engine.normalize(input_data)
+        
+        assert result.success
+        assert result.canonical_script is not None
+        
+        # Check conversions were applied
+        assert len(result.script_meta.conversions_applied) == 4
+        
+        # Check specific conversions
+        cm_conversions = [c for c in result.script_meta.conversions_applied if c.from_unit == "cm"]
+        inch_conversions = [c for c in result.script_meta.conversions_applied if c.from_unit == "inch"]
+        
+        assert len(cm_conversions) == 2
+        assert len(inch_conversions) == 2
+        
+        # Check values were converted correctly
+        assert any(c.before == 10 and c.after == 100 for c in cm_conversions)
+        assert any(c.before == 5 and c.after == 50 for c in cm_conversions)
+        assert any(c.before == 2 and c.after == 50.8 for c in inch_conversions)
+        assert any(c.before == 1.5 and c.after == 38.1 for c in inch_conversions)
+        
+        # Check script no longer contains unit suffixes or helper functions
+        assert "_cm" not in result.canonical_script
+        assert "_inch" not in result.canonical_script
+        assert "cm(" not in result.canonical_script
+        assert "inch(" not in result.canonical_script
+    
+    def test_complete_revolution_feature(self):
+        """Test Revolution feature with angle validation."""
+        engine = FreeCADRulesEngine()
+        
+        script = """
+import FreeCAD as App
+import Part
+
+doc = App.newDocument()
+body = doc.addObject('PartDesign::Body', 'Body')
+
+# Create sketch for revolution
+sketch = body.newObject('Sketcher::SketchObject', 'ProfileSketch')
+
+# Create Revolution
+revolution = body.newObject('PartDesign::Revolution', 'Revolution')
+revolution.Profile = sketch
+revolution.Axis = (body, ['V_Axis'])
+revolution.Angle = 270  # Valid angle (0 < angle <= 360)
+
+doc.recompute()
+"""
+        
+        input_data = {"script": script}
+        result = engine.validate(input_data)
+        
+        assert result.success
+        assert result.script_meta is not None
+        
+        # Check Revolution was detected
+        features = result.script_meta.partdesign_features
+        assert any(f["type"] == "Revolution" for f in features)
+    
+    def test_complete_mirrored_feature(self):
+        """Test Mirrored feature detection."""
+        engine = FreeCADRulesEngine()
+        
+        script = """
+import FreeCAD as App
+import Part
+
+doc = App.newDocument()
+body = doc.addObject('PartDesign::Body', 'Body')
+
+# Create base feature
+pad = body.newObject('PartDesign::Pad', 'Pad')
+pad.Length = 30
+
+# Create Mirrored feature
+mirrored = body.newObject('PartDesign::Mirrored', 'Mirrored')
+mirrored.Originals = [pad]
+mirrored.MirrorPlane = (body, ['V_Axis', 'H_Axis'])
+
+doc.recompute()
+"""
+        
+        input_data = {"script": script}
+        result = engine.validate(input_data)
+        
+        assert result.success
+        assert result.script_meta is not None
+        
+        # Check Mirrored was detected
+        features = result.script_meta.partdesign_features
+        assert any(f["type"] == "Mirrored" for f in features)
+    
+    def test_arithmetic_expressions_in_dimensions(self):
+        """Test that arithmetic expressions in dimensions are properly evaluated."""
+        engine = FreeCADRulesEngine()
+        
+        script = """
+import Part
+
+# Test various arithmetic expressions
+box1 = Part.makeBox(50 + 50, 25 * 2, 100 / 4)  # 100, 50, 25
+box2 = Part.makeCylinder(5 ** 2, 10 - 5)  # 25, 5
+box3 = Part.makeCone(10 + 5, 20 - 5, 30 * 1.5)  # 15, 15, 45
+"""
+        
+        input_data = {"script": script}
+        result = engine.validate(input_data)
+        
+        assert result.success
+        assert result.script_meta is not None
+        
+        # Check dimensions were evaluated correctly
+        dims = result.script_meta.dims_mm
+        assert dims.get("length") == 100
+        assert dims.get("width") == 50
+        assert dims.get("height") == 25
+        assert dims.get("radius") == 25
+        assert dims.get("cylinder_height") == 5
+        assert dims.get("cone_radius1") == 15
+        assert dims.get("cone_radius2") == 15
+        assert dims.get("cone_height") == 45
+
+
 class TestDeterminismAndIdempotency:
     """Test determinism and idempotency of normalization."""
     

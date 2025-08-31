@@ -1413,14 +1413,31 @@ class UltraEnterpriseFreeCADService:
         Returns:
             Canonical parameters dictionary
         """
-        result = freecad_rules_engine.normalize(params)
-        if not result.success:
+        try:
+            result = freecad_rules_engine.normalize(params)
+            if not result.success:
+                raise FreeCADException(
+                    f"Parametric normalization failed: {', '.join(result.errors)}",
+                    FreeCADErrorCode.VALIDATION_FAILED,
+                    f"Parametrik normalleştirme başarısız: {', '.join(result.errors)}"
+                )
+            return result.canonical_params
+        except ValidationException as e:
+            # Convert ValidationException to FreeCADException, preserving http_status
             raise FreeCADException(
-                f"Parametric normalization failed: {', '.join(result.errors)}",
+                str(e),
                 FreeCADErrorCode.VALIDATION_FAILED,
-                f"Parametrik normalleştirme başarısız: {', '.join(result.errors)}"
+                e.turkish_message,
+                details=e.details,
+                http_status=e.http_status
             )
-        return result.canonical_params
+        except Exception as e:
+            # Handle unexpected exceptions
+            raise FreeCADException(
+                f"Unexpected error during normalization: {str(e)}",
+                FreeCADErrorCode.VALIDATION_FAILED,
+                f"Normalleştirme sırasında beklenmeyen hata: {str(e)}"
+            )
     
     def validate_freecad_script(
         self,

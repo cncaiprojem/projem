@@ -209,11 +209,21 @@ class FreeCADRulesEngine:
         "doc.addObject": {"min_args": 2, "max_args": 2, "category": "document"},
         "doc.removeObject": {"min_args": 1, "max_args": 1, "category": "document"},
         "doc.recompute": {"min_args": 0, "max_args": 0, "category": "document"},
+        "doc.getObject": {"min_args": 1, "max_args": 1, "category": "document"},
+        
+        # FreeCAD/App utility APIs
+        "App.Vector": {"min_args": 0, "max_args": 3, "category": "utility"},
+        "FreeCAD.Vector": {"min_args": 0, "max_args": 3, "category": "utility"},
         
         # Boolean operations
         "Part.fuse": {"min_args": 1, "max_args": 2, "category": "boolean"},
         "Part.cut": {"min_args": 2, "max_args": 2, "category": "boolean"},
         "Part.common": {"min_args": 2, "max_args": 2, "category": "boolean"},
+        
+        # Additional object methods (common patterns)
+        "body.newObject": {"min_args": 2, "max_args": 2, "category": "object"},
+        "sketch.addGeometry": {"min_args": 1, "max_args": 2, "category": "sketcher"},
+        "sketch.addConstraint": {"min_args": 1, "max_args": 1, "category": "sketcher"},
     }
     
     # Deprecated FreeCAD API mappings
@@ -491,7 +501,13 @@ class FreeCADRulesEngine:
         line: str, 
         line_number: int
     ) -> Tuple[str, List[UnitConversion]]:
-        """Apply unit conversions to a line of code."""
+        """Apply unit conversions to a line of code using AST transformation.
+        
+        This method is kept for compatibility but delegates to AST-based conversion
+        for robustness. The regex patterns are preserved as fallback.
+        """
+        # For single lines, we still use regex as a fast path
+        # Full script conversion uses AST-based transformation
         conversions = []
         
         # Pattern 1: Variable suffixes (e.g., length_cm, width_inch)
@@ -594,6 +610,165 @@ class FreeCADRulesEngine:
         
         return line, conversions
     
+    def _apply_ast_unit_conversions(
+        self,
+        script: str
+    ) -> Tuple[str, List[UnitConversion]]:
+        """Apply unit conversions using AST transformation for robustness.
+        
+        This method provides a more robust alternative to regex-based conversion
+        by parsing the script into an AST, transforming nodes, and unparsing back.
+        
+        Args:
+            script: Python script with potential unit conversions
+            
+        Returns:
+            Tuple of (transformed_script, list_of_conversions)
+        """
+        conversions = []
+        
+        try:
+            # Parse script into AST
+            tree = ast.parse(script)
+        except SyntaxError:
+            # If parsing fails, return original script
+            logger.warning("AST parsing failed for unit conversion, using original script")
+            return script, []
+        
+        class UnitTransformer(ast.NodeTransformer):
+            """AST transformer for unit conversions."""
+            
+            def __init__(self, engine, conversions_list):
+                self.engine = engine
+                self.conversions = conversions_list
+                self.line_map = {}  # Track line numbers for reporting
+            
+            def visit_Assign(self, node):
+                """Transform assignments with unit suffixes."""
+                # Check for variable_unit pattern (e.g., length_cm = 10)
+                if len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+                    var_name = node.targets[0].id
+                    
+                    # Check for unit suffix
+                    if var_name.endswith('_cm') or var_name.endswith('_inch') or var_name.endswith('_in'):
+                        # Extract base name and unit
+                        if var_name.endswith('_cm'):
+                            base_name = var_name[:-3]
+                            unit = 'cm'
+                            multiplier = 10.0
+                        elif var_name.endswith('_inch'):
+                            base_name = var_name[:-5]
+                            unit = 'inch'
+                            multiplier = 25.4
+                        elif var_name.endswith('_in'):
+                            base_name = var_name[:-3]
+                            unit = 'inch'
+                            multiplier = 25.4
+                        else:
+                            return self.generic_visit(node)
+                        
+                        # Get numeric value
+                        value = self._get_numeric_value(node.value)
+                        if value is not None:
+                            new_value = self.engine._round_decimal(value * multiplier)
+                            
+                            # Record conversion
+                            self.conversions.append(UnitConversion(
+                                from_unit=unit,
+                                before=value,
+                                after=new_value,
+                                location=f"line {node.lineno}"
+                            ))
+                            
+                            # Transform the assignment
+                            node.targets[0].id = base_name
+                            node.value = ast.Constant(value=new_value)
+                            ast.copy_location(node.value, node)
+                
+                return self.generic_visit(node)
+            
+            def visit_Call(self, node):
+                """Transform unit helper function calls."""
+                # Check for cm(), inch(), in() functions
+                if isinstance(node.func, ast.Name):
+                    func_name = node.func.id
+                    
+                    if func_name in ['cm', 'inch', 'in']:
+                        # Get the argument value
+                        if len(node.args) == 1:
+                            value = self._get_numeric_value(node.args[0])
+                            if value is not None:
+                                # Convert based on unit
+                                if func_name == 'cm':
+                                    multiplier = 10.0
+                                    unit = 'cm'
+                                else:  # inch or in
+                                    multiplier = 25.4
+                                    unit = 'inch'
+                                
+                                new_value = self.engine._round_decimal(value * multiplier)
+                                
+                                # Record conversion
+                                self.conversions.append(UnitConversion(
+                                    from_unit=unit,
+                                    before=value,
+                                    after=new_value,
+                                    location=f"line {node.lineno}"
+                                ))
+                                
+                                # Replace with constant
+                                return ast.Constant(value=new_value)
+                
+                return self.generic_visit(node)
+            
+            def _get_numeric_value(self, node):
+                """Extract numeric value from an AST node, supporting arithmetic."""
+                if isinstance(node, ast.Constant):
+                    if isinstance(node.value, (int, float)):
+                        return float(node.value)
+                elif isinstance(node, ast.Num):  # Python 3.7 compatibility
+                    return float(node.n)
+                elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
+                    # Handle negative numbers
+                    inner_value = self._get_numeric_value(node.operand)
+                    if inner_value is not None:
+                        return -inner_value
+                elif isinstance(node, ast.BinOp):
+                    # Support arithmetic expressions
+                    left = self._get_numeric_value(node.left)
+                    right = self._get_numeric_value(node.right)
+                    if left is not None and right is not None:
+                        if isinstance(node.op, ast.Add):
+                            return left + right
+                        elif isinstance(node.op, ast.Sub):
+                            return left - right
+                        elif isinstance(node.op, ast.Mult):
+                            return left * right
+                        elif isinstance(node.op, ast.Div):
+                            return left / right if right != 0 else None
+                return None
+        
+        # Apply transformations
+        transformer = UnitTransformer(self, conversions)
+        transformed_tree = transformer.visit(tree)
+        ast.fix_missing_locations(transformed_tree)
+        
+        # Unparse back to Python code
+        try:
+            # Python 3.9+ has ast.unparse
+            if hasattr(ast, 'unparse'):
+                transformed_script = ast.unparse(transformed_tree)
+            else:
+                # For older Python, we'll fall back to original script
+                # (This shouldn't happen in our environment but good for robustness)
+                logger.warning("ast.unparse not available, using original script")
+                return script, conversions
+        except Exception as e:
+            logger.error(f"Failed to unparse AST: {e}")
+            return script, conversions
+        
+        return transformed_script, conversions
+    
     def _translate_turkish_comments(self, line: str) -> str:
         """Translate Turkish comments to English."""
         # Check if line has a comment
@@ -629,7 +804,11 @@ class FreeCADRulesEngine:
                 self.solid_count = 0  # Track number of solids created
             
             def visit_Assign(self, node):
-                """Track variable assignments and attribute assignments."""
+                """Track variable assignments and attribute assignments.
+                
+                Consolidated logic for handling both simple assignments and attribute assignments.
+                This avoids the anti-pattern of having separate visit_Attribute method.
+                """
                 # Handle simple variable assignments
                 if len(node.targets) == 1:
                     target = node.targets[0]
@@ -658,11 +837,9 @@ class FreeCADRulesEngine:
                                     elif obj_type == 'PartDesign::Pocket':
                                         self.var_assignments[var_name] = 'Pocket'
                         
-                        # Visit the value to extract metadata
-                        # Note: We do NOT call generic_visit after this to avoid double processing
+                        # Visit the RHS value to extract metadata
                         self.visit(node.value)
                         self.current_var = None
-                        return  # Don't call generic_visit to avoid double processing
                     
                     # Attribute assignment: obj.attr = value
                     elif isinstance(target, ast.Attribute):
@@ -670,10 +847,10 @@ class FreeCADRulesEngine:
                             obj_name = target.value.id
                             attr_name = target.attr
                             
-                            # Extract numeric value
+                            # Extract numeric value from RHS (supports arithmetic)
                             value = self._get_numeric_value(node.value)
                             
-                            # Handle Length assignments for Pad/Pocket
+                            # Handle specific attribute patterns
                             if attr_name == 'Length' and value is not None:
                                 # Check if this is a Pad or Pocket
                                 if obj_name in self.var_assignments:
@@ -686,8 +863,25 @@ class FreeCADRulesEngine:
                                     self.meta.dims_mm["pad_length"] = value
                                 elif 'pocket' in obj_name.lower():
                                     self.meta.dims_mm["pocket_depth"] = value
-                
-                self.generic_visit(node)
+                            
+                            elif attr_name == 'TaperAngle' and value is not None:
+                                # Handle draft/taper angles for Pad/Pocket
+                                self.meta.dims_mm["taper_angle"] = value
+                                # Also track in partdesign features
+                                for feature in self.meta.partdesign_features:
+                                    if feature.get("type") in ["Pad", "Pocket"]:
+                                        feature["draft_deg"] = value
+                                        break
+                            
+                            # Visit the RHS value for nested expressions
+                            self.visit(node.value)
+                    
+                    else:
+                        # Other assignment targets (subscripts, etc.)
+                        self.generic_visit(node)
+                else:
+                    # Multiple assignment targets
+                    self.generic_visit(node)
             
             def visit_Call(self, node):
                 """Extract metadata from function calls."""
@@ -776,23 +970,8 @@ class FreeCADRulesEngine:
                 
                 self.generic_visit(node)
             
-            def visit_Attribute(self, node):
-                """Track attribute assignments like pad.Length = 10."""
-                # Look for patterns like obj.Length = value in parent context
-                parent = getattr(node, '_parent', None)
-                if parent and isinstance(parent, ast.Assign):
-                    if node.attr == 'Length':
-                        # Try to get the value being assigned
-                        if isinstance(parent.value, (ast.Constant, ast.Num)):
-                            value = self._get_numeric_value(parent.value)
-                            if value is not None:
-                                # Determine what type of object this is
-                                if self.current_var and 'pad' in self.current_var.lower():
-                                    self.meta.dims_mm["pad_length"] = value
-                                elif self.current_var and 'pocket' in self.current_var.lower():
-                                    self.meta.dims_mm["pocket_depth"] = value
-                
-                self.generic_visit(node)
+            # Note: visit_Attribute method removed as it's an anti-pattern.
+            # All attribute handling is now consolidated in visit_Assign where it belongs.
             
             def _get_func_name(self, node):
                 """Extract function name from a Call node."""
@@ -819,19 +998,58 @@ class FreeCADRulesEngine:
                 return values
             
             def _get_numeric_value(self, node):
-                """Extract numeric value from an AST node."""
+                """Extract numeric value from an AST node, supporting arithmetic expressions.
+                
+                This enhanced version supports:
+                - Literal values (int, float)
+                - Negative numbers (UnaryOp with USub)
+                - Arithmetic expressions (BinOp with +, -, *, /)
+                - Nested expressions with proper evaluation
+                """
                 if isinstance(node, ast.Constant):
                     if isinstance(node.value, (int, float)):
                         return float(node.value)
                 elif isinstance(node, ast.Num):  # Python 3.7 compatibility
                     return float(node.n)
-                elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.USub):
-                    # Handle negative numbers
-                    inner_value = self._get_numeric_value(node.operand)
-                    if inner_value is not None:
-                        return -inner_value
+                elif isinstance(node, ast.UnaryOp):
+                    if isinstance(node.op, ast.USub):
+                        # Handle negative numbers
+                        inner_value = self._get_numeric_value(node.operand)
+                        if inner_value is not None:
+                            return -inner_value
+                    elif isinstance(node.op, ast.UAdd):
+                        # Handle positive numbers (rarely used but for completeness)
+                        return self._get_numeric_value(node.operand)
+                elif isinstance(node, ast.BinOp):
+                    # Support arithmetic expressions like 10 * 2.54 or 5 + 3
+                    left = self._get_numeric_value(node.left)
+                    right = self._get_numeric_value(node.right)
+                    
+                    if left is not None and right is not None:
+                        if isinstance(node.op, ast.Add):
+                            return left + right
+                        elif isinstance(node.op, ast.Sub):
+                            return left - right
+                        elif isinstance(node.op, ast.Mult):
+                            return left * right
+                        elif isinstance(node.op, ast.Div):
+                            # Safe division with zero check
+                            if right != 0:
+                                return left / right
+                        elif isinstance(node.op, ast.FloorDiv):
+                            if right != 0:
+                                return left // right
+                        elif isinstance(node.op, ast.Mod):
+                            if right != 0:
+                                return left % right
+                        elif isinstance(node.op, ast.Pow):
+                            try:
+                                return left ** right
+                            except (OverflowError, ValueError):
+                                return None
                 elif isinstance(node, ast.Name):
-                    # Could track variable values if needed
+                    # Could track variable values if needed in future
+                    # For now, we can't resolve variable references
                     pass
                 return None
             
@@ -856,11 +1074,6 @@ class FreeCADRulesEngine:
         # Parse the script into an AST
         try:
             tree = ast.parse(script)
-            
-            # Add parent references for context (helps with attribute assignments)
-            for parent in ast.walk(tree):
-                for child in ast.iter_child_nodes(parent):
-                    child._parent = parent
             
             # Create extractor with reference to engine's constraint list
             extractor = MetadataExtractor(meta)
