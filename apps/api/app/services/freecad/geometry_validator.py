@@ -75,6 +75,9 @@ class ValidationResult(BaseModel):
 class GeometryValidator:
     """Validate FreeCAD geometry for correctness and manufacturability."""
     
+    # Constants for validation thresholds
+    PERPENDICULAR_THRESHOLD = 0.1  # Threshold for detecting perpendicular faces
+    
     # Material-specific minimum wall thickness (mm)
     WALL_THICKNESS_BY_MATERIAL = {
         "aluminum": 0.8,
@@ -309,19 +312,26 @@ class GeometryValidator:
                 
                 for face in shape.Faces:
                     try:
-                        # Get face normal
+                        # Get face normal at center of face parameter range
                         if hasattr(face, 'normalAt'):
-                            normal = face.normalAt(0, 0)
+                            # Sample the normal at the center of the face
+                            u_min, u_max, v_min, v_max = face.ParameterRange
+                            u_center = (u_min + u_max) / 2
+                            v_center = (v_min + v_max) / 2
+                            normal = face.normalAt(u_center, v_center)
+                            
                             # Calculate angle between face normal and pull direction
-                            # For proper draft, the face should not be perpendicular to pull direction
+                            # For proper draft, ALL faces should have sufficient angle from perpendicular
                             dot_product = normal.x * pull_direction[0] + normal.y * pull_direction[1] + normal.z * pull_direction[2]
                             
-                            # If face is perpendicular or nearly perpendicular to pull direction, it needs draft
-                            if abs(dot_product) < 0.1:  # Nearly perpendicular (vertical walls)
-                                # Calculate the actual draft angle from vertical
-                                # The draft angle is the deviation from perpendicular
-                                angle = math.degrees(math.asin(abs(dot_product)))
-                                is_valid, error_msg = self.constraints.validate_draft(angle)
+                            # Check ALL faces, not just nearly vertical ones
+                            # The angle from perpendicular to the pull direction is the draft angle
+                            angle_from_perpendicular = abs(math.degrees(math.asin(min(abs(dot_product), 1.0))))
+                            
+                            # For faces that are nearly perpendicular to pull direction (vertical walls),
+                            # the draft angle is critical
+                            if abs(dot_product) < self.PERPENDICULAR_THRESHOLD:
+                                is_valid, error_msg = self.constraints.validate_draft(angle_from_perpendicular)
                                 if not is_valid:
                                     result.manufacturing_issues.append(error_msg)
                     except Exception as e:

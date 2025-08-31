@@ -1174,8 +1174,9 @@ class FreeCADWorker:
                 )
                 generator.add_shape_to_document(shape, "PrismWithHole")
             else:
-                # Legacy simple shapes must use FreeCADParametricGenerator for deterministic output
-                # This ensures all shapes follow the same validation and configuration patterns
+                # Legacy simple shapes (box, cylinder, sphere) must also use FreeCADParametricGenerator
+                # for deterministic output. This ensures ALL geometric flows use the same export pipeline
+                # with DeterministicExporter, addressing Copilot's feedback about incomplete refactoring.
                 import FreeCAD
                 if model_type == 'box':
                     # Create a box as a prism without hole
@@ -1416,65 +1417,48 @@ class FreeCADWorker:
         """).strip()
     
     def _export_model(self, doc, base_name: str) -> List[Dict[str, Any]]:
-        """Export FreeCAD model in multiple formats."""
+        """Export FreeCAD model in multiple formats using DeterministicExporter.
+        
+        This method now uses DeterministicExporter to ensure consistent,
+        deterministic exports across all workflows (upload, Assembly4, etc.).
+        This addresses the issue where not all flows were using deterministic exports.
+        """
         artefacts = []
         
-        # Import the FreeCAD Import module
-        try:
-            import Import
-        except ImportError as e:
-            error_msg = self._get_import_error_message(e)
-            logger.critical(error_msg)
-            raise RuntimeError("FreeCAD Import module not available, cannot perform exports.") from e
+        # Use DeterministicExporter for consistent deterministic exports
+        exporter = DeterministicExporter(
+            source_date_epoch=int(os.environ.get("SOURCE_DATE_EPOCH", "946684800"))
+        )
         
-        # Export FCStd - native FreeCAD format
-        fcstd_path = os.path.join(self.args.outdir, f"{base_name}.FCStd")
-        try:
-            doc.saveAs(fcstd_path)
-            if os.path.exists(fcstd_path):
-                artefacts.append({
-                    'type': 'freecad_document',
-                    'format': 'FCStd',
-                    'path': fcstd_path,
-                    'size_bytes': os.path.getsize(fcstd_path)
-                })
-                logger.info(f"Exported FCStd: {fcstd_path}")
-        except Exception as e:
-            logger.error(f"FCStd export failed: {e}")
+        # Define formats to export
+        output_formats = ["FCStd", "STEP", "STL"]
+        base_path = Path(self.args.outdir) / base_name
         
-        # Export STEP - standard CAD exchange format
-        step_path = os.path.join(self.args.outdir, f"{base_name}.step")
         try:
-            shapes = [obj for obj in doc.Objects if hasattr(obj, 'Shape')]
-            if shapes:
-                Import.export(shapes, step_path)
-                if os.path.exists(step_path):
+            # Export using the centralized deterministic exporter
+            export_results = exporter.export_all(doc, base_path, output_formats)
+            
+            # Convert export results to artefacts format
+            for fmt, export_info in export_results.items():
+                if "path" in export_info and "error" not in export_info:
+                    artefact_type = 'freecad_document' if fmt == 'FCStd' else \
+                                   'cad_model' if fmt == 'STEP' else \
+                                   'mesh_model'
+                    
                     artefacts.append({
-                        'type': 'cad_model',
-                        'format': 'STEP',
-                        'path': step_path,
-                        'size_bytes': os.path.getsize(step_path)
+                        'type': artefact_type,
+                        'format': fmt,
+                        'path': export_info['path'],
+                        'size_bytes': export_info.get('size_bytes', 0),
+                        'sha256': export_info.get('sha256')  # Include deterministic hash
                     })
-                    logger.info(f"Exported STEP: {step_path}")
-        except Exception as e:
-            logger.error(f"STEP export failed: {e}")
+                    logger.info(f"Exported {fmt}: {export_info['path']} (SHA256: {export_info.get('sha256', 'N/A')[:8]}...)")
+                else:
+                    logger.error(f"{fmt} export failed: {export_info.get('error', 'Unknown error')}")
         
-        # Export STL - mesh format for 3D printing
-        stl_path = os.path.join(self.args.outdir, f"{base_name}.stl")
-        try:
-            shapes = [obj for obj in doc.Objects if hasattr(obj, 'Shape')]
-            if shapes:
-                Import.export(shapes, stl_path)
-                if os.path.exists(stl_path):
-                    artefacts.append({
-                        'type': 'mesh_model',
-                        'format': 'STL',
-                        'path': stl_path,
-                        'size_bytes': os.path.getsize(stl_path)
-                    })
-                    logger.info(f"Exported STL: {stl_path}")
         except Exception as e:
-            logger.error(f"STL export failed: {e}")
+            logger.error(f"Export failed: {e}")
+            # Return partial results if any
         
         logger.info(f"Model exported in {len(artefacts)} formats")
             
@@ -1695,6 +1679,7 @@ def main_standalone():
     """Main entry point for standalone Task 7.6 execution (used when called directly with JSON input)."""
     monitor = ResourceMonitor(max_time_seconds=20, max_memory_mb=2048)
     monitor.start()  # Start resource monitoring
+    logger.info("ResourceMonitor started in standalone mode")
     
     try:
         # Read input JSON
@@ -1798,6 +1783,7 @@ def main_standalone():
         sys.exit(1)
     finally:
         monitor.stop()  # Stop resource monitoring in finally block
+        logger.info("ResourceMonitor stopped, final metrics collected")
 
 
 # ==============================================================================

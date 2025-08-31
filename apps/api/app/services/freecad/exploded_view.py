@@ -23,7 +23,6 @@ logger = get_logger(__name__)
 # Constants for exploded view calculations
 MIN_DIRECTION_LENGTH = 0.001  # Minimum vector length to consider direction valid
 DEFAULT_UPWARD_DISTANCE = 1.0  # Default Z-axis distance for centered components
-COLLISION_AVOIDANCE_FACTOR = 1.2  # Factor for collision avoidance (20% margin)
 
 
 class ExplodedComponent(BaseModel):
@@ -57,6 +56,9 @@ class ExplodedView(BaseModel):
 
 class ExplodedViewGenerator:
     """Generate exploded views for assemblies."""
+    
+    # Class constant for collision avoidance
+    COLLISION_AVOIDANCE_FACTOR = 1.2  # Factor for collision avoidance (20% margin)
     
     def __init__(self):
         """Initialize exploded view generator."""
@@ -369,7 +371,7 @@ class ExplodedViewGenerator:
             size = max(bbox.XLength, bbox.YLength, bbox.ZLength)
             
             # Check distance to other exploded components
-            min_separation = size * COLLISION_AVOIDANCE_FACTOR  # Use defined constant for margin
+            min_separation = size * self.COLLISION_AVOIDANCE_FACTOR  # Use defined constant for margin
             
             for other in already_exploded:
                 distance = math.sqrt(
