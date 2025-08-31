@@ -96,18 +96,13 @@ class BVHNode:
             key=lambda obj: (obj[2].min_point[split_axis] + obj[2].max_point[split_axis]) / 2
         )
         
-        # Handle edge cases for small lists
-        if len(sorted_objects) <= 1:
-            # Leaf node - store objects directly
-            self.objects = sorted_objects
-            self.left = None
-            self.right = None
-        else:
-            # Split in middle for larger lists
-            mid = len(sorted_objects) // 2
-            self.left = BVHNode(sorted_objects[:mid])
-            self.right = BVHNode(sorted_objects[mid:])
-            self.objects = []  # Clear objects in internal nodes
+        # Fix: Remove unreachable code - condition len(sorted_objects) <= 1 never met
+        # because constructor already handles empty lists (PR #378 feedback)
+        # Always split the sorted objects for recursion
+        mid = len(sorted_objects) // 2
+        self.left = BVHNode(sorted_objects[:mid])
+        self.right = BVHNode(sorted_objects[mid:])
+        self.objects = []  # Clear objects in internal nodes
     
     def get_potential_collisions(self, query_aabb: AABB) -> List[Tuple[str, Any, AABB]]:
         """Get objects that potentially collide with query AABB."""

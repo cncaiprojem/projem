@@ -315,10 +315,24 @@ class BOMExtractor:
                 if hasattr(obj.Shape, 'exportBrep'):
                     # Use proper context manager with delete=True for automatic cleanup
                     import tempfile
-                    with tempfile.NamedTemporaryFile(suffix='.brep', delete=True) as tmp:
-                        obj.Shape.exportBrep(tmp.name)
-                        tmp.seek(0)  # Reset file pointer to beginning
-                        hasher.update(tmp.read())
+                    try:
+                        with tempfile.NamedTemporaryFile(suffix='.brep', delete=True) as tmp:
+                            obj.Shape.exportBrep(tmp.name)
+                            tmp.seek(0)  # Reset file pointer to beginning
+                            hasher.update(tmp.read())
+                    except Exception as e:
+                        # Error handling for BREP export failure (PR #378 feedback)
+                        logger.debug(f"BREP export failed, falling back to bbox dimensions: {e}")
+                        # Fallback to bounding box dimensions
+                        bbox = obj.Shape.BoundBox
+                        batch_data = '|'.join([
+                            str(obj.Shape.Volume),
+                            str(obj.Shape.Area),
+                            str(bbox.XLength),
+                            str(bbox.YLength),
+                            str(bbox.ZLength)
+                        ])
+                        hasher.update(batch_data.encode('utf-8'))
                 else:
                     # Fallback: use basic properties including bounding box dimensions
                     # Batch hash updates with delimiter for efficiency

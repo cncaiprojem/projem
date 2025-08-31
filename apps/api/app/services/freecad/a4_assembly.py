@@ -118,7 +118,8 @@ class Assembly4Manager:
     # Default directories for backward compatibility
     _DEFAULT_UPLOAD_DIRS = "/work/uploads:/tmp/freecad_uploads"
     # Load from environment with default fallback
-    ALLOWED_UPLOAD_DIRS = os.getenv("ALLOWED_UPLOAD_DIRS", _DEFAULT_UPLOAD_DIRS).split(':')
+    # Fix: Filter out empty entries to handle empty values gracefully (PR #378 feedback)
+    ALLOWED_UPLOAD_DIRS = [d for d in os.getenv("ALLOWED_UPLOAD_DIRS", _DEFAULT_UPLOAD_DIRS).split(':') if d.strip()]
     
     # AST node whitelist for safe script execution
     SAFE_AST_NODES: Set[type] = {

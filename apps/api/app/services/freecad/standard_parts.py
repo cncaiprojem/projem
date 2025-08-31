@@ -142,7 +142,8 @@ class StandardPartsLibrary:
 import Part
 import math
 
-doc = App.newDocument("DIN933_Bolt")
+# Fix: Use provided document and component ID instead of creating new one (PR #378)
+# doc and comp_id variables should be provided by the caller
 
 # Parameters
 diameter = {diameter}
@@ -170,7 +171,10 @@ shaft.translate(App.Vector(0, 0, head_height))
 
 # Combine
 bolt = head.fuse(shaft)
-Part.show(bolt)
+
+# Add to provided document with provided component ID
+obj = doc.addObject("Part::Feature", comp_id)
+obj.Shape = bolt
 doc.recompute()"""
         ),
         
@@ -244,7 +248,8 @@ doc.recompute()"""
 import Part
 import math
 
-doc = App.newDocument("DIN625_Bearing")
+# Fix: Use provided document and component ID instead of creating new one (PR #378)
+# doc and comp_id variables should be provided by the caller
 
 # Parameters (example for 608 bearing: 8mm bore, 22mm OD, 7mm width)
 bore_diameter = {bore_diameter}  # Inner diameter
@@ -282,7 +287,9 @@ bearing = inner_race.fuse(outer_race)
 for ball in balls:
     bearing = bearing.fuse(ball)
 
-Part.show(bearing)
+# Add to provided document with provided component ID
+obj = doc.addObject("Part::Feature", comp_id)
+obj.Shape = bearing
 doc.recompute()"""
         )
     }

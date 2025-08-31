@@ -750,6 +750,94 @@ class FreeCADParametricGenerator:
         
         return result
     
+    def create_box(self, length: float, width: float, height: float) -> 'Part.Shape':
+        """
+        Create a parametric box shape.
+        
+        Args:
+            length: Box length (X dimension)
+            width: Box width (Y dimension)
+            height: Box height (Z dimension)
+        
+        Returns:
+            Part.Shape: The resulting box shape
+        """
+        # Validate dimensions (0.1 to 1000 mm)
+        for name, value in [("length", length), ("width", width), ("height", height)]:
+            if not (0.1 <= value <= 1000):
+                raise ValueError(f"{name} out of range: {value} mm (must be 0.1-1000 mm)")
+        
+        self.monitor.emit_progress(f"Creating box {length}x{width}x{height} mm")
+        
+        # Create the box
+        box = self.Part.makeBox(length, width, height)
+        
+        # Check resource limits
+        ok, error = self.monitor.check_limits()
+        if not ok:
+            raise RuntimeError(f"Resource limit exceeded: {error}")
+        
+        return box
+    
+    def create_cylinder(self, radius: float, height: float) -> 'Part.Shape':
+        """
+        Create a parametric cylinder shape.
+        
+        Args:
+            radius: Cylinder radius
+            height: Cylinder height
+        
+        Returns:
+            Part.Shape: The resulting cylinder shape
+        """
+        # Validate dimensions (0.1 to 1000 mm)
+        for name, value in [("radius", radius), ("height", height)]:
+            if not (0.1 <= value <= 1000):
+                raise ValueError(f"{name} out of range: {value} mm (must be 0.1-1000 mm)")
+        
+        self.monitor.emit_progress(f"Creating cylinder r={radius} h={height} mm")
+        
+        # Create the cylinder
+        cylinder = self.Part.makeCylinder(
+            radius,
+            height,
+            self.Base.Vector(0, 0, 0),
+            self.Base.Vector(0, 0, 1)
+        )
+        
+        # Check resource limits
+        ok, error = self.monitor.check_limits()
+        if not ok:
+            raise RuntimeError(f"Resource limit exceeded: {error}")
+        
+        return cylinder
+    
+    def create_sphere(self, radius: float) -> 'Part.Shape':
+        """
+        Create a parametric sphere shape.
+        
+        Args:
+            radius: Sphere radius
+        
+        Returns:
+            Part.Shape: The resulting sphere shape
+        """
+        # Validate dimensions (0.1 to 1000 mm)
+        if not (0.1 <= radius <= 1000):
+            raise ValueError(f"radius out of range: {radius} mm (must be 0.1-1000 mm)")
+        
+        self.monitor.emit_progress(f"Creating sphere r={radius} mm")
+        
+        # Create the sphere
+        sphere = self.Part.makeSphere(radius)
+        
+        # Check resource limits
+        ok, error = self.monitor.check_limits()
+        if not ok:
+            raise RuntimeError(f"Resource limit exceeded: {error}")
+        
+        return sphere
+    
     def create_document(self, name: str = "parametric") -> 'App.Document':
         """Create a new FreeCAD document."""
         self.doc = self.App.newDocument(name)
@@ -764,7 +852,7 @@ class FreeCADParametricGenerator:
         # Add shape to document as a Part::Feature object
         part = self.doc.addObject("Part::Feature", label)
         part.Shape = shape
-        part.Label = label
+        # Label is already set by addObject, no need to set it again (Issue #8 fix)
         
         # Recompute deterministically
         self.doc.recompute()
@@ -1174,26 +1262,22 @@ class FreeCADWorker:
                 )
                 generator.add_shape_to_document(shape, "PrismWithHole")
             else:
-                # Legacy simple shapes (box, cylinder, sphere) must also use FreeCADParametricGenerator
-                # for deterministic output. This ensures ALL geometric flows use the same export pipeline
-                # with DeterministicExporter, addressing Copilot's feedback about incomplete refactoring.
-                import FreeCAD
+                # Legacy simple shapes now use dedicated methods to avoid code duplication
+                # This ensures ALL geometric flows use the same validation and export pipeline
+                # with DeterministicExporter, addressing Copilot's feedback about code duplication.
                 if model_type == 'box':
-                    # Create a box as a prism without hole
-                    shape = generator.Part.makeBox(length, width, height)
+                    # Use the new create_box method
+                    shape = generator.create_box(length, width, height)
                     generator.add_shape_to_document(shape, "ParametricBox")
                 elif model_type == 'cylinder':
                     radius = dimensions.get('radius', 50.0)
-                    shape = generator.Part.makeCylinder(
-                        radius,
-                        height,
-                        generator.Base.Vector(0, 0, 0),
-                        generator.Base.Vector(0, 0, 1)
-                    )
+                    # Use the new create_cylinder method
+                    shape = generator.create_cylinder(radius, height)
                     generator.add_shape_to_document(shape, "ParametricCylinder")
                 elif model_type == 'sphere':
                     radius = dimensions.get('radius', 50.0)
-                    shape = generator.Part.makeSphere(radius)
+                    # Use the new create_sphere method
+                    shape = generator.create_sphere(radius)
                     generator.add_shape_to_document(shape, "ParametricSphere")
                 else:
                     raise ValueError(f"Unsupported model type: {model_type}")

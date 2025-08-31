@@ -328,9 +328,11 @@ class GeometryValidator:
                             # Draft angle is measured from vertical (90° - angle_from_pull_direction)
                             # For proper draft angle calculation:
                             # 1. dot_product gives us cos(angle_from_pull_direction)
-                            # 2. angle_from_pull = acos(dot_product)
-                            # 3. draft_angle = 90° - angle_from_pull
-                            draft_angle = 90 - abs(math.degrees(math.acos(min(abs(dot_product), 1.0))))
+                            # 2. Clamp dot_product to [-1, 1] range to avoid math domain error
+                            # 3. angle_from_pull = acos(clamped_dot_product)
+                            # 4. draft_angle = 90° - angle_from_pull
+                            # Fix: Properly clamp to [-1, 1] range as per PR #378 feedback
+                            draft_angle = 90 - math.degrees(math.acos(max(-1.0, min(1.0, abs(dot_product)))))
                             
                             # For faces that are nearly perpendicular to pull direction (vertical walls),
                             # the draft angle is critical

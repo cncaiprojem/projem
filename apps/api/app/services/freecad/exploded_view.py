@@ -376,9 +376,12 @@ class ExplodedViewGenerator:
             shapes.append((comp_id, obj.Shape, exploded_pos))
             
             # Add already exploded components at their positions
+            # Fix: ExplodedComponent doesn't have 'shape' attribute, retrieve from original component
             for other in already_exploded:
-                if hasattr(other, 'shape') and other.shape:
-                    shapes.append((other.component_id, other.shape, other.exploded_position))
+                # Find the original object for this component ID
+                orig_obj = next((obj for cid, obj, _ in all_components if cid == other.component_id), None)
+                if orig_obj and hasattr(orig_obj, 'Shape') and orig_obj.Shape:
+                    shapes.append((other.component_id, orig_obj.Shape, other.exploded_position))
             
             # Detect collisions using BVH-based detector
             collisions = detector.detect_collisions(shapes)
