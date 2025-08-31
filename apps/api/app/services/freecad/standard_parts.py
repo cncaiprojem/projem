@@ -207,6 +207,64 @@ doc.recompute()"""
             },
             sizes=["608", "6000", "6001", "6002", "6003", "6004", "6005",
                    "6200", "6201", "6202", "6203", "6204", "6205"]
+        ),
+        
+        "DIN625": StandardPart(
+            code="DIN625",
+            name="Deep Groove Ball Bearing",
+            category=PartCategory.BEARINGS,
+            standard_type=StandardType.DIN,
+            description="Deep groove ball bearing with simplified raceway and ball representation",
+            parameters={
+                "bearing_type": "ball",
+                "series": "625"
+            },
+            sizes=["625-2RS", "625-ZZ", "608-2RS", "608-ZZ", "6000", "6001", "6002", 
+                   "6003", "6004", "6005", "6200", "6201", "6202", "6203", "6204", "6205"],
+            template_script="""import FreeCAD as App
+import Part
+import math
+
+doc = App.newDocument("DIN625_Bearing")
+
+# Parameters (example for 608 bearing: 8mm bore, 22mm OD, 7mm width)
+bore_diameter = {bore_diameter}  # Inner diameter
+outer_diameter = {outer_diameter}  # Outer diameter
+width = {width}  # Bearing width
+ball_diameter = {ball_diameter}  # Ball diameter
+num_balls = {num_balls}  # Number of balls
+
+# Create inner race
+inner_race_outer = (bore_diameter + outer_diameter) / 2 - ball_diameter / 2
+inner_race = Part.makeCylinder(inner_race_outer / 2, width)
+inner_bore = Part.makeCylinder(bore_diameter / 2, width)
+inner_race = inner_race.cut(inner_bore)
+
+# Create outer race
+outer_race_inner = (bore_diameter + outer_diameter) / 2 + ball_diameter / 2
+outer_race = Part.makeCylinder(outer_diameter / 2, width)
+outer_race_hole = Part.makeCylinder(outer_race_inner / 2, width)
+outer_race = outer_race.cut(outer_race_hole)
+
+# Create balls (simplified)
+balls = []
+pitch_diameter = (bore_diameter + outer_diameter) / 2
+for i in range(num_balls):
+    angle = 2 * math.pi * i / num_balls
+    x = pitch_diameter / 2 * math.cos(angle)
+    y = pitch_diameter / 2 * math.sin(angle)
+    z = width / 2
+    ball = Part.makeSphere(ball_diameter / 2)
+    ball.translate(App.Vector(x, y, z))
+    balls.append(ball)
+
+# Combine all parts
+bearing = inner_race.fuse(outer_race)
+for ball in balls:
+    bearing = bearing.fuse(ball)
+
+Part.show(bearing)
+doc.recompute()"""
         )
     }
     
@@ -252,17 +310,131 @@ doc.recompute()"""
                 except Exception as e:
                     logger.warning(f"Could not load template metadata for {template_id}: {e}")
     
-    def get_part(self, code: str) -> Optional[StandardPart]:
+    def get_part(self, standard: str, size: str) -> Optional[Dict[str, Any]]:
         """
-        Get standard part by code.
+        Get standard part by standard and size (Task 7.6 requirement).
         
         Args:
-            code: Part code (e.g., "DIN933")
+            standard: Part standard (e.g., "DIN933", "DIN625")
+            size: Size specification (e.g., "M6x20" for screws, "608" for bearings)
             
         Returns:
-            Standard part definition or None
+            Dictionary with part generation info or None
         """
-        return self.CATALOG.get(code)
+        # Get the part definition
+        part_def = self.CATALOG.get(standard)
+        if not part_def:
+            # Return error with known standards
+            known = list(self.CATALOG.keys())
+            logger.warning(f"Unknown standard: {standard}. Known: {known}")
+            return {
+                "error": f"Unknown standard: {standard}",
+                "known_standards": known
+            }
+        
+        # Check if size is supported
+        if size not in part_def.sizes:
+            return {
+                "error": f"Size {size} not available for {standard}",
+                "available_sizes": part_def.sizes
+            }
+        
+        # Parse size parameters based on part type
+        if part_def.category == PartCategory.FASTENERS:
+            params = self._parse_fastener_size(size)
+        elif part_def.category == PartCategory.BEARINGS:
+            params = self._parse_bearing_size(size)
+        else:
+            params = part_def.get_size_parameters(size)
+        
+        if not params:
+            return {
+                "error": f"Could not parse size: {size}",
+                "format_hint": self._get_size_format_hint(part_def.category)
+            }
+        
+        # Check for parametric generation vs template
+        result = {
+            "standard": standard,
+            "size": size,
+            "category": part_def.category.value,
+            "description": part_def.description,
+            "parameters": params
+        }
+        
+        # Check if we have a template script
+        if part_def.template_script:
+            result["type"] = "parametric"
+            result["script"] = part_def.template_script.format(**params)
+        else:
+            # Check for S3 template
+            template_path = self._get_template_path(standard, size)
+            if template_path:
+                result["type"] = "template"
+                result["template_path"] = template_path
+            else:
+                result["type"] = "catalog"
+                result["info"] = "Part info available but no generation method"
+        
+        return result
+    
+    def _parse_fastener_size(self, size: str) -> Optional[Dict[str, float]]:
+        """Parse fastener size like M6x20."""
+        try:
+            if "M" in size:
+                parts = size.replace("M", "").split("x")
+                diameter = float(parts[0])
+                length = float(parts[1]) if len(parts) > 1 else diameter * 2.5
+                
+                return {
+                    "diameter": diameter,
+                    "length": length,
+                    "thread_pitch": diameter * 0.125,  # Standard coarse pitch
+                    "head_diameter": diameter * 1.5,   # Hex head approx
+                    "head_height": diameter * 0.7      # Standard proportion
+                }
+        except (ValueError, IndexError):
+            return None
+        return None
+    
+    def _parse_bearing_size(self, size: str) -> Optional[Dict[str, float]]:
+        """Parse bearing size like 608 or 625-2RS."""
+        # Common bearing dimensions database
+        bearing_dims = {
+            "608": {"bore_diameter": 8, "outer_diameter": 22, "width": 7, "ball_diameter": 3.5, "num_balls": 7},
+            "625": {"bore_diameter": 5, "outer_diameter": 16, "width": 5, "ball_diameter": 2.5, "num_balls": 7},
+            "6000": {"bore_diameter": 10, "outer_diameter": 26, "width": 8, "ball_diameter": 4, "num_balls": 8},
+            "6001": {"bore_diameter": 12, "outer_diameter": 28, "width": 8, "ball_diameter": 4, "num_balls": 8},
+            "6002": {"bore_diameter": 15, "outer_diameter": 32, "width": 9, "ball_diameter": 4.5, "num_balls": 8},
+            "6200": {"bore_diameter": 10, "outer_diameter": 30, "width": 9, "ball_diameter": 5, "num_balls": 8},
+            "6201": {"bore_diameter": 12, "outer_diameter": 32, "width": 10, "ball_diameter": 5, "num_balls": 8},
+        }
+        
+        # Strip suffixes like -2RS, -ZZ
+        base_size = size.split("-")[0]
+        
+        return bearing_dims.get(base_size)
+    
+    def _get_size_format_hint(self, category: PartCategory) -> str:
+        """Get format hint for size specification."""
+        if category == PartCategory.FASTENERS:
+            return "Format: M{diameter}x{length}, e.g., M6x20"
+        elif category == PartCategory.BEARINGS:
+            return "Format: bearing code, e.g., 608, 625-2RS"
+        else:
+            return "Check catalog for valid sizes"
+    
+    def _get_template_path(self, standard: str, size: str) -> Optional[str]:
+        """Get S3 template path if available."""
+        # Check local templates first
+        template_id = f"{standard}_{size}"
+        if template_id in self.templates:
+            template = self.templates[template_id]
+            if template.s3_url:
+                return template.s3_url
+            elif template.file_path:
+                return template.file_path
+        return None
     
     def search_parts(
         self,

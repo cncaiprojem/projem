@@ -1,11 +1,15 @@
 """
-Geometry Validator for Task 7.2
+Geometry Validator for Task 7.2 and Task 7.6
 
 Validates generated FreeCAD shapes with:
 - Shape validity checks (isValid, isClosed, isNull)
 - Non-manifold geometry detection
-- Manufacturing constraints validation
+- Manufacturing constraints validation per material/process
 - Export format validation
+- Min wall thickness by material: aluminum 0.8mm, steel 0.5mm, abs 1.2mm, pla 0.8mm
+- Draft angles for injection molding
+- Tool accessibility for CNC/milling
+- Overhang detection for 3D printing
 """
 
 from __future__ import annotations
@@ -70,6 +74,25 @@ class ValidationResult(BaseModel):
 
 class GeometryValidator:
     """Validate FreeCAD geometry for correctness and manufacturability."""
+    
+    # Material-specific minimum wall thickness (mm)
+    WALL_THICKNESS_BY_MATERIAL = {
+        "aluminum": 0.8,
+        "steel": 0.5,
+        "abs": 1.2,
+        "pla": 0.8,
+        "petg": 1.0,
+        "nylon": 1.0,
+        "brass": 0.6,
+        "copper": 0.6,
+    }
+    
+    # Process-specific draft angles (degrees)
+    DRAFT_ANGLE_BY_PROCESS = {
+        "injection_molding": {"min": 1.0, "recommended": 2.0},
+        "die_casting": {"min": 1.5, "recommended": 3.0},
+        "vacuum_forming": {"min": 3.0, "recommended": 5.0},
+    }
     
     def __init__(self, constraints: Optional[ManufacturingConstraints] = None):
         """
@@ -398,3 +421,243 @@ class GeometryValidator:
             return False, f"Unknown export format: {format}"
         
         return True, None
+    
+    def validate_manufacturability(
+        self,
+        shape: Any,
+        material: str,
+        process: str
+    ) -> Dict[str, Any]:
+        """
+        Validate shape manufacturability for specific material and process.
+        Task 7.6 requirement.
+        
+        Args:
+            shape: FreeCAD shape object
+            material: Material name (e.g., "aluminum", "steel", "abs", "pla")
+            process: Manufacturing process (e.g., "milling", "injection_molding", "3d_printing")
+            
+        Returns:
+            Dictionary with valid flag, warnings, and errors
+        """
+        result = {
+            "valid": True,
+            "warnings": [],
+            "errors": []
+        }
+        
+        # Normalize inputs
+        material_lower = material.lower()
+        process_lower = process.lower()
+        
+        # Get material-specific constraints
+        min_wall = self.WALL_THICKNESS_BY_MATERIAL.get(material_lower, 1.0)
+        
+        # Basic shape validation first
+        validation = self.validate_shape(shape)
+        if not validation.is_valid:
+            result["valid"] = False
+            result["errors"].extend(validation.errors)
+            return result
+        
+        try:
+            import Part
+            
+            # Wall thickness check with material-specific limits
+            if hasattr(shape, 'Faces') and len(shape.Faces) > 1:
+                min_thickness = self._measure_min_wall_thickness(shape)
+                if min_thickness < min_wall:
+                    result["errors"].append(
+                        f"Min wall thickness {min_thickness:.2f}mm < {min_wall}mm required for {material}"
+                    )
+                    result["valid"] = False
+            
+            # Process-specific checks
+            if process_lower == "injection_molding":
+                # Check draft angles
+                draft_spec = self.DRAFT_ANGLE_BY_PROCESS.get("injection_molding", {})
+                min_draft = draft_spec.get("min", 1.0)
+                recommended_draft = draft_spec.get("recommended", 2.0)
+                
+                draft_issues = self._check_draft_angles(shape, min_draft, recommended_draft)
+                if draft_issues["errors"]:
+                    result["errors"].extend(draft_issues["errors"])
+                    result["valid"] = False
+                result["warnings"].extend(draft_issues["warnings"])
+                
+            elif process_lower in ["milling", "cnc"]:
+                # Tool accessibility check
+                access_issues = self._check_tool_accessibility(shape)
+                if access_issues["errors"]:
+                    result["errors"].extend(access_issues["errors"])
+                    result["valid"] = False
+                result["warnings"].extend(access_issues["warnings"])
+                
+                # Check for minimum internal fillet radius
+                min_fillet = 0.5  # mm, typical for small end mills
+                fillet_issues = self._check_internal_fillets(shape, min_fillet)
+                result["warnings"].extend(fillet_issues)
+                
+            elif process_lower == "3d_printing":
+                # Overhang detection
+                max_overhang = 45.0  # degrees
+                overhang_issues = self._check_overhangs(shape, max_overhang)
+                if overhang_issues:
+                    result["warnings"].append(f"Overhangs > {max_overhang}° detected, supports needed")
+                
+                # Bridge detection
+                max_bridge = 10.0  # mm
+                bridge_issues = self._check_bridges(shape, max_bridge)
+                if bridge_issues:
+                    result["warnings"].append(f"Bridges > {max_bridge}mm detected, may sag")
+                
+        except Exception as e:
+            logger.error(f"Manufacturability validation failed: {e}")
+            result["errors"].append(f"Validation error: {str(e)}")
+            result["valid"] = False
+        
+        return result
+    
+    def _measure_min_wall_thickness(self, shape: Any) -> float:
+        """Measure minimum wall thickness using face-to-face distance."""
+        min_thickness = float('inf')
+        
+        try:
+            faces = list(shape.Faces)
+            for i, face1 in enumerate(faces[:-1]):
+                for face2 in faces[i+1:]:
+                    try:
+                        dist_result = face1.distToShape(face2)
+                        if isinstance(dist_result, tuple) and len(dist_result) > 0:
+                            distance = dist_result[0]
+                            if 0 < distance < min_thickness:
+                                min_thickness = distance
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug(f"Wall thickness measurement error: {e}")
+        
+        return min_thickness if min_thickness != float('inf') else 0.0
+    
+    def _check_draft_angles(self, shape: Any, min_angle: float, recommended: float) -> Dict[str, List[str]]:
+        """Check draft angles for injection molding."""
+        result = {"errors": [], "warnings": []}
+        
+        try:
+            import FreeCAD
+            
+            for face in shape.Faces:
+                if hasattr(face, 'normalAt'):
+                    # Sample multiple points on face
+                    u_min, u_max, v_min, v_max = face.ParameterRange
+                    for u in [u_min, (u_min + u_max) / 2, u_max]:
+                        for v in [v_min, (v_min + v_max) / 2, v_max]:
+                            try:
+                                normal = face.normalAt(u, v)
+                                # Check if face is nearly vertical
+                                z_component = abs(normal.z)
+                                if z_component < 0.1:  # Nearly vertical
+                                    angle = math.degrees(math.asin(z_component))
+                                    if angle < min_angle:
+                                        result["errors"].append(
+                                            f"Face with draft angle {angle:.1f}° < minimum {min_angle}°"
+                                        )
+                                    elif angle < recommended:
+                                        result["warnings"].append(
+                                            f"Face with draft angle {angle:.1f}° < recommended {recommended}°"
+                                        )
+                            except Exception:
+                                pass
+        except Exception as e:
+            logger.debug(f"Draft angle check error: {e}")
+        
+        return result
+    
+    def _check_tool_accessibility(self, shape: Any) -> Dict[str, List[str]]:
+        """Check tool accessibility for CNC operations."""
+        result = {"errors": [], "warnings": []}
+        
+        try:
+            # Basic approach: check along ±Z axis for 3-axis mill
+            bbox = shape.BoundBox
+            
+            # Ray test from top and bottom
+            for face in shape.Faces:
+                # Check if face is in a deep pocket
+                face_bbox = face.BoundBox
+                depth_from_top = bbox.ZMax - face_bbox.ZMax
+                depth_from_bottom = face_bbox.ZMin - bbox.ZMin
+                
+                min_opening = min(face_bbox.XLength, face_bbox.YLength)
+                
+                if min_opening > 0:
+                    if depth_from_top / min_opening > 5:
+                        result["warnings"].append(
+                            f"Deep pocket detected (depth/width = {depth_from_top/min_opening:.1f})"
+                        )
+                    if depth_from_bottom / min_opening > 5:
+                        result["warnings"].append(
+                            f"Deep undercut detected (depth/width = {depth_from_bottom/min_opening:.1f})"
+                        )
+        except Exception as e:
+            logger.debug(f"Tool accessibility check error: {e}")
+        
+        return result
+    
+    def _check_internal_fillets(self, shape: Any, min_radius: float) -> List[str]:
+        """Check for minimum internal fillet radius."""
+        warnings = []
+        
+        try:
+            # Check edges for sharp internal corners
+            for edge in shape.Edges:
+                if hasattr(edge, 'Curve'):
+                    # Skip if already filleted (circular arc)
+                    if edge.Curve.__class__.__name__ == 'Circle':
+                        if edge.Curve.Radius < min_radius:
+                            warnings.append(
+                                f"Internal fillet radius {edge.Curve.Radius:.2f}mm < tool radius {min_radius}mm"
+                            )
+        except Exception as e:
+            logger.debug(f"Fillet check error: {e}")
+        
+        return warnings
+    
+    def _check_overhangs(self, shape: Any, max_angle: float) -> List[str]:
+        """Check for overhangs that need support in 3D printing."""
+        issues = []
+        
+        try:
+            for face in shape.Faces:
+                if hasattr(face, 'normalAt'):
+                    u_min, u_max, v_min, v_max = face.ParameterRange
+                    normal = face.normalAt((u_min + u_max) / 2, (v_min + v_max) / 2)
+                    
+                    # Check downward-facing surfaces
+                    if normal.z < 0:
+                        overhang_angle = math.degrees(math.acos(abs(normal.z)))
+                        if overhang_angle > max_angle:
+                            issues.append(f"Overhang at {overhang_angle:.1f}°")
+        except Exception as e:
+            logger.debug(f"Overhang check error: {e}")
+        
+        return issues
+    
+    def _check_bridges(self, shape: Any, max_length: float) -> List[str]:
+        """Check for unsupported bridges in 3D printing."""
+        issues = []
+        
+        try:
+            # Simplified: check horizontal edges
+            for edge in shape.Edges:
+                if hasattr(edge, 'Length'):
+                    # Check if edge is horizontal
+                    v1 = edge.Vertexes[0].Point
+                    v2 = edge.Vertexes[-1].Point
+                    if abs(v1.z - v2.z) < 0.1:  # Nearly horizontal
+                        if edge.Length > max_length:
+                            issues.append(f"Bridge length {edge.Length:.1f}mm")
+        except Exception as e:
+            logger.debug(f"Bridge check error: {e}")
+        
+        return issues
