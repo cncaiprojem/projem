@@ -330,7 +330,9 @@ class FreeCADRulesEngine:
                 ).hexdigest()
             else:
                 # Parametric mode normalization
-                canonical_params = self._normalize_parametric(input_data)
+                # Extract params from input_data if it has a 'params' key
+                params = input_data.get("params", input_data)
+                canonical_params = self._normalize_parametric(params)
                 result.canonical_params = canonical_params
                 
         except ValidationException as e:
@@ -394,12 +396,21 @@ class FreeCADRulesEngine:
         canonical = {}
         
         # Extract and normalize dimensions
-        for key in ["length", "width", "height", "L", "W", "H"]:
+        # Include both uppercase and lowercase single-letter dimensions
+        for key in ["length", "width", "height", "L", "W", "H", "l", "w", "h"]:
             if key in params:
                 value = params[key]
                 # Convert to mm if unit is specified
                 value_mm = self._convert_to_mm(value, params.get("units", "mm"))
-                canonical_key = key[0].lower() if len(key) == 1 else key.lower()
+                # Normalize key to lowercase single letter or full word
+                if key.lower() in ["l", "length"]:
+                    canonical_key = "l" if key.lower() == "l" else "length"
+                elif key.lower() in ["w", "width"]:
+                    canonical_key = "w" if key.lower() == "w" else "width"
+                elif key.lower() in ["h", "height"]:
+                    canonical_key = "h" if key.lower() == "h" else "height"
+                else:
+                    canonical_key = key.lower()
                 canonical[canonical_key] = self._round_decimal(value_mm)
         
         # Normalize other numeric values
@@ -640,8 +651,8 @@ class FreeCADRulesEngine:
                 
                 new_value = self._round_decimal(new_value)
                 
-                # Replace value and remove unit comment
-                line = line.replace(match.group(0), str(new_value))
+                # Replace value and remove unit comment - use re.subn for single replacement
+                line, _ = re.subn(re.escape(match.group(0)), str(new_value), line, count=1)
                 
                 conversions.append(UnitConversion(
                     from_unit=from_unit,
@@ -668,8 +679,8 @@ class FreeCADRulesEngine:
                 
                 new_value = self._round_decimal(new_value)
                 
-                # Replace with numeric literal
-                line = line.replace(match.group(0), str(new_value))
+                # Replace with numeric literal - use re.subn for single replacement
+                line, _ = re.subn(re.escape(match.group(0)), str(new_value), line, count=1)
                 
                 conversions.append(UnitConversion(
                     from_unit=from_unit,
@@ -987,13 +998,26 @@ class FreeCADRulesEngine:
     
     def _validate_parametric(self, params: Dict[str, Any]):
         """Validate parametric input."""
-        # Check required fields
-        required_dims = ["l", "w", "h"] if all(k in params for k in ["l", "w", "h"]) \
-                       else ["length", "width", "height"] if all(k in params for k in ["length", "width", "height"]) \
-                       else ["radius", "height"] if all(k in params for k in ["radius", "height"]) \
-                       else None
+        # Check required fields - must have COMPLETE sets of dimensions
+        dim_keys = params.keys()
+        is_box_lwh = all(k in dim_keys for k in ["l", "w", "h"])
+        is_box_full = all(k in dim_keys for k in ["length", "width", "height"])
+        is_cylinder = all(k in dim_keys for k in ["radius", "height"])
         
-        if not required_dims and not any(k in params for k in ["l", "w", "h", "length", "width", "height", "radius"]):
+        has_complete_set = is_box_lwh or is_box_full or is_cylinder
+        has_any_dim_key = any(k in dim_keys for k in ["l", "w", "h", "length", "width", "height", "radius"])
+        
+        if not has_complete_set and has_any_dim_key:
+            # Partial dimension set provided - reject with clear error
+            raise ValidationException(
+                NormalizationErrorCode.AI_HINT_REQUIRED,
+                "Incomplete set of dimensions provided. Required: (l,w,h), (length,width,height), or (radius,height).",
+                "Eksik boyut seti sağlandı. Gerekli: (l,w,h), (length,width,height), veya (radius,height).",
+                http_status=422,
+                details={"provided_keys": [k for k in dim_keys if k in {"l","w","h","length","width","height","radius"}]}
+            )
+        elif not has_complete_set:
+            # No dimensions provided at all
             raise ValidationException(
                 NormalizationErrorCode.AI_HINT_REQUIRED,
                 "Missing required dimensions",
