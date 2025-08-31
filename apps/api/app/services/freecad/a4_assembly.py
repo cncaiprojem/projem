@@ -128,10 +128,6 @@ class Assembly4Manager:
     ESTIMATED_MB_PER_CACHED_SHAPE = 10  # Megabytes per cached shape object
     
     # Performance: Cache for processed upload_ref components
-    # Key: validated file path, Value: Part.Shape
-    # This prevents redundant file I/O and processing for components used multiple times
-    _shape_cache: Dict[str, Any] = {}
-    
     # AST node whitelist for safe script execution
     SAFE_AST_NODES: Set[type] = {
         # Literals and basic types

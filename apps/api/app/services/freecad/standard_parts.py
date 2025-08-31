@@ -282,9 +282,7 @@ class StandardPartsLibrary:
 import Part
 import math
 
-# SECURITY: Variables 'doc' and 'comp_id' are injected during script execution.
-# Validation: StandardPartsLibrary.get_part() lines 563-569 uses Jinja2 templating
-# to safely render parameters and prevent code injection vulnerabilities.
+# SECURITY: Template variables validated via Jinja2 at lines 563-569
 
 # Parameters
 diameter = {diameter}
@@ -389,9 +387,7 @@ doc.recompute()"""
 import Part
 import math
 
-# SECURITY: Variables 'doc' and 'comp_id' are injected during script execution.
-# Validation: StandardPartsLibrary.get_part() lines 563-569 uses Jinja2 templating
-# to safely render parameters and prevent code injection vulnerabilities.
+# SECURITY: Template variables validated via Jinja2 at lines 563-569
 
 # Parameters (example for 608 bearing: 8mm bore, 22mm OD, 7mm width)
 bore_diameter = {bore_diameter}  # Inner diameter

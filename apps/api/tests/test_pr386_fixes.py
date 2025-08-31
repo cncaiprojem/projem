@@ -154,10 +154,17 @@ class TestStandardPartsFixes(unittest.TestCase):
 class TestAssembly4CachingFix(unittest.TestCase):
     """Test shape caching fix for Assembly4."""
     
-    @patch('app.services.freecad.a4_assembly.Part')
-    @patch('app.services.freecad.a4_assembly.FreeCAD')
-    def test_upload_ref_caching(self, mock_freecad, mock_part):
+    def test_upload_ref_caching(self):
         """Test that upload_ref components use caching to avoid redundant I/O."""
+        # Mock FreeCAD and Part modules
+        mock_freecad = MagicMock()
+        mock_part = MagicMock()
+        
+        # Insert mocks into sys.modules
+        import sys
+        sys.modules['FreeCAD'] = mock_freecad
+        sys.modules['Part'] = mock_part
+        
         from app.services.freecad.a4_assembly import Assembly4Manager, Component, ComponentSource
         
         # Create manager
@@ -174,20 +181,17 @@ class TestAssembly4CachingFix(unittest.TestCase):
             f.write(b'test file content')
         
         try:
-            # Use the mocked modules directly from decorator patches
-            FreeCAD = mock_freecad
-            Part = mock_part
             
             # Mock FreeCAD document and shapes
             mock_doc = MagicMock()
-            FreeCAD.newDocument = MagicMock(return_value=mock_doc)
-            FreeCAD.open = MagicMock(return_value=mock_doc)
-            FreeCAD.closeDocument = MagicMock()
+            mock_freecad.newDocument = MagicMock(return_value=mock_doc)
+            mock_freecad.open = MagicMock(return_value=mock_doc)
+            mock_freecad.closeDocument = MagicMock()
             
             mock_shape = MagicMock()
             mock_shape.copy = MagicMock(return_value=mock_shape)
             mock_compound = MagicMock()
-            Part.makeCompound = MagicMock(return_value=mock_compound)
+            mock_part.makeCompound = MagicMock(return_value=mock_compound)
             
             # Create components that reference the same file
             comp1 = Component(
@@ -215,13 +219,13 @@ class TestAssembly4CachingFix(unittest.TestCase):
             manager._create_component(mock_doc, comp1)
             
             # Should open the file once
-            self.assertEqual(FreeCAD.open.call_count, 1)
+            self.assertEqual(mock_freecad.open.call_count, 1)
             
             # Process second component with same file
             manager._create_component(mock_doc, comp2)
             
             # Should NOT open the file again (uses cache)
-            self.assertEqual(FreeCAD.open.call_count, 1)
+            self.assertEqual(mock_freecad.open.call_count, 1)
             
             # Check cache stats
             stats = manager.get_cache_stats()
@@ -236,6 +240,12 @@ class TestAssembly4CachingFix(unittest.TestCase):
             # Clean up test file
             if os.path.exists(test_file):
                 os.unlink(test_file)
+            
+            # Clean up sys.modules
+            if 'FreeCAD' in sys.modules:
+                del sys.modules['FreeCAD']
+            if 'Part' in sys.modules:
+                del sys.modules['Part']
     
     def test_cache_key_validation(self):
         """Test that cache keys are properly validated paths."""

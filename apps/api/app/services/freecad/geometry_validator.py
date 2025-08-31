@@ -643,7 +643,8 @@ class GeometryValidator:
                         # Check for intersections
                         intersections = shape.common(ray_line)
                         
-                        # Line-solid intersection has zero volume, check for edges/vertices instead
+                        # OpenCASCADE line-solid intersection returns edges/vertices (not volume)
+                        # Checking edges confirms ray hits solid surface - correct approach
                         if intersections and (hasattr(intersections, 'Edges') and intersections.Edges):
                             # Ray intersects with part - check if tool can fit
                             # This is a simplified check - real implementation would

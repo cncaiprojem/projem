@@ -60,6 +60,13 @@ except ImportError:
     # Fallback for when running as standalone script
     from exporter import DeterministicExporter
 
+# Import PathValidator at module level to avoid circular imports
+try:
+    from .path_validator import PathValidator, PathValidationError
+except ImportError:
+    # Fallback for when running as standalone script
+    from path_validator import PathValidator, PathValidationError
+
 # Enforce deterministic environment (Task 7.6)
 os.environ["PYTHONHASHSEED"] = "0"
 if "SOURCE_DATE_EPOCH" not in os.environ:
@@ -116,6 +123,16 @@ TECHDRAW_VIEW_GRID = {
 DEFAULT_TEMPLATES = {
     'A4_Landscape': '/app/templates/A4_Landscape.svg',
     'A3_Landscape': '/app/templates/A3_Landscape.svg'
+}
+
+# Artefact type mapping for export formats
+ARTEFACT_TYPE_MAP = {
+    'FCStd': 'freecad_document',
+    'STEP': 'cad_model',
+    'STL': 'mesh_model',
+    'GLB': 'gltf_model',
+    # Default fallback for unknown formats
+    'DEFAULT': 'model'
 }
 
 # Configure logging
@@ -1088,9 +1105,6 @@ class FreeCADWorker:
         Raises:
             ValueError: If path validation fails
         """
-        # Import here to avoid circular imports at module level
-        from app.services.freecad.path_validator import PathValidator, PathValidationError
-        
         # Create validator with the specific allowed directory
         validator = PathValidator([allowed_dir])
         
@@ -1309,36 +1323,25 @@ class FreeCADWorker:
                 shape = generator.create_prism_with_hole(
                     length, width, height, hole_diameter, units
                 )
-                # Capture returned part for loose coupling between geometry generation
-                # and document management - enables independent testing and reuse.
+                # Store part reference for TechDraw generation
                 part_object = generator.add_shape_to_document(shape, "PrismWithHole")
             else:
-                # Legacy simple shapes use dedicated methods to avoid code duplication.
-                # This ensures all geometric flows use the same validation and export pipeline
-                # with DeterministicExporter for consistency and maintainability.
+                # Simple shapes use unified pipeline
                 if model_type == 'box':
-                    # Use the new create_box method
                     shape = generator.create_box(length, width, height)
-                    # Capture returned part (see comment above)
                     part_object = generator.add_shape_to_document(shape, "ParametricBox")
                 elif model_type == 'cylinder':
-                    # Check both dimensions dict and top-level input_data for consistency
+                    # Check dimensions dict and top-level for backward compatibility
                     radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
-                    # Use the new create_cylinder method
                     shape = generator.create_cylinder(radius, height)
-                    # Capture returned part
                     part_object = generator.add_shape_to_document(shape, "ParametricCylinder")
                 elif model_type == 'sphere':
-                    # Check both dimensions dict and top-level input_data for consistency
                     radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
-                    # Use the new create_sphere method
                     shape = generator.create_sphere(radius)
-                    # Capture returned part
                     part_object = generator.add_shape_to_document(shape, "ParametricSphere")
                 else:
                     raise ValueError(f"Unsupported model type: {model_type}")
                 
-                # Use generator's document through proper encapsulation
                 doc = generator.get_document()
             
             # Export with deterministic hashing (Task 7.6)
@@ -1588,17 +1591,8 @@ class FreeCADWorker:
             # Convert export results to artefacts format
             for fmt, export_info in export_results.items():
                 if "path" in export_info and "error" not in export_info:
-                    # Map format to artefact type, including GLB
-                    if fmt == 'FCStd':
-                        artefact_type = 'freecad_document'
-                    elif fmt == 'STEP':
-                        artefact_type = 'cad_model'
-                    elif fmt == 'STL':
-                        artefact_type = 'mesh_model'
-                    elif fmt == 'GLB':
-                        artefact_type = 'gltf_model'  # GLB for web visualization
-                    else:
-                        artefact_type = 'model'  # Generic fallback
+                    # Map format to artefact type using dictionary lookup
+                    artefact_type = ARTEFACT_TYPE_MAP.get(fmt, ARTEFACT_TYPE_MAP['DEFAULT'])
                     
                     artefacts.append({
                         'type': artefact_type,
@@ -1864,7 +1858,7 @@ def main_standalone():
         material = input_data.get("material", "aluminum")
         process = input_data.get("process", "milling")
         tessellation = float(input_data.get("tessellation_tolerance", 0.1))
-        output_formats = input_data.get("formats", ["FCStd", "STEP", "STL"])
+        output_formats = input_data.get("formats", ["FCStd", "STEP", "STL", "GLB"])
         
         # Validate material-machine compatibility
         valid, error = validate_material_machine_compatibility(material, process)
