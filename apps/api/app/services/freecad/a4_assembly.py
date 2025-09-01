@@ -25,7 +25,17 @@ from pydantic import BaseModel, Field
 
 from ...core.logging import get_logger
 
-logger = get_logger(__name__)
+# Import PathValidator at module level with error handling
+try:
+    from .path_validator import PathValidator, PathValidationError
+except ImportError:
+    # Fallback if path_validator module is not available
+    logger = get_logger(__name__)
+    logger.warning("PathValidator not available, using fallback validation")
+    PathValidator = None
+    PathValidationError = ValueError
+else:
+    logger = get_logger(__name__)
 
 
 class JointType(str, Enum):
@@ -340,21 +350,26 @@ class Assembly4Manager:
                                 imported_objects = [obj for obj in imported_doc.Objects if hasattr(obj, 'Shape')]
                                 
                                 if imported_objects:
-                                    # Create a compound of all imported shapes for the component
+                                    # Create App::Part container to preserve assembly structure
+                                    # This maintains component hierarchy instead of flattening to compound
+                                    comp_obj = doc.addObject("App::Part", f"ImportedComponent_{component.id}")
+                                    comp_obj.Label = f"Import_{Path(file_path).stem}"
+                                    
+                                    # Add all imported objects to the App::Part container
+                                    for obj in imported_objects:
+                                        if hasattr(obj, 'Shape') and obj.Shape:
+                                            comp_obj.addObject(obj)
+                                    
+                                    # Cache the container for future use
                                     import Part
-                                    shapes = [obj.Shape for obj in imported_objects if obj.Shape]
+                                    shapes = [obj.Shape for obj in imported_objects if hasattr(obj, 'Shape') and obj.Shape]
                                     if shapes:
-                                        # Create a compound shape from all imported objects
+                                        # Cache compound for performance, but use container for structure
                                         compound = Part.makeCompound(shapes)
                                         
                                         # Cache the compound shape for future use
                                         self._shape_cache[cache_key] = compound
                                         logger.info(f"Cached shape for: {file_path} (cache size: {len(self._shape_cache)})")
-                                        
-                                        # Add the compound to the assembly document
-                                        comp_obj = doc.addObject("Part::Feature", f"ImportedComponent_{component.id}")
-                                        comp_obj.Shape = compound
-                                        comp_obj.Label = f"Import_{Path(file_path).stem}"
                                     else:
                                         logger.warning(f"No valid shapes found in imported file: {file_path}")
                                 else:
@@ -679,7 +694,7 @@ class Assembly4Manager:
         """
         Validate upload file path to prevent directory traversal attacks.
         
-        This method now uses the shared PathValidator utility for consistent
+        This method uses the shared PathValidator utility for consistent
         security validation across all services. The shared implementation
         provides better error handling, logging, and maintains a single
         source of truth for path validation logic.
@@ -691,16 +706,25 @@ class Assembly4Manager:
             Validated Path object
             
         Raises:
-            ValueError: If path is outside allowed directories
+            ValueError: If path is outside allowed directories or PathValidator not available
         """
-        # Import here to avoid circular imports at module level
-        from .path_validator import PathValidator, PathValidationError
+        # Use module-level PathValidator import
+        if PathValidator is None:
+            # Fallback validation if PathValidator not available
+            file_path_obj = Path(file_path).resolve()
+            for allowed_dir in self._resolved_upload_dirs:
+                try:
+                    file_path_obj.relative_to(allowed_dir)
+                    return file_path_obj
+                except ValueError:
+                    continue
+            raise ValueError(f"Path {file_path} is outside allowed directories")
         
         # Use shared PathValidator with the same allowed directories
         validator = PathValidator(self.ALLOWED_UPLOAD_DIRS)
         
         # Validate path using shared utility
-        # PathValidationError now inherits from ValueError, so no conversion needed
+        # PathValidationError inherits from ValueError, so no conversion needed
         resolved_path = validator.validate_path(file_path, "upload")
         return resolved_path
     

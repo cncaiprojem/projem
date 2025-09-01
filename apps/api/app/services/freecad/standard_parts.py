@@ -674,7 +674,7 @@ doc.recompute()"""
                 elif diameter < 3.0:
                     thread_pitch = diameter * 0.2
                 else:
-                    # Use logarithmic approximation for larger sizes
+                    # Use linear approximation for larger sizes
                     thread_pitch = 0.5 + (diameter - 3.0) * 0.15
                 
                 logger.warning(

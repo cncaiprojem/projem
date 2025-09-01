@@ -311,9 +311,20 @@ class BOMExtractor:
         # Include shape data if available
         if hasattr(obj, 'Shape') and obj.Shape:
             try:
-                # Use shape's content hash if available
-                if hasattr(obj.Shape, 'exportBrep'):
-                    # Use NamedTemporaryFile with delete=False to avoid race condition
+                # Use in-memory BREP export to avoid disk I/O
+                brep_success = False
+                if hasattr(obj.Shape, 'exportBrepToString'):
+                    # Use exportBrepToString for in-memory operations (performance optimization)
+                    try:
+                        brep_string = obj.Shape.exportBrepToString()
+                        hasher.update(brep_string.encode('utf-8'))
+                        brep_success = True
+                    except Exception as e:
+                        # Handle BREP export failures gracefully
+                        logger.debug(f"BREP in-memory export failed, falling back to bbox dimensions: {e}")
+                        brep_success = False
+                elif hasattr(obj.Shape, 'exportBrep'):
+                    # Fallback to disk-based export only if in-memory not available
                     import tempfile
                     import os as os_module  # Alias to avoid conflict with FreeCAD os
                     
