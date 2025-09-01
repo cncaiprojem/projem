@@ -1115,9 +1115,13 @@ class FreeCADWorker:
         self.start_time = time.time()
         self.cancelled = False
         
-        # Centralize PathValidator with all allowed directories for better performance
-        # Following the a4_assembly.py pattern for unified caching strategy
-        # Create a single PathValidator instance with all possible allowed directories
+        # Initialize PathValidator cache dictionary following a4_assembly.py pattern
+        # Key: frozenset of allowed directories (immutable, hashable)
+        # Value: PathValidator instance
+        # This optimization reduces object creation overhead in hot paths
+        self.path_validators = {}
+        
+        # Collect all possible allowed directories for initial setup
         all_allowed_dirs = [
             self.args.output_dir,
             self.args.temp_dir if hasattr(self.args, 'temp_dir') else tempfile.gettempdir(),
@@ -1128,17 +1132,8 @@ class FreeCADWorker:
         # Filter out None values and deduplicate
         all_allowed_dirs = list(set(filter(None, all_allowed_dirs)))
         
-        # Create single PathValidator instance with all allowed directories
-        # This approach is more efficient than dictionary caching as it:
-        # 1. Reduces object creation overhead
-        # 2. Simplifies the validation logic
-        # 3. Matches the pattern used in a4_assembly.py
-        try:
-            self.path_validator = PathValidator(all_allowed_dirs)
-            logger.debug(f"Created PathValidator with {len(all_allowed_dirs)} allowed directories")
-        except Exception as e:
-            logger.warning(f"Failed to create PathValidator: {e}")
-            self.path_validator = None
+        # Store the complete list for backward compatibility
+        self.all_allowed_dirs = all_allowed_dirs
         
         # Setup signal handlers for graceful cancellation
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -1159,10 +1154,9 @@ class FreeCADWorker:
         """
         Validate a path is within allowed directory to prevent path traversal.
         
-        This method uses the centralized PathValidator instance with all allowed
-        directories, following the a4_assembly.py pattern for better performance.
-        The single validator instance reduces object creation overhead and
-        provides consistent security validation across all services.
+        This method uses per-directory PathValidator caching following the
+        a4_assembly.py pattern for optimal performance. Each unique directory
+        gets its own cached validator, avoiding redundant object creation.
         
         Args:
             path: Path to validate
@@ -1175,8 +1169,8 @@ class FreeCADWorker:
         Raises:
             ValueError: If path validation fails
         """
-        # Use the centralized PathValidator instance
-        if self.path_validator is None:
+        # Use module-level PathValidator import
+        if PathValidator is None:
             # Fallback to basic validation if PathValidator not available
             path_obj = Path(path).resolve()
             allowed_obj = Path(allowed_dir).resolve()
@@ -1186,25 +1180,23 @@ class FreeCADWorker:
             except ValueError:
                 raise ValueError(f"Invalid {path_type}: Path outside allowed directory")
         
+        # Create cache key from the specific allowed directory
+        # Use frozenset for immutable, hashable key (single directory case)
+        cache_key = frozenset([allowed_dir])
+        
+        # Check if we have a cached validator for this specific directory
+        if cache_key not in self.path_validators:
+            # Create and cache new validator for this specific directory
+            self.path_validators[cache_key] = PathValidator([allowed_dir])
+            logger.debug(f"Created new PathValidator for directory: {allowed_dir}")
+        
+        # Use cached validator for this specific directory
+        validator = self.path_validators[cache_key]
+        
         try:
-            # Use the centralized validator
-            # The validator already contains all allowed directories
-            validated_path = self.path_validator.validate_path(path, path_type)
-            
-            # Additional check to ensure it's specifically within the requested allowed_dir
-            # This maintains backward compatibility with the method signature
-            path_obj = Path(validated_path).resolve()
-            allowed_obj = Path(allowed_dir).resolve()
-            try:
-                path_obj.relative_to(allowed_obj)
-            except ValueError:
-                # Path is valid but not in the specific requested directory
-                raise PathValidationError(
-                    path=str(path_obj),
-                    reason=f"Path not in requested directory {allowed_dir}",
-                    path_type=path_type
-                )
-            
+            # Validate path using the directory-specific validator
+            # This is more efficient as it only checks against the relevant directory
+            validated_path = validator.validate_path(path, path_type)
             return str(validated_path)
         except PathValidationError as e:
             # Convert to ValueError for backward compatibility, preserving exception chain

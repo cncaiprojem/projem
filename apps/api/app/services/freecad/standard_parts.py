@@ -565,9 +565,6 @@ doc.recompute()"""
                     category=part_def.category.value,
                     format_hint=self._get_size_format_hint(part_def.category)
                 )
-        except InvalidSizeFormatError:
-            # Re-raise our custom exception
-            raise
         except (ValueError, TypeError) as e:
             # Handle parsing-specific errors (e.g., invalid number format, type conversion)
             # Use 'raise ... from e' to preserve the original traceback for debugging
