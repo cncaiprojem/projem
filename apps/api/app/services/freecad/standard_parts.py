@@ -16,7 +16,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-from jinja2 import Environment, Template, TemplateSyntaxError, sandbox
+from jinja2 import Template, TemplateSyntaxError, sandbox
 from pydantic import BaseModel, Field
 
 from ...core.logging import get_logger

@@ -292,10 +292,14 @@ def get_cgroup_limits() -> Dict[str, Any]:
         
         for path in memory_paths:
             if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
-                    limit = f.read().strip()
-                    if limit != 'max' and limit.isdigit():
-                        cgroup_info['memory_limit_mb'] = int(limit) // (1024 * 1024)
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        limit = f.read().strip()
+                        if limit != 'max' and limit.isdigit():
+                            cgroup_info['memory_limit_mb'] = int(limit) // (1024 * 1024)
+                except (PermissionError, FileNotFoundError, IOError) as e:
+                    logger.debug(f"Could not read memory limit from {path}: {e}")
+                    continue
                 break
         
         # CPU quota/period  
@@ -306,18 +310,22 @@ def get_cgroup_limits() -> Dict[str, Any]:
         
         for path in cpu_quota_paths:
             if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                    if content != 'max':
-                        parts = content.split()
-                        if parts:
-                            try:
-                                if parts[0] != 'max':
-                                    cgroup_info['cpu_quota'] = int(parts[0])
-                                if len(parts) > 1:
-                                    cgroup_info['cpu_period'] = int(parts[1])
-                            except (ValueError, IndexError) as e:
-                                logger.warning(f"Could not parse cgroup cpu.max content: '{content}'. Error: {e}")
+                try:
+                    with open(path, 'r', encoding='utf-8') as f:
+                        content = f.read().strip()
+                        if content != 'max':
+                            parts = content.split()
+                            if parts:
+                                try:
+                                    if parts[0] != 'max':
+                                        cgroup_info['cpu_quota'] = int(parts[0])
+                                    if len(parts) > 1:
+                                        cgroup_info['cpu_period'] = int(parts[1])
+                                except (ValueError, IndexError) as e:
+                                    logger.warning(f"Could not parse cgroup cpu.max content: '{content}'. Error: {e}")
+                except (PermissionError, FileNotFoundError, IOError) as e:
+                    logger.debug(f"Could not read CPU quota from {path}: {e}")
+                    continue
                 break
                 
         # Only check for v1 period if not already found in v2 or if v2 period is invalid
@@ -328,10 +336,14 @@ def get_cgroup_limits() -> Dict[str, Any]:
             
             for path in cpu_period_paths:
                 if os.path.exists(path):
-                    with open(path, 'r', encoding='utf-8') as f:
-                        period = f.read().strip()
-                        if period.isdigit() and int(period) > 0:
-                            cgroup_info['cpu_period'] = int(period)
+                    try:
+                        with open(path, 'r', encoding='utf-8') as f:
+                            period = f.read().strip()
+                            if period.isdigit() and int(period) > 0:
+                                cgroup_info['cpu_period'] = int(period)
+                    except (PermissionError, FileNotFoundError, IOError) as e:
+                        logger.debug(f"Could not read CPU period from {path}: {e}")
+                        continue
                     break
                 
     except Exception as e:
@@ -1358,24 +1370,52 @@ class FreeCADWorker:
             
         return result
     
-    def _execute_params_flow(self, input_data: Dict, result: Dict) -> Dict:
-        """Execute parametric modeling flow with Task 7.6 enhancements."""
-        logger.info("Executing parametric model generation")
+    def _execute_parametric_generation(
+        self,
+        input_data: Dict,
+        resource_monitor: ResourceMonitor,
+        output_dir: Optional[Path] = None,
+        generate_techdraw: bool = False
+    ) -> Dict:
+        """
+        Execute parametric model generation with shared logic.
         
-        # Check for cancellation
-        if self.cancelled or CANCELLED.is_set():
-            result['errors'].append('Cancelled during parametric flow')
-            return result
+        This helper method consolidates the common logic between _execute_params_flow
+        and main_standalone, following DRY (Don't Repeat Yourself) principles.
+        
+        Args:
+            input_data: Input parameters for model generation
+            resource_monitor: Resource monitoring instance
+            output_dir: Optional output directory for exported files
+            generate_techdraw: Whether to generate TechDraw output
+            
+        Returns:
+            Dictionary containing generation results, metrics, and exported files
+            
+        Design Rationale:
+            This method was extracted to eliminate code duplication between
+            _execute_params_flow and main_standalone, making the codebase more
+            maintainable and reducing the risk of inconsistencies.
+        """
+        generation_result = {
+            'success': False,
+            'parameters': {},
+            'exports': {},
+            'metrics': {},
+            'validation': {},
+            'artefacts': [],
+            'errors': []
+        }
         
         try:
             # Normalize Turkish parameters
             input_data = normalize_turkish_params(input_data)
             
-            # Extract parameters
+            # Extract parameters with defaults
             model_type = input_data.get('model_type', 'prism_with_hole')
             dimensions = input_data.get('dimensions', {})
             
-            # Task 7.6 specific parameters
+            # Extract dimensional parameters with backward compatibility
             length = float(dimensions.get("length", input_data.get("length", 100)))
             width = float(dimensions.get("width", input_data.get("width", 50)))
             height = float(dimensions.get("height", input_data.get("height", 30)))
@@ -1384,7 +1424,6 @@ class FreeCADWorker:
             material = input_data.get("material", "aluminum")
             process = input_data.get("process", "milling")
             tessellation = float(input_data.get("tessellation_tolerance", 0.1))
-            # Include GLB in default formats to match DeterministicExporter capabilities
             output_formats = input_data.get("formats", DEFAULT_OUTPUT_FORMATS)
             
             # Validate material-machine compatibility
@@ -1392,10 +1431,10 @@ class FreeCADWorker:
             if not valid:
                 raise ValueError(error)
             
-            self.resource_monitor.emit_progress(f"Validated: {material} + {process}")
+            resource_monitor.emit_progress(f"Validated: {material} + {process}")
             
             # Create parametric generator
-            generator = FreeCADParametricGenerator(self.resource_monitor)
+            generator = FreeCADParametricGenerator(resource_monitor)
             
             # Create document
             doc = generator.create_document("parametric_model")
@@ -1405,69 +1444,61 @@ class FreeCADWorker:
                 shape = generator.create_prism_with_hole(
                     length, width, height, hole_diameter, units
                 )
-                # Store part reference for TechDraw generation
                 part_object = generator.add_shape_to_document(shape, "PrismWithHole")
+            elif model_type == 'box':
+                shape = generator.create_box(length, width, height)
+                part_object = generator.add_shape_to_document(shape, "ParametricBox")
+            elif model_type == 'cylinder':
+                radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
+                shape = generator.create_cylinder(radius, height)
+                part_object = generator.add_shape_to_document(shape, "ParametricCylinder")
+            elif model_type == 'sphere':
+                radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
+                shape = generator.create_sphere(radius)
+                part_object = generator.add_shape_to_document(shape, "ParametricSphere")
             else:
-                # Simple shapes use unified pipeline
-                if model_type == 'box':
-                    shape = generator.create_box(length, width, height)
-                    part_object = generator.add_shape_to_document(shape, "ParametricBox")
-                elif model_type == 'cylinder':
-                    # Check dimensions dict and top-level for backward compatibility
-                    radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
-                    shape = generator.create_cylinder(radius, height)
-                    part_object = generator.add_shape_to_document(shape, "ParametricCylinder")
-                elif model_type == 'sphere':
-                    radius = float(dimensions.get('radius', input_data.get('radius', 50.0)))
-                    shape = generator.create_sphere(radius)
-                    part_object = generator.add_shape_to_document(shape, "ParametricSphere")
-                else:
-                    raise ValueError(f"Unsupported model type: {model_type}")
-                
-                doc = generator.get_document()
+                raise ValueError(f"Unsupported model type: {model_type}")
             
-            # Export with deterministic hashing (Task 7.6)
+            # Export with deterministic hashing
             with tempfile.TemporaryDirectory() as tmpdir:
                 base_path = Path(tmpdir) / "parametric_output"
                 export_results = generator.export_shape(
                     shape, base_path, output_formats, tessellation
                 )
                 
-                # Copy exported files to output directory
-                for fmt, export_info in export_results.items():
-                    if "path" in export_info and "error" not in export_info:
-                        src_path = Path(export_info["path"])
-                        if src_path.exists():
-                            dst_path = Path(self.args.outdir) / src_path.name
-                            shutil.copy2(src_path, dst_path)
-                            
-                            result['artefacts'].append({
-                                'type': 'parametric_model',
-                                'format': fmt,
-                                'path': str(dst_path),
-                                'size_bytes': dst_path.stat().st_size,
-                                'sha256': export_info.get('sha256')
-                            })
+                # Copy exported files to output directory if specified
+                if output_dir:
+                    for fmt, export_info in export_results.items():
+                        if "path" in export_info and "error" not in export_info:
+                            src_path = Path(export_info["path"])
+                            if src_path.exists():
+                                dst_path = output_dir / src_path.name
+                                shutil.copy2(src_path, dst_path)
+                                
+                                generation_result['artefacts'].append({
+                                    'type': 'parametric_model',
+                                    'format': fmt,
+                                    'path': str(dst_path),
+                                    'size_bytes': dst_path.stat().st_size,
+                                    'sha256': export_info.get('sha256')
+                                })
             
             # Extract metrics
             shape_metrics = generator.extract_metrics(shape)
             
             # Generate TechDraw if requested
-            if self.args.techdraw == 'on':
-                # Use the part object returned from add_shape_to_document
-                # This eliminates tight coupling and removes dependency on object naming
-                if part_object:
-                    techdraw_result = self._generate_techdraw(doc, [part_object])
-                    result['techdraw'] = techdraw_result
-                    result['artefacts'].extend(techdraw_result.get('exported_files', []))
-                else:
-                    logger.warning("No document object available for TechDraw generation")
+            if generate_techdraw and part_object:
+                techdraw_result = self._generate_techdraw(doc, [part_object])
+                generation_result['techdraw'] = techdraw_result
+                generation_result['artefacts'].extend(techdraw_result.get('exported_files', []))
             
+            # Clean up document
             generator.App.closeDocument(doc.Name)
             
-            result['success'] = True
-            result['model_type'] = model_type
-            result['parameters'] = {
+            # Populate successful result
+            generation_result['success'] = True
+            generation_result['model_type'] = model_type
+            generation_result['parameters'] = {
                 "length": length,
                 "width": width,
                 "height": height,
@@ -1476,20 +1507,45 @@ class FreeCADWorker:
                 "material": material,
                 "process": process
             }
-            result['exports'] = export_results
-            result['metrics'] = {
+            generation_result['exports'] = export_results
+            generation_result['metrics'] = {
                 "geometry": shape_metrics
             }
-            result['validation'] = {
+            generation_result['validation'] = {
                 "material_process_compatible": True
             }
             
-            logger.info(f"Parametric flow completed: {model_type}")
+            logger.info(f"Parametric generation completed: {model_type}")
             
         except Exception as e:
-            logger.error(f"Parametric flow failed: {e}")
-            result['errors'].append(str(e))
-            
+            logger.error(f"Parametric generation failed: {e}")
+            generation_result['errors'].append(str(e))
+            if hasattr(e, '__traceback__'):
+                import traceback
+                generation_result['traceback'] = traceback.format_exc()
+        
+        return generation_result
+    
+    def _execute_params_flow(self, input_data: Dict, result: Dict) -> Dict:
+        """Execute parametric modeling flow with Task 7.6 enhancements."""
+        logger.info("Executing parametric model generation")
+        
+        # Check for cancellation
+        if self.cancelled or CANCELLED.is_set():
+            result['errors'].append('Cancelled during parametric flow')
+            return result
+        
+        # Use the shared helper method to execute parametric generation
+        generation_result = self._execute_parametric_generation(
+            input_data=input_data,
+            resource_monitor=self.resource_monitor,
+            output_dir=Path(self.args.outdir),
+            generate_techdraw=(self.args.techdraw == 'on')
+        )
+        
+        # Merge generation results into the main result
+        result.update(generation_result)
+        
         return result
     
     def _execute_upload_flow(self, input_data: Dict, result: Dict) -> Dict:
@@ -1509,7 +1565,7 @@ class FreeCADWorker:
                 raise ValueError("Input file not provided in input data")
             
             # Security: Prevent path traversal
-            input_file = FreeCADWorker._validate_path_security(input_file, '/work', 'input file')
+            input_file = self._validate_path_security(input_file, '/work', 'input file')
             
             if not os.path.exists(input_file):
                 raise ValueError(f"Input file not found: {input_file}")
@@ -1911,7 +1967,18 @@ def validate_arguments(args) -> List[str]:
 # ==============================================================================
 
 def main_standalone():
-    """Main entry point for standalone Task 7.6 execution (used when called directly with JSON input)."""
+    """
+    Main entry point for standalone Task 7.6 execution.
+    
+    This function is used when called directly with JSON input, either from
+    a file or from stdin. It leverages the shared _execute_parametric_generation
+    helper to avoid code duplication.
+    
+    Design Pattern:
+        Uses a mock worker object to provide the necessary interface for the
+        shared helper method, following the Adapter pattern to maintain
+        compatibility while reducing code duplication.
+    """
     # Set up deterministic environment variables
     setup_deterministic_environment()
     
@@ -1931,81 +1998,40 @@ def main_standalone():
         
         monitor.emit_progress("Input received")
         
-        # Normalize Turkish parameters
-        input_data = normalize_turkish_params(input_data)
+        # Create a minimal worker instance for the shared helper
+        # This follows the Adapter pattern to provide the necessary interface
+        class StandaloneWorkerAdapter:
+            """Minimal adapter to provide worker interface for standalone mode."""
+            def _generate_techdraw(self, doc, objects):
+                """Stub for TechDraw generation - not used in standalone mode."""
+                return {'exported_files': []}
+            
+            # Copy the _execute_parametric_generation method binding
+            _execute_parametric_generation = FreeCADWorker._execute_parametric_generation
         
-        # Extract parameters
-        length = float(input_data.get("length", 100))
-        width = float(input_data.get("width", 50))
-        height = float(input_data.get("height", 30))
-        hole_diameter = float(input_data.get("hole_diameter", 10))
-        units = input_data.get("units", "mm")
-        material = input_data.get("material", "aluminum")
-        process = input_data.get("process", "milling")
-        tessellation = float(input_data.get("tessellation_tolerance", 0.1))
-        output_formats = input_data.get("formats", ["FCStd", "STEP", "STL", "GLB"])
+        worker_adapter = StandaloneWorkerAdapter()
         
-        # Validate material-machine compatibility
-        valid, error = validate_material_machine_compatibility(material, process)
-        if not valid:
-            raise ValueError(error)
-        
-        monitor.emit_progress(f"Validated: {material} + {process}")
-        
-        # Create generator
-        generator = FreeCADParametricGenerator(monitor)
-        
-        # Create document
-        doc = generator.create_document("parametric_model")
-        
-        # Generate geometry
-        shape = generator.create_prism_with_hole(
-            length, width, height, hole_diameter, units
+        # Use the shared helper method for parametric generation
+        generation_result = worker_adapter._execute_parametric_generation(
+            input_data=input_data,
+            resource_monitor=monitor,
+            output_dir=None,  # No output directory in standalone mode
+            generate_techdraw=False  # TechDraw not supported in standalone mode
         )
         
-        # Add to document and capture the returned object
-        part_object = generator.add_shape_to_document(shape, "PrismWithHole")
-        
-        # Export to requested formats
-        with tempfile.TemporaryDirectory() as tmpdir:
-            base_path = Path(tmpdir) / "parametric_output"
-            
-            export_results = generator.export_shape(
-                shape, base_path, output_formats, tessellation
-            )
-        
-        # Extract metrics
-        shape_metrics = generator.extract_metrics(shape)
-        
-        # Get resource metrics
+        # Add resource metrics to the result
         resource_metrics = monitor.get_metrics()
-        
-        # Prepare output
-        output = {
-            "success": True,
-            "parameters": {
-                "length": length,
-                "width": width,
-                "height": height,
-                "hole_diameter": hole_diameter,
-                "units": units,
-                "material": material,
-                "process": process
-            },
-            "exports": export_results,
-            "metrics": {
-                "geometry": shape_metrics,
-                "resources": resource_metrics
-            },
-            "validation": {
-                "material_process_compatible": True
-            }
-        }
+        if 'metrics' not in generation_result:
+            generation_result['metrics'] = {}
+        generation_result['metrics']['resources'] = resource_metrics
         
         # Output JSON result
-        print(json.dumps(output, indent=2))
+        print(json.dumps(generation_result, indent=2))
         
-        monitor.emit_progress("Complete")
+        if generation_result['success']:
+            monitor.emit_progress("Complete")
+        else:
+            sys.exit(1)
         
     except Exception as e:
         # Handle errors

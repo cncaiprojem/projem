@@ -14,6 +14,9 @@ from unittest.mock import Mock, patch, MagicMock
 
 # Test constants
 TEST_FILE_LINE_COUNT = 60  # Number of lines to generate in test files
+# This value is sufficient to test itertools.islice functionality while keeping
+# test execution fast. It covers the test case that reads lines 49-53 (requires
+# at least 54 lines) with some buffer for safety.
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
