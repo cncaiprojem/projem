@@ -198,6 +198,12 @@ class Assembly4Manager:
         # Initialize instance-level shape cache for upload_ref components
         # This cache persists across multiple component creations in the same assembly
         self._shape_cache = {}
+        
+        # Cache PathValidator instances to avoid recreating on every call
+        # Key: frozenset of allowed directories (immutable for dict key)
+        # Value: PathValidator instance
+        # This optimization reduces object creation overhead in hot paths
+        self.path_validators = {}
     
     def _check_freecad(self) -> bool:
         """Check if FreeCAD and required modules are available."""
@@ -699,6 +705,9 @@ class Assembly4Manager:
         provides better error handling, logging, and maintains a single
         source of truth for path validation logic.
         
+        Uses cached PathValidator instances to avoid recreating validators
+        for the same allowed directories, improving performance in loops.
+        
         Args:
             file_path: Path to validate
             
@@ -720,8 +729,18 @@ class Assembly4Manager:
                     continue
             raise ValueError(f"Path {file_path} is outside allowed directories")
         
-        # Use shared PathValidator with the same allowed directories
-        validator = PathValidator(self.ALLOWED_UPLOAD_DIRS)
+        # Create cache key from allowed directories
+        # Use frozenset for immutable, hashable key
+        cache_key = frozenset(self.ALLOWED_UPLOAD_DIRS)
+        
+        # Check if we have a cached validator for these directories
+        if cache_key not in self.path_validators:
+            # Create and cache new validator
+            self.path_validators[cache_key] = PathValidator(self.ALLOWED_UPLOAD_DIRS)
+            logger.debug(f"Created new PathValidator for {len(self.ALLOWED_UPLOAD_DIRS)} directories")
+        
+        # Use cached validator
+        validator = self.path_validators[cache_key]
         
         # Validate path using shared utility
         # PathValidationError inherits from ValueError, so no conversion needed

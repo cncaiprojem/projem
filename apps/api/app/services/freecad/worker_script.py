@@ -1082,6 +1082,17 @@ class FreeCADWorker:
         # Dictionary-based caching for PathValidator instances
         # Key: allowed_dir, Value: PathValidator instance
         # This provides clean caching without monkey-patching
+        # 
+        # Cache Strategy:
+        # - The cache grows with unique allowed_dir values
+        # - In practice, allowed_dirs are limited (typically < 10 directories)
+        # - No explicit cleanup needed as cache size is naturally bounded
+        # - If memory becomes a concern in edge cases, consider:
+        #   1. LRU cache with maxsize limit
+        #   2. Periodic cleanup of unused entries (e.g., on worker restart)
+        #   3. TTL-based expiration for long-running workers
+        # - Current implementation prioritizes performance over memory
+        #   as PathValidator instances are lightweight (~1KB each)
         self.path_validators = {}
         
         # Setup signal handlers for graceful cancellation
