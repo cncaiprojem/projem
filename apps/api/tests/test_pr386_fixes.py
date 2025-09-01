@@ -52,6 +52,7 @@ Test Coverage:
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -73,8 +74,26 @@ class TestStandardPartsFixes(unittest.TestCase):
     """Test fixes for standard_parts.py issues."""
     
     def setUp(self):
-        """Set up test fixtures."""
+        """Set up test fixtures before each test method.
+        
+        This method is called before each test method to ensure
+        test isolation and provide a clean state.
+        """
         self.library = StandardPartsLibrary()
+        # Store original environment for restoration in tearDown
+        self._original_env = os.environ.copy()
+    
+    def tearDown(self):
+        """Clean up test fixtures after each test method.
+        
+        This method is called after each test method to clean up
+        any resources and restore the original state.
+        """
+        # Restore original environment variables
+        os.environ.clear()
+        os.environ.update(self._original_env)
+        # Clear any cached data in the library
+        self.library = None
     
     def test_m8_thread_pitch_accuracy(self):
         """Test that M8 has correct 1.25mm pitch, not 1.0mm."""
@@ -276,20 +295,35 @@ class TestAssembly4CachingFix(unittest.TestCase):
 class TestWorkerScriptExportFix(unittest.TestCase):
     """Test export format fixes in worker_script.py."""
     
+    def setUp(self):
+        """Set up test fixtures before each test method.
+        
+        Creates mock objects and test data for export testing.
+        """
+        self.test_dir = tempfile.mkdtemp(prefix="test_export_")
+        self.mock_args = MagicMock()
+        self.mock_args.outdir = self.test_dir
+        self.mock_args.cpu_seconds = 0
+        self.mock_args.mem_mb = 0
+        self.mock_args.metrics_interval = 2.0
+    
+    def tearDown(self):
+        """Clean up test fixtures after each test method.
+        
+        Removes temporary directories and clears mock objects.
+        """
+        if os.path.exists(self.test_dir):
+            import shutil
+            shutil.rmtree(self.test_dir, ignore_errors=True)
+        self.mock_args = None
+    
     @patch('app.services.freecad.worker_script.DeterministicExporter')
     def test_export_includes_glb_format(self, mock_exporter_class):
         """Test that _export_model includes GLB format."""
         from app.services.freecad.worker_script import FreeCADWorker
         
-        # Create mock args
-        args = MagicMock()
-        args.outdir = "/tmp/output"
-        args.cpu_seconds = 0
-        args.mem_mb = 0
-        args.metrics_interval = 2.0
-        
-        # Create worker
-        worker = FreeCADWorker(args)
+        # Create worker using setUp's mock_args
+        worker = FreeCADWorker(self.mock_args)
         
         # Mock exporter
         mock_exporter = MagicMock()
@@ -326,15 +360,8 @@ class TestWorkerScriptExportFix(unittest.TestCase):
         """Test that GLB export failures are handled gracefully."""
         from app.services.freecad.worker_script import FreeCADWorker
         
-        # Create mock args
-        args = MagicMock()
-        args.outdir = "/tmp/output"
-        args.cpu_seconds = 0
-        args.mem_mb = 0
-        args.metrics_interval = 2.0
-        
-        # Create worker
-        worker = FreeCADWorker(args)
+        # Create worker using setUp's mock_args
+        worker = FreeCADWorker(self.mock_args)
         
         # Mock exporter
         mock_exporter = MagicMock()

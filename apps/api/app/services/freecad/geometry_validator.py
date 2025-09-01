@@ -580,6 +580,253 @@ class GeometryValidator:
         return min_thickness if min_thickness != float('inf') else 0.0
     
     
+    def _get_tool_parameters(self) -> Dict[str, float]:
+        """Get standard tool parameters for accessibility analysis.
+        
+        Returns:
+            Dictionary with tool dimensions in mm
+        """
+        return {
+            "diameter": 6.0,  # Standard 6mm end mill
+            "radius": 3.0,
+            "length": 50.0,   # Standard tool length
+            "shank_diameter": 6.0,
+            "min_radius": 0.5  # Minimum internal radius for small tools
+        }
+    
+    def _perform_ray_casting_analysis(
+        self, shape: Any, bbox: Any, tool_params: Dict[str, float]
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """Perform ray casting to detect inaccessible regions.
+        
+        Args:
+            shape: FreeCAD shape object
+            bbox: Shape bounding box
+            tool_params: Tool parameters dictionary
+            
+        Returns:
+            Tuple of (inaccessible_regions, clearance_issues)
+        """
+        inaccessible_regions = []
+        clearance_issues = []
+        
+        try:
+            import Part
+            
+            # Grid resolution for ray casting
+            grid_resolution = 10
+            tool_diameter = tool_params["diameter"]
+            tool_radius = tool_params["radius"]
+            tool_length = tool_params["length"]
+            
+            # Cast rays from top to detect accessibility
+            x_step = bbox.XLength / grid_resolution
+            y_step = bbox.YLength / grid_resolution
+            z_start = bbox.ZMax + 10  # Start above the part
+            
+            for i in range(grid_resolution):
+                for j in range(grid_resolution):
+                    x = bbox.XMin + i * x_step + x_step/2
+                    y = bbox.YMin + j * y_step + y_step/2
+                    
+                    # Cast ray downward
+                    try:
+                        ray_line = Part.makeLine(
+                            (x, y, z_start),
+                            (x, y, bbox.ZMin - 10)
+                        )
+                        
+                        # Check for intersections
+                        intersections = shape.common(ray_line)
+                        
+                        if intersections and getattr(intersections, 'Edges', None):
+                            for edge in intersections.Edges:
+                                if edge.Vertexes:
+                                    intersection_z = edge.Vertexes[0].Point.z
+                                    depth_from_top = bbox.ZMax - intersection_z
+                                    
+                                    # Check if tool can reach this depth
+                                    if depth_from_top > tool_length:
+                                        inaccessible_regions.append({
+                                            'x': x, 'y': y, 'z': intersection_z,
+                                            'depth': depth_from_top,
+                                            'reason': 'exceeds_tool_length'
+                                        })
+                                    
+                                    # Check clearance
+                                    self._check_tool_clearance(
+                                        shape, x, y, intersection_z, 
+                                        tool_params, bbox, clearance_issues
+                                    )
+                    except Exception as e:
+                        logger.debug(f"Ray casting at ({x}, {y}): {e}")
+                        
+        except Exception as e:
+            logger.debug(f"Ray casting analysis error: {e}")
+            
+        return inaccessible_regions, clearance_issues
+    
+    def _check_tool_clearance(
+        self, shape: Any, x: float, y: float, z: float,
+        tool_params: Dict[str, float], bbox: Any, clearance_issues: List[Dict]
+    ):
+        """Check tool clearance at a specific position.
+        
+        Args:
+            shape: FreeCAD shape
+            x, y, z: Position coordinates
+            tool_params: Tool parameters
+            bbox: Bounding box
+            clearance_issues: List to append issues to
+        """
+        try:
+            import Part
+            import math
+            
+            tool_radius = tool_params["radius"]
+            tool_length = tool_params["length"]
+            depth_from_top = bbox.ZMax - z
+            
+            # Create tool cylinder at position
+            tool_cylinder = Part.makeCylinder(
+                tool_radius,
+                min(tool_length, depth_from_top + 1),
+                Part.Vertex(x, y, bbox.ZMax).Point,
+                Part.Vertex(0, 0, -1).Point
+            )
+            
+            # Check for collisions
+            collision = shape.common(tool_cylinder)
+            if collision and collision.Volume > 0:
+                # Calculate expected cutting volume
+                cutting_volume_estimate = math.pi * tool_radius**2 * 1.0
+                
+                if collision.Volume > cutting_volume_estimate * 2:
+                    clearance_issues.append({
+                        'x': x, 'y': y, 'z': z,
+                        'volume': collision.Volume,
+                        'reason': 'insufficient_clearance'
+                    })
+        except Exception as e:
+            logger.debug(f"Clearance check failed: {e}")
+    
+    def _analyze_accessibility_issues(
+        self, result: Dict[str, List[str]], 
+        inaccessible_regions: List[Dict],
+        clearance_issues: List[Dict],
+        tool_params: Dict[str, float]
+    ):
+        """Analyze and report accessibility issues.
+        
+        Args:
+            result: Result dictionary to append errors/warnings
+            inaccessible_regions: List of inaccessible regions
+            clearance_issues: List of clearance issues
+            tool_params: Tool parameters
+        """
+        tool_length = tool_params["length"]
+        tool_diameter = tool_params["diameter"]
+        
+        # Report tool length issues
+        if inaccessible_regions:
+            tool_length_issues = [r for r in inaccessible_regions 
+                                 if r['reason'] == 'exceeds_tool_length']
+            if tool_length_issues:
+                max_depth = max(r['depth'] for r in tool_length_issues)
+                result["errors"].append(
+                    f"Features at depth {max_depth:.1f}mm exceed tool length {tool_length}mm. "
+                    "Consider redesigning or using specialized tooling."
+                )
+        
+        # Report clearance issues
+        if clearance_issues:
+            total_issues = len(clearance_issues)
+            # Threshold: more than 10 issues is significant
+            if total_issues > 10:
+                result["errors"].append(
+                    f"Significant clearance issues at {total_issues} locations. "
+                    f"Tool diameter {tool_diameter}mm cannot access features. "
+                    "Consider larger internal radii or smaller tools."
+                )
+            else:
+                result["warnings"].append(
+                    f"Minor clearance issues at {total_issues} locations. "
+                    "Review internal corners and pockets."
+                )
+    
+    def _check_internal_radius_requirements(
+        self, result: Dict[str, List[str]], shape: Any, 
+        bbox: Any, tool_params: Dict[str, float]
+    ):
+        """Check minimum internal radius requirements.
+        
+        Args:
+            result: Result dictionary
+            shape: FreeCAD shape
+            bbox: Bounding box
+            tool_params: Tool parameters
+        """
+        try:
+            tool_diameter = tool_params["diameter"]
+            
+            for face in shape.Faces:
+                face_bbox = face.BoundBox
+                depth_from_top = bbox.ZMax - face_bbox.ZMax
+                
+                if depth_from_top > 0:
+                    # Industry standard: R = (H/10) + 0.5mm
+                    required_min_radius = (depth_from_top / 10) + 0.5
+                    required_tool_diameter = depth_from_top / 5
+                    
+                    if tool_diameter > required_tool_diameter * 1.5:
+                        result["warnings"].append(
+                            f"Tool diameter {tool_diameter}mm may be too large "
+                            f"for cavity depth {depth_from_top:.1f}mm. "
+                            f"Recommended: {required_tool_diameter:.1f}mm diameter, "
+                            f"minimum radius: {required_min_radius:.1f}mm"
+                        )
+                        break  # One warning is enough
+        except Exception as e:
+            logger.debug(f"Radius requirements check failed: {e}")
+    
+    def _analyze_deep_pockets(self, result: Dict[str, List[str]], 
+                            shape: Any, bbox: Any):
+        """Analyze deep pocket accessibility.
+        
+        Args:
+            result: Result dictionary
+            shape: FreeCAD shape
+            bbox: Bounding box
+        """
+        try:
+            for face in shape.Faces:
+                face_bbox = face.BoundBox
+                depth_from_top = bbox.ZMax - face_bbox.ZMax
+                depth_from_bottom = face_bbox.ZMin - bbox.ZMin
+                
+                min_opening = min(face_bbox.XLength, face_bbox.YLength)
+                
+                if min_opening > 0:
+                    aspect_ratio_top = depth_from_top / min_opening
+                    aspect_ratio_bottom = depth_from_bottom / min_opening
+                    
+                    # Industry guideline: aspect ratio > 5 is problematic
+                    if aspect_ratio_top > 5:
+                        result["warnings"].append(
+                            f"Deep pocket from top (depth/width = {aspect_ratio_top:.1f}). "
+                            "May require specialized tooling."
+                        )
+                        break  # One warning is enough
+                    
+                    if aspect_ratio_bottom > 5:
+                        result["warnings"].append(
+                            f"Deep pocket from bottom (depth/width = {aspect_ratio_bottom:.1f}). "
+                            "Consider alternate orientations."
+                        )
+                        break
+        except Exception as e:
+            logger.debug(f"Deep pocket analysis failed: {e}")
+    
     def _check_tool_accessibility(self, shape: Any) -> Dict[str, List[str]]:
         """
         Check tool accessibility for CNC operations using ray casting approach.
@@ -626,78 +873,8 @@ class GeometryValidator:
             
             # Perform deep pocket analysis
             self._analyze_deep_pockets(result, shape, bbox)
-                    
-                    # Cast ray downward
-                    ray_origin = Part.Vertex(x, y, z_start).Point
-                    ray_direction = Part.Vertex(0, 0, -1).Point
-                    
-                    # Check for intersections with the shape
-                    try:
-                        # Create a line segment for the ray
-                        ray_line = Part.makeLine(
-                            (x, y, z_start),
-                            (x, y, bbox.ZMin - 10)
-                        )
-                        
-                        # Check for intersections
-                        intersections = shape.common(ray_line)
-                        
-                        # OpenCASCADE line-solid intersection returns lower-dimensional geometry:
-                        # - Line (1D) intersecting solid (3D) produces edges/vertices (1D/0D)
-                        # - This is mathematically correct: intersection dimensionality ≤ min(dim1, dim2)
-                        # - Edges confirm ray hits solid surface boundaries - correct validation approach
-                        # Reference: OpenCASCADE Technology Documentation
-                        # https://dev.opencascade.org/doc/overview/html/occt_user_guides__modeling_algos.html#occt_modalg_5
-                        # "Boolean Operations" section explains intersection dimensionality reduction
-                        if intersections and getattr(intersections, 'Edges', None):
-                            # Ray intersects with part - now perform clearance analysis
-                            for edge in intersections.Edges:
-                                # Get the Z coordinate of the intersection
-                                if edge.Vertexes:
-                                    intersection_z = edge.Vertexes[0].Point.z
-                                    depth_from_top = bbox.ZMax - intersection_z
-                                    
-                                    # Check if tool can reach this depth
-                                    if depth_from_top > tool_length:
-                                        inaccessible_regions.append({
-                                            'x': x, 'y': y, 'z': intersection_z,
-                                            'depth': depth_from_top,
-                                            'reason': 'exceeds_tool_length'
-                                        })
-                                    
-                                    # Check clearance around the intersection point
-                                    # Create a cylinder representing the tool at this position
-                                    tool_cylinder = Part.makeCylinder(
-                                        tool_radius,
-                                        min(tool_length, depth_from_top + 1),
-                                        Part.Vertex(x, y, bbox.ZMax).Point,
-                                        Part.Vertex(0, 0, -1).Point
-                                    )
-                                    
-                                    # Check for collisions between tool and part
-                                    # excluding the intended cutting area
-                                    try:
-                                        collision = shape.common(tool_cylinder)
-                                        if collision and collision.Volume > 0:
-                                            # Calculate the clearance issue
-                                            collision_volume = collision.Volume
-                                            # Small volume might be acceptable (cutting area)
-                                            # Large volume indicates tool interference
-                                            cutting_volume_estimate = math.pi * tool_radius**2 * 1.0  # 1mm cut depth
-                                            
-                                            if collision_volume > cutting_volume_estimate * 2:
-                                                clearance_issues.append({
-                                                    'x': x, 'y': y, 'z': intersection_z,
-                                                    'volume': collision_volume,
-                                                    'reason': 'insufficient_clearance'
-                                                })
-                                    except Exception as e:
-                                        logger.debug(f"Clearance check failed at ({x}, {y}, {intersection_z}): {e}")
-                                        
-                    except Exception as e:
-                        logger.debug(f"Ray casting check failed at ({x}, {y}): {e}")
             
-            # Analyze results and generate warnings/errors
+            # The ray casting logic has been moved to helper methods above
             if inaccessible_regions:
                 # Group by reason for better reporting
                 tool_length_issues = [r for r in inaccessible_regions if r['reason'] == 'exceeds_tool_length']

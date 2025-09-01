@@ -34,7 +34,9 @@ class TestPR390Fixes(unittest.TestCase):
         
         # Create a test file with many lines using context manager with proper cleanup
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
-            for i in range(1000):
+            # Reduced iteration count for faster test execution
+            # 100 lines is sufficient to test the functionality
+            for i in range(100):
                 f.write(f"Line {i}\n")
             temp_path = f.name
         

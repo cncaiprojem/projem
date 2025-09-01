@@ -1079,9 +1079,10 @@ class FreeCADWorker:
         self.start_time = time.time()
         self.cancelled = False
         
-        # Create a single PathValidator instance for reuse
-        # This improves performance by avoiding repeated instantiation
-        self.path_validator = None  # Will be initialized when needed with specific allowed_dir
+        # Dictionary-based caching for PathValidator instances
+        # Key: allowed_dir, Value: PathValidator instance
+        # This provides clean caching without monkey-patching
+        self.path_validators = {}
         
         # Setup signal handlers for graceful cancellation
         signal.signal(signal.SIGTERM, self._signal_handler)
@@ -1122,20 +1123,15 @@ class FreeCADWorker:
         Raises:
             ValueError: If path validation fails
         """
-        # Reuse the cached validator if it exists and has the same allowed_dir
-        # Otherwise create a new one and cache it
-        if self.path_validator is None or not hasattr(self.path_validator, '_allowed_dir_cache'):
-            self.path_validator = PathValidator([allowed_dir])
-            # Store the allowed_dir for comparison (PathValidator doesn't expose it)
-            self.path_validator._allowed_dir_cache = allowed_dir
-        elif self.path_validator._allowed_dir_cache != allowed_dir:
-            # Create new validator if allowed_dir changed
-            self.path_validator = PathValidator([allowed_dir])
-            self.path_validator._allowed_dir_cache = allowed_dir
+        # Use dictionary-based caching for PathValidator instances
+        # This is cleaner than monkey-patching and provides O(1) lookup
+        if allowed_dir not in self.path_validators:
+            self.path_validators[allowed_dir] = PathValidator([allowed_dir])
         
         try:
-            # Validate the path using shared utility
-            validated_path = self.path_validator.validate_path(path, path_type)
+            # Use the cached validator for this allowed_dir
+            validator = self.path_validators[allowed_dir]
+            validated_path = validator.validate_path(path, path_type)
             return str(validated_path)
         except PathValidationError as e:
             # Convert to ValueError for backward compatibility, preserving exception chain

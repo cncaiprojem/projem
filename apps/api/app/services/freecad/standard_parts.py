@@ -284,7 +284,7 @@ class StandardPartsLibrary:
 import Part
 import math
 
-# SECURITY: Template variables validated via Jinja2 at lines 563-569
+# SECURITY: Template variables validated via Jinja2 template rendering
 
 # Parameters
 diameter = {diameter}
@@ -389,7 +389,7 @@ doc.recompute()"""
 import Part
 import math
 
-# SECURITY: Template variables validated via Jinja2 at lines 563-569
+# SECURITY: Template variables validated via Jinja2 template rendering
 
 # Parameters (example for 608 bearing: 8mm bore, 22mm OD, 7mm width)
 bore_diameter = {bore_diameter}  # Inner diameter
