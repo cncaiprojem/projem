@@ -685,16 +685,7 @@ doc.recompute()"""
             # Look up exact thread pitch from standard table
             thread_pitch = self.METRIC_COARSE_PITCH.get(diameter)
             if thread_pitch is None:
-                # For non-standard sizes, use ISO 261 formula approximation (https://www.iso.org/standard/4167.html)
-                # This is more accurate than the simple 0.125 * diameter
-                if diameter < 1.0:
-                    thread_pitch = 0.2
-                elif diameter < 3.0:
-                    thread_pitch = diameter * 0.2
-                else:
-                    # Use linear approximation for larger sizes
-                    thread_pitch = 0.5 + (diameter - 3.0) * 0.15
-                
+                thread_pitch = self._approximate_thread_pitch(diameter)
                 logger.warning(
                     f"Non-standard diameter M{diameter}, using approximated pitch {thread_pitch:.2f}mm"
                 )
@@ -705,11 +696,7 @@ doc.recompute()"""
                 head_diameter = head_dims["waf"]
                 head_height = head_dims["height"]
             else:
-                # For non-standard sizes, use proportional approximation
-                # Based on regression analysis of standard dimensions
-                head_diameter = diameter * 1.5 + 1.0  # More accurate than simple 1.5x
-                head_height = diameter * 0.6 + 0.4    # More accurate than simple 0.7x
-                
+                head_diameter, head_height = self._approximate_head_dimensions(diameter)
                 logger.warning(
                     f"Non-standard diameter M{diameter}, using approximated head dimensions"
                 )
@@ -728,6 +715,43 @@ doc.recompute()"""
                 category="fasteners",
                 format_hint=f"Format: M{{diameter}}x{{length}}, e.g., M8x20. Error: {str(e)}"
             )
+    
+    def _approximate_thread_pitch(self, diameter: float) -> float:
+        """
+        Approximate thread pitch for non-standard diameters using ISO 261 formula.
+        
+        Args:
+            diameter: Nominal diameter in mm
+            
+        Returns:
+            Approximated thread pitch in mm
+        """
+        # ISO 261 formula approximation (https://www.iso.org/standard/4167.html)
+        # This is more accurate than simple linear approximations
+        if diameter < 1.0:
+            return 0.2
+        elif diameter < 3.0:
+            return diameter * 0.2
+        else:
+            # Use linear approximation for larger sizes
+            return 0.5 + (diameter - 3.0) * 0.15
+    
+    def _approximate_head_dimensions(self, diameter: float) -> Tuple[float, float]:
+        """
+        Approximate hex head dimensions for non-standard diameters.
+        
+        Args:
+            diameter: Nominal diameter in mm
+            
+        Returns:
+            Tuple of (head_diameter, head_height) in mm
+        """
+        # Based on regression analysis of standard dimensions
+        # More accurate than simple multipliers
+        head_diameter = diameter * 1.5 + 1.0  # Width across flats
+        head_height = diameter * 0.6 + 0.4    # Head height
+        
+        return head_diameter, head_height
     
     def _parse_bearing_size(self, size: str) -> Optional[Dict[str, float]]:
         """Parse bearing size like 608 or 625-2RS."""

@@ -904,28 +904,27 @@ class GeometryValidator:
         v_center = (v_min + v_max) / 2
         normal = face.normalAt(u_center, v_center)
         
-        # Calculate angle between face normal and pull direction
-        # For proper draft, ALL faces should have sufficient angle from perpendicular
-        dot_product = normal.x * pull_direction[0] + normal.y * pull_direction[1] + normal.z * pull_direction[2]
+        # Use FreeCAD's built-in Vector methods for cleaner, more accurate angle calculation
+        # Create a FreeCAD Vector from the pull direction tuple
+        import FreeCAD
+        pull_vector = FreeCAD.Vector(pull_direction[0], pull_direction[1], pull_direction[2])
         
-        # Calculate draft angle for all non-parallel faces
-        # Steps:
-        # 1. Clamp dot_product to [-1, 1] range to avoid math domain error from floating point precision
-        # 2. Handle undercuts specially - when dot_product < 0, the face is an undercut
-        # 3. Convert from angle with pull direction to draft angle (measured from vertical)
-        clamped_dot = max(-1.0, min(1.0, dot_product))
+        # Use FreeCAD's getAngle() method for robust angle calculation
+        # This method handles edge cases and numerical precision issues internally
+        # Returns angle in radians between the two vectors
+        angle_radians = normal.getAngle(pull_vector)
+        angle_from_pull = math.degrees(angle_radians)
         
-        # Handle undercuts (negative dot product means face normal points away from pull direction)
-        if clamped_dot < 0:
-            # This is an undercut - the face slopes back under the part
-            # The draft angle is negative, indicating an undercut condition
-            # angle_from_pull is > 90°, so draft_angle = 90° - angle_from_pull is negative
-            angle_from_pull = math.degrees(math.acos(clamped_dot))
-            draft_angle = 90 - angle_from_pull  # Will be negative for undercuts
-        else:
-            # Normal case - face has positive or zero draft
-            angle_from_pull = math.degrees(math.acos(clamped_dot))
-            draft_angle = 90 - angle_from_pull
+        # Calculate draft angle (measured from vertical/perpendicular)
+        # Draft angle is 90° minus the angle between normal and pull direction
+        draft_angle = 90 - angle_from_pull
+        
+        # For undercuts, the angle from pull direction is > 90°, making draft_angle negative
+        # This is automatically handled by the calculation above
+        
+        # Store the dot product for parallel face detection
+        # Using FreeCAD's dot method for consistency
+        dot_product = normal.dot(pull_vector)
         
         # Validate draft angle for ALL non-parallel faces, not just nearly vertical ones
         # Parallel faces (dot_product ≈ 1) don't need draft validation

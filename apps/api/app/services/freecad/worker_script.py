@@ -1172,12 +1172,25 @@ class FreeCADWorker:
         # Use module-level PathValidator import
         if PathValidator is None:
             # Fallback to basic validation if PathValidator not available
-            path_obj = Path(path).resolve()
-            allowed_obj = Path(allowed_dir).resolve()
+            # Use os.path.realpath for better symlink attack prevention
+            # This matches the security approach used in PathValidator
+            import os
+            
+            # Resolve symlinks and normalize the paths using os.path.realpath
+            # This is more secure than Path.resolve() as it handles edge cases better
+            real_path = os.path.realpath(str(path))
+            real_allowed = os.path.realpath(str(allowed_dir))
+            
+            # Use os.path.commonpath to ensure path is within allowed directory
+            # This is the recommended secure approach for path validation
             try:
-                path_obj.relative_to(allowed_obj)
-                return str(path_obj)
-            except ValueError:
+                common = os.path.commonpath([real_path, real_allowed])
+                if common != real_allowed:
+                    raise ValueError(f"Invalid {path_type}: Path outside allowed directory")
+                return real_path
+            except (ValueError, TypeError):
+                # commonpath raises ValueError if paths are on different drives (Windows)
+                # or TypeError for mixed absolute/relative paths
                 raise ValueError(f"Invalid {path_type}: Path outside allowed directory")
         
         # Use the allowed directory string directly as cache key

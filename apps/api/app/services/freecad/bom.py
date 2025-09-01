@@ -325,30 +325,28 @@ class BOMExtractor:
                         brep_success = False
                 elif hasattr(obj.Shape, 'exportBrep'):
                     # Fallback to disk-based export only if in-memory not available
+                    # Use TemporaryDirectory for automatic cleanup - more robust than manual cleanup
                     import tempfile
                     import os as os_module  # Alias to avoid conflict with FreeCAD os
                     
-                    with tempfile.NamedTemporaryFile(suffix='.brep', delete=False) as tmp_file:
-                        tmp_path = tmp_file.name
-                    
                     brep_success = False
-                    try:
-                        obj.Shape.exportBrep(tmp_path)
-                        with open(tmp_path, 'rb') as f:
-                            hasher.update(f.read())
-                        brep_success = True
-                    except Exception as e:
-                        # Handle BREP export failures gracefully
-                        logger.debug(f"BREP export failed, falling back to bbox dimensions: {e}")
-                    finally:
-                        # Resource cleanup MUST be in finally block to guarantee execution
-                        # This ensures cleanup happens even if unexpected errors occur
+                    
+                    # TemporaryDirectory automatically cleans up all contents on exit
+                    # This is more reliable than manual cleanup and handles edge cases better
+                    with tempfile.TemporaryDirectory(prefix='freecad_brep_') as temp_dir:
                         try:
-                            if os_module.path.exists(tmp_path):
-                                os_module.unlink(tmp_path)
-                        except Exception as cleanup_error:
-                            # Log cleanup failures but don't raise - cleanup is best-effort
-                            logger.debug(f"Failed to clean up temporary file {tmp_path}: {cleanup_error}")
+                            # Create BREP file within the temporary directory
+                            brep_path = os_module.path.join(temp_dir, 'shape.brep')
+                            obj.Shape.exportBrep(brep_path)
+                            
+                            # Read and hash the BREP content
+                            with open(brep_path, 'rb') as f:
+                                hasher.update(f.read())
+                            brep_success = True
+                        except Exception as e:
+                            # Handle BREP export failures gracefully
+                            logger.debug(f"BREP export failed, falling back to bbox dimensions: {e}")
+                        # No finally block needed - TemporaryDirectory handles all cleanup automatically
                     
                     # Fallback to bounding box dimensions if BREP export failed
                     if not brep_success:
