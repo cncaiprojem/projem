@@ -413,25 +413,39 @@ class ExplodedViewGenerator:
                 size = max(bbox.XLength, bbox.YLength, bbox.ZLength)
                 
                 # Apply additional separation to avoid collision
+                # Calculate minimum separation based on current object size
                 min_separation = size * self.COLLISION_AVOIDANCE_FACTOR
                 
                 for collision in current_collisions:
                     # Get the other object in collision
                     other_id = collision.object_b if collision.object_a == comp_id else collision.object_a
                     
-                    # Find the other component's position
+                    # Find the other component's position and size
                     for other in already_exploded:
                         if other.component_id == other_id:
+                            # Get the other object's size from the lookup
+                            other_obj = component_lookup.get(other_id)
+                            if other_obj and hasattr(other_obj, 'Shape') and other_obj.Shape:
+                                other_bbox = other_obj.Shape.BoundBox
+                                other_size = max(other_bbox.XLength, other_bbox.YLength, other_bbox.ZLength)
+                                
+                                # Calculate minimum separation based on BOTH objects' sizes
+                                # This ensures adequate clearance considering dimensions of both colliding objects
+                                combined_min_separation = (size + other_size) / 2 * self.COLLISION_AVOIDANCE_FACTOR
+                            else:
+                                # Fallback to single object size if other object size unavailable
+                                combined_min_separation = min_separation
+                            
                             # Calculate direction vector away from collision
                             direction = [
                                 exploded_pos[i] - other.exploded_position[i]
                                 for i in range(3)
                             ]
                             
-                            # Normalize and apply minimum separation
+                            # Normalize and apply combined minimum separation
                             distance = math.sqrt(sum(d**2 for d in direction))
                             if distance > 0:
-                                factor = min_separation / distance
+                                factor = combined_min_separation / distance
                                 exploded_pos = [
                                     exploded_pos[i] + direction[i] * factor
                                     for i in range(3)
@@ -448,14 +462,31 @@ class ExplodedViewGenerator:
             size = max(bbox.XLength, bbox.YLength, bbox.ZLength)
             
             # Check distance to other exploded components
+            # Initial minimum separation based on current object size
             min_separation = size * self.COLLISION_AVOIDANCE_FACTOR
             
+            # Get component lookup for size retrieval
+            component_lookup = {cid: component_obj for cid, component_obj, _ in all_components}
+            
             for other in already_exploded:
+                # Get the other object's size
+                other_obj = component_lookup.get(other.component_id)
+                if other_obj and hasattr(other_obj, 'Shape') and other_obj.Shape:
+                    other_bbox = other_obj.Shape.BoundBox
+                    other_size = max(other_bbox.XLength, other_bbox.YLength, other_bbox.ZLength)
+                    
+                    # Calculate minimum separation based on BOTH objects' sizes
+                    # This provides proper clearance considering both colliding objects
+                    combined_min_separation = (size + other_size) / 2 * self.COLLISION_AVOIDANCE_FACTOR
+                else:
+                    # Fallback to single object size if other size unavailable
+                    combined_min_separation = min_separation
+                
                 distance = math.sqrt(
                     sum((exploded_pos[i] - other.exploded_position[i])**2 for i in range(3))
                 )
                 
-                if distance < min_separation:
+                if distance < combined_min_separation:
                     # Push further away
                     direction = [
                         exploded_pos[i] - other.exploded_position[i]
@@ -467,7 +498,7 @@ class ExplodedViewGenerator:
                     if dir_length > 0.001:
                         normalized = [d / dir_length for d in direction]
                         adjustment = [
-                            normalized[i] * (min_separation - distance)
+                            normalized[i] * (combined_min_separation - distance)
                             for i in range(3)
                         ]
                         exploded_pos = [

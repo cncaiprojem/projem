@@ -37,6 +37,10 @@ class DeterministicExporter:
     # These patterns are used to identify FILE_NAME and FILE_DESCRIPTION lines in STEP files
     FILE_NAME_PATTERN = re.compile(r'FILE_NAME')
     FILE_DESCRIPTION_PATTERN = re.compile(r'FILE_DESCRIPTION')
+    # ISO timestamp pattern compiled at class level for reuse
+    ISO_TIMESTAMP_PATTERN = re.compile(
+        r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
+    )
     
     def __init__(
         self, 
@@ -252,10 +256,9 @@ class DeterministicExporter:
                 # Apply replacements ONLY to the HEADER section
                 cleaned_header = header_section
                 
-                # Pattern for ISO timestamp strings in HEADER (e.g., '2024-01-15T10:30:45')
+                # Replace ISO timestamp strings in HEADER using pre-compiled pattern
                 # Only replace timestamps within the HEADER section
-                iso_timestamp_pattern = r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
-                cleaned_header = re.sub(iso_timestamp_pattern, f"'{self.source_date.isoformat()}'", cleaned_header)
+                cleaned_header = self.ISO_TIMESTAMP_PATTERN.sub(f"'{self.source_date.isoformat()}'", cleaned_header)
                 
                 # Pattern for FILE_NAME timestamp in HEADER section
                 # FILE_NAME('filename','2024-01-15T10:30:45',('author'),...)
@@ -275,16 +278,12 @@ class DeterministicExporter:
                 
                 # Use list comprehension for efficient line modification instead of in-place updates
                 lines = content.split('\n')
-                # Compile regex pattern once for better performance
-                iso_timestamp_pattern = re.compile(
-                    r"'\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})?'"
-                )
                 replacement = f"'{self.source_date.isoformat()}'"
                 
                 # Efficient list comprehension - avoids in-place modification
                 # Use pre-compiled regex patterns for better performance
                 lines = [
-                    iso_timestamp_pattern.sub(replacement, line)
+                    self.ISO_TIMESTAMP_PATTERN.sub(replacement, line)
                     if (self.FILE_NAME_PATTERN.search(line) or self.FILE_DESCRIPTION_PATTERN.search(line))
                     else line
                     for line in lines

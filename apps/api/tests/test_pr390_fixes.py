@@ -12,6 +12,9 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
+# Test constants
+TEST_FILE_LINE_COUNT = 60  # Number of lines to generate in test files
+
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
 sys.path.insert(0, str(project_root))
@@ -35,8 +38,8 @@ class TestPR390Fixes(unittest.TestCase):
         # Create a test file with many lines using context manager with proper cleanup
         with tempfile.NamedTemporaryFile(mode='w', delete=False) as f:
             # Reduced iteration count for faster test execution
-            # 60 lines is sufficient to test the functionality up to line 53
-            for i in range(60):
+            # TEST_FILE_LINE_COUNT lines is sufficient to test the functionality up to line 53
+            for i in range(TEST_FILE_LINE_COUNT):
                 f.write(f"Line {i}\n")
             temp_path = f.name
         

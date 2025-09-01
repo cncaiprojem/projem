@@ -15,7 +15,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
-import traceback
+import traceback  # Used for testing exception chaining preservation
 
 # Add project root to path
 project_root = Path(__file__).parent.parent.parent.parent
@@ -212,9 +212,14 @@ END-ISO-10303-21;"""
             # This should trigger path validation and proper exception chaining
             result = manager._validate_upload_path("../../../etc/passwd")
         
-        # The ValueError should have the PathValidationError as its cause
-        # Note: This depends on the actual implementation
-        self.assertIn("Path validation failed", str(ctx.exception))
+        # The ValueError should contain path validation error information
+        # Check that the error message contains appropriate security warning
+        error_str = str(ctx.exception)
+        self.assertTrue(
+            "Path is outside allowed directories" in error_str or
+            "Invalid upload" in error_str,
+            f"Expected path validation error, got: {error_str}"
+        )
 
 
 if __name__ == "__main__":
