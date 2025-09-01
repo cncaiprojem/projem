@@ -568,14 +568,35 @@ doc.recompute()"""
         except InvalidSizeFormatError:
             # Re-raise our custom exception
             raise
-        except Exception as e:
-            # Catch any other parsing errors and convert to our exception
+        except (ValueError, TypeError) as e:
+            # Handle parsing-specific errors (e.g., invalid number format, type conversion)
             # Use 'raise ... from e' to preserve the original traceback for debugging
             raise InvalidSizeFormatError(
                 size=size,
                 category=part_def.category.value,
-                format_hint=f"{self._get_size_format_hint(part_def.category)}. Error: {str(e)}"
+                format_hint=f"{self._get_size_format_hint(part_def.category)}. Parsing error: {str(e)}"
             ) from e
+        except (IndexError, KeyError) as e:
+            # Handle structure-related errors (e.g., missing parts in split, dict key errors)
+            raise InvalidSizeFormatError(
+                size=size,
+                category=part_def.category.value,
+                format_hint=f"{self._get_size_format_hint(part_def.category)}. Format error: {str(e)}"
+            ) from e
+        except AttributeError as e:
+            # Handle attribute access errors (e.g., None.split(), missing method)
+            raise InvalidSizeFormatError(
+                size=size,
+                category=part_def.category.value,
+                format_hint=f"{self._get_size_format_hint(part_def.category)}. Invalid input: {str(e)}"
+            ) from e
+        except Exception as e:
+            # Only catch truly unexpected exceptions as a last resort
+            # Log the full exception for debugging
+            logger.exception(f"Unexpected error parsing size '{size}' for {part_def.category.value}: {e}")
+            # Re-raise the original exception to preserve debugging information
+            # This prevents masking of unexpected errors like MemoryError, SystemError, etc.
+            raise
         
         # Check for parametric generation vs template
         result = {

@@ -385,7 +385,10 @@ class Assembly4Manager:
                                 if doc_name:
                                     try:
                                         FreeCAD.closeDocument(doc_name)
-                                    except Exception as close_exc:
+                                    except (RuntimeError, AttributeError) as close_exc:
+                                        # Handle FreeCAD document closing errors specifically
+                                        # RuntimeError: document doesn't exist or already closed
+                                        # AttributeError: FreeCAD API issues
                                         logger.error(f"Failed to close imported document '{doc_name}': {close_exc}")
                         else:
                             raise ValueError(f"File not found: {validated_path}")
@@ -393,9 +396,29 @@ class Assembly4Manager:
                 except ValueError as e:
                     logger.error(f"Security violation - invalid path: {e}", exc_info=True)
                     raise ValueError(f"Invalid file path: {file_path}") from e
+                except (IOError, OSError, FileNotFoundError) as e:
+                    # Handle file system errors specifically
+                    logger.error(f"File system error importing {file_path}: {e}", exc_info=True)
+                    raise ValueError(f"Could not access file: {file_path}") from e
+                except ImportError as e:
+                    # Handle FreeCAD import errors (e.g., unsupported format)
+                    logger.error(f"Import format error for {file_path}: {e}", exc_info=True)
+                    raise ValueError(f"Unsupported file format: {file_path}") from e
+                except RuntimeError as e:
+                    # Handle FreeCAD runtime errors (e.g., corrupt file, memory issues)
+                    logger.error(f"FreeCAD runtime error importing {file_path}: {e}", exc_info=True)
+                    raise ValueError(f"File processing error: {file_path}") from e
+                except AttributeError as e:
+                    # Handle FreeCAD API errors (e.g., missing properties/methods)
+                    logger.error(f"FreeCAD API error importing {file_path}: {e}", exc_info=True)
+                    raise ValueError(f"Internal processing error: {file_path}") from e
                 except Exception as e:
-                    logger.error(f"Failed to import file {file_path}: {e}", exc_info=True)
-                    raise ValueError(f"Could not import file: {file_path}") from e
+                    # Only catch truly unexpected exceptions as a last resort
+                    # Log with full traceback for debugging
+                    logger.exception(f"Unexpected error importing {file_path}: {e}")
+                    # Re-raise the original exception to preserve stack trace
+                    # This allows debugging of unexpected issues while not masking them
+                    raise
                 
         # Apply initial placement
         if comp_obj and component.initial_placement:
@@ -604,8 +627,15 @@ class Assembly4Manager:
                         )
                         frames.append(frame)
                         
-            except Exception as e:
-                logger.error(f"Kinematic simulation failed: {e}")
+            except (ImportError, AttributeError) as e:
+                # Handle solver import/API errors specifically
+                logger.error(f"Kinematic solver not available or API error: {e}")
+            except (ValueError, TypeError) as e:
+                # Handle parameter/configuration errors
+                logger.error(f"Invalid kinematic simulation parameters: {e}")
+            except RuntimeError as e:
+                # Handle solver runtime errors (convergence, constraints)
+                logger.error(f"Kinematic solver failed: {e}")
         
         return frames
     
@@ -814,9 +844,27 @@ class Assembly4Manager:
         # Execute in sandboxed environment
         try:
             exec(compile(tree, '<sandboxed>', 'exec'), safe_globals)
+        except (NameError, AttributeError) as e:
+            # Handle undefined names or attribute access errors
+            logger.error(f"Script references undefined names or attributes: {e}")
+            raise ValueError(f"Script execution error - undefined reference: {e}")
+        except (TypeError, ValueError) as e:
+            # Handle type/value errors in script logic
+            logger.error(f"Script contains invalid operations: {e}")
+            raise ValueError(f"Script execution error - invalid operation: {e}")
+        except ImportError as e:
+            # Handle import attempts (should be blocked by AST validator)
+            logger.error(f"Script attempted unauthorized import: {e}")
+            raise ValueError(f"Script execution error - import not allowed: {e}")
+        except RuntimeError as e:
+            # Handle runtime errors (recursion, memory, etc.)
+            logger.error(f"Script runtime error: {e}")
+            raise ValueError(f"Script execution error - runtime failure: {e}")
         except Exception as e:
-            logger.error(f"Script execution failed: {e}")
-            raise ValueError(f"Script execution error: {e}")
+            # Only catch truly unexpected exceptions as a last resort
+            logger.exception(f"Unexpected script execution error: {e}")
+            # Re-raise to preserve debugging information for unexpected errors
+            raise
         
         # Return the created component
         return doc.getObject(component_id)
