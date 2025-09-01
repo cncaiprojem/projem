@@ -197,7 +197,7 @@ class StandardPartsLibrary:
         5.0: 0.8,
         6.0: 1.0,
         7.0: 1.0,
-        8.0: 1.25,  # M8 has 1.25mm pitch per ISO 261/DIN 13-1 standard (see URLs above)
+        8.0: 1.25,  # M8 has 1.25mm pitch per ISO 261/DIN 13-1 standard (https://www.iso.org/standard/4167.html)
         10.0: 1.5,
         12.0: 1.75,
         14.0: 2.0,
@@ -685,7 +685,7 @@ doc.recompute()"""
             # Look up exact thread pitch from standard table
             thread_pitch = self.METRIC_COARSE_PITCH.get(diameter)
             if thread_pitch is None:
-                # For non-standard sizes, use ISO 261 formula approximation (see standard URLs above)
+                # For non-standard sizes, use ISO 261 formula approximation (https://www.iso.org/standard/4167.html)
                 # This is more accurate than the simple 0.125 * diameter
                 if diameter < 1.0:
                     thread_pitch = 0.2
@@ -734,7 +734,7 @@ doc.recompute()"""
         # Strip suffixes like -2RS, -ZZ to get base bearing code
         base_size = size.split("-")[0]
         
-        # Use the class constant BEARING_DIMENSIONS instead of local variable
+        # Look up bearing dimensions from standard catalog
         return self.BEARING_DIMENSIONS.get(base_size)
     
     def _get_size_format_hint(self, category: PartCategory) -> str:

@@ -272,23 +272,12 @@ class DeterministicExporter:
                 # Reconstruct the file with cleaned header and untouched DATA section
                 content = content[:header_start] + cleaned_header + content[header_end:]
             else:
-                # Fallback: If we can't identify sections, be more conservative
-                # Only replace obvious timestamp patterns that won't affect geometry
-                logger.debug("Could not identify HEADER section, using conservative approach")
-                
-                # Use list comprehension for efficient line modification instead of in-place updates
-                lines = content.split('\n')
-                replacement = f"'{self.source_date.isoformat()}'"
-                
-                # Efficient list comprehension - avoids in-place modification
-                # Use pre-compiled regex patterns for better performance
-                lines = [
-                    self.ISO_TIMESTAMP_PATTERN.sub(replacement, line)
-                    if (self.FILE_NAME_PATTERN.search(line) or self.FILE_DESCRIPTION_PATTERN.search(line))
-                    else line
-                    for line in lines
-                ]
-                content = '\n'.join(lines)
+                # If HEADER section not found, log warning and skip cleaning
+                # This avoids any risk of corrupting geometric data in the DATA section
+                logger.warning(
+                    "Could not identify HEADER section in STEP file. "
+                    "Skipping timestamp cleaning to preserve data integrity."
+                )
             
             # Validate the cleaned STEP file structure
             if not self._validate_step_structure(content):

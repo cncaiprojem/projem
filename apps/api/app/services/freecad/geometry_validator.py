@@ -273,7 +273,7 @@ class GeometryValidator:
                                     if distance < min_thickness and distance > 0:
                                         min_thickness = distance
                             except Exception as e:
-                                logger.debug(f"Could not compute distance between faces: {e}")
+                                logger.debug("Could not compute distance between faces: %s", e)
                     
                     # Validate the minimum thickness found
                     if min_thickness != float('inf'):
@@ -318,7 +318,7 @@ class GeometryValidator:
                             if draft_issue:
                                 result.manufacturing_issues.append(draft_issue)
                     except Exception as e:
-                        logger.debug(f"Could not check draft angle: {e}")
+                        logger.debug("Could not check draft angle: %s", e)
             
             # Check for undercuts/overhangs (for 3D printing)
             if hasattr(shape, 'Faces'):
@@ -334,7 +334,7 @@ class GeometryValidator:
                                         f"Overhang angle {overhang_angle:.1f}° exceeds maximum {self.constraints.max_overhang_angle}°"
                                     )
                     except Exception as e:
-                        logger.debug(f"Could not check overhang: {e}")
+                        logger.debug("Could not check overhang: %s", e)
             
             # Tool access check (simplified)
             if self.constraints.tool_access_required:
@@ -524,7 +524,7 @@ class GeometryValidator:
                     except Exception:
                         pass
         except Exception as e:
-            logger.debug(f"Wall thickness measurement error: {e}")
+            logger.debug("Wall thickness measurement error: %s", e)
         
         return min_thickness if min_thickness != float('inf') else 0.0
     
@@ -608,10 +608,10 @@ class GeometryValidator:
                                         tool_params, bbox, clearance_issues
                                     )
                     except Exception as e:
-                        logger.debug(f"Ray casting at ({x}, {y}): {e}")
+                        logger.debug("Ray casting at (%s, %s): %s", x, y, e)
                         
         except Exception as e:
-            logger.debug(f"Ray casting analysis error: {e}")
+            logger.debug("Ray casting analysis error: %s", e)
             
         return inaccessible_regions, clearance_issues
     
@@ -657,7 +657,7 @@ class GeometryValidator:
                         'reason': 'insufficient_clearance'
                     })
         except Exception as e:
-            logger.debug(f"Clearance check failed: {e}")
+            logger.debug("Clearance check failed: %s", e)
     
     def _analyze_accessibility_issues(
         self, result: Dict[str, List[str]], 
@@ -736,7 +736,7 @@ class GeometryValidator:
                         )
                         break  # One warning is enough
         except Exception as e:
-            logger.debug(f"Radius requirements check failed: {e}")
+            logger.debug("Radius requirements check failed: %s", e)
     
     def _analyze_deep_pockets(self, result: Dict[str, List[str]], 
                             shape: Any, bbox: Any):
@@ -774,7 +774,7 @@ class GeometryValidator:
                         )
                         break
         except Exception as e:
-            logger.debug(f"Deep pocket analysis failed: {e}")
+            logger.debug("Deep pocket analysis failed: %s", e)
     
     def _check_tool_accessibility(self, shape: Any) -> Dict[str, List[str]]:
         """
@@ -824,7 +824,7 @@ class GeometryValidator:
             self._analyze_deep_pockets(result, shape, bbox)
                         
         except Exception as e:
-            logger.debug(f"Tool accessibility check error: {e}")
+            logger.debug("Tool accessibility check error: %s", e)
             result["warnings"].append(
                 "Tool accessibility analysis encountered an error. "
                 "Manual review of CNC manufacturability is recommended."
@@ -847,7 +847,7 @@ class GeometryValidator:
                                 f"Internal fillet radius {edge.Curve.Radius:.2f}mm < tool radius {min_radius}mm"
                             )
         except Exception as e:
-            logger.debug(f"Fillet check error: {e}")
+            logger.debug("Fillet check error: %s", e)
         
         return warnings
     
@@ -867,7 +867,7 @@ class GeometryValidator:
                         if overhang_angle > max_angle:
                             issues.append(f"Overhang at {overhang_angle:.1f}°")
         except Exception as e:
-            logger.debug(f"Overhang check error: {e}")
+            logger.debug("Overhang check error: %s", e)
         
         return issues
     
@@ -1022,6 +1022,6 @@ class GeometryValidator:
                                 issues.append(edge_msg)
                                 
         except Exception as e:
-            logger.debug(f"Bridge check error: {e}")
+            logger.debug("Bridge check error: %s", e)
         
         return issues

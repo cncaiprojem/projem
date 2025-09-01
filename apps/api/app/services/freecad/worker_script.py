@@ -1180,9 +1180,9 @@ class FreeCADWorker:
             except ValueError:
                 raise ValueError(f"Invalid {path_type}: Path outside allowed directory")
         
-        # Create cache key from the specific allowed directory
-        # Use frozenset for immutable, hashable key (single directory case)
-        cache_key = frozenset([allowed_dir])
+        # Use the allowed directory string directly as cache key
+        # This is more efficient than creating a frozenset for a single value
+        cache_key = allowed_dir
         
         # Check if we have a cached validator for this specific directory
         if cache_key not in self.path_validators:
@@ -1557,7 +1557,9 @@ class FreeCADWorker:
                 raise ValueError("Input file not provided in input data")
             
             # Security: Prevent path traversal
-            input_file = self._validate_path_security(input_file, '/work', 'input file')
+            # Use configurable directory from allowed dirs (prefer first non-/tmp directory)
+            upload_dir = next((d for d in self.all_allowed_dirs if d != '/tmp'), '/work')
+            input_file = self._validate_path_security(input_file, upload_dir, 'input file')
             
             if not os.path.exists(input_file):
                 raise ValueError(f"Input file not found: {input_file}")
