@@ -344,7 +344,7 @@ if source_units != target_units:
             obj.Shape = obj.Shape.transformGeometry(matrix)
 
 # Normalize orientation to Z-up if needed using principal axes
-if {config.normalize_orientation}:
+if config.normalize_orientation:
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
             # Use principal axes of inertia for robust orientation
@@ -387,14 +387,14 @@ if {config.normalize_orientation}:
                     obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), ROTATION_ANGLE_NEG_90_DEGREES)
 
 # Center geometry if needed
-if {config.center_geometry}:
+if config.center_geometry:
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
             center = obj.Shape.BoundBox.Center
             obj.Shape.translate(-center)
 
 # Merge duplicates if needed
-if {config.merge_duplicates}:
+if config.merge_duplicates:
     shapes = []
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
@@ -786,7 +786,7 @@ if source_units != target_units:
             obj.Shape = obj.Shape.transformGeometry(matrix)
 
 # Consolidate layers if needed
-if {config.merge_duplicates}:
+if config.merge_duplicates:
     # Group objects by layer
     layer_objects = {{}}
     for obj in doc.Objects:
