@@ -17,9 +17,9 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import traceback  # Used for testing exception chaining preservation
 
-# Add project root to path
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
+# Use shared test utility for robust path setup
+from test_utils import setup_test_paths
+project_root = setup_test_paths()
 
 
 class TestPR391Fixes(unittest.TestCase):

@@ -15,18 +15,31 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Use shared test utility for robust path setup
+from test_utils import setup_test_paths
+project_root = setup_test_paths()
 
 
 class TestPR407SecurityFixes(unittest.TestCase):
     """Test security improvements in path validation."""
     
+    def setUp(self):
+        """Create mock args for FreeCADWorker initialization."""
+        class MockArgs:
+            def __init__(self):
+                self.metrics_interval = 1.0
+                self.cpu_seconds = 20
+                self.mem_mb = 2048
+                self.output_dir = "/tmp/output"
+                self.debug = False
+        
+        self.mock_args = MockArgs()
+    
     def test_worker_script_realpath_validation(self):
         """Test that worker_script uses os.path.realpath for symlink attack prevention."""
         from app.services.freecad.worker_script import FreeCADWorker
         
-        processor = FreeCADWorker()
+        processor = FreeCADWorker(self.mock_args)
         
         # Test with a temporary directory
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -50,7 +63,7 @@ class TestPR407SecurityFixes(unittest.TestCase):
         """Test that paths outside allowed directory are rejected."""
         from app.services.freecad.worker_script import FreeCADWorker
         
-        processor = FreeCADWorker()
+        processor = FreeCADWorker(self.mock_args)
         
         with tempfile.TemporaryDirectory() as allowed_dir:
             with tempfile.TemporaryDirectory() as other_dir:
@@ -77,7 +90,7 @@ class TestPR407TempFileHandling(unittest.TestCase):
     @patch('app.services.freecad.bom.logger')
     def test_bom_uses_temporary_directory(self, mock_logger):
         """Test that BOM uses TemporaryDirectory for automatic cleanup."""
-        from app.services.freecad.bom import BOMGenerator
+        from app.services.freecad.bom import BOMExtractor
         
         # Create mock FreeCAD objects
         mock_shape = Mock()
@@ -90,7 +103,7 @@ class TestPR407TempFileHandling(unittest.TestCase):
         mock_obj.Label = "Test Part"
         mock_obj.TypeId = "Part::Feature"
         
-        generator = BOMGenerator()
+        extractor = BOMExtractor()
         
         # The _compute_fingerprint method should use TemporaryDirectory
         # Patch hasattr to ensure we use the disk-based export path
@@ -98,7 +111,7 @@ class TestPR407TempFileHandling(unittest.TestCase):
                    attr == 'exportBrep' if obj == mock_shape else True):
             # The method should handle temp file cleanup automatically
             # No manual cleanup code should be needed
-            fingerprint = generator._compute_fingerprint(mock_obj)
+            fingerprint = extractor._compute_fingerprint(mock_obj)
         
         # Verify exportBrep was called with a temporary path
         mock_shape.exportBrep.assert_called_once()

@@ -13,8 +13,9 @@ import re
 import sys
 from pathlib import Path
 
-# Add parent directory to path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Use shared test utility for robust path setup
+from test_utils import setup_test_paths
+project_root = setup_test_paths()
 
 
 def test_worker_script_security():

@@ -1116,7 +1116,7 @@ class FreeCADWorker:
         self.cancelled = False
         
         # Initialize PathValidator cache dictionary following a4_assembly.py pattern
-        # Key: frozenset of allowed directories (immutable, hashable)
+        # Key: allowed directory string (each directory gets its own validator)
         # Value: PathValidator instance
         # This optimization reduces object creation overhead in hot paths
         self.path_validators = {}
@@ -1176,9 +1176,21 @@ class FreeCADWorker:
             # This matches the security approach used in PathValidator
             import os
             
+            # Validate path is not empty or None
+            if not path:
+                raise ValueError(f"Invalid {path_type}: Path cannot be empty")
+            
+            # Handle relative paths properly by joining with allowed_dir first
+            # This ensures relative paths are resolved relative to the allowed directory
+            # not the current working directory
+            path_str = str(path)
+            if not os.path.isabs(path_str):
+                # Join relative path with allowed directory
+                path_str = os.path.join(str(allowed_dir), path_str)
+            
             # Resolve symlinks and normalize the paths using os.path.realpath
             # This is more secure than Path.resolve() as it handles edge cases better
-            real_path = os.path.realpath(str(path))
+            real_path = os.path.realpath(path_str)
             real_allowed = os.path.realpath(str(allowed_dir))
             
             # Use os.path.commonpath to ensure path is within allowed directory
@@ -1982,7 +1994,7 @@ def main_standalone():
     helper to avoid code duplication.
     
     Design Pattern:
-        Uses a mock worker object to provide the necessary interface for the
+        Uses a StandaloneWorkerAdapter class to provide the necessary interface for the
         shared helper method, following the Adapter pattern to maintain
         compatibility while reducing code duplication.
     """

@@ -12,15 +12,14 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 
-# Test constants
-TEST_FILE_LINE_COUNT = 60  # Number of lines to generate in test files
+# Use shared test utility for robust path setup and constants
+from test_utils import setup_test_paths, TEST_FILE_LINE_COUNT
+project_root = setup_test_paths()
+
+# TEST_FILE_LINE_COUNT is imported from test_utils (value: 60)
 # This value is sufficient to test itertools.islice functionality while keeping
 # test execution fast. It covers the test case that reads lines 49-53 (requires
 # at least 54 lines) with some buffer for safety.
-
-# Add project root to path
-project_root = Path(__file__).parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
 
 # Import structured logging - use relative import or proper package path
 try:
