@@ -188,9 +188,10 @@ class Assembly4Manager:
         self._solver_available = self._check_solver()
         
         # Cache resolved allowed directories for O(1) path validation
-        # This avoids repeated Path.resolve() calls in loops (performance optimization)
+        # Use os.path.realpath for secure symlink resolution (prevents symlink attacks)
+        import os
         self._resolved_upload_dirs = [
-            Path(d).resolve() 
+            Path(os.path.realpath(d))
             for d in self.ALLOWED_UPLOAD_DIRS 
             if d.strip()
         ]
@@ -750,13 +751,37 @@ class Assembly4Manager:
         # Use module-level PathValidator import
         if PathValidator is None:
             # Fallback validation if PathValidator not available
-            file_path_obj = Path(file_path).resolve()
+            # Use os.path.realpath for better symlink attack prevention
+            # This matches the security approach used in PathValidator
+            import os
+            
+            # Validate path is not empty or None
+            if not file_path:
+                raise ValueError("Invalid path: Path cannot be empty")
+            
+            # Check against each allowed directory
             for allowed_dir in self._resolved_upload_dirs:
+                # Join relative paths with the current allowed_dir being checked
+                # This ensures relative paths are resolved relative to the allowed directory
+                # not the current working directory
+                path_str = str(file_path)
+                if not os.path.isabs(path_str):
+                    path_str = os.path.join(str(allowed_dir), path_str)
+                
+                # Resolve symlinks and normalize the paths using os.path.realpath
+                # This is more secure than Path.resolve() as it handles edge cases better
+                real_path = os.path.realpath(path_str)
+                real_allowed = os.path.realpath(str(allowed_dir))
+                
                 try:
-                    file_path_obj.relative_to(allowed_dir)
-                    return file_path_obj
+                    # Use os.path.commonpath for a robust security check
+                    # This is the recommended secure approach for path validation
+                    if os.path.commonpath([real_path, real_allowed]) == real_allowed:
+                        return Path(real_path)
                 except ValueError:
+                    # This can happen on Windows if paths are on different drives
                     continue
+            
             raise ValueError(f"Path {file_path} is outside allowed directories")
         
         # Create cache key from allowed directories
