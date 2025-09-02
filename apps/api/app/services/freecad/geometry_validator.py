@@ -1,11 +1,15 @@
 """
-Geometry Validator for Task 7.2
+Geometry Validator for Task 7.2 and Task 7.6
 
 Validates generated FreeCAD shapes with:
 - Shape validity checks (isValid, isClosed, isNull)
 - Non-manifold geometry detection
-- Manufacturing constraints validation
+- Manufacturing constraints validation per material/process
 - Export format validation
+- Min wall thickness by material: aluminum 0.8mm, steel 0.5mm, abs 1.2mm, pla 0.8mm
+- Draft angles for injection molding
+- Tool accessibility for CNC/milling
+- Overhang detection for 3D printing
 """
 
 from __future__ import annotations
@@ -70,6 +74,25 @@ class ValidationResult(BaseModel):
 
 class GeometryValidator:
     """Validate FreeCAD geometry for correctness and manufacturability."""
+    
+    # Material-specific minimum wall thickness (mm)
+    WALL_THICKNESS_BY_MATERIAL = {
+        "aluminum": 0.8,
+        "steel": 0.5,
+        "abs": 1.2,
+        "pla": 0.8,
+        "petg": 1.0,
+        "nylon": 1.0,
+        "brass": 0.6,
+        "copper": 0.6,
+    }
+    
+    # Process-specific draft angles (degrees)
+    DRAFT_ANGLE_BY_PROCESS = {
+        "injection_molding": {"min": 1.0, "recommended": 2.0},
+        "die_casting": {"min": 1.5, "recommended": 3.0},
+        "vacuum_forming": {"min": 3.0, "recommended": 5.0},
+    }
     
     def __init__(self, constraints: Optional[ManufacturingConstraints] = None):
         """
@@ -250,7 +273,7 @@ class GeometryValidator:
                                     if distance < min_thickness and distance > 0:
                                         min_thickness = distance
                             except Exception as e:
-                                logger.debug(f"Could not compute distance between faces: {e}")
+                                logger.debug("Could not compute distance between faces: %s", e)
                     
                     # Validate the minimum thickness found
                     if min_thickness != float('inf'):
@@ -278,23 +301,24 @@ class GeometryValidator:
                                 result.manufacturing_issues.append(error_msg)
                                 break
             
-            # Check draft angles for vertical faces
+            # Check draft angles for ALL faces against pull direction
+            # For molding/casting, all faces must have sufficient draft from the pull direction
             if hasattr(shape, 'Faces'):
+                # Assume Z-axis as default pull direction (can be made configurable)
+                pull_direction = [0, 0, 1]  # Positive Z direction
+                
                 for face in shape.Faces:
                     try:
-                        # Get face normal
+                        # Get face normal at center of face parameter range
                         if hasattr(face, 'normalAt'):
-                            normal = face.normalAt(0, 0)
-                            # Check if face is nearly vertical
-                            z_component = abs(normal.z)
-                            if z_component < 0.1:  # Nearly vertical
-                                # Calculate draft angle from vertical
-                                angle = math.degrees(math.asin(z_component))
-                                is_valid, error_msg = self.constraints.validate_draft(angle)
-                                if not is_valid:
-                                    result.manufacturing_issues.append(error_msg)
+                            # Check draft angle for this face
+                            draft_issue = self._check_face_draft_angle(
+                                face, pull_direction, self.constraints if hasattr(self, 'constraints') else None
+                            )
+                            if draft_issue:
+                                result.manufacturing_issues.append(draft_issue)
                     except Exception as e:
-                        logger.debug(f"Could not check draft angle: {e}")
+                        logger.debug("Could not check draft angle: %s", e)
             
             # Check for undercuts/overhangs (for 3D printing)
             if hasattr(shape, 'Faces'):
@@ -310,7 +334,7 @@ class GeometryValidator:
                                         f"Overhang angle {overhang_angle:.1f}° exceeds maximum {self.constraints.max_overhang_angle}°"
                                     )
                     except Exception as e:
-                        logger.debug(f"Could not check overhang: {e}")
+                        logger.debug("Could not check overhang: %s", e)
             
             # Tool access check (simplified)
             if self.constraints.tool_access_required:
@@ -398,3 +422,605 @@ class GeometryValidator:
             return False, f"Unknown export format: {format}"
         
         return True, None
+    
+    def validate_manufacturability(
+        self,
+        shape: Any,
+        material: str,
+        process: str
+    ) -> Dict[str, Any]:
+        """
+        Validate shape manufacturability for specific material and process.
+        Task 7.6 requirement.
+        
+        Args:
+            shape: FreeCAD shape object
+            material: Material name (e.g., "aluminum", "steel", "abs", "pla")
+            process: Manufacturing process (e.g., "milling", "injection_molding", "3d_printing")
+            
+        Returns:
+            Dictionary with valid flag, warnings, and errors
+        """
+        result = {
+            "valid": True,
+            "warnings": [],
+            "errors": []
+        }
+        
+        # Normalize inputs
+        material_lower = material.lower()
+        process_lower = process.lower()
+        
+        # Get material-specific constraints
+        min_wall = self.WALL_THICKNESS_BY_MATERIAL.get(material_lower, 1.0)
+        
+        # Basic shape validation first
+        validation = self.validate_shape(shape)
+        if not validation.is_valid:
+            result["valid"] = False
+            result["errors"].extend(validation.errors)
+            return result
+        
+        try:
+            import Part
+            
+            # Wall thickness check with material-specific limits
+            if hasattr(shape, 'Faces') and len(shape.Faces) > 1:
+                min_thickness = self._measure_min_wall_thickness(shape)
+                if min_thickness < min_wall:
+                    result["errors"].append(
+                        f"Min wall thickness {min_thickness:.2f}mm < {min_wall}mm required for {material}"
+                    )
+                    result["valid"] = False
+            
+            # Process-specific checks
+            if process_lower in ["milling", "cnc"]:
+                # Tool accessibility check
+                access_issues = self._check_tool_accessibility(shape)
+                if access_issues["errors"]:
+                    result["errors"].extend(access_issues["errors"])
+                    result["valid"] = False
+                result["warnings"].extend(access_issues["warnings"])
+                
+                # Check for minimum internal fillet radius
+                min_fillet = 0.5  # mm, typical for small end mills
+                fillet_issues = self._check_internal_fillets(shape, min_fillet)
+                result["warnings"].extend(fillet_issues)
+                
+            elif process_lower == "3d_printing":
+                # Overhang detection
+                max_overhang = 45.0  # degrees
+                overhang_issues = self._check_overhangs(shape, max_overhang)
+                if overhang_issues:
+                    result["warnings"].append(f"Overhangs > {max_overhang}° detected, supports needed")
+                
+                # Bridge detection
+                max_bridge = 10.0  # mm
+                bridge_issues = self._check_bridges(shape, max_bridge)
+                if bridge_issues:
+                    result["warnings"].append(f"Bridges > {max_bridge}mm detected, may sag")
+                
+        except Exception as e:
+            logger.error(f"Manufacturability validation failed: {e}")
+            result["errors"].append(f"Validation error: {str(e)}")
+            result["valid"] = False
+        
+        return result
+    
+    def _measure_min_wall_thickness(self, shape: Any) -> float:
+        """Measure minimum wall thickness using face-to-face distance."""
+        min_thickness = float('inf')
+        
+        try:
+            faces = list(shape.Faces)
+            for i, face1 in enumerate(faces[:-1]):
+                for face2 in faces[i+1:]:
+                    try:
+                        dist_result = face1.distToShape(face2)
+                        if isinstance(dist_result, tuple) and len(dist_result) > 0:
+                            distance = dist_result[0]
+                            if 0 < distance < min_thickness:
+                                min_thickness = distance
+                    except Exception:
+                        pass
+        except Exception as e:
+            logger.debug("Wall thickness measurement error: %s", e)
+        
+        return min_thickness if min_thickness != float('inf') else 0.0
+    
+    
+    def _get_tool_parameters(self) -> Dict[str, float]:
+        """Get standard tool parameters for accessibility analysis.
+        
+        Returns:
+            Dictionary with tool dimensions in mm
+        """
+        return {
+            "diameter": 6.0,  # Standard 6mm end mill
+            "radius": 3.0,
+            "length": 50.0,   # Standard tool length
+            "shank_diameter": 6.0,
+            "min_radius": 0.5  # Minimum internal radius for small tools
+        }
+    
+    def _perform_ray_casting_analysis(
+        self, shape: Any, bbox: Any, tool_params: Dict[str, float]
+    ) -> Tuple[List[Dict], List[Dict]]:
+        """Perform ray casting to detect inaccessible regions.
+        
+        Args:
+            shape: FreeCAD shape object
+            bbox: Shape bounding box
+            tool_params: Tool parameters dictionary
+            
+        Returns:
+            Tuple of (inaccessible_regions, clearance_issues)
+        """
+        inaccessible_regions = []
+        clearance_issues = []
+        
+        try:
+            import Part
+            
+            # Grid resolution for ray casting
+            grid_resolution = 10
+            tool_diameter = tool_params["diameter"]
+            tool_radius = tool_params["radius"]
+            tool_length = tool_params["length"]
+            
+            # Cast rays from top to detect accessibility
+            x_step = bbox.XLength / grid_resolution
+            y_step = bbox.YLength / grid_resolution
+            z_start = bbox.ZMax + 10  # Start above the part
+            
+            for i in range(grid_resolution):
+                for j in range(grid_resolution):
+                    x = bbox.XMin + i * x_step + x_step/2
+                    y = bbox.YMin + j * y_step + y_step/2
+                    
+                    # Cast ray downward
+                    try:
+                        ray_line = Part.makeLine(
+                            (x, y, z_start),
+                            (x, y, bbox.ZMin - 10)
+                        )
+                        
+                        # Check for intersections
+                        intersections = shape.common(ray_line)
+                        
+                        if intersections and getattr(intersections, 'Edges', None):
+                            for edge in intersections.Edges:
+                                if edge.Vertexes:
+                                    intersection_z = edge.Vertexes[0].Point.z
+                                    depth_from_top = bbox.ZMax - intersection_z
+                                    
+                                    # Check if tool can reach this depth
+                                    if depth_from_top > tool_length:
+                                        inaccessible_regions.append({
+                                            'x': x, 'y': y, 'z': intersection_z,
+                                            'depth': depth_from_top,
+                                            'reason': 'exceeds_tool_length'
+                                        })
+                                    
+                                    # Check clearance
+                                    self._check_tool_clearance(
+                                        shape, x, y, intersection_z, 
+                                        tool_params, bbox, clearance_issues
+                                    )
+                    except Exception as e:
+                        logger.debug("Ray casting at (%s, %s): %s", x, y, e)
+                        
+        except Exception as e:
+            logger.debug("Ray casting analysis error: %s", e)
+            
+        return inaccessible_regions, clearance_issues
+    
+    def _check_tool_clearance(
+        self, shape: Any, x: float, y: float, z: float,
+        tool_params: Dict[str, float], bbox: Any, clearance_issues: List[Dict]
+    ):
+        """Check tool clearance at a specific position.
+        
+        Args:
+            shape: FreeCAD shape
+            x, y, z: Position coordinates
+            tool_params: Tool parameters
+            bbox: Bounding box
+            clearance_issues: List to append issues to
+        """
+        try:
+            import Part
+            import math
+            
+            tool_radius = tool_params["radius"]
+            tool_length = tool_params["length"]
+            depth_from_top = bbox.ZMax - z
+            
+            # Create tool cylinder at position
+            tool_cylinder = Part.makeCylinder(
+                tool_radius,
+                min(tool_length, depth_from_top + 1),
+                Part.Vertex(x, y, bbox.ZMax).Point,
+                Part.Vertex(0, 0, -1).Point
+            )
+            
+            # Check for collisions
+            collision = shape.common(tool_cylinder)
+            if collision and collision.Volume > 0:
+                # Calculate expected cutting volume
+                cutting_volume_estimate = math.pi * tool_radius**2 * 1.0
+                
+                if collision.Volume > cutting_volume_estimate * 2:
+                    clearance_issues.append({
+                        'x': x, 'y': y, 'z': z,
+                        'volume': collision.Volume,
+                        'reason': 'insufficient_clearance'
+                    })
+        except Exception as e:
+            logger.debug("Clearance check failed: %s", e)
+    
+    def _analyze_accessibility_issues(
+        self, result: Dict[str, List[str]], 
+        inaccessible_regions: List[Dict],
+        clearance_issues: List[Dict],
+        tool_params: Dict[str, float]
+    ):
+        """Analyze and report accessibility issues.
+        
+        Args:
+            result: Result dictionary to append errors/warnings
+            inaccessible_regions: List of inaccessible regions
+            clearance_issues: List of clearance issues
+            tool_params: Tool parameters
+        """
+        tool_length = tool_params["length"]
+        tool_diameter = tool_params["diameter"]
+        
+        # Report tool length issues
+        if inaccessible_regions:
+            tool_length_issues = [r for r in inaccessible_regions 
+                                 if r['reason'] == 'exceeds_tool_length']
+            if tool_length_issues:
+                max_depth = max(r['depth'] for r in tool_length_issues)
+                result["errors"].append(
+                    f"Features at depth {max_depth:.1f}mm exceed tool length {tool_length}mm. "
+                    "Consider redesigning or using specialized tooling."
+                )
+        
+        # Report clearance issues
+        if clearance_issues:
+            total_issues = len(clearance_issues)
+            # Threshold: more than 10 issues is significant
+            if total_issues > 10:
+                result["errors"].append(
+                    f"Significant clearance issues at {total_issues} locations. "
+                    f"Tool diameter {tool_diameter}mm cannot access features. "
+                    "Consider larger internal radii or smaller tools."
+                )
+            else:
+                result["warnings"].append(
+                    f"Minor clearance issues at {total_issues} locations. "
+                    "Review internal corners and pockets."
+                )
+    
+    def _check_internal_radius_requirements(
+        self, result: Dict[str, List[str]], shape: Any, 
+        bbox: Any, tool_params: Dict[str, float]
+    ):
+        """Check minimum internal radius requirements.
+        
+        Args:
+            result: Result dictionary
+            shape: FreeCAD shape
+            bbox: Bounding box
+            tool_params: Tool parameters
+        """
+        try:
+            tool_diameter = tool_params["diameter"]
+            
+            for face in shape.Faces:
+                face_bbox = face.BoundBox
+                depth_from_top = bbox.ZMax - face_bbox.ZMax
+                
+                if depth_from_top > 0:
+                    # Industry standard: R = (H/10) + 0.5mm
+                    required_min_radius = (depth_from_top / 10) + 0.5
+                    required_tool_diameter = depth_from_top / 5
+                    
+                    if tool_diameter > required_tool_diameter * 1.5:
+                        result["warnings"].append(
+                            f"Tool diameter {tool_diameter}mm may be too large "
+                            f"for cavity depth {depth_from_top:.1f}mm. "
+                            f"Recommended: {required_tool_diameter:.1f}mm diameter, "
+                            f"minimum radius: {required_min_radius:.1f}mm"
+                        )
+                        break  # One warning is enough
+        except Exception as e:
+            logger.debug("Radius requirements check failed: %s", e)
+    
+    def _analyze_deep_pockets(self, result: Dict[str, List[str]], 
+                            shape: Any, bbox: Any):
+        """Analyze deep pocket accessibility.
+        
+        Args:
+            result: Result dictionary
+            shape: FreeCAD shape
+            bbox: Bounding box
+        """
+        try:
+            for face in shape.Faces:
+                face_bbox = face.BoundBox
+                depth_from_top = bbox.ZMax - face_bbox.ZMax
+                depth_from_bottom = face_bbox.ZMin - bbox.ZMin
+                
+                min_opening = min(face_bbox.XLength, face_bbox.YLength)
+                
+                if min_opening > 0:
+                    aspect_ratio_top = depth_from_top / min_opening
+                    aspect_ratio_bottom = depth_from_bottom / min_opening
+                    
+                    # Industry guideline: aspect ratio > 5 is problematic
+                    if aspect_ratio_top > 5:
+                        result["warnings"].append(
+                            f"Deep pocket from top (depth/width = {aspect_ratio_top:.1f}). "
+                            "May require specialized tooling."
+                        )
+                        break  # One warning is enough
+                    
+                    if aspect_ratio_bottom > 5:
+                        result["warnings"].append(
+                            f"Deep pocket from bottom (depth/width = {aspect_ratio_bottom:.1f}). "
+                            "Consider alternate orientations."
+                        )
+                        break
+        except Exception as e:
+            logger.debug("Deep pocket analysis failed: %s", e)
+    
+    def _check_tool_accessibility(self, shape: Any) -> Dict[str, List[str]]:
+        """
+        Check tool accessibility for CNC operations using ray casting approach.
+        
+        This implementation uses a ray casting technique to determine if tool
+        paths can reach all surfaces that need machining. It checks:
+        1. Vertical accessibility (Z-axis) for 3-axis milling
+        2. Deep pocket detection using aspect ratio analysis
+        3. Undercut detection from the primary analysis
+        4. Tool clearance validation around intersection points
+        
+        For production systems, consider using:
+        - Visibility maps for comprehensive accessibility analysis
+        - Configuration space approach for exact tool collision detection
+        - GPU-accelerated ray casting for complex parts
+        
+        References:
+        - "Accessibility Analysis for CNC Machining" (Elber & Cohen, 1994)
+        - "Global Accessibility Analysis for 5-Axis CNC" (Balasubramaniam et al., 2000)
+        """
+        result = {"errors": [], "warnings": []}
+        
+        try:
+            # Get bounding box for initial analysis
+            bbox = shape.BoundBox
+            
+            # Define tool parameters
+            tool_params = self._get_tool_parameters()
+            
+            # Perform ray casting analysis
+            inaccessible_regions, clearance_issues = self._perform_ray_casting_analysis(
+                shape, bbox, tool_params
+            )
+            
+            # Analyze and report accessibility issues
+            self._analyze_accessibility_issues(
+                result, inaccessible_regions, clearance_issues, tool_params
+            )
+            
+            # Check minimum internal radius requirements
+            self._check_internal_radius_requirements(
+                result, shape, bbox, tool_params
+            )
+            
+            # Perform deep pocket analysis
+            self._analyze_deep_pockets(result, shape, bbox)
+                        
+        except Exception as e:
+            logger.debug("Tool accessibility check error: %s", e)
+            result["warnings"].append(
+                "Tool accessibility analysis encountered an error. "
+                "Manual review of CNC manufacturability is recommended."
+            )
+        
+        return result
+    
+    def _check_internal_fillets(self, shape: Any, min_radius: float) -> List[str]:
+        """Check for minimum internal fillet radius."""
+        warnings = []
+        
+        try:
+            # Check edges for sharp internal corners
+            for edge in shape.Edges:
+                if hasattr(edge, 'Curve'):
+                    # Skip if already filleted (circular arc)
+                    if edge.Curve.__class__.__name__ == 'Circle':
+                        if edge.Curve.Radius < min_radius:
+                            warnings.append(
+                                f"Internal fillet radius {edge.Curve.Radius:.2f}mm < tool radius {min_radius}mm"
+                            )
+        except Exception as e:
+            logger.debug("Fillet check error: %s", e)
+        
+        return warnings
+    
+    def _check_overhangs(self, shape: Any, max_angle: float) -> List[str]:
+        """Check for overhangs that need support in 3D printing."""
+        issues = []
+        
+        try:
+            for face in shape.Faces:
+                if hasattr(face, 'normalAt'):
+                    u_min, u_max, v_min, v_max = face.ParameterRange
+                    normal = face.normalAt((u_min + u_max) / 2, (v_min + v_max) / 2)
+                    
+                    # Check downward-facing surfaces
+                    if normal.z < 0:
+                        overhang_angle = math.degrees(math.acos(abs(normal.z)))
+                        if overhang_angle > max_angle:
+                            issues.append(f"Overhang at {overhang_angle:.1f}°")
+        except Exception as e:
+            logger.debug("Overhang check error: %s", e)
+        
+        return issues
+    
+    def _check_face_draft_angle(
+        self,
+        face: Any,
+        pull_direction: List[float],
+        constraints: Optional[ManufacturingConstraints] = None
+    ) -> Optional[str]:
+        """
+        Check draft angle for a single face against pull direction.
+        
+        This method calculates the draft angle between a face normal and the pull
+        direction (typically Z-axis for molding). It detects undercuts and validates
+        draft angles against manufacturing constraints.
+        
+        Mathematical relationship:
+        - dot_product = cos(angle_from_pull) where angle_from_pull is angle between
+          face normal and pull direction
+        - angle_from_pull = acos(dot_product) gives us the angle in radians
+        - draft_angle is measured from vertical, so draft_angle = 90° - angle_from_pull
+        
+        Args:
+            face: FreeCAD face object to check
+            pull_direction: Pull direction vector [x, y, z]
+            constraints: Optional manufacturing constraints for validation
+            
+        Returns:
+            Error message if draft angle is insufficient, None if acceptable
+        """
+        # Sample the normal at the center of the face
+        u_min, u_max, v_min, v_max = face.ParameterRange
+        u_center = (u_min + u_max) / 2
+        v_center = (v_min + v_max) / 2
+        normal = face.normalAt(u_center, v_center)
+        
+        # Use FreeCAD's built-in Vector methods for cleaner, more accurate angle calculation
+        # Create a FreeCAD Vector from the pull direction tuple
+        import FreeCAD
+        pull_vector = FreeCAD.Vector(pull_direction[0], pull_direction[1], pull_direction[2])
+        
+        # Use FreeCAD's getAngle() method for robust angle calculation
+        # This method handles edge cases and numerical precision issues internally
+        # Returns angle in radians between the two vectors
+        angle_radians = normal.getAngle(pull_vector)
+        angle_from_pull = math.degrees(angle_radians)
+        
+        # Calculate draft angle (measured from vertical/perpendicular)
+        # Draft angle is 90° minus the angle between normal and pull direction
+        draft_angle = 90 - angle_from_pull
+        
+        # For undercuts, the angle from pull direction is > 90°, making draft_angle negative
+        # This is automatically handled by the calculation above
+        
+        # Store the dot product for parallel face detection
+        # Using FreeCAD's dot method for consistency
+        dot_product = normal.dot(pull_vector)
+        
+        # Validate draft angle for ALL non-parallel faces, not just nearly vertical ones
+        # Parallel faces (dot_product ≈ 1) don't need draft validation
+        if abs(dot_product) < 0.999:  # Check all faces except those parallel to pull direction
+            # Check for undercuts first (negative draft angle)
+            if draft_angle < 0:
+                # This is an undercut - always invalid for standard molding
+                return (
+                    f"Undercut detected: face has negative draft angle {draft_angle:.1f}°. "
+                    "This feature cannot be manufactured without side-actions or core pulls."
+                )
+            elif constraints:
+                is_valid, error_msg = constraints.validate_draft(draft_angle)
+                if not is_valid:
+                    return error_msg
+            else:
+                # Default validation if constraints not available
+                if draft_angle < 1.0:  # Minimum 1 degree draft
+                    return f"Draft angle {draft_angle:.1f}° below minimum"
+        
+        return None
+    
+    def _check_bridges(self, shape: Any, max_length: float) -> List[str]:
+        """
+        Check for unsupported bridges in 3D printing.
+        
+        This improved implementation detects horizontal surfaces that lack support
+        from below, which would cause sagging or failure during 3D printing.
+        It uses face analysis rather than just edge length to identify actual
+        unsupported spans.
+        """
+        issues = []
+        
+        try:
+            # Check for horizontal faces that might be bridges
+            for face in shape.Faces:
+                if hasattr(face, 'normalAt'):
+                    # Get face normal at center
+                    u_min, u_max, v_min, v_max = face.ParameterRange
+                    u_center = (u_min + u_max) / 2
+                    v_center = (v_min + v_max) / 2
+                    normal = face.normalAt(u_center, v_center)
+                    
+                    # Check if face is horizontal (normal pointing up or down)
+                    if abs(normal.z) > 0.9:  # Nearly horizontal face
+                        # Get face bounding box to measure span
+                        face_bbox = face.BoundBox
+                        
+                        # Calculate the maximum unsupported span
+                        max_span = max(face_bbox.XLength, face_bbox.YLength)
+                        
+                        # Check if this is a downward-facing surface (potential bridge)
+                        if normal.z < 0 and max_span > max_length:
+                            # This is a downward-facing horizontal surface with significant span
+                            # Now check if there's support underneath
+                            
+                            # Simple heuristic: check if this face is at the bottom of the shape
+                            shape_bbox = shape.BoundBox
+                            if face_bbox.ZMin > shape_bbox.ZMin + 0.1:  # Not at the bottom
+                                # This face is elevated and horizontal - likely a bridge
+                                issues.append(
+                                    f"Unsupported bridge detected: {max_span:.1f}mm span at Z={face_bbox.ZMin:.1f}mm"
+                                )
+                        elif normal.z > 0 and max_span > max_length:
+                            # Upward-facing horizontal surface - check if it's thin (bridge from above)
+                            # Look for a corresponding bottom face nearby
+                            for other_face in shape.Faces:
+                                if other_face != face and hasattr(other_face, 'normalAt'):
+                                    other_bbox = other_face.BoundBox
+                                    # Check if there's a parallel face below within small distance
+                                    if (abs(other_bbox.ZMax - face_bbox.ZMin) < 2.0 and 
+                                        abs(other_bbox.XMin - face_bbox.XMin) < 1.0 and
+                                        abs(other_bbox.YMin - face_bbox.YMin) < 1.0):
+                                        # Found a thin horizontal section
+                                        issues.append(
+                                            f"Thin bridge section: {max_span:.1f}mm span, thickness < 2mm"
+                                        )
+                                        break
+            
+            # Also check horizontal edges as a fallback
+            for edge in shape.Edges:
+                if hasattr(edge, 'Length') and edge.Length > max_length:
+                    # Check if edge is horizontal and unsupported
+                    v1 = edge.Vertexes[0].Point
+                    v2 = edge.Vertexes[-1].Point
+                    if abs(v1.z - v2.z) < 0.1:  # Nearly horizontal
+                        # Check if this edge is part of a bottom face (unsupported)
+                        edge_z = (v1.z + v2.z) / 2
+                        shape_bbox = shape.BoundBox
+                        if edge_z > shape_bbox.ZMin + 0.1:  # Not at the very bottom
+                            # Only report if not already detected by face analysis
+                            edge_msg = f"Horizontal edge span: {edge.Length:.1f}mm at Z={edge_z:.1f}mm"
+                            if edge_msg not in issues:
+                                issues.append(edge_msg)
+                                
+        except Exception as e:
+            logger.debug("Bridge check error: %s", e)
+        
+        return issues

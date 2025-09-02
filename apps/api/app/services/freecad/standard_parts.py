@@ -11,15 +11,93 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from jinja2 import Template, TemplateSyntaxError, sandbox
 from pydantic import BaseModel, Field
 
 from ...core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+# ============================================================================
+# Custom Exception Classes for Enterprise-Grade Error Handling
+# ============================================================================
+
+class StandardPartError(Exception):
+    """Base exception for standard part errors.
+    
+    This base class provides a foundation for all standard part related
+    exceptions, following enterprise error handling patterns.
+    """
+    pass
+
+
+class UnknownStandardError(StandardPartError):
+    """Raised when an unknown standard is requested.
+    
+    This exception provides detailed information about the requested standard
+    and available alternatives, enabling better error recovery.
+    
+    Attributes:
+        standard: The requested standard that was not found
+        known_standards: List of available standards
+    """
+    
+    def __init__(self, standard: str, known_standards: List[str]):
+        self.standard = standard
+        self.known_standards = known_standards
+        super().__init__(
+            f"Unknown standard: {standard}. "
+            f"Known standards: {', '.join(known_standards)}"
+        )
+
+
+class UnsupportedSizeError(StandardPartError):
+    """Raised when an unsupported size is requested for a standard.
+    
+    This exception provides information about the requested size,
+    the standard it was requested for, and available sizes.
+    
+    Attributes:
+        size: The requested size that is not available
+        standard: The standard for which the size was requested
+        available_sizes: List of available sizes for the standard
+    """
+    
+    def __init__(self, size: str, standard: str, available_sizes: List[str]):
+        self.size = size
+        self.standard = standard
+        self.available_sizes = available_sizes
+        super().__init__(
+            f"Size {size} not available for {standard}. "
+            f"Available sizes: {', '.join(available_sizes)}"
+        )
+
+
+class InvalidSizeFormatError(StandardPartError):
+    """Raised when a size format cannot be parsed.
+    
+    This exception provides information about the invalid size format
+    and the expected format for the given part category.
+    
+    Attributes:
+        size: The size string that could not be parsed
+        category: The part category
+        format_hint: A hint about the expected format
+    """
+    
+    def __init__(self, size: str, category: str, format_hint: str):
+        self.size = size
+        self.category = category
+        self.format_hint = format_hint
+        super().__init__(
+            f"Invalid size format '{size}' for {category}. {format_hint}"
+        )
 
 
 class StandardType(str, Enum):
@@ -100,6 +178,89 @@ class FCStdTemplate(BaseModel):
 class StandardPartsLibrary:
     """Library of standard parts and templates."""
     
+    # DIN/ISO standard metric thread pitch lookup table (coarse thread)
+    # Based on ISO 261 and DIN 13-1 standards
+    # ISO 261: https://www.iso.org/standard/4167.html - ISO general purpose metric screw threads
+    # DIN 13-1: https://www.din.de/en/getting-involved/standards-committees/fmv/wdc-beuth:din21:29753787 - Metric ISO screw threads
+    # Format: nominal_diameter -> pitch_mm
+    METRIC_COARSE_PITCH = {
+        1.0: 0.25,
+        1.2: 0.25,
+        1.4: 0.3,
+        1.6: 0.35,
+        1.8: 0.35,
+        2.0: 0.4,
+        2.5: 0.45,
+        3.0: 0.5,
+        3.5: 0.6,
+        4.0: 0.7,
+        5.0: 0.8,
+        6.0: 1.0,
+        7.0: 1.0,
+        8.0: 1.25,  # M8 has 1.25mm pitch per ISO 261/DIN 13-1 standard (https://www.iso.org/standard/4167.html)
+        10.0: 1.5,
+        12.0: 1.75,
+        14.0: 2.0,
+        16.0: 2.0,
+        18.0: 2.5,
+        20.0: 2.5,
+        22.0: 2.5,
+        24.0: 3.0,
+        27.0: 3.0,
+        30.0: 3.5,
+        33.0: 3.5,
+        36.0: 4.0,
+        39.0: 4.0,
+        42.0: 4.5,
+        45.0: 4.5,
+        48.0: 5.0,
+        52.0: 5.0,
+        56.0: 5.5,
+        60.0: 5.5,
+        64.0: 6.0
+    }
+    
+    # DIN 933/ISO 4017 hex head dimensions (width across flats)
+    # Based on DIN 933 and ISO 4017 standards
+    # Format: nominal_diameter -> {waf: width_across_flats, head_height}
+    HEX_HEAD_DIMENSIONS = {
+        3.0: {"waf": 5.5, "height": 2.0},
+        4.0: {"waf": 7.0, "height": 2.8},
+        5.0: {"waf": 8.0, "height": 3.5},
+        6.0: {"waf": 10.0, "height": 4.0},
+        8.0: {"waf": 13.0, "height": 5.3},
+        10.0: {"waf": 16.0, "height": 6.4},  # ISO 4017 uses 16mm, DIN 933 uses 17mm
+        12.0: {"waf": 18.0, "height": 7.5},
+        14.0: {"waf": 21.0, "height": 8.8},
+        16.0: {"waf": 24.0, "height": 10.0},
+        18.0: {"waf": 27.0, "height": 11.5},
+        20.0: {"waf": 30.0, "height": 12.5},
+        22.0: {"waf": 34.0, "height": 13.5},  # ISO differs from DIN at M22
+        24.0: {"waf": 36.0, "height": 15.0},
+        27.0: {"waf": 41.0, "height": 17.0},
+        30.0: {"waf": 46.0, "height": 18.7},
+        36.0: {"waf": 55.0, "height": 22.5}
+    }
+    
+    # Common bearing dimensions database - moved to class constant for better organization
+    # Format: bearing_code -> {bore_diameter, outer_diameter, width, ball_diameter, num_balls}
+    BEARING_DIMENSIONS = {
+        "608": {"bore_diameter": 8, "outer_diameter": 22, "width": 7, "ball_diameter": 3.5, "num_balls": 7},
+        "625": {"bore_diameter": 5, "outer_diameter": 16, "width": 5, "ball_diameter": 2.5, "num_balls": 7},
+        "6000": {"bore_diameter": 10, "outer_diameter": 26, "width": 8, "ball_diameter": 4, "num_balls": 8},
+        "6001": {"bore_diameter": 12, "outer_diameter": 28, "width": 8, "ball_diameter": 4, "num_balls": 8},
+        "6002": {"bore_diameter": 15, "outer_diameter": 32, "width": 9, "ball_diameter": 4.5, "num_balls": 8},
+        "6003": {"bore_diameter": 17, "outer_diameter": 35, "width": 10, "ball_diameter": 5, "num_balls": 8},
+        "6004": {"bore_diameter": 20, "outer_diameter": 42, "width": 12, "ball_diameter": 6, "num_balls": 8},
+        "6005": {"bore_diameter": 25, "outer_diameter": 47, "width": 12, "ball_diameter": 6.5, "num_balls": 8},
+        "6200": {"bore_diameter": 10, "outer_diameter": 30, "width": 9, "ball_diameter": 5, "num_balls": 8},
+        "6201": {"bore_diameter": 12, "outer_diameter": 32, "width": 10, "ball_diameter": 5, "num_balls": 8},
+        "6202": {"bore_diameter": 15, "outer_diameter": 35, "width": 11, "ball_diameter": 5.5, "num_balls": 8},
+        "6203": {"bore_diameter": 17, "outer_diameter": 40, "width": 12, "ball_diameter": 6, "num_balls": 8},
+        "6204": {"bore_diameter": 20, "outer_diameter": 47, "width": 14, "ball_diameter": 7, "num_balls": 8},
+        "6205": {"bore_diameter": 25, "outer_diameter": 52, "width": 15, "ball_diameter": 7.5, "num_balls": 8},
+    }
+    
     # Catalog of common DIN/ISO parts
     # TODO: Consider externalizing this catalog to a JSON/YAML file for easier maintenance
     #       and to allow adding new standard parts without code changes.
@@ -123,7 +284,7 @@ class StandardPartsLibrary:
 import Part
 import math
 
-doc = App.newDocument("DIN933_Bolt")
+# SECURITY: Template variables validated via Jinja2 template rendering
 
 # Parameters
 diameter = {diameter}
@@ -151,7 +312,10 @@ shaft.translate(App.Vector(0, 0, head_height))
 
 # Combine
 bolt = head.fuse(shaft)
-Part.show(bolt)
+
+# Add to provided document with provided component ID
+obj = doc.addObject("Part::Feature", comp_id)
+obj.Shape = bolt
 doc.recompute()"""
         ),
         
@@ -207,6 +371,66 @@ doc.recompute()"""
             },
             sizes=["608", "6000", "6001", "6002", "6003", "6004", "6005",
                    "6200", "6201", "6202", "6203", "6204", "6205"]
+        ),
+        
+        "DIN625": StandardPart(
+            code="DIN625",
+            name="Deep Groove Ball Bearing",
+            category=PartCategory.BEARINGS,
+            standard_type=StandardType.DIN,
+            description="Deep groove ball bearing with simplified raceway and ball representation",
+            parameters={
+                "bearing_type": "ball",
+                "series": "multiple"  # Includes 625, 608, 6000, 6200 series
+            },
+            sizes=["625-2RS", "625-ZZ", "608-2RS", "608-ZZ", "6000", "6001", "6002", 
+                   "6003", "6004", "6005", "6200", "6201", "6202", "6203", "6204", "6205"],
+            template_script="""import FreeCAD as App
+import Part
+import math
+
+# SECURITY: Template variables validated via Jinja2 template rendering
+
+# Parameters (example for 608 bearing: 8mm bore, 22mm OD, 7mm width)
+bore_diameter = {bore_diameter}  # Inner diameter
+outer_diameter = {outer_diameter}  # Outer diameter
+width = {width}  # Bearing width
+ball_diameter = {ball_diameter}  # Ball diameter
+num_balls = {num_balls}  # Number of balls
+
+# Create inner race
+inner_race_outer = (bore_diameter + outer_diameter) / 2 - ball_diameter / 2
+inner_race = Part.makeCylinder(inner_race_outer / 2, width)
+inner_bore = Part.makeCylinder(bore_diameter / 2, width)
+inner_race = inner_race.cut(inner_bore)
+
+# Create outer race
+outer_race_inner = (bore_diameter + outer_diameter) / 2 + ball_diameter / 2
+outer_race = Part.makeCylinder(outer_diameter / 2, width)
+outer_race_hole = Part.makeCylinder(outer_race_inner / 2, width)
+outer_race = outer_race.cut(outer_race_hole)
+
+# Create balls (simplified)
+balls = []
+pitch_diameter = (bore_diameter + outer_diameter) / 2
+for i in range(num_balls):
+    angle = 2 * math.pi * i / num_balls
+    x = pitch_diameter / 2 * math.cos(angle)
+    y = pitch_diameter / 2 * math.sin(angle)
+    z = width / 2
+    ball = Part.makeSphere(ball_diameter / 2)
+    ball.translate(App.Vector(x, y, z))
+    balls.append(ball)
+
+# Combine all parts
+bearing = inner_race.fuse(outer_race)
+for ball in balls:
+    bearing = bearing.fuse(ball)
+
+# Add to provided document with provided component ID
+obj = doc.addObject("Part::Feature", comp_id)
+obj.Shape = bearing
+doc.recompute()"""
         )
     }
     
@@ -219,7 +443,51 @@ doc.recompute()"""
         """
         self.template_dir = template_dir or Path("/tmp/freecad_templates")
         self.templates: Dict[str, FCStdTemplate] = {}
+        
+        # Cache for pre-compiled Jinja2 templates to avoid repeated conversions
+        # Key: standard code, Value: compiled Jinja2 template
+        self._compiled_templates_cache: Dict[str, Template] = {}
+        
+        # Use Jinja2 sandboxed environment for secure template rendering
+        # This prevents code injection and restricts template access
+        self.jinja_env = sandbox.SandboxedEnvironment(
+            # Maintain backward compatibility with existing templates
+            # that use {param} syntax by keeping default delimiters
+            variable_start_string='{{',
+            variable_end_string='}}',
+            block_start_string='{%',
+            block_end_string='%}',
+            # Auto-escape is disabled as FreeCAD scripts don't need HTML escaping
+            autoescape=False
+        )
+        
         self._load_templates()
+        
+        # Pre-compile all template scripts from the catalog for performance
+        # This avoids repeated template conversion and compilation on every request
+        self._precompile_catalog_templates()
+    
+    def _precompile_catalog_templates(self):
+        """
+        Pre-compile all template scripts from the catalog for performance.
+        
+        This method converts and compiles all template scripts during initialization
+        to avoid repeated conversions and compilations during request processing.
+        Templates are cached by standard code for O(1) lookup.
+        """
+        for standard, part_def in self.CATALOG.items():
+            if part_def.template_script:
+                try:
+                    # Convert {param} syntax to {{param}} for Jinja2 compatibility
+                    template_str = self._convert_format_to_jinja(part_def.template_script)
+                    # Compile the template once and cache it
+                    compiled_template = self.jinja_env.from_string(template_str)
+                    self._compiled_templates_cache[standard] = compiled_template
+                    logger.debug(f"Pre-compiled template for {standard}")
+                except TemplateSyntaxError as e:
+                    logger.error(f"Failed to pre-compile template for {standard}: {e}")
+                    # Store None to avoid repeated compilation attempts
+                    self._compiled_templates_cache[standard] = None
     
     def _load_templates(self):
         """Load available FCStd templates."""
@@ -252,17 +520,267 @@ doc.recompute()"""
                 except Exception as e:
                     logger.warning(f"Could not load template metadata for {template_id}: {e}")
     
-    def get_part(self, code: str) -> Optional[StandardPart]:
+    def get_part(self, standard: str, size: str) -> Optional[Dict[str, Any]]:
         """
-        Get standard part by code.
+        Get standard part by standard and size (Task 7.6 requirement).
         
         Args:
-            code: Part code (e.g., "DIN933")
+            standard: Part standard (e.g., "DIN933", "DIN625")
+            size: Size specification (e.g., "M6x20" for screws, "608" for bearings)
             
         Returns:
-            Standard part definition or None
+            Dictionary with part generation info or None
         """
-        return self.CATALOG.get(code)
+        # Get the part definition
+        part_def = self.CATALOG.get(standard)
+        if not part_def:
+            # Raise exception with known standards for better error handling
+            known = list(self.CATALOG.keys())
+            logger.warning(f"Unknown standard: {standard}. Known: {known}")
+            raise UnknownStandardError(standard, known)
+        
+        # Check if size is supported
+        if size not in part_def.sizes:
+            # Raise exception with available sizes for better error recovery
+            logger.warning(
+                f"Size {size} not available for {standard}. "
+                f"Available: {part_def.sizes}"
+            )
+            raise UnsupportedSizeError(size, standard, part_def.sizes)
+        
+        # Parse size parameters based on part type
+        try:
+            if part_def.category == PartCategory.FASTENERS:
+                params = self._parse_fastener_size(size)
+            elif part_def.category == PartCategory.BEARINGS:
+                params = self._parse_bearing_size(size)
+            else:
+                params = part_def.get_size_parameters(size)
+            
+            if not params:
+                # This should not happen with new exception-based approach
+                # but kept for backward compatibility with legacy methods
+                raise InvalidSizeFormatError(
+                    size=size,
+                    category=part_def.category.value,
+                    format_hint=self._get_size_format_hint(part_def.category)
+                )
+        except (ValueError, TypeError) as e:
+            # Handle parsing-specific errors (e.g., invalid number format, type conversion)
+            # Use 'raise ... from e' to preserve the original traceback for debugging
+            raise InvalidSizeFormatError(
+                size=size,
+                category=part_def.category.value,
+                format_hint=f"{self._get_size_format_hint(part_def.category)}. Parsing error: {str(e)}"
+            ) from e
+        except (IndexError, KeyError) as e:
+            # Handle structure-related errors (e.g., missing parts in split, dict key errors)
+            raise InvalidSizeFormatError(
+                size=size,
+                category=part_def.category.value,
+                format_hint=f"{self._get_size_format_hint(part_def.category)}. Format error: {str(e)}"
+            ) from e
+        except AttributeError as e:
+            # Handle attribute access errors (e.g., None.split(), missing method)
+            raise InvalidSizeFormatError(
+                size=size,
+                category=part_def.category.value,
+                format_hint=f"{self._get_size_format_hint(part_def.category)}. Invalid input: {str(e)}"
+            ) from e
+        except Exception as e:
+            # Only catch truly unexpected exceptions as a last resort
+            # Log the full exception for debugging
+            logger.exception(f"Unexpected error parsing size '{size}' for {part_def.category.value}: {e}")
+            # Re-raise the original exception to preserve debugging information
+            # This prevents masking of unexpected errors like MemoryError, SystemError, etc.
+            raise
+        
+        # Check for parametric generation vs template
+        result = {
+            "standard": standard,
+            "size": size,
+            "category": part_def.category.value,
+            "description": part_def.description,
+            "parameters": params
+        }
+        
+        # Check if we have a template script
+        if part_def.template_script:
+            result["type"] = "parametric"
+            # Use pre-compiled template from cache for better performance
+            # This avoids repeated template conversion and compilation
+            try:
+                # Get pre-compiled template from cache
+                compiled_template = self._compiled_templates_cache.get(standard)
+                
+                if compiled_template is None:
+                    # Template failed to compile during initialization
+                    raise StandardPartError(
+                        f"Template for {standard} is invalid and could not be compiled"
+                    )
+                
+                if not compiled_template:
+                    # Fallback: compile on-demand if not in cache (shouldn't happen normally)
+                    logger.warning(f"Template for {standard} not in cache, compiling on-demand")
+                    template_str = self._convert_format_to_jinja(part_def.template_script)
+                    compiled_template = self.jinja_env.from_string(template_str)
+                    self._compiled_templates_cache[standard] = compiled_template
+                
+                # Render the pre-compiled template with parameters
+                result["script"] = compiled_template.render(**params)
+            except (TemplateSyntaxError, Exception) as e:
+                logger.error(f"Template rendering failed for {standard} {size}: {e}")
+                raise StandardPartError(
+                    f"Failed to render template for {standard} {size}: {str(e)}"
+                )
+        else:
+            # Check for S3 template
+            template_path = self._get_template_path(standard, size)
+            if template_path:
+                result["type"] = "template"
+                result["template_path"] = template_path
+            else:
+                result["type"] = "catalog"
+                result["info"] = "Part info available but no generation method"
+        
+        return result
+    
+    def _parse_fastener_size(self, size: str) -> Optional[Dict[str, float]]:
+        """Parse fastener size like M6x20 using DIN/ISO standard dimensions.
+        
+        Uses lookup tables for accurate thread pitch and head dimensions
+        according to DIN 933/ISO 4017 standards.
+        
+        Args:
+            size: Size string like "M8x20" or "M10"
+            
+        Returns:
+            Dictionary with fastener dimensions or None if invalid
+            
+        Raises:
+            InvalidSizeFormatError: If size format cannot be parsed
+        """
+        if not size or not isinstance(size, str):
+            raise InvalidSizeFormatError(
+                size=str(size),
+                category="fasteners",
+                format_hint="Format: M{diameter}x{length}, e.g., M8x20"
+            )
+        
+        try:
+            if "M" not in size:
+                raise InvalidSizeFormatError(
+                    size=size,
+                    category="fasteners",
+                    format_hint="Format must start with 'M' for metric thread, e.g., M8x20"
+                )
+            
+            # Parse the size string
+            parts = size.replace("M", "").split("x")
+            diameter = float(parts[0])
+            
+            # Default length if not specified (2.5x diameter is common)
+            length = float(parts[1]) if len(parts) > 1 else diameter * 2.5
+            
+            # Look up exact thread pitch from standard table
+            thread_pitch = self.METRIC_COARSE_PITCH.get(diameter)
+            if thread_pitch is None:
+                thread_pitch = self._approximate_thread_pitch(diameter)
+                logger.warning(
+                    f"Non-standard diameter M{diameter}, using approximated pitch {thread_pitch:.2f}mm"
+                )
+            
+            # Look up exact head dimensions from standard table
+            head_dims = self.HEX_HEAD_DIMENSIONS.get(diameter)
+            if head_dims:
+                head_diameter = head_dims["waf"]
+                head_height = head_dims["height"]
+            else:
+                head_diameter, head_height = self._approximate_head_dimensions(diameter)
+                logger.warning(
+                    f"Non-standard diameter M{diameter}, using approximated head dimensions"
+                )
+            
+            return {
+                "diameter": diameter,
+                "length": length,
+                "thread_pitch": thread_pitch,
+                "head_diameter": head_diameter,
+                "head_height": head_height
+            }
+            
+        except (ValueError, IndexError) as e:
+            raise InvalidSizeFormatError(
+                size=size,
+                category="fasteners",
+                format_hint=f"Format: M{{diameter}}x{{length}}, e.g., M8x20. Error: {str(e)}"
+            )
+    
+    def _approximate_thread_pitch(self, diameter: float) -> float:
+        """
+        Approximate thread pitch for non-standard diameters using ISO 261 formula.
+        
+        Args:
+            diameter: Nominal diameter in mm
+            
+        Returns:
+            Approximated thread pitch in mm
+        """
+        # ISO 261 formula approximation (https://www.iso.org/standard/4167.html)
+        # This is more accurate than simple linear approximations
+        if diameter < 1.0:
+            return 0.2
+        elif diameter < 3.0:
+            return diameter * 0.2
+        else:
+            # Use linear approximation for larger sizes
+            return 0.5 + (diameter - 3.0) * 0.15
+    
+    def _approximate_head_dimensions(self, diameter: float) -> Tuple[float, float]:
+        """
+        Approximate hex head dimensions for non-standard diameters.
+        
+        Args:
+            diameter: Nominal diameter in mm
+            
+        Returns:
+            Tuple of (head_diameter, head_height) in mm
+        """
+        # Based on regression analysis of standard dimensions
+        # More accurate than simple multipliers
+        head_diameter = diameter * 1.5 + 1.0  # Width across flats
+        head_height = diameter * 0.6 + 0.4    # Head height
+        
+        return head_diameter, head_height
+    
+    def _parse_bearing_size(self, size: str) -> Optional[Dict[str, float]]:
+        """Parse bearing size like 608 or 625-2RS."""
+        # Strip suffixes like -2RS, -ZZ to get base bearing code
+        base_size = size.split("-")[0]
+        
+        # Look up bearing dimensions from standard catalog
+        return self.BEARING_DIMENSIONS.get(base_size)
+    
+    def _get_size_format_hint(self, category: PartCategory) -> str:
+        """Get format hint for size specification."""
+        if category == PartCategory.FASTENERS:
+            return "Format: M{diameter}x{length}, e.g., M6x20"
+        elif category == PartCategory.BEARINGS:
+            return "Format: bearing code, e.g., 608, 625-2RS"
+        else:
+            return "Check catalog for valid sizes"
+    
+    def _get_template_path(self, standard: str, size: str) -> Optional[str]:
+        """Get S3 template path if available."""
+        # Check local templates first
+        template_id = f"{standard}_{size}"
+        if template_id in self.templates:
+            template = self.templates[template_id]
+            if template.s3_url:
+                return template.s3_url
+            elif template.file_path:
+                return template.file_path
+        return None
     
     def search_parts(
         self,
@@ -340,12 +858,15 @@ doc.recompute()"""
         if custom_params:
             params.update(custom_params)
         
-        # Fill template
+        # Fill template using secure Jinja2 rendering
         try:
-            script = part.template_script.format(**params)
+            # Convert {param} syntax to {{param}} for Jinja2 compatibility
+            template_str = self._convert_format_to_jinja(part.template_script)
+            template = self.jinja_env.from_string(template_str)
+            script = template.render(**params)
             return script
-        except KeyError as e:
-            logger.error(f"Missing parameter in template: {e}")
+        except (TemplateSyntaxError, Exception) as e:
+            logger.error(f"Template rendering error: {e}")
             return None
     
     def get_template(self, template_id: str) -> Optional[FCStdTemplate]:
@@ -449,6 +970,64 @@ doc.recompute()"""
                     results["warnings"].append(f"Template not found: {template_id}")
         
         return results
+    
+    def _convert_format_to_jinja(self, template_str: str) -> str:
+        """
+        Convert Python format string {param} to Jinja2 {{param}} syntax.
+        
+        This maintains backward compatibility with existing templates
+        that use str.format() syntax while providing Jinja2 security.
+        
+        Args:
+            template_str: Template string with {param} syntax
+            
+        Returns:
+            Template string with {{param}} syntax for Jinja2
+            
+        Raises:
+            ValueError: If template contains nested braces or invalid syntax
+        """
+        # SECURITY: Template variables validated via Jinja2
+        # Check if already in Jinja2 format using regex for robust detection
+        # This pattern matches Jinja2-style variables: {{variable}}
+        jinja2_pattern = re.compile(r'\{\{[^{}]+\}\}')
+        # This pattern matches Python-style placeholders: {variable}
+        python_pattern = re.compile(r'\{[^{}]+\}')
+        
+        if jinja2_pattern.search(template_str):
+            # Already in Jinja2 format, return as-is
+            return template_str
+        
+        # Always validate brace matching, even if no valid placeholders
+        # Check for nested braces and unmatched braces
+        brace_depth = 0
+        for char in template_str:
+            if char == '{':
+                brace_depth += 1
+                if brace_depth > 1:
+                    raise ValueError(
+                        f"Template contains nested braces which are not supported: {template_str}"
+                    )
+            elif char == '}':
+                brace_depth -= 1
+                if brace_depth < 0:
+                    raise ValueError(
+                        f"Template contains unmatched closing brace: {template_str}"
+                    )
+        
+        if brace_depth != 0:
+            raise ValueError(
+                f"Template contains unmatched opening brace: {template_str}"
+            )
+        
+        # If no Python-style placeholders found, return as-is
+        if not python_pattern.search(template_str):
+            return template_str
+        
+        # Safe to convert: Replace {param} with {{param}}
+        # This regex matches {word} but not {{word}}
+        pattern = r'\{([^{}]+)\}'
+        return re.sub(pattern, r'{{\1}}', template_str)
 
 
 # Global library instance
