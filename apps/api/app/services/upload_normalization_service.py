@@ -77,6 +77,17 @@ EPSILON_FLOAT_COMPARISON = 1e-9  # For floating point comparisons
 ROTATION_ANGLE_90_DEGREES = 90  # Standard rotation angle
 ROTATION_ANGLE_NEG_90_DEGREES = -90  # Negative rotation angle
 
+# Centralized unit conversion factors (to millimeters as base unit)
+# Following FreeCAD best practices for consistent unit handling across all handlers
+UNIT_CONVERSION_FACTORS = {
+    "mm": 1.0,          # millimeters (base unit)
+    "m": 1000.0,        # meters to mm
+    "inch": 25.4,       # inches to mm
+    "ft": 304.8,        # feet to mm
+    "cm": 10.0,         # centimeters to mm
+    "unknown": 1.0      # no conversion for unknown units
+}
+
 class FileFormat(str, Enum):
     """Supported CAD file formats."""
     STEP = "step"
@@ -319,23 +330,15 @@ import sys
 
 doc = FreeCAD.getDocument("{doc['doc_name']}")
 
-# Unit conversion factors
-unit_factors = {
-    "mm": 1.0,
-    "m": 1000.0,
-    "inch": 25.4,
-    "ft": 304.8,
-    "cm": 10.0
-}
-
-# Apply unit conversion if needed
-# Convert from original_units to target_units (mm)
+# Apply unit conversion if needed using centralized factors
+# Convert from original_units to target_units via mm as base
 source_units = "{original_units.value}"
 target_units = "{config.target_units.value}"
 if source_units != target_units:
     # Calculate conversion factor from source to target
-    source_factor = unit_factors.get(source_units, 1.0)
-    target_factor = unit_factors.get(target_units, 1.0)
+    # Access the global UNIT_CONVERSION_FACTORS constant
+    source_factor = {UNIT_CONVERSION_FACTORS}.get(source_units, 1.0)
+    target_factor = {UNIT_CONVERSION_FACTORS}.get(target_units, 1.0)
     factor = source_factor / target_factor
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
@@ -642,23 +645,11 @@ print(json.dumps(result))
                 
                 # Apply unit conversion if needed
                 if original_units != Units.UNKNOWN and config.target_units != Units.UNKNOWN:
-                    scale_factor = 1.0
-                    
-                    # Convert to millimeters first (as base unit)
-                    if original_units == Units.INCHES:
-                        scale_factor *= 25.4  # inches to mm
-                    elif original_units == Units.CENTIMETERS:
-                        scale_factor *= 10.0  # cm to mm
-                    elif original_units == Units.METERS:
-                        scale_factor *= 1000.0  # m to mm
-                    
-                    # Then convert from mm to target units
-                    if config.target_units == Units.INCHES:
-                        scale_factor /= 25.4  # mm to inches
-                    elif config.target_units == Units.CENTIMETERS:
-                        scale_factor /= 10.0  # mm to cm
-                    elif config.target_units == Units.METERS:
-                        scale_factor /= 1000.0  # mm to m
+                    # Use centralized unit conversion factors for consistency
+                    # Convert from source units to mm, then from mm to target units
+                    source_factor = UNIT_CONVERSION_FACTORS.get(original_units.value, 1.0)
+                    target_factor = UNIT_CONVERSION_FACTORS.get(config.target_units.value, 1.0)
+                    scale_factor = source_factor / target_factor
                     
                     # Apply scaling if needed
                     if scale_factor != 1.0:
@@ -816,19 +807,12 @@ doc = FreeCAD.getDocument("{doc['doc_name']}")
 
 # Apply unit conversion if needed
 # DXF often needs unit conversion based on INSUNITS
-unit_factors = {
-    "mm": 1.0,
-    "m": 1000.0,
-    "inch": 25.4,
-    "ft": 304.8,
-    "cm": 10.0
-}
-
+# Use centralized UNIT_CONVERSION_FACTORS for consistency
 source_units = "{original_units.value}"
 target_units = "{config.target_units.value}"
 if source_units != target_units:
-    source_factor = unit_factors.get(source_units, 1.0)
-    target_factor = unit_factors.get(target_units, 1.0)
+    source_factor = {UNIT_CONVERSION_FACTORS}.get(source_units, 1.0)
+    target_factor = {UNIT_CONVERSION_FACTORS}.get(target_units, 1.0)
     factor = source_factor / target_factor
     
     for obj in doc.Objects:
@@ -1045,22 +1029,15 @@ import Part
 
 doc = FreeCAD.getDocument("{doc['doc_name']}")
 
-# Unit conversion for IFC files
-unit_factors = {
-    "mm": 1.0,
-    "m": 1000.0,
-    "inch": 25.4,
-    "ft": 304.8,
-    "cm": 10.0
-}
-
+# Unit conversion for IFC files using centralized factors
 # IFC files are typically in meters unless specified otherwise
 source_units = "{original_units.value}"
 target_units = "{config.target_units.value}"
 
 if source_units != target_units:
-    source_factor = unit_factors.get(source_units, 1.0)
-    target_factor = unit_factors.get(target_units, 1.0)
+    # Use global UNIT_CONVERSION_FACTORS constant
+    source_factor = {UNIT_CONVERSION_FACTORS}.get(source_units, 1.0)
+    target_factor = {UNIT_CONVERSION_FACTORS}.get(target_units, 1.0)
     factor = source_factor / target_factor
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
