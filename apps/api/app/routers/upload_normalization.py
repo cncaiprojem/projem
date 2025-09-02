@@ -49,21 +49,6 @@ router = APIRouter(
 )
 
 
-class NormalizeUploadRequest(BaseModel):
-    """Request model for upload normalization."""
-    target_units: Units = Field(Units.MILLIMETER, description="Target units for normalization")
-    declared_units: Optional[Units] = Field(None, description="User-declared units (overrides auto-detection)")
-    normalize_orientation: bool = Field(True, description="Normalize to Z-up orientation")
-    center_geometry: bool = Field(False, description="Center geometry at origin")
-    repair_mesh: bool = Field(True, description="Attempt to repair mesh issues")
-    merge_duplicates: bool = Field(True, description="Merge duplicate entities")
-    validate_geometry: bool = Field(True, description="Validate geometry after normalization")
-    generate_preview: bool = Field(True, description="Generate GLB preview")
-    extrude_2d_thickness: Optional[float] = Field(0.5, description="Thickness for 2D extrusion in mm")
-    material_name: Optional[str] = Field(None, description="Material to apply")
-    tolerance: float = Field(0.001, description="Geometric tolerance in mm")
-
-
 class NormalizationOptions(BaseModel):
     """
     Form data model for normalization options.

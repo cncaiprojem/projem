@@ -1422,10 +1422,10 @@ class UploadNormalizationService:
             # If any non-critical uploads failed, log them but continue
             if upload_errors:
                 logger.warning(f"Some files failed to upload: {upload_errors}")
-                # Include failed uploads in the response details
-                if not hasattr(self, '_upload_warnings'):
-                    self._upload_warnings = []
-                self._upload_warnings.extend(upload_errors)
+                # Add non-critical upload errors to the local warnings list
+                # This ensures proper request isolation - no state leakage between concurrent requests
+                for error in upload_errors:
+                    warnings.append(f"Upload warning: {error}")
             
             # Calculate file hash
             file_hash = self._calculate_file_hash(normalized_files.get('fcstd'))
