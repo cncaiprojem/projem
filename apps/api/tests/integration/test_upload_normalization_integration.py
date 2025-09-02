@@ -12,6 +12,7 @@ Tests the complete upload normalization flow including:
 """
 
 import asyncio
+import shutil
 import tempfile
 from pathlib import Path
 from unittest.mock import MagicMock, patch, AsyncMock
@@ -108,7 +109,6 @@ END-ISO-10303-21;
             # Mock S3 operations
             def mock_download(s3_key, local_path):
                 # Copy test file to local path
-                import shutil
                 shutil.copy(step_file_path, local_path)
                 return True
             
@@ -207,7 +207,6 @@ endsolid TestCube
         try:
             # Mock S3 operations
             def mock_download(s3_key, local_path):
-                import shutil
                 shutil.copy(stl_file_path, local_path)
                 return True
             
@@ -317,7 +316,6 @@ EOF
         try:
             # Mock S3 operations
             def mock_download(s3_key, local_path):
-                import shutil
                 shutil.copy(dxf_file_path, local_path)
                 return True
             
@@ -413,7 +411,6 @@ END-ISO-10303-21;
         try:
             # Mock S3 operations
             def mock_download(s3_key, local_path):
-                import shutil
                 shutil.copy(ifc_file_path, local_path)
                 return True
             
@@ -509,7 +506,6 @@ END-ISO-10303-21;
         try:
             # Mock S3 operations
             def mock_download(s3_key, local_path):
-                import shutil
                 shutil.copy(ifc_file_path, local_path)
                 return True
             
@@ -558,7 +554,6 @@ END-ISO-10303-21;
         try:
             # Mock S3 operations
             def mock_download(s3_key, local_path):
-                import shutil
                 shutil.copy(step_file_path, local_path)
                 return True
             
@@ -624,7 +619,6 @@ END-ISO-10303-21;
         try:
             # Mock S3 operations
             def mock_download(s3_key, local_path):
-                import shutil
                 shutil.copy(stl_file_path, local_path)
                 return True
             
@@ -705,7 +699,6 @@ class TestPerformanceAndScalability:
         try:
             # Mock S3 operations
             def mock_download(s3_key, local_path):
-                import shutil
                 shutil.copy(large_file_path, local_path)
                 return True
             
@@ -764,7 +757,6 @@ class TestPerformanceAndScalability:
             # Mock S3 operations
             def mock_download(s3_key, local_path):
                 # Use different file based on job_id
-                import shutil
                 if "job1" in s3_key:
                     shutil.copy(test_files[0], local_path)
                 elif "job2" in s3_key:

@@ -147,7 +147,10 @@ class GeometryMetrics(BaseModel):
     material_density: Optional[float] = Field(None, description="Material density in g/cm³")
     mass: Optional[float] = Field(None, description="Calculated mass in grams")
     center_of_mass: Optional[List[float]] = Field(None, description="Center of mass coordinates [x, y, z] in mm")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, 
+        description="Additional metadata (e.g., 'author': 'user@example.com', 'version': '1.0', 'created_date': '2024-01-01', 'tags': ['engineering', 'prototype'])"
+    )
 
 
 class NormalizationConfig(BaseModel):
@@ -185,7 +188,10 @@ class NormalizationResult(BaseModel):
     warnings: List[str] = Field(default_factory=list, description="Warning messages")
     processing_time_ms: int = Field(..., description="Processing time in milliseconds")
     file_hash: str = Field(..., description="SHA256 hash of normalized file")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict, 
+        description="Additional metadata (e.g., 'author': 'user@example.com', 'version': '1.0', 'created_date': '2024-01-01', 'tags': ['engineering', 'prototype'])"
+    )
 
 
 class FormatHandler(ABC):
@@ -345,7 +351,7 @@ if {str(config.normalize_orientation).lower()}:
                         else:  # Y is longer
                             shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), -90)
                     obj.Shape = shape
-            except:
+            except Exception:
                 # Fallback to simple bbox-based heuristic
                 bbox = obj.Shape.BoundBox
                 dims = [bbox.XLength, bbox.YLength, bbox.ZLength]
@@ -388,7 +394,7 @@ if {str(config.merge_duplicates).lower()}:
             if shape_hash not in shape_hashes:
                 shape_hashes.add(shape_hash)
                 unique_shapes.append(shape)
-        except:
+        except Exception:
             # If hashing fails, include the shape to be safe
             unique_shapes.append(shape)
     
@@ -552,7 +558,7 @@ try:
     part_obj = doc.addObject("Part::Feature", "STL_Shape")
     part_obj.Shape = shape
     has_shape = True
-except:
+except Exception:
     has_shape = False
 
 doc.recompute()
@@ -763,7 +769,7 @@ if extrude_thickness > 0:
                     # Extrude in Z direction
                     extruded = shape.extrude(FreeCAD.Vector(0, 0, extrude_thickness))
                     obj.Shape = extruded
-                except:
+                except Exception:
                     pass  # Skip if extrusion fails
 
 # Calculate metrics
@@ -885,7 +891,7 @@ except ImportError as e:
         importIFClegacy.open("{str(file_path)}", doc.Name)
         ifc_available = True
         error_message = None
-    except:
+    except Exception:
         pass
 
 # Extract BIM hierarchy
@@ -953,7 +959,7 @@ for obj in doc.Objects:
                 solid_shape = obj.toShape()
                 if solid_shape.Solids:
                     solids.extend(solid_shape.Solids)
-            except:
+            except Exception:
                 pass
 
 # Create compound of all solids
@@ -1154,19 +1160,19 @@ class UploadNormalizationService:
                     object_key=s3_key
                 )
                 
-                # Write stream to local file
-                with open(local_file, 'wb') as f:
-                    # Read in chunks to avoid loading entire file into memory
-                    chunk_size = 8192
-                    while True:
-                        chunk = file_stream.read(chunk_size)
-                        if not chunk:
-                            break
-                        f.write(chunk)
+                if file_stream is None:
+                    raise NormalizationException(
+                        error_code=NormalizationErrorCode.DOWNLOAD_ERROR,
+                        message="S3 akış indirme başarısız oldu",
+                        details={"s3_key": s3_key}
+                    )
                 
-                # Close the stream
-                if hasattr(file_stream, 'close'):
-                    file_stream.close()
+                # Write stream to local file using context manager for guaranteed cleanup
+                with open(local_file, 'wb') as f:
+                    # Use shutil.copyfileobj for efficient and safe streaming
+                    shutil.copyfileobj(file_stream, f, length=8192)
+                
+                # Stream is automatically closed by context manager in S3 service
                     
             except Exception as e:
                 raise NormalizationException(
@@ -1310,7 +1316,7 @@ class UploadNormalizationService:
             # Track failure metrics
             metrics.job_normalization_completed.labels(
                 job_id=job_id,
-                format=file_format.value if 'file_format' in locals() else "unknown",
+                format=locals().get('file_format', FileFormat.UNKNOWN).value if locals().get('file_format') else "unknown",
                 status="failed"
             ).inc()
             raise
@@ -1319,7 +1325,7 @@ class UploadNormalizationService:
             # Track failure metrics
             metrics.job_normalization_completed.labels(
                 job_id=job_id,
-                format=file_format.value if 'file_format' in locals() else "unknown",
+                format=locals().get('file_format', FileFormat.UNKNOWN).value if locals().get('file_format') else "unknown",
                 status="error"
             ).inc()
             
@@ -1340,7 +1346,7 @@ class UploadNormalizationService:
             
             # Clean up FreeCAD document
             try:
-                self._cleanup_document(doc_name if 'doc_name' in locals() else None)
+                self._cleanup_document(locals().get('doc_name'))
             except Exception as e:
                 logger.warning(f"Failed to clean up FreeCAD document: {e}")
     
@@ -1431,7 +1437,7 @@ try:
     doc = FreeCAD.getDocument("{doc_name}")
     FreeCAD.closeDocument(doc.Name)
     success = True
-except:
+except Exception:
     success = False
 
 result = {{"success": success}}
@@ -1441,7 +1447,7 @@ print(json.dumps(result))
 '''
         try:
             freecad_service.execute_script(script_content, timeout=10)
-        except:
+        except Exception:
             pass  # Ignore cleanup errors
 
 

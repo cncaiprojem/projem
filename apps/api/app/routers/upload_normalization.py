@@ -8,6 +8,7 @@ Provides API endpoints for CAD file upload normalization:
 - POST /api/v1/normalize/validate - Validate file format
 """
 
+from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -294,7 +295,7 @@ async def normalize_upload(
             logger.error(f"Unexpected error during normalization: {e}")
             
             # Update job status
-            if 'job' in locals():
+            if (job := locals().get('job')) is not None:
                 job.status = JobStatus.FAILED
                 job.error = str(e)
                 db.commit()
@@ -426,7 +427,6 @@ async def validate_format(
     
     try:
         # Detect format from filename
-        from pathlib import Path
         file_path = Path(request.filename)
         format_type = upload_normalization_service.detect_format(file_path)
         
