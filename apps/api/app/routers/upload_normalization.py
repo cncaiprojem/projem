@@ -128,6 +128,10 @@ async def normalize_upload(
         span.set_attribute("filename", file.filename)
         span.set_attribute("file_size", file.size if hasattr(file, 'size') else 0)
         
+        # Initialize job variable at the beginning of the try block for proper scoping
+        # This follows Python best practices for exception handling and variable lifecycle
+        job = None
+        
         try:
             # Validate file size - file.size can be None if no Content-Length header
             # Using None check is more robust than hasattr as FastAPI UploadFile always has 'size' attribute
@@ -297,8 +301,9 @@ async def normalize_upload(
         except Exception as e:
             logger.error(f"Unexpected error during normalization: {e}")
             
-            # Update job status
-            if (job := locals().get('job')) is not None:
+            # Update job status if it was created
+            # Using explicit None check for cleaner, more readable code
+            if job is not None:
                 job.status = JobStatus.FAILED
                 job.error = str(e)
                 db.commit()

@@ -1167,6 +1167,10 @@ class UploadNormalizationService:
         ).inc()
         
         temp_dir = None
+        # Initialize file_format variable for proper scoping in exception handlers
+        # This follows Python best practices for explicit variable initialization
+        file_format = None
+        
         try:
             # Create temporary directory
             temp_dir = tempfile.mkdtemp(prefix=f"norm_{job_id}_")
@@ -1362,18 +1366,20 @@ class UploadNormalizationService:
             
         except NormalizationException:
             # Track failure metrics
+            # Use the file_format variable directly, which is now properly initialized
             metrics.job_normalization_completed.labels(
                 job_id=job_id,
-                format=self._get_file_format_for_metrics(locals().get('file_format')),
+                format=self._get_file_format_for_metrics(file_format),
                 status="failed"
             ).inc()
             raise
             
         except Exception as e:
             # Track failure metrics
+            # Use the file_format variable directly, which is now properly initialized
             metrics.job_normalization_completed.labels(
                 job_id=job_id,
-                format=self._get_file_format_for_metrics(locals().get('file_format')),
+                format=self._get_file_format_for_metrics(file_format),
                 status="error"
             ).inc()
             
