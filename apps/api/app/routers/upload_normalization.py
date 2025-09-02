@@ -129,20 +129,18 @@ async def normalize_upload(
         
         # Early format detection for better metrics
         # Based on Prometheus best practices: always label metrics accurately
-        detected_format = "unknown"
+        # Use service method to avoid code duplication (DRY principle)
+        file_format_for_metrics = "unknown"
         if file.filename:
-            ext = Path(file.filename).suffix.lower().lstrip('.')
-            format_map = {
-                'step': 'step', 'stp': 'step',
-                'iges': 'iges', 'igs': 'iges',
-                'stl': 'stl',
-                'dxf': 'dxf',
-                'ifc': 'ifc',
-                'obj': 'obj',
-                'brep': 'brep', 'brp': 'brep',
-                'fcstd': 'fcstd'
-            }
-            detected_format = format_map.get(ext, "unknown")
+            # Create a temporary Path object for format detection
+            temp_file_path = Path(file.filename)
+            try:
+                detected_file_format = upload_normalization_service.detect_format(temp_file_path)
+                # Convert FileFormat enum to string for metrics
+                file_format_for_metrics = detected_file_format.value
+            except Exception:
+                # If detection fails, keep "unknown"
+                file_format_for_metrics = "unknown"
         
         # Initialize job variable at the beginning of the try block for proper scoping
         # This follows Python best practices for exception handling and variable lifecycle
@@ -280,7 +278,7 @@ async def normalize_upload(
                 # Track failure metrics with detected format
                 # Use early-detected format for accurate metrics tracking
                 metrics.job_normalization_api_requests.labels(
-                    format=detected_format,
+                    format=file_format_for_metrics,
                     status="failed"
                 ).inc()
                 

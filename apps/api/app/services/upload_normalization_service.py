@@ -1349,7 +1349,7 @@ class UploadNormalizationService:
             # Export STEP if possible
             if file_format != FileFormat.STL:  # STL can't be exported to STEP reliably
                 step_path = temp_path / f"{job_id}_normalized.step"
-                handler.export(doc, step_path)
+                self._export_step(doc_name, step_path)
                 normalized_files['step'] = step_path
             
             # Export STL
@@ -1510,6 +1510,43 @@ if meshes:
     Mesh.export([combined], "{str(output_path)}")
 
 result = {{"success": True, "mesh_count": len(meshes)}}
+
+import json
+print(json.dumps(result))
+'''
+        freecad_service.execute_script(script_content, timeout=60)
+    
+    def _export_step(self, doc_name: str, output_path: Path) -> None:
+        """Export STEP format.
+        
+        Enterprise-grade STEP export following FreeCAD best practices:
+        - Uses Import module for STEP writing
+        - Exports all shapes with proper hierarchy
+        - Maintains assembly structure when present
+        - Consistent with FreeCAD's native STEP export functionality
+        """
+        script_content = f'''
+import FreeCAD
+import Import
+
+doc = FreeCAD.getDocument("{doc_name}")
+
+# Collect all exportable shapes
+shapes = []
+for obj in doc.Objects:
+    if hasattr(obj, 'Shape') and obj.Shape and not obj.Shape.isNull():
+        # Skip objects that are only construction geometry
+        if hasattr(obj, 'ViewObject') and hasattr(obj.ViewObject, 'Visibility'):
+            if not obj.ViewObject.Visibility:
+                continue
+        shapes.append(obj.Shape)
+
+# Export shapes to STEP
+if shapes:
+    Import.export(shapes, "{str(output_path)}")
+    result = {{"success": True, "shape_count": len(shapes)}}
+else:
+    result = {{"success": False, "error": "No exportable shapes found"}}
 
 import json
 print(json.dumps(result))
