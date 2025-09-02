@@ -48,6 +48,7 @@ from .routers import invoices as invoices_router  # Invoice PDF endpoints (Task 
 from .routers import payments as payments_router  # Payment provider abstraction endpoints (Task 4.6)
 from .routers import files as files_router  # File upload/download endpoints (Task 5.3)
 from .routers import artefacts as artefacts_router  # Artefact persistence endpoints (Task 5.7)
+from .routers import upload_normalization as upload_normalization_router  # Upload normalization endpoints (Task 7.7)
 # Legacy routers disabled - not part of Task Master ERD
 # from .routers import projects as projects_router
 # from .routers import design as design_router
@@ -214,6 +215,7 @@ app.include_router(invoices_router.router)  # Invoice PDF endpoints (Task 4.5)
 app.include_router(payments_router.router)  # Payment provider abstraction endpoints (Task 4.6)
 app.include_router(files_router.router)  # File upload/download endpoints (Task 5.3)
 app.include_router(artefacts_router.router)  # Artefact persistence endpoints (Task 5.7)
+app.include_router(upload_normalization_router.router)  # Upload normalization endpoints (Task 7.7)
 if _sim_available and sim_router is not None:
     app.include_router(sim_router.router)
 app.include_router(events_router)
