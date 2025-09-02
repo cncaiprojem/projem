@@ -315,6 +315,7 @@ print(json.dumps(result))
 import FreeCAD
 import Part
 import numpy as np
+import sys
 
 doc = FreeCAD.getDocument("{doc['doc_name']}")
 
@@ -376,7 +377,11 @@ if config.normalize_orientation:
                         else:  # Y is longer
                             shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), ROTATION_ANGLE_NEG_90_DEGREES)
                     obj.Shape = shape
-            except Exception:
+            except Exception as e:
+                # Log orientation normalization error to stderr for debugging
+                # Based on FreeCAD best practices: use print to stderr for error logging in embedded scripts
+                print(f"Orientation normalization failed for object {{obj.Name}}: {{str(e)}}", file=sys.stderr)
+                print(f"Falling back to simpler bbox-based heuristic", file=sys.stderr)
                 # Fallback to simple bbox-based heuristic
                 bbox = obj.Shape.BoundBox
                 dims = [bbox.XLength, bbox.YLength, bbox.ZLength]
@@ -420,7 +425,11 @@ if config.merge_duplicates:
             if shape_hash not in shape_hashes:
                 shape_hashes.add(shape_hash)
                 unique_shapes.append(shape)
-        except Exception:
+        except Exception as e:
+            # Log geometric hashing error to stderr for debugging
+            # Based on FreeCAD/Python subprocess best practices: log errors to stderr
+            print(f"Geometric hashing failed for shape: {{str(e)}}", file=sys.stderr)
+            print(f"Including shape without deduplication check", file=sys.stderr)
             # If hashing fails, include the shape to be safe
             unique_shapes.append(shape)
     
@@ -759,6 +768,7 @@ print(json.dumps(result))
 import FreeCAD
 import Draft
 import Part
+import sys
 
 doc = FreeCAD.getDocument("{doc['doc_name']}")
 
@@ -820,7 +830,11 @@ if extrude_thickness > 0:
                     # Extrude in Z direction
                     extruded = shape.extrude(FreeCAD.Vector(0, 0, extrude_thickness))
                     obj.Shape = extruded
-                except Exception:
+                except Exception as e:
+                    # Log DXF extrusion error to stderr for debugging
+                    # Following FreeCAD embedded script error handling best practices
+                    print(f"DXF extrusion failed for object {{obj.Name}}: {{str(e)}}", file=sys.stderr)
+                    print(f"Keeping original 2D geometry for object {{obj.Name}}", file=sys.stderr)
                     pass  # Skip if extrusion fails
 
 # Calculate metrics
