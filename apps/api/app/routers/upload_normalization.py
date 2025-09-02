@@ -150,13 +150,29 @@ async def normalize_upload(
             db.add(job)
             db.commit()
             
-            # Upload original file to S3
+            # Upload original file to S3 using streaming upload
             s3_key = f"uploads/{job.id}/{file.filename}"
-            file_content = await file.read()
             
-            if not s3_service.upload_file_from_memory(file_content, s3_key):
+            # Use streaming upload to avoid loading entire file into memory
+            try:
+                # Get the file's SpooledTemporaryFile for streaming
+                file_stream = file.file
+                
+                # Upload using the streaming method
+                object_key, presigned_url = s3_service.upload_file_stream(
+                    file_stream=file_stream,
+                    bucket="artefacts",
+                    job_id=str(job.id),
+                    filename=file.filename,
+                    content_type=file.content_type
+                )
+                
+                # Update s3_key with the actual key returned
+                s3_key = object_key
+                
+            except Exception as e:
                 job.status = JobStatus.FAILED
-                job.error = "Failed to upload file to S3"
+                job.error = f"Failed to upload file to S3: {str(e)}"
                 db.commit()
                 raise HTTPException(
                     status_code=500,

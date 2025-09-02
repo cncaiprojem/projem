@@ -220,7 +220,8 @@ END-ISO-10303-21;
         )
         
         doc = {"doc_name": "test_doc"}
-        metrics = handler.normalize(doc, config)
+        file_path = Path("/test/model.step")
+        metrics = handler.normalize(doc, config, file_path)
         
         assert metrics.bbox_min == [-10, -10, -10]
         assert metrics.bbox_max == [10, 10, 10]
@@ -313,10 +314,9 @@ class TestSTLHandler:
         
         config = NormalizationConfig(repair_mesh=True)
         doc = {"triangle_count": 1000, "vertex_count": 502}
+        file_path = Path("/test/model.stl")
         
-        # Mock file_path (normally would be in scope)
-        with patch('apps.api.app.services.upload_normalization_service.file_path', Path("/test/model.stl")):
-            metrics = handler.normalize(doc, config)
+        metrics = handler.normalize(doc, config, file_path)
         
         # Verify repair methods were called
         mock_mesh.fill_holes.assert_called_once()
@@ -398,7 +398,8 @@ class TestDXFHandler:
         )
         
         doc = {"doc_name": "test_doc", "layers": ["Layer1"]}
-        metrics = handler.normalize(doc, config)
+        file_path = Path("/test/drawing.dxf")
+        metrics = handler.normalize(doc, config, file_path)
         
         assert metrics.volume == 5.0
         assert metrics.bbox_max[2] == 0.5  # Z height from extrusion

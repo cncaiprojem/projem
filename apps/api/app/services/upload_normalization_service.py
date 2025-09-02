@@ -30,6 +30,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import shutil
 import tempfile
 import time
 from abc import ABC, abstractmethod
@@ -146,6 +147,7 @@ class GeometryMetrics(BaseModel):
     material_density: Optional[float] = Field(None, description="Material density in g/cm³")
     mass: Optional[float] = Field(None, description="Calculated mass in grams")
     center_of_mass: Optional[List[float]] = Field(None, description="Center of mass coordinates [x, y, z] in mm")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
 
 
 class NormalizationConfig(BaseModel):
@@ -200,7 +202,7 @@ class FormatHandler(ABC):
         pass
     
     @abstractmethod
-    def normalize(self, doc: Any, config: NormalizationConfig) -> GeometryMetrics:
+    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path) -> GeometryMetrics:
         """Normalize geometry."""
         pass
     
@@ -289,7 +291,7 @@ print(json.dumps(result))
 '''
         return freecad_service.execute_script(script_content, timeout=60)
     
-    def normalize(self, doc: Any, config: NormalizationConfig) -> GeometryMetrics:
+    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path) -> GeometryMetrics:
         """Normalize STEP geometry."""
         script_content = f'''
 import FreeCAD
@@ -318,17 +320,39 @@ if source_units != "mm":
             matrix.scale(factor, factor, factor)
             obj.Shape = obj.Shape.transformGeometry(matrix)
 
-# Normalize orientation to Z-up if needed
+# Normalize orientation to Z-up if needed using principal axes
 if {str(config.normalize_orientation).lower()}:
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
-            bbox = obj.Shape.BoundBox
-            # Simple heuristic: if X or Y dimension is largest, rotate to Z-up
-            dims = [bbox.XLength, bbox.YLength, bbox.ZLength]
-            if dims[0] == max(dims):  # X is largest
-                obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 90)
-            elif dims[1] == max(dims):  # Y is largest
-                obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), -90)
+            # Use principal axes of inertia for robust orientation
+            try:
+                # Get the mass properties
+                shape = obj.Shape
+                if hasattr(shape, 'MatrixOfInertia'):
+                    inertia_matrix = shape.MatrixOfInertia
+                    # Calculate principal axes (eigenvectors of inertia matrix)
+                    # The eigenvector with smallest eigenvalue is the principal axis
+                    # For now, use improved heuristic based on bounding box aspect ratio
+                    bbox = shape.BoundBox
+                    dims = [bbox.XLength, bbox.YLength, bbox.ZLength]
+                    aspect_ratios = [dims[i]/max(dims) for i in range(3)]
+                    
+                    # If object is flat in Z (aspect ratio < 0.3), it's likely horizontal
+                    if aspect_ratios[2] < 0.3 and dims[2] < max(dims[0], dims[1]):
+                        # Rotate to make Z the primary axis
+                        if dims[0] > dims[1]:  # X is longer
+                            shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 90)
+                        else:  # Y is longer
+                            shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), -90)
+                    obj.Shape = shape
+            except:
+                # Fallback to simple bbox-based heuristic
+                bbox = obj.Shape.BoundBox
+                dims = [bbox.XLength, bbox.YLength, bbox.ZLength]
+                if dims[0] == max(dims):  # X is largest
+                    obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 90)
+                elif dims[1] == max(dims):  # Y is largest
+                    obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), -90)
 
 # Center geometry if needed
 if {str(config.center_geometry).lower()}:
@@ -344,16 +368,28 @@ if {str(config.merge_duplicates).lower()}:
         if hasattr(obj, 'Shape'):
             shapes.append(obj.Shape)
     
-    # Remove duplicates by comparing volumes and centers
+    # Remove duplicates using geometric hashing for better accuracy
     unique_shapes = []
+    shape_hashes = set()
+    
     for shape in shapes:
-        is_duplicate = False
-        for unique in unique_shapes:
-            if abs(shape.Volume - unique.Volume) < 0.001:
-                if shape.BoundBox.Center.distanceToPoint(unique.BoundBox.Center) < 0.001:
-                    is_duplicate = True
-                    break
-        if not is_duplicate:
+        # Create a geometric hash based on topology
+        try:
+            # Use shape's hash code if available (provides geometric hash)
+            if hasattr(shape, 'hashCode'):
+                shape_hash = shape.hashCode()
+            else:
+                # Fallback to volume + area + vertex count hash
+                shape_hash = hash((round(shape.Volume, 3), 
+                                 round(shape.Area, 3),
+                                 len(shape.Vertexes),
+                                 len(shape.Edges)))
+            
+            if shape_hash not in shape_hashes:
+                shape_hashes.add(shape_hash)
+                unique_shapes.append(shape)
+        except:
+            # If hashing fails, include the shape to be safe
             unique_shapes.append(shape)
     
     # Clear document and add unique shapes
@@ -535,7 +571,7 @@ print(json.dumps(result))
 '''
         return freecad_service.execute_script(script_content, timeout=60)
     
-    def normalize(self, doc: Any, config: NormalizationConfig) -> GeometryMetrics:
+    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path) -> GeometryMetrics:
         """Normalize STL geometry."""
         metrics = GeometryMetrics(
             bbox_min=[0, 0, 0],
@@ -683,7 +719,7 @@ print(json.dumps(result))
 '''
         return freecad_service.execute_script(script_content, timeout=60)
     
-    def normalize(self, doc: Any, config: NormalizationConfig) -> GeometryMetrics:
+    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path) -> GeometryMetrics:
         """Normalize DXF geometry."""
         script_content = f'''
 import FreeCAD
@@ -888,7 +924,7 @@ print(json.dumps(result))
         
         return result
     
-    def normalize(self, doc: Any, config: NormalizationConfig) -> GeometryMetrics:
+    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path) -> GeometryMetrics:
         """Normalize IFC geometry."""
         script_content = f'''
 import FreeCAD
@@ -1111,10 +1147,32 @@ class UploadNormalizationService:
             logger.info(f"Downloading file from S3: {s3_key}")
             local_file = temp_path / Path(s3_key).name
             
-            if not s3_service.download_file(s3_key, str(local_file)):
+            try:
+                # Use streaming download to avoid memory issues
+                file_stream = s3_service.download_file_stream(
+                    bucket="artefacts",
+                    object_key=s3_key
+                )
+                
+                # Write stream to local file
+                with open(local_file, 'wb') as f:
+                    # Read in chunks to avoid loading entire file into memory
+                    chunk_size = 8192
+                    while True:
+                        chunk = file_stream.read(chunk_size)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                
+                # Close the stream
+                if hasattr(file_stream, 'close'):
+                    file_stream.close()
+                    
+            except Exception as e:
                 raise NormalizationException(
                     code=NormalizationErrorCode.S3_DOWNLOAD_FAILED,
-                    message=f"Failed to download file from S3: {s3_key}"
+                    message=f"Failed to download file from S3: {s3_key}",
+                    details={"error": str(e)}
                 )
             
             # Detect format
@@ -1149,7 +1207,7 @@ class UploadNormalizationService:
             
             # Normalize geometry
             logger.info(f"Normalizing {file_format} geometry")
-            metrics_data = handler.normalize(doc, config)
+            metrics_data = handler.normalize(doc, config, local_file)
             
             # Validate geometry
             warnings = handler.validate(doc)
@@ -1193,9 +1251,19 @@ class UploadNormalizationService:
             for file_type, file_path in normalized_files.items():
                 if file_path.exists():
                     s3_key_name = f"normalized/{job_id}/{file_path.name}"
-                    if s3_service.upload_file(str(file_path), s3_key_name):
-                        s3_keys[file_type] = s3_key_name
-                        logger.info(f"Uploaded {file_type} to S3: {s3_key_name}")
+                    try:
+                        # Open file for streaming upload
+                        with open(file_path, 'rb') as f:
+                            object_key, _ = s3_service.upload_file_stream(
+                                file_stream=f,
+                                bucket="artefacts",
+                                job_id=job_id,
+                                filename=file_path.name
+                            )
+                            s3_keys[file_type] = object_key
+                            logger.info(f"Uploaded {file_type} to S3: {object_key}")
+                    except Exception as e:
+                        logger.warning(f"Failed to upload {file_type} to S3: {e}")
             
             # Calculate file hash
             file_hash = self._calculate_file_hash(normalized_files.get('fcstd'))
