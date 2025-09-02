@@ -635,22 +635,49 @@ print(json.dumps(result))
         )
         
         # Use trimesh for advanced operations if available
-        if TRIMESH_AVAILABLE and config.repair_mesh:
+        if TRIMESH_AVAILABLE:
             try:
-                # Load with trimesh for repair
+                # Load with trimesh for repair and unit conversion
                 mesh = trimesh.load(str(file_path))
                 
-                # Repair operations
-                if not mesh.is_watertight:
-                    mesh.fill_holes()
+                # Apply unit conversion if needed
+                if original_units != Units.UNKNOWN and config.target_units != Units.UNKNOWN:
+                    scale_factor = 1.0
+                    
+                    # Convert to millimeters first (as base unit)
+                    if original_units == Units.INCHES:
+                        scale_factor *= 25.4  # inches to mm
+                    elif original_units == Units.CENTIMETERS:
+                        scale_factor *= 10.0  # cm to mm
+                    elif original_units == Units.METERS:
+                        scale_factor *= 1000.0  # m to mm
+                    
+                    # Then convert from mm to target units
+                    if config.target_units == Units.INCHES:
+                        scale_factor /= 25.4  # mm to inches
+                    elif config.target_units == Units.CENTIMETERS:
+                        scale_factor /= 10.0  # mm to cm
+                    elif config.target_units == Units.METERS:
+                        scale_factor /= 1000.0  # mm to m
+                    
+                    # Apply scaling if needed
+                    if scale_factor != 1.0:
+                        mesh.apply_scale(scale_factor)
+                        logger.info(f"Applied unit conversion scale factor: {scale_factor} ({original_units.value} -> {config.target_units.value})")
                 
-                if not mesh.is_winding_consistent:
-                    mesh.fix_normals()
-                
-                # Remove degenerate faces
-                mesh.remove_degenerate_faces()
-                mesh.remove_duplicate_faces()
-                mesh.remove_unreferenced_vertices()
+                # Repair operations if requested
+                if config.repair_mesh:
+                    # Repair operations
+                    if not mesh.is_watertight:
+                        mesh.fill_holes()
+                    
+                    if not mesh.is_winding_consistent:
+                        mesh.fix_normals()
+                    
+                    # Remove degenerate faces
+                    mesh.remove_degenerate_faces()
+                    mesh.remove_duplicate_faces()
+                    mesh.remove_unreferenced_vertices()
                 
                 # Update metrics
                 metrics.bbox_min = mesh.bounds[0].tolist()
@@ -661,8 +688,14 @@ print(json.dumps(result))
                 metrics.is_watertight = mesh.is_watertight
                 metrics.center_of_mass = mesh.center_mass.tolist() if mesh.is_watertight else None
                 
+                # Save the modified mesh back if it was changed
+                if (original_units != Units.UNKNOWN and config.target_units != Units.UNKNOWN and 
+                    original_units != config.target_units) or config.repair_mesh:
+                    mesh.export(str(file_path))
+                    logger.info(f"Saved normalized STL to {file_path}")
+                
             except Exception as e:
-                logger.warning(f"Trimesh repair failed: {e}")
+                logger.warning(f"Trimesh operations failed: {e}")
         
         return metrics
     
@@ -829,7 +862,7 @@ if config.merge_duplicates:
 
 # Extrude 2D geometry if needed
 extrude_thickness = {config.extrude_2d_thickness}
-if extrude_thickness > 0:
+if extrude_thickness is not None and extrude_thickness > 0:
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
             shape = obj.Shape

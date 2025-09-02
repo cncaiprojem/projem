@@ -52,7 +52,9 @@ def mock_db():
 def mock_s3_service():
     """Mock S3 service."""
     service = MagicMock(spec=S3Service)
-    service.upload_file = MagicMock(return_value=True)
+    # Mock upload_file_stream which is actually used by the service
+    service.upload_file_stream = MagicMock(return_value=("test-key", "test-version-id"))
+    service.upload_file = MagicMock(return_value=True)  # Keep for backward compatibility
     service.download_file = MagicMock(return_value=True)
     service.get_presigned_url = MagicMock(return_value="https://s3.example.com/file")
     service.delete_file = MagicMock(return_value=True)
@@ -175,8 +177,8 @@ END-ISO-10303-21;
             assert result.metrics.is_watertight is True
             assert len(result.warnings) == 0
             
-            # Verify S3 uploads were called
-            assert mock_s3_service.upload_file.call_count >= 3  # FCStd, STEP, STL
+            # Verify S3 uploads were called (using upload_file_stream)
+            assert mock_s3_service.upload_file_stream.call_count >= 3  # FCStd, STEP, STL
             
             # Verify FreeCAD operations were called
             assert mock_freecad_service.execute_script.call_count >= 6
