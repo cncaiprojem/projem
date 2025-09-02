@@ -12,14 +12,19 @@ Tests the complete upload normalization flow including:
 """
 
 import asyncio
+import logging
 import shutil
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import MagicMock, patch, AsyncMock
 
 import pytest
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
+
+# Set up logger
+logger = logging.getLogger(__name__)
 
 from apps.api.app.services.upload_normalization_service import (
     UploadNormalizationService,

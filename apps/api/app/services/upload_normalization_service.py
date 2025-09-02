@@ -360,9 +360,9 @@ if {str(config.normalize_orientation).lower()}:
                         # Rotate to make Z the primary axis
                         # FreeCAD's rotate() returns a new shape, doesn't modify in place
                         if dims[0] > dims[1]:  # X is longer
-                            shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), {ROTATION_ANGLE_90_DEGREES})
+                            shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), ROTATION_ANGLE_90_DEGREES)
                         else:  # Y is longer
-                            shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), {ROTATION_ANGLE_NEG_90_DEGREES})
+                            shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), ROTATION_ANGLE_NEG_90_DEGREES)
                     obj.Shape = shape
             except Exception:
                 # Fallback to simple bbox-based heuristic
@@ -370,9 +370,9 @@ if {str(config.normalize_orientation).lower()}:
                 dims = [bbox.XLength, bbox.YLength, bbox.ZLength]
                 # FreeCAD's rotate() returns a new shape, doesn't modify in place
                 if dims[0] == max(dims):  # X is largest
-                    obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), {ROTATION_ANGLE_90_DEGREES})
+                    obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), ROTATION_ANGLE_90_DEGREES)
                 elif dims[1] == max(dims):  # Y is largest
-                    obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), {ROTATION_ANGLE_NEG_90_DEGREES})
+                    obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), ROTATION_ANGLE_NEG_90_DEGREES)
 
 # Center geometry if needed
 if {str(config.center_geometry).lower()}:
@@ -1179,10 +1179,18 @@ class UploadNormalizationService:
             try:
                 # Use streaming download with proper resource cleanup via nested context managers
                 # The StreamingResponseWrapper implements __enter__ and __exit__ for guaranteed cleanup
-                stream_context = s3_service.download_file_stream(
-                    bucket="artefacts",
-                    object_key=s3_key
-                )
+                try:
+                    stream_context = s3_service.download_file_stream(
+                        bucket="artefacts",
+                        object_key=s3_key
+                    )
+                except Exception as e:
+                    # Handle S3 service exceptions specifically
+                    raise NormalizationException(
+                        code=NormalizationErrorCode.S3_DOWNLOAD_FAILED,
+                        message=f"Failed to initiate S3 download stream for {s3_key}",
+                        details={"error": str(e), "s3_key": s3_key}
+                    )
                 
                 # Validate that the returned object is a context manager
                 if not hasattr(stream_context, '__enter__') or not hasattr(stream_context, '__exit__'):
