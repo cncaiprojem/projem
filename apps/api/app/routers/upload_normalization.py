@@ -150,7 +150,7 @@ async def normalize_upload(
     with create_span("normalize_upload_endpoint") as span:
         span.set_attribute("user_id", current_user.id)
         span.set_attribute("filename", file.filename)
-        span.set_attribute("file_size", file.size if hasattr(file, 'size') else 0)
+        span.set_attribute("file_size", file.size if file.size is not None else 0)
         
         # Early format detection for better metrics
         # Based on Prometheus best practices: always label metrics accurately

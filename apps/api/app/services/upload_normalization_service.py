@@ -320,13 +320,13 @@ import sys
 doc = FreeCAD.getDocument("{doc['doc_name']}")
 
 # Unit conversion factors
-unit_factors = {{
+unit_factors = {
     "mm": 1.0,
     "m": 1000.0,
     "inch": 25.4,
     "ft": 304.8,
     "cm": 10.0
-}}
+}
 
 # Apply unit conversion if needed
 # Convert from original_units to target_units (mm)
@@ -816,13 +816,13 @@ doc = FreeCAD.getDocument("{doc['doc_name']}")
 
 # Apply unit conversion if needed
 # DXF often needs unit conversion based on INSUNITS
-unit_factors = {{
+unit_factors = {
     "mm": 1.0,
     "m": 1000.0,
     "inch": 25.4,
     "ft": 304.8,
     "cm": 10.0
-}}
+}
 
 source_units = "{original_units.value}"
 target_units = "{config.target_units.value}"
@@ -1046,13 +1046,13 @@ import Part
 doc = FreeCAD.getDocument("{doc['doc_name']}")
 
 # Unit conversion for IFC files
-unit_factors = {{
+unit_factors = {
     "mm": 1.0,
     "m": 1000.0,
     "inch": 25.4,
     "ft": 304.8,
     "cm": 10.0
-}}
+}
 
 # IFC files are typically in meters unless specified otherwise
 source_units = "{original_units.value}"
@@ -1458,7 +1458,11 @@ class UploadNormalizationService:
                 # Add non-critical upload errors to the local warnings list
                 # This ensures proper request isolation - no state leakage between concurrent requests
                 for error in upload_errors:
-                    warnings.append(f"Upload warning: {error}")
+                    # Format warning with file type and error details for clarity
+                    if isinstance(error, dict) and 'file_type' in error and 'error' in error:
+                        warnings.append(f"Upload warning for {error['file_type']}: {error['error']}")
+                    else:
+                        warnings.append(f"Upload warning: {error}")
             
             # Calculate file hash
             file_hash = self._calculate_file_hash(normalized_files.get('fcstd'))
