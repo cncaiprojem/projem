@@ -17,9 +17,12 @@ from test_utils import setup_test_paths, TEST_FILE_LINE_COUNT
 project_root = setup_test_paths()
 
 # TEST_FILE_LINE_COUNT is imported from test_utils (value: 60)
-# This value is sufficient to test itertools.islice functionality while keeping
-# test execution fast. It covers the test case that reads lines 49-53 (requires
-# at least 54 lines) with some buffer for safety.
+# Testing Strategy: This value is chosen to efficiently test itertools.islice functionality
+# while keeping test execution fast. It provides:
+# - Sufficient lines to test edge cases (e.g., reading lines 49-53 requires at least 54 lines)
+# - Buffer for safety (6 extra lines beyond the minimum requirement)
+# - Fast test execution compared to creating files with thousands of lines
+# - Adequate coverage for partial file reading scenarios
 
 # Import structured logging - use relative import or proper package path
 try:
@@ -171,7 +174,6 @@ END-ISO-10303-21;"""
     
     def test_tempfile_cleanup_with_finally(self):
         """Test proper tempfile cleanup using try/finally pattern."""
-        import os
         
         # Track if cleanup was called
         cleanup_called = False

@@ -17,6 +17,7 @@ Run Instructions:
 """
 
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -171,7 +172,6 @@ class TestWorkerScriptCaching(unittest.TestCase):
     def tearDown(self):
         """Clean up test fixtures after each test method."""
         if os.path.exists(self.mock_args.outdir):
-            import shutil
             shutil.rmtree(self.mock_args.outdir, ignore_errors=True)
         self.mock_args = None
     

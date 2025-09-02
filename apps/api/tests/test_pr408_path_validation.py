@@ -12,11 +12,16 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch, MagicMock
 
 # Use shared test utility for robust path setup
 from test_utils import setup_test_paths, cleanup_test_artifacts
 project_root = setup_test_paths()
+
+# Note: PathValidator mock must be None (not a sentinel object) because the
+# worker_script.py code explicitly checks "if PathValidator is None" to determine
+# whether to use the fallback path validation logic. This simulates the scenario
+# where PathValidator import fails or is not available in the environment.
 
 
 class TestPR408PathValidationFix(unittest.TestCase):
@@ -62,7 +67,9 @@ class TestPR408PathValidationFix(unittest.TestCase):
             forbidden_file = forbidden_dir / "secret.fcstd"
             forbidden_file.write_text("secret")
             
-            # Mock PathValidator to None to force fallback path
+            # Mock PathValidator as None to test fallback path validation
+            # The worker_script.py explicitly checks "if PathValidator is None" to determine
+            # whether to use fallback validation. This simulates PathValidator not being available.
             with patch('app.services.freecad.worker_script.PathValidator', None):
                 # Test 1: Absolute path within allowed directory should work
                 result = processor._validate_path_security(
@@ -148,7 +155,9 @@ class TestPR408PathValidationFix(unittest.TestCase):
             except OSError:
                 self.skipTest("Cannot create symlinks on this system")
             
-            # Mock PathValidator to None to force fallback path
+            # Mock PathValidator as None to test fallback path validation
+            # The worker_script.py explicitly checks "if PathValidator is None" to determine
+            # whether to use fallback validation. This simulates PathValidator not being available.
             with patch('app.services.freecad.worker_script.PathValidator', None):
                 # The symlink should be resolved and detected as outside allowed dir
                 with self.assertRaises(ValueError) as cm:
@@ -169,7 +178,9 @@ class TestPR408PathValidationFix(unittest.TestCase):
             allowed_dir = Path(temp_dir) / "allowed"
             allowed_dir.mkdir()
             
-            # Mock PathValidator to None to force fallback path
+            # Mock PathValidator as None to test fallback path validation
+            # The worker_script.py explicitly checks "if PathValidator is None" to determine
+            # whether to use fallback validation. This simulates PathValidator not being available.
             with patch('app.services.freecad.worker_script.PathValidator', None):
                 # Test empty path
                 with self.assertRaises(ValueError) as cm:

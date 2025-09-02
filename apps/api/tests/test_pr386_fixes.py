@@ -180,14 +180,12 @@ class TestAssembly4CachingFix(unittest.TestCase):
         mock_part = MagicMock()
         
         # Insert mocks into sys.modules
-        import sys
         sys.modules['FreeCAD'] = mock_freecad
         sys.modules['Part'] = mock_part
         
         from app.services.freecad.a4_assembly import Assembly4Manager, Component, ComponentSource
         
         # Create test file in isolated temporary directory first
-        import tempfile
         test_dir = tempfile.mkdtemp(prefix="freecad_uploads_test_")
         test_file = os.path.join(test_dir, "test.FCStd")
         
@@ -265,7 +263,6 @@ class TestAssembly4CachingFix(unittest.TestCase):
             if os.path.exists(test_file):
                 os.unlink(test_file)
             if os.path.exists(test_dir):
-                import shutil
                 shutil.rmtree(test_dir, ignore_errors=True)
             
             # Clean up sys.modules
@@ -313,7 +310,6 @@ class TestWorkerScriptExportFix(unittest.TestCase):
         Removes temporary directories and clears mock objects.
         """
         if os.path.exists(self.test_dir):
-            import shutil
             shutil.rmtree(self.test_dir, ignore_errors=True)
         self.mock_args = None
     

@@ -6,6 +6,7 @@ ensuring consistency and reducing duplication in test setup and teardown.
 """
 
 import os
+import shutil
 import sys
 from pathlib import Path
 from typing import Optional
@@ -92,7 +93,6 @@ def cleanup_test_artifacts(*paths: Path) -> None:
         if path and path.exists():
             try:
                 if path.is_dir():
-                    import shutil
                     shutil.rmtree(path)
                 else:
                     path.unlink()
@@ -102,7 +102,10 @@ def cleanup_test_artifacts(*paths: Path) -> None:
 
 
 # Test constants that are commonly used
-TEST_FILE_LINE_COUNT = 60  # Standard number of lines for file reading tests
+TEST_FILE_LINE_COUNT = 60  # Standard number of lines for file reading tests.
+                           # This value is sufficient for testing itertools.islice
+                           # functionality including edge cases like reading lines 49-53
+                           # (requires at least 54 lines) with buffer for safety.
 TEST_TIMEOUT = 30  # Standard timeout for async operations in seconds
 MOCK_USER_ID = "test-user-123"  # Standard mock user ID
 MOCK_JOB_ID = "job-456"  # Standard mock job ID
