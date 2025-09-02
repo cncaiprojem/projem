@@ -742,8 +742,12 @@ class TestPerformanceAndScalability:
             Path(large_file_path).unlink(missing_ok=True)
     
     @pytest.mark.asyncio
-    async def test_concurrent_normalization(self, mock_s3_service, mock_freecad_service):
-        """Test concurrent normalization of multiple files."""
+    async def test_multiple_normalizations_sequentially(self, mock_s3_service, mock_freecad_service):
+        """Test sequential normalization of multiple files.
+        
+        Note: This test processes multiple files sequentially, not concurrently.
+        For true concurrent testing, see test_concurrent_normalization_with_asyncio.
+        """
         import asyncio
         
         # Create test files
@@ -809,6 +813,121 @@ class TestPerformanceAndScalability:
             for result in results:
                 assert result.success is True
                 assert result.metrics.volume == 1000.0
+            
+        finally:
+            # Cleanup
+            for file_path in test_files:
+                Path(file_path).unlink(missing_ok=True)
+    
+    @pytest.mark.asyncio
+    async def test_concurrent_normalization_with_asyncio(self, mock_s3_service, mock_freecad_service):
+        """Test true concurrent normalization using asyncio.gather.
+        
+        This test demonstrates actual concurrent execution of multiple
+        normalization tasks using asyncio.gather, following pytest-asyncio
+        best practices for concurrent testing.
+        """
+        import asyncio
+        from unittest.mock import AsyncMock
+        
+        # Create test files
+        test_files = []
+        for i in range(3):
+            with tempfile.NamedTemporaryFile(suffix='.step', delete=False) as tmp:
+                tmp.write(f"ISO-10303-21; /* Concurrent test file {i} */".encode())
+                test_files.append(tmp.name)
+        
+        try:
+            # Mock S3 operations
+            def mock_download(s3_key, local_path):
+                # Use different file based on job_id
+                job_num = int(s3_key.split('job')[1][0])
+                shutil.copy(test_files[job_num - 1], local_path)
+                return True
+            
+            mock_s3_service.download_file = mock_download
+            
+            # Create thread-safe counter for tracking concurrent calls
+            import threading
+            call_counter = {'count': 0, 'max_concurrent': 0}
+            current_concurrent = {'count': 0}
+            lock = threading.Lock()
+            
+            # Mock FreeCAD operations with concurrency tracking
+            def mock_execute(script, timeout=60):
+                with lock:
+                    current_concurrent['count'] += 1
+                    call_counter['count'] += 1
+                    call_counter['max_concurrent'] = max(
+                        call_counter['max_concurrent'],
+                        current_concurrent['count']
+                    )
+                
+                # Simulate some processing time
+                time.sleep(0.1)
+                
+                result = None
+                if "newDocument" in script:
+                    result = {"success": True, "object_count": 1, "doc_name": f"doc_concurrent_{call_counter['count']}"}
+                elif "bbox" in script.lower():
+                    result = {
+                        "bbox_min": [0, 0, 0],
+                        "bbox_max": [10, 10, 10],
+                        "volume": 1000.0,
+                        "surface_area": 600.0,
+                        "edge_count": 12,
+                        "vertex_count": 8,
+                        "is_manifold": True,
+                        "is_watertight": True
+                    }
+                else:
+                    result = {"success": True}
+                
+                with lock:
+                    current_concurrent['count'] -= 1
+                
+                return result
+            
+            mock_freecad_service.execute_script = mock_execute
+            
+            with patch('apps.api.app.services.upload_normalization_service.s3_service', mock_s3_service):
+                with patch('apps.api.app.services.upload_normalization_service.freecad_service', mock_freecad_service):
+                    # Create async wrapper for normalize_upload if it's synchronous
+                    async def async_normalize(s3_key, job_id, config):
+                        # Run synchronous function in threadpool to avoid blocking
+                        from fastapi.concurrency import run_in_threadpool
+                        return await run_in_threadpool(
+                            upload_normalization_service.normalize_upload,
+                            s3_key=s3_key,
+                            job_id=job_id,
+                            config=config
+                        )
+                    
+                    # Execute concurrent normalizations using asyncio.gather
+                    tasks = [
+                        async_normalize(
+                            s3_key=f"uploads/job{i}/model.step",
+                            job_id=f"job{i}",
+                            config=NormalizationConfig(generate_preview=False)
+                        )
+                        for i in range(1, 4)
+                    ]
+                    
+                    # Run all tasks concurrently
+                    results = await asyncio.gather(*tasks)
+            
+            # Verify all succeeded
+            assert len(results) == 3
+            for result in results:
+                assert result.success is True
+                assert result.metrics.volume == 1000.0
+            
+            # Verify concurrent execution occurred
+            assert call_counter['max_concurrent'] > 1, \
+                f"Expected concurrent execution, but max concurrent was {call_counter['max_concurrent']}"
+            
+            logger.info(f"Concurrent test stats: total_calls={call_counter['count']}, "
+                       f"max_concurrent={call_counter['max_concurrent']}")
             
         finally:
             # Cleanup

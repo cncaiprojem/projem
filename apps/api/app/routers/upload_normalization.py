@@ -11,6 +11,7 @@ Provides API endpoints for CAD file upload normalization:
 from pathlib import Path
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi.concurrency import run_in_threadpool  # For CPU-bound operations
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
 
@@ -194,9 +195,11 @@ async def normalize_upload(
                 tolerance=tolerance
             )
             
-            # Execute normalization (could be async in background)
+            # Execute normalization using threadpool for CPU-bound operation
+            # This prevents blocking the event loop during FreeCAD operations
             try:
-                result = upload_normalization_service.normalize_upload(
+                result = await run_in_threadpool(
+                    upload_normalization_service.normalize_upload,
                     s3_key=s3_key,
                     job_id=str(job.id),
                     config=config,

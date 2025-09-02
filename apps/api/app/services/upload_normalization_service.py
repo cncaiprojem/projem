@@ -71,6 +71,11 @@ except ImportError:
     EZDXF_AVAILABLE = False
     logger.warning("ezdxf not available, DXF normalization features limited")
 
+# Constants for enterprise code quality
+MAX_FILE_SIZE_BYTES = 500.0 * 1024 * 1024  # 500 MB pre-calculated
+EPSILON_FLOAT_COMPARISON = 1e-9  # For floating point comparisons
+ROTATION_ANGLE_90_DEGREES = 90  # Standard rotation angle
+ROTATION_ANGLE_NEG_90_DEGREES = -90  # Negative rotation angle
 
 class FileFormat(str, Enum):
     """Supported CAD file formats."""
@@ -355,9 +360,9 @@ if {str(config.normalize_orientation).lower()}:
                         # Rotate to make Z the primary axis
                         # FreeCAD's rotate() returns a new shape, doesn't modify in place
                         if dims[0] > dims[1]:  # X is longer
-                            shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 90)
+                            shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), {ROTATION_ANGLE_90_DEGREES})
                         else:  # Y is longer
-                            shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), -90)
+                            shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), {ROTATION_ANGLE_NEG_90_DEGREES})
                     obj.Shape = shape
             except Exception:
                 # Fallback to simple bbox-based heuristic
@@ -365,9 +370,9 @@ if {str(config.normalize_orientation).lower()}:
                 dims = [bbox.XLength, bbox.YLength, bbox.ZLength]
                 # FreeCAD's rotate() returns a new shape, doesn't modify in place
                 if dims[0] == max(dims):  # X is largest
-                    obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 90)
+                    obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), {ROTATION_ANGLE_90_DEGREES})
                 elif dims[1] == max(dims):  # Y is largest
-                    obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), -90)
+                    obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), {ROTATION_ANGLE_NEG_90_DEGREES})
 
 # Center geometry if needed
 if {str(config.center_geometry).lower()}:
@@ -1091,6 +1096,15 @@ class UploadNormalizationService:
             NormalizationErrorCode.VALIDATION_FAILED: "Geometri doğrulama başarısız: {details}",
         }
     
+    def _get_file_format_for_metrics(self, file_format: Optional[FileFormat] = None) -> str:
+        """Helper to get file format string for metrics.
+        
+        Simplifies complex expression for getting file format from locals.
+        """
+        if file_format:
+            return file_format.value
+        return "unknown"
+    
     def detect_format(self, file_path: Path) -> FileFormat:
         """Detect file format from extension."""
         ext = file_path.suffix.lower().lstrip('.')
@@ -1165,10 +1179,28 @@ class UploadNormalizationService:
             try:
                 # Use streaming download with proper resource cleanup via nested context managers
                 # The StreamingResponseWrapper implements __enter__ and __exit__ for guaranteed cleanup
-                with s3_service.download_file_stream(
+                stream_context = s3_service.download_file_stream(
                     bucket="artefacts",
                     object_key=s3_key
-                ) as file_stream:
+                )
+                
+                # Validate that the returned object is a context manager
+                if not hasattr(stream_context, '__enter__') or not hasattr(stream_context, '__exit__'):
+                    raise NormalizationException(
+                        code=NormalizationErrorCode.S3_DOWNLOAD_FAILED,
+                        message="S3 service did not return a valid context manager",
+                        details={"s3_key": s3_key}
+                    )
+                
+                with stream_context as file_stream:
+                    # Validate stream is not None
+                    if file_stream is None:
+                        raise NormalizationException(
+                            code=NormalizationErrorCode.S3_DOWNLOAD_FAILED,
+                            message="S3 stream download returned None",
+                            details={"s3_key": s3_key}
+                        )
+                    
                     # Write stream to local file using context manager for guaranteed cleanup
                     with open(local_file, 'wb') as f:
                         # Use shutil.copyfileobj for efficient and safe streaming
@@ -1319,7 +1351,7 @@ class UploadNormalizationService:
             # Track failure metrics
             metrics.job_normalization_completed.labels(
                 job_id=job_id,
-                format=locals().get('file_format', FileFormat.UNKNOWN).value if locals().get('file_format') else "unknown",
+                format=self._get_file_format_for_metrics(locals().get('file_format')),
                 status="failed"
             ).inc()
             raise
@@ -1328,7 +1360,7 @@ class UploadNormalizationService:
             # Track failure metrics
             metrics.job_normalization_completed.labels(
                 job_id=job_id,
-                format=locals().get('file_format', FileFormat.UNKNOWN).value if locals().get('file_format') else "unknown",
+                format=self._get_file_format_for_metrics(locals().get('file_format')),
                 status="error"
             ).inc()
             
