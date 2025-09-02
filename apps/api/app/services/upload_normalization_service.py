@@ -412,19 +412,28 @@ if config.merge_duplicates:
     for shape in shapes:
         # Create a geometric hash based on topology
         try:
-            # Use shape's hash code if available (provides geometric hash)
-            if hasattr(shape, 'hashCode'):
-                shape_hash = shape.hashCode()
-            else:
-                # Fallback to volume + area + vertex count hash
-                shape_hash = hash((round(shape.Volume, 3), 
-                                 round(shape.Area, 3),
-                                 len(shape.Vertexes),
-                                 len(shape.Edges)))
+            # FreeCAD Shape.hashCode() availability analysis:
+            # - hashCode() is part of OpenCascade's TopoDS_Shape, not always exposed in FreeCAD Python API
+            # - When available, provides reliable geometric hashing based on underlying topology
+            # - When unavailable, skip deduplication to avoid false positives from weak hashing
+            # Reference: FreeCAD uses OpenCascade shapes internally, but Python API exposure varies
             
-            if shape_hash not in shape_hashes:
-                shape_hashes.add(shape_hash)
+            if hasattr(shape, 'hashCode') and callable(getattr(shape, 'hashCode', None)):
+                # Use the reliable hashCode method when available
+                shape_hash = shape.hashCode()
+                
+                if shape_hash not in shape_hashes:
+                    shape_hashes.add(shape_hash)
+                    unique_shapes.append(shape)
+            else:
+                # CRITICAL: Don't use weak fallback hashing that could cause data loss
+                # Volume+area+vertex/edge counts can be identical for different shapes
+                # Example: Two different brackets with same volume/area but different internal geometry
+                # Solution: Skip deduplication when reliable hashing unavailable
+                print(f"Shape.hashCode() not available - skipping deduplication for safety", file=sys.stderr)
+                print(f"Including shape without deduplication to prevent data loss", file=sys.stderr)
                 unique_shapes.append(shape)
+                
         except Exception as e:
             # Log geometric hashing error to stderr for debugging
             # Based on FreeCAD/Python subprocess best practices: log errors to stderr

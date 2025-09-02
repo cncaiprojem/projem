@@ -138,8 +138,10 @@ async def normalize_upload(
                 detected_file_format = upload_normalization_service.detect_format(temp_file_path)
                 # Convert FileFormat enum to string for metrics
                 file_format_for_metrics = detected_file_format.value
-            except Exception:
-                # If detection fails, keep "unknown"
+            except NormalizationException:
+                # NormalizationException is the documented exception for format detection failure
+                # This is the expected exception type from the service layer
+                # Keep "unknown" format for metrics when format detection fails
                 file_format_for_metrics = "unknown"
         
         # Initialize job variable at the beginning of the try block for proper scoping
