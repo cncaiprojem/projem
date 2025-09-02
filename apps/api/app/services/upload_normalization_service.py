@@ -213,8 +213,15 @@ class FormatHandler(ABC):
         pass
     
     @abstractmethod
-    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path) -> GeometryMetrics:
-        """Normalize geometry."""
+    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path, original_units: Units) -> GeometryMetrics:
+        """Normalize geometry.
+        
+        Args:
+            doc: FreeCAD document
+            config: Normalization configuration
+            file_path: Path to the file
+            original_units: Detected or declared original units for proper conversion
+        """
         pass
     
     @abstractmethod
@@ -302,7 +309,7 @@ print(json.dumps(result))
 '''
         return freecad_service.execute_script(script_content, timeout=60)
     
-    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path) -> GeometryMetrics:
+    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path, original_units: Units) -> GeometryMetrics:
         """Normalize STEP geometry."""
         script_content = f'''
 import FreeCAD
@@ -321,9 +328,14 @@ unit_factors = {{
 }}
 
 # Apply unit conversion if needed
-source_units = "{config.target_units.value}"
-if source_units != "mm":
-    factor = unit_factors.get(source_units, 1.0)
+# Convert from original_units to target_units (mm)
+source_units = "{original_units.value}"
+target_units = "{config.target_units.value}"
+if source_units != target_units:
+    # Calculate conversion factor from source to target
+    source_factor = unit_factors.get(source_units, 1.0)
+    target_factor = unit_factors.get(target_units, 1.0)
+    factor = source_factor / target_factor
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
             # Create scaled shape
@@ -332,7 +344,7 @@ if source_units != "mm":
             obj.Shape = obj.Shape.transformGeometry(matrix)
 
 # Normalize orientation to Z-up if needed using principal axes
-if {str(config.normalize_orientation).lower()}:
+if {config.normalize_orientation}:
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
             # Use principal axes of inertia for robust orientation
@@ -375,14 +387,14 @@ if {str(config.normalize_orientation).lower()}:
                     obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), ROTATION_ANGLE_NEG_90_DEGREES)
 
 # Center geometry if needed
-if {str(config.center_geometry).lower()}:
+if {config.center_geometry}:
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
             center = obj.Shape.BoundBox.Center
             obj.Shape.translate(-center)
 
 # Merge duplicates if needed
-if {str(config.merge_duplicates).lower()}:
+if {config.merge_duplicates}:
     shapes = []
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
@@ -591,8 +603,10 @@ print(json.dumps(result))
 '''
         return freecad_service.execute_script(script_content, timeout=60)
     
-    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path) -> GeometryMetrics:
+    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path, original_units: Units) -> GeometryMetrics:
         """Normalize STL geometry."""
+        # STL normalization can apply unit scaling if needed
+        # The original_units parameter helps determine if scaling is needed
         metrics = GeometryMetrics(
             bbox_min=[0, 0, 0],
             bbox_max=[0, 0, 0],
@@ -739,7 +753,7 @@ print(json.dumps(result))
 '''
         return freecad_service.execute_script(script_content, timeout=60)
     
-    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path) -> GeometryMetrics:
+    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path, original_units: Units) -> GeometryMetrics:
         """Normalize DXF geometry."""
         script_content = f'''
 import FreeCAD
@@ -748,8 +762,31 @@ import Part
 
 doc = FreeCAD.getDocument("{doc['doc_name']}")
 
+# Apply unit conversion if needed
+# DXF often needs unit conversion based on INSUNITS
+unit_factors = {{
+    "mm": 1.0,
+    "m": 1000.0,
+    "inch": 25.4,
+    "ft": 304.8,
+    "cm": 10.0
+}}
+
+source_units = "{original_units.value}"
+target_units = "{config.target_units.value}"
+if source_units != target_units:
+    source_factor = unit_factors.get(source_units, 1.0)
+    target_factor = unit_factors.get(target_units, 1.0)
+    factor = source_factor / target_factor
+    
+    for obj in doc.Objects:
+        if hasattr(obj, 'Shape'):
+            matrix = FreeCAD.Matrix()
+            matrix.scale(factor, factor, factor)
+            obj.Shape = obj.Shape.transformGeometry(matrix)
+
 # Consolidate layers if needed
-if {str(config.merge_duplicates).lower()}:
+if {config.merge_duplicates}:
     # Group objects by layer
     layer_objects = {{}}
     for obj in doc.Objects:
@@ -944,7 +981,7 @@ print(json.dumps(result))
         
         return result
     
-    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path) -> GeometryMetrics:
+    def normalize(self, doc: Any, config: NormalizationConfig, file_path: Path, original_units: Units) -> GeometryMetrics:
         """Normalize IFC geometry."""
         script_content = f'''
 import FreeCAD
@@ -952,9 +989,23 @@ import Part
 
 doc = FreeCAD.getDocument("{doc['doc_name']}")
 
-# Convert from meters to mm (IFC default is meters)
-if True:  # IFC is typically in meters
-    factor = 1000.0
+# Unit conversion for IFC files
+unit_factors = {{
+    "mm": 1.0,
+    "m": 1000.0,
+    "inch": 25.4,
+    "ft": 304.8,
+    "cm": 10.0
+}}
+
+# IFC files are typically in meters unless specified otherwise
+source_units = "{original_units.value}"
+target_units = "{config.target_units.value}"
+
+if source_units != target_units:
+    source_factor = unit_factors.get(source_units, 1.0)
+    target_factor = unit_factors.get(target_units, 1.0)
+    factor = source_factor / target_factor
     for obj in doc.Objects:
         if hasattr(obj, 'Shape'):
             matrix = FreeCAD.Matrix()
@@ -1167,9 +1218,10 @@ class UploadNormalizationService:
         ).inc()
         
         temp_dir = None
-        # Initialize file_format variable for proper scoping in exception handlers
+        # Initialize variables for proper scoping in exception handlers and finally block
         # This follows Python best practices for explicit variable initialization
         file_format = None
+        doc_name = None
         
         try:
             # Create temporary directory
@@ -1265,7 +1317,7 @@ class UploadNormalizationService:
             
             # Normalize geometry
             logger.info(f"Normalizing {file_format} geometry")
-            metrics_data = handler.normalize(doc, config, local_file)
+            metrics_data = handler.normalize(doc, config, local_file, original_units)
             
             # Validate geometry
             warnings = handler.validate(doc)
@@ -1400,7 +1452,9 @@ class UploadNormalizationService:
             
             # Clean up FreeCAD document
             try:
-                self._cleanup_document(locals().get('doc_name'))
+                # Use the doc_name variable directly, which is now properly initialized
+                if doc_name:
+                    self._cleanup_document(doc_name)
             except Exception as e:
                 logger.warning(f"Failed to clean up FreeCAD document: {e}")
     

@@ -10,7 +10,7 @@ Provides API endpoints for CAD file upload normalization:
 
 from pathlib import Path
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.concurrency import run_in_threadpool  # For CPU-bound operations
 from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field
@@ -99,7 +99,6 @@ class ValidateFormatResponse(BaseModel):
 
 @router.post("/upload", response_model=NormalizeUploadResponse)
 async def normalize_upload(
-    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="CAD file to normalize"),
     target_units: Units = Form(Units.MILLIMETER),
     declared_units: Optional[Units] = Form(None),
