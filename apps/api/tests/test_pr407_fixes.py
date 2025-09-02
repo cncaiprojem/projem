@@ -16,13 +16,9 @@ from pathlib import Path
 from unittest.mock import MagicMock, Mock, patch
 
 # Use shared test utility for robust path setup
+# See test_utils.py for PathValidator mock configuration notes
 from test_utils import setup_test_paths
 project_root = setup_test_paths()
-
-# Note: PathValidator mock must be None (not a sentinel object) because the
-# worker_script.py code explicitly checks "if PathValidator is None" to determine
-# whether to use the fallback path validation logic. This simulates the scenario
-# where PathValidator import fails or is not available in the environment.
 
 
 class TestPR407SecurityFixes(unittest.TestCase):
@@ -53,8 +49,6 @@ class TestPR407SecurityFixes(unittest.TestCase):
             test_file.write_text("test")
             
             # Mock PathValidator as None to test fallback path validation
-            # The worker_script.py explicitly checks "if PathValidator is None" to determine
-            # whether to use fallback validation. This simulates PathValidator not being available.
             with patch('app.services.freecad.worker_script.PathValidator', None):
                 # Should use os.path.realpath and commonpath for validation
                 result = processor._validate_path_security(

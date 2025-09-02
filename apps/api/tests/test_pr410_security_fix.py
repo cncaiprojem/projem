@@ -9,6 +9,15 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
+# Use shared test utility for robust path setup
+# See test_utils.py for PathValidator mock configuration notes
+from test_utils import setup_test_paths
+project_root = setup_test_paths()
+
+# Import Assembly4Manager at module level to ensure proper module initialization
+# and enable effective mocking in tests
+from app.services.freecad.a4_assembly import Assembly4Manager
+
 
 def test_a4_assembly_secure_path_validation():
     """Test that a4_assembly.py uses secure path validation."""
@@ -29,9 +38,6 @@ def test_a4_assembly_secure_path_validation():
         outside_file = outside_dir / "secret.txt"
         outside_file.write_text("secret")
         
-        # Mock the Assembly4Manager class to test path validation
-        from app.services.freecad.a4_assembly import Assembly4Manager
-        
         # Test with PathValidator not available (fallback mode)
         with patch('app.services.freecad.a4_assembly.PathValidator', None):
             assembly = Assembly4Manager()
@@ -39,30 +45,30 @@ def test_a4_assembly_secure_path_validation():
             assembly._resolved_upload_dirs = [Path(os.path.realpath(str(allowed_dir)))]
             
             # Test 1: Valid path within allowed directory
-            valid_path = assembly._validate_file_path(str(allowed_file))
+            valid_path = assembly._validate_upload_path(str(allowed_file))
             assert valid_path == Path(os.path.realpath(str(allowed_file)))
             
             # Test 2: Relative path within allowed directory
             rel_path = "test.txt"
-            valid_rel = assembly._validate_file_path(rel_path)
+            valid_rel = assembly._validate_upload_path(rel_path)
             assert valid_rel == Path(os.path.realpath(str(allowed_file)))
             
             # Test 3: Path traversal attempt should fail
             traversal_path = "../outside/secret.txt"
             with pytest.raises(ValueError, match="outside allowed directories"):
-                assembly._validate_file_path(traversal_path)
+                assembly._validate_upload_path(traversal_path)
             
             # Test 4: Absolute path outside allowed directory should fail
             with pytest.raises(ValueError, match="outside allowed directories"):
-                assembly._validate_file_path(str(outside_file))
+                assembly._validate_upload_path(str(outside_file))
             
             # Test 5: Empty path should fail
             with pytest.raises(ValueError, match="Path cannot be empty"):
-                assembly._validate_file_path("")
+                assembly._validate_upload_path("")
             
             # Test 6: None path should fail
             with pytest.raises(ValueError, match="Path cannot be empty"):
-                assembly._validate_file_path(None)
+                assembly._validate_upload_path(None)
 
 
 def test_a4_assembly_symlink_attack_prevention():
@@ -90,8 +96,6 @@ def test_a4_assembly_symlink_attack_prevention():
         except OSError:
             pytest.skip("Cannot create symlinks (permission denied)")
         
-        from app.services.freecad.a4_assembly import Assembly4Manager
-        
         # Test with PathValidator not available (fallback mode)
         with patch('app.services.freecad.a4_assembly.PathValidator', None):
             assembly = Assembly4Manager()
@@ -101,13 +105,11 @@ def test_a4_assembly_symlink_attack_prevention():
             # Attempting to access the symlink should fail
             # because realpath resolves it to outside the allowed directory
             with pytest.raises(ValueError, match="outside allowed directories"):
-                assembly._validate_file_path(str(symlink_path))
+                assembly._validate_upload_path(str(symlink_path))
 
 
 def test_a4_assembly_initialization_uses_realpath():
     """Test that A4Assembly initialization uses os.path.realpath."""
-    
-    from app.services.freecad.a4_assembly import Assembly4Manager
     
     with tempfile.TemporaryDirectory() as temp_dir:
         test_dirs = [
@@ -137,10 +139,9 @@ def test_secure_pattern_matches_worker_script():
     
     # Read both files to check the pattern
     import inspect
-    from app.services.freecad.a4_assembly import Assembly4Manager
     
-    # Get the source code of the _validate_file_path method
-    source = inspect.getsource(Assembly4Manager._validate_file_path)
+    # Get the source code of the _validate_upload_path method
+    source = inspect.getsource(Assembly4Manager._validate_upload_path)
     
     # Check for secure patterns
     assert "os.path.realpath" in source, "Should use os.path.realpath for secure path resolution"

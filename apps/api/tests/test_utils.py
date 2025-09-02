@@ -12,6 +12,22 @@ from pathlib import Path
 from typing import Optional
 
 
+# PathValidator Mock Configuration Note:
+# When mocking PathValidator in tests, it MUST be set to None (not a sentinel object)
+# because the fallback path validation code explicitly checks "if PathValidator is None"
+# to determine whether to use the fallback logic. This simulates the scenario where
+# PathValidator import fails or is not available in the environment.
+#
+# Example usage:
+#   with patch('app.services.freecad.worker_script.PathValidator', None):
+#       # Test fallback path validation logic
+#
+# This pattern is used consistently across test files for:
+# - worker_script.py fallback validation
+# - a4_assembly.py fallback validation
+# - Any other modules that implement PathValidator fallback logic
+
+
 def setup_test_paths() -> Path:
     """
     Setup Python path for test imports in a robust and consistent way.

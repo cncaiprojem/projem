@@ -6,10 +6,7 @@ from pathlib import Path
 
 from apps.api.app.services.freecad.a4_assembly import Assembly4Manager
 
-# Note: PathValidator mock must be None (not a sentinel object) because the
-# a4_assembly.py code may check "if PathValidator is None" to determine
-# whether to use the fallback path validation logic. This simulates the scenario
-# where PathValidator import fails or is not available in the environment.
+# See test_utils.py for PathValidator mock configuration notes
 
 
 class TestAssembly4Cache(unittest.TestCase):

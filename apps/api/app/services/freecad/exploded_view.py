@@ -275,6 +275,10 @@ class ExplodedViewGenerator:
         max_dim = max(bbox.values())
         base_explosion = max_dim * config.explosion_factor * 0.3
         
+        # Pre-compute component lookup dictionary once for O(1) access
+        # This avoids O(N²) complexity when processing N components
+        component_lookup = {cid: component_obj for cid, component_obj, _ in components} if config.avoid_collisions else None
+        
         for comp_id, obj, pos in components:
             if config.radial_mode:
                 # Radial explosion from COM
@@ -293,7 +297,7 @@ class ExplodedViewGenerator:
             # Check for collisions if enabled
             if config.avoid_collisions:
                 exploded_pos = self._adjust_for_collisions(
-                    comp_id, obj, exploded_pos, exploded, components
+                    comp_id, obj, exploded_pos, exploded, components, component_lookup
                 )
                 # Recalculate offset after adjustment
                 offset = [exploded_pos[i] - pos[i] for i in range(3)]
@@ -357,21 +361,37 @@ class ExplodedViewGenerator:
         obj: Any,
         exploded_pos: List[float],
         already_exploded: List[ExplodedComponent],
-        all_components: List[Tuple[str, Any, List[float]]]
+        all_components: List[Tuple[str, Any, List[float]]],
+        component_lookup: Optional[Dict[str, Any]] = None
     ) -> List[float]:
-        """Adjust position to avoid collisions with other exploded components using BVH-based collision detection."""
+        """
+        Adjust position to avoid collisions with other exploded components using BVH-based collision detection.
+        
+        Args:
+            comp_id: Component identifier
+            obj: FreeCAD object
+            exploded_pos: Proposed exploded position
+            already_exploded: List of already exploded components
+            all_components: All components in the assembly
+            component_lookup: Pre-computed lookup dictionary for O(1) component access.
+                            If None, will be created internally (legacy behavior).
+        
+        Returns:
+            Adjusted position to avoid collisions
+        """
         from .collision import CollisionDetector
         
         if not hasattr(obj, 'Shape') or not obj.Shape:
             return exploded_pos
         
+        # Create lookup dictionary if not provided (for backward compatibility)
+        # When called from _generate_auto_explosion, this will be pre-computed
+        if component_lookup is None:
+            component_lookup = {cid: component_obj for cid, component_obj, _ in all_components}
+        
         try:
             # Initialize collision detector
             detector = CollisionDetector()
-            
-            # Create lookup dictionary once for O(1) access to avoid O(N²) performance issue
-            # This optimization prevents recreating the dictionary on every collision check
-            component_lookup = {cid: component_obj for cid, component_obj, _ in all_components}
             
             # Build list of transformed shapes for collision detection
             import FreeCAD
@@ -465,8 +485,9 @@ class ExplodedViewGenerator:
             # Initial minimum separation based on current object size
             min_separation = size * self.COLLISION_AVOIDANCE_FACTOR
             
-            # Get component lookup for size retrieval
-            component_lookup = {cid: component_obj for cid, component_obj, _ in all_components}
+            # Ensure component_lookup exists for fallback path
+            if component_lookup is None:
+                component_lookup = {cid: component_obj for cid, component_obj, _ in all_components}
             
             for other in already_exploded:
                 # Get the other object's size
