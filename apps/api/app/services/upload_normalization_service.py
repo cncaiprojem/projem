@@ -1381,6 +1381,9 @@ class UploadNormalizationService:
             
             # Upload normalized files to S3
             s3_keys = {}
+            upload_errors = []
+            critical_files = ['fcstd']  # Files that must upload successfully
+            
             for file_type, file_path in normalized_files.items():
                 if file_path.exists():
                     s3_key_name = f"normalized/{job_id}/{file_path.name}"
@@ -1396,7 +1399,33 @@ class UploadNormalizationService:
                             s3_keys[file_type] = object_key
                             logger.info(f"Uploaded {file_type} to S3: {object_key}")
                     except Exception as e:
-                        logger.warning(f"Failed to upload {file_type} to S3: {e}")
+                        error_msg = f"S3 yükleme hatası ({file_type}): {str(e)}"
+                        logger.error(error_msg)
+                        upload_errors.append({
+                            'file_type': file_type,
+                            'file_path': str(file_path),
+                            'error': str(e)
+                        })
+                        
+                        # Check if this is a critical file
+                        if file_type in critical_files:
+                            raise NormalizationException(
+                                code=NormalizationErrorCode.S3_UPLOAD_FAILED,
+                                message=f"Kritik dosya yüklenemedi: {file_type}",
+                                details={
+                                    'failed_uploads': upload_errors,
+                                    'critical_file': file_type,
+                                    'error': str(e)
+                                }
+                            )
+            
+            # If any non-critical uploads failed, log them but continue
+            if upload_errors:
+                logger.warning(f"Some files failed to upload: {upload_errors}")
+                # Include failed uploads in the response details
+                if not hasattr(self, '_upload_warnings'):
+                    self._upload_warnings = []
+                self._upload_warnings.extend(upload_errors)
             
             # Calculate file hash
             file_hash = self._calculate_file_hash(normalized_files.get('fcstd'))

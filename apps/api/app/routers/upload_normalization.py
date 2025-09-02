@@ -9,7 +9,7 @@ Provides API endpoints for CAD file upload normalization:
 """
 
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Annotated
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.concurrency import run_in_threadpool  # For CPU-bound operations
 from sqlalchemy.orm import Session
@@ -64,6 +64,56 @@ class NormalizeUploadRequest(BaseModel):
     tolerance: float = Field(0.001, description="Geometric tolerance in mm")
 
 
+class NormalizationOptions(BaseModel):
+    """
+    Form data model for normalization options.
+    Groups all normalization parameters for cleaner function signatures.
+    """
+    target_units: Units = Field(default=Units.MILLIMETER, description="Target units for normalization")
+    declared_units: Optional[Units] = Field(default=None, description="User-declared units (overrides auto-detection)")
+    normalize_orientation: bool = Field(default=True, description="Normalize to Z-up orientation")
+    center_geometry: bool = Field(default=False, description="Center geometry at origin")
+    repair_mesh: bool = Field(default=True, description="Attempt to repair mesh issues")
+    merge_duplicates: bool = Field(default=True, description="Merge duplicate entities")
+    validate_geometry: bool = Field(default=True, description="Validate geometry after normalization")
+    generate_preview: bool = Field(default=True, description="Generate GLB preview")
+    extrude_2d_thickness: float = Field(default=0.5, description="Thickness for 2D extrusion in mm")
+    material_name: Optional[str] = Field(default=None, description="Material to apply")
+    tolerance: float = Field(default=0.001, description="Geometric tolerance in mm")
+
+
+def parse_normalization_options(
+    target_units: Units = Form(Units.MILLIMETER),
+    declared_units: Optional[Units] = Form(None),
+    normalize_orientation: bool = Form(True),
+    center_geometry: bool = Form(False),
+    repair_mesh: bool = Form(True),
+    merge_duplicates: bool = Form(True),
+    validate_geometry: bool = Form(True),
+    generate_preview: bool = Form(True),
+    extrude_2d_thickness: float = Form(0.5),
+    material_name: Optional[str] = Form(None),
+    tolerance: float = Form(0.001)
+) -> NormalizationOptions:
+    """
+    Dependency function to parse form data into NormalizationOptions.
+    This approach maintains backward compatibility while providing cleaner signatures.
+    """
+    return NormalizationOptions(
+        target_units=target_units,
+        declared_units=declared_units,
+        normalize_orientation=normalize_orientation,
+        center_geometry=center_geometry,
+        repair_mesh=repair_mesh,
+        merge_duplicates=merge_duplicates,
+        validate_geometry=validate_geometry,
+        generate_preview=generate_preview,
+        extrude_2d_thickness=extrude_2d_thickness,
+        material_name=material_name,
+        tolerance=tolerance
+    )
+
+
 class NormalizeUploadResponse(BaseModel):
     """Response model for upload normalization."""
     success: bool = Field(..., description="Whether normalization succeeded")
@@ -100,17 +150,7 @@ class ValidateFormatResponse(BaseModel):
 @router.post("/upload", response_model=NormalizeUploadResponse)
 async def normalize_upload(
     file: UploadFile = File(..., description="CAD file to normalize"),
-    target_units: Units = Form(Units.MILLIMETER),
-    declared_units: Optional[Units] = Form(None),
-    normalize_orientation: bool = Form(True),
-    center_geometry: bool = Form(False),
-    repair_mesh: bool = Form(True),
-    merge_duplicates: bool = Form(True),
-    validate_geometry: bool = Form(True),
-    generate_preview: bool = Form(True),
-    extrude_2d_thickness: float = Form(0.5),
-    material_name: Optional[str] = Form(None),
-    tolerance: float = Form(0.001),
+    options: NormalizationOptions = Depends(parse_normalization_options),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -165,8 +205,8 @@ async def normalize_upload(
                 type="normalization",
                 parameters={
                     "filename": file.filename,
-                    "target_units": target_units.value,
-                    "declared_units": declared_units.value if declared_units else None
+                    "target_units": options.target_units.value,
+                    "declared_units": options.declared_units.value if options.declared_units else None
                 }
             )
             db.add(job)
@@ -201,18 +241,18 @@ async def normalize_upload(
                     detail="Failed to upload file to storage"
                 )
             
-            # Create normalization config
+            # Create normalization config from options
             config = NormalizationConfig(
-                target_units=target_units,
-                normalize_orientation=normalize_orientation,
-                center_geometry=center_geometry,
-                repair_mesh=repair_mesh,
-                merge_duplicates=merge_duplicates,
-                validate_geometry=validate_geometry,
-                generate_preview=generate_preview,
-                extrude_2d_thickness=extrude_2d_thickness,
-                material_name=material_name,
-                tolerance=tolerance
+                target_units=options.target_units,
+                normalize_orientation=options.normalize_orientation,
+                center_geometry=options.center_geometry,
+                repair_mesh=options.repair_mesh,
+                merge_duplicates=options.merge_duplicates,
+                validate_geometry=options.validate_geometry,
+                generate_preview=options.generate_preview,
+                extrude_2d_thickness=options.extrude_2d_thickness,
+                material_name=options.material_name,
+                tolerance=options.tolerance
             )
             
             # Execute normalization using threadpool for CPU-bound operation
@@ -223,7 +263,7 @@ async def normalize_upload(
                     s3_key=s3_key,
                     job_id=str(job.id),
                     config=config,
-                    declared_units=declared_units
+                    declared_units=options.declared_units
                 )
                 
                 # Update job with results
