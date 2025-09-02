@@ -341,24 +341,33 @@ if {str(config.normalize_orientation).lower()}:
                     # For now, use improved heuristic based on bounding box aspect ratio
                     bbox = shape.BoundBox
                     dims = [bbox.XLength, bbox.YLength, bbox.ZLength]
-                    aspect_ratios = [dims[i]/max(dims) for i in range(3)]
+                    
+                    # Check for degenerate shapes (points or lines) to avoid ZeroDivisionError
+                    max_dim = max(dims)
+                    if max_dim > 0:
+                        aspect_ratios = [dims[i]/max_dim for i in range(3)]
+                    else:
+                        # Degenerate shape (point), use default aspect ratios
+                        aspect_ratios = [1.0, 1.0, 1.0]
                     
                     # If object is flat in Z (aspect ratio < 0.3), it's likely horizontal
                     if aspect_ratios[2] < 0.3 and dims[2] < max(dims[0], dims[1]):
                         # Rotate to make Z the primary axis
+                        # FreeCAD's rotate() returns a new shape, doesn't modify in place
                         if dims[0] > dims[1]:  # X is longer
-                            shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 90)
+                            shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 90)
                         else:  # Y is longer
-                            shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), -90)
+                            shape = shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), -90)
                     obj.Shape = shape
             except Exception:
                 # Fallback to simple bbox-based heuristic
                 bbox = obj.Shape.BoundBox
                 dims = [bbox.XLength, bbox.YLength, bbox.ZLength]
+                # FreeCAD's rotate() returns a new shape, doesn't modify in place
                 if dims[0] == max(dims):  # X is largest
-                    obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 90)
+                    obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(0,1,0), 90)
                 elif dims[1] == max(dims):  # Y is largest
-                    obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), -90)
+                    obj.Shape = obj.Shape.rotate(FreeCAD.Vector(0,0,0), FreeCAD.Vector(1,0,0), -90)
 
 # Center geometry if needed
 if {str(config.center_geometry).lower()}:
@@ -1154,25 +1163,19 @@ class UploadNormalizationService:
             local_file = temp_path / Path(s3_key).name
             
             try:
-                # Use streaming download to avoid memory issues
-                file_stream = s3_service.download_file_stream(
+                # Use streaming download with proper resource cleanup via nested context managers
+                # The StreamingResponseWrapper implements __enter__ and __exit__ for guaranteed cleanup
+                with s3_service.download_file_stream(
                     bucket="artefacts",
                     object_key=s3_key
-                )
+                ) as file_stream:
+                    # Write stream to local file using context manager for guaranteed cleanup
+                    with open(local_file, 'wb') as f:
+                        # Use shutil.copyfileobj for efficient and safe streaming
+                        # 8KB chunks for balance between memory usage and I/O efficiency
+                        shutil.copyfileobj(file_stream, f, length=8192)
                 
-                if file_stream is None:
-                    raise NormalizationException(
-                        error_code=NormalizationErrorCode.DOWNLOAD_ERROR,
-                        message="S3 akış indirme başarısız oldu",
-                        details={"s3_key": s3_key}
-                    )
-                
-                # Write stream to local file using context manager for guaranteed cleanup
-                with open(local_file, 'wb') as f:
-                    # Use shutil.copyfileobj for efficient and safe streaming
-                    shutil.copyfileobj(file_stream, f, length=8192)
-                
-                # Stream is automatically closed by context manager in S3 service
+                # Both the stream and file are properly closed by context managers
                     
             except Exception as e:
                 raise NormalizationException(

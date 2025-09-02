@@ -24,7 +24,6 @@ from ..services.upload_normalization_service import (
     FileFormat,
     Units,
     NormalizationConfig,
-    NormalizationResult,
     NormalizationException,
     NormalizationErrorCode,
     GeometryMetrics
@@ -129,9 +128,10 @@ async def normalize_upload(
         span.set_attribute("file_size", file.size if hasattr(file, 'size') else 0)
         
         try:
-            # Validate file size
+            # Validate file size - file.size can be None if no Content-Length header
+            # Using None check is more robust than hasattr as FastAPI UploadFile always has 'size' attribute
             max_size_mb = 500.0
-            if hasattr(file, 'size') and file.size > max_size_mb * 1024 * 1024:
+            if file.size is not None and file.size > max_size_mb * 1024 * 1024:
                 raise HTTPException(
                     status_code=413,
                     detail=f"File size exceeds maximum of {max_size_mb} MB"
