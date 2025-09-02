@@ -1217,7 +1217,12 @@ class UploadNormalizationService:
                 
                 # Both the stream and file are properly closed by context managers
                     
+            except NormalizationException:
+                # Re-raise specific NormalizationException to preserve error context
+                # This ensures detailed error messages from inner try blocks are not lost
+                raise
             except Exception as e:
+                # Handle any other unexpected exceptions with generic error message
                 raise NormalizationException(
                     code=NormalizationErrorCode.S3_DOWNLOAD_FAILED,
                     message=f"Failed to download file from S3: {s3_key}",
