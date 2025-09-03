@@ -301,8 +301,8 @@ class TestOndselSolverWrapper:
                 AssemblyConstraint(
                     id="c1",
                     type=ConstraintType.ATTACHMENT,
-                    reference1=ConstraintReference(part_id="p1", lcs="L1"),
-                    reference2=ConstraintReference(part_id="p2", lcs="L2")
+                    reference1=ConstraintReference(part_id="p1", lcs_name="L1"),
+                    reference2=ConstraintReference(part_id="p2", lcs_name="L2")
                 )
             ]
             
@@ -392,15 +392,15 @@ class TestDOFAnalyzer:
             AssemblyConstraint(
                 id="fix",
                 type=ConstraintType.ATTACHMENT,
-                reference1=ConstraintReference(part_id="base", lcs="L1"),
-                reference2=ConstraintReference(part_id="world", lcs="Origin"),
+                reference1=ConstraintReference(part_id="base", lcs_name="L1"),
+                reference2=ConstraintReference(part_id="world", lcs_name="Origin"),
                 enabled=True
             ),
             AssemblyConstraint(
                 id="attach_top",
                 type=ConstraintType.ATTACHMENT,
-                reference1=ConstraintReference(part_id="top", lcs="L1"),
-                reference2=ConstraintReference(part_id="base", lcs="L2"),
+                reference1=ConstraintReference(part_id="top", lcs_name="L1"),
+                reference2=ConstraintReference(part_id="base", lcs_name="L2"),
                 enabled=True
             )
         ]
@@ -428,8 +428,8 @@ class TestDOFAnalyzer:
             AssemblyConstraint(
                 id="c1",
                 type=ConstraintType.PLANE_COINCIDENT,
-                reference1=ConstraintReference(part_id="p1", lcs="L1"),
-                reference2=ConstraintReference(part_id="p2", lcs="L2"),
+                reference1=ConstraintReference(part_id="p1", lcs_name="L1"),
+                reference2=ConstraintReference(part_id="p2", lcs_name="L2"),
                 enabled=True
             )
         ]
@@ -457,8 +457,8 @@ class TestDOFAnalyzer:
             AssemblyConstraint(
                 id=f"c{i}",
                 type=ConstraintType.ATTACHMENT,
-                reference1=ConstraintReference(part_id="p1", lcs=f"L{i}"),
-                reference2=ConstraintReference(part_id="world", lcs=f"W{i}"),
+                reference1=ConstraintReference(part_id="p1", lcs_name=f"L{i}"),
+                reference2=ConstraintReference(part_id="world", lcs_name=f"W{i}"),
                 enabled=True
             )
             for i in range(3)  # 3 attachments = 18 DOF reduction
@@ -569,22 +569,27 @@ class TestCAMParameters:
     
     def test_valid_cam_parameters(self, sample_cam_parameters):
         """Test valid CAM parameters."""
-        assert sample_cam_parameters.wcs.coordinate_system == "G54"
+        # CAMJobParameters has wcs_origin (string), wcs_offset (Vector3D), not wcs.coordinate_system
+        assert sample_cam_parameters.wcs_origin == "LCS_Origin"
         assert sample_cam_parameters.stock.type == "box"
         assert len(sample_cam_parameters.operations) == 3
-        assert sample_cam_parameters.post_processor == PostProcessor.LINUXCNC
+        assert sample_cam_parameters.post_processor == CAMPostProcessor.LINUXCNC
     
     def test_operation_validation(self):
         """Test CAM operation validation."""
+        # CAMOperation uses ToolDefinition not Tool
+        # ToolDefinition doesn't have 'number' or 'cutting_height'
+        # CAMOperation doesn't have 'depths' or 'parameters' dict fields
         operation = CAMOperation(
-            type=OperationType.ADAPTIVE,
-            tool=Tool(
+            name="Adaptive Operation",
+            type=CAMOperationType.ADAPTIVE,
+            tool=ToolDefinition(
                 name="Adaptive_5mm",
-                number=4,
                 type="endmill",
                 diameter=5.0,
                 flutes=3,
-                cutting_height=25.0
+                length=50.0,
+                material="Carbide"
             ),
             feeds_speeds=FeedsAndSpeeds(
                 feed_rate=400.0,
@@ -592,26 +597,20 @@ class TestCAMParameters:
                 spindle_speed=5000,
                 spindle_direction="CW",
                 surface_speed=80.0,
-                chip_load=0.05
+                chip_load=0.05,
+                step_down=2.0,
+                step_over=20.0
             ),
-            depths={
-                "start_depth": 0.0,
-                "final_depth": -10.0,
-                "step_down": 2.0
-            },
-            strategy="Spiral",
-            cut_mode="Climb",
-            parameters={
-                "step_over": 20,
-                "helix_angle": 3.0,
-                "helix_diameter": 10.0
-            }
+            strategy=CAMStrategy.SPIRAL,
+            cut_mode="climb",
+            coolant=True,
+            finish_pass=False
         )
         
-        assert operation.type == OperationType.ADAPTIVE
+        assert operation.type == CAMOperationType.ADAPTIVE
         assert operation.tool.diameter == 5.0
         assert operation.feeds_speeds.spindle_speed == 5000
-        assert operation.parameters["helix_angle"] == 3.0
+        assert operation.feeds_speeds.step_over == 20.0
 
 
 class TestExportOptions:

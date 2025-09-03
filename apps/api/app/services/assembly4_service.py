@@ -1144,7 +1144,7 @@ class Assembly4Service:
                     op = doc.addObject("Path::FeaturePython", f"Helix_{i}")
                     PathHelix.Create(op)
                     op.StartRadius = operation.tool.diameter * 2  # Start radius based on tool diameter
-                    op.Direction = "CW" if operation.cut_mode == "climb" else "CCW"
+                    op.Direction = (operation.cut_mode or "climb").capitalize()
                     
                 elif operation.type.value == "Engrave":
                     op = doc.addObject("Path::FeaturePython", f"Engrave_{i}")
