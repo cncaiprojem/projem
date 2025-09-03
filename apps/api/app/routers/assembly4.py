@@ -156,7 +156,7 @@ async def analyze_dof(
         from ..services.assembly4_service import DOFAnalyzer
         
         analyzer = DOFAnalyzer()
-        # DOFAnalyzer.analyze expects (parts, constraints) not the whole request
+        # Pass parts and constraints separately as DOFAnalyzer.analyze expects
         result = analyzer.analyze(request.parts, request.constraints)
         
         metrics.assembly_analyses.labels(

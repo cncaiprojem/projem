@@ -570,7 +570,7 @@ class TestCAMParameters:
     def test_valid_cam_parameters(self, sample_cam_parameters):
         """Test valid CAM parameters."""
         # CAMJobParameters has wcs_origin (string), wcs_offset (Vector3D), not wcs.coordinate_system
-        assert sample_cam_parameters.wcs_origin == "LCS_Origin"
+        assert sample_cam_parameters.wcs_origin == "world_origin"
         assert sample_cam_parameters.stock.type == "box"
         assert len(sample_cam_parameters.operations) == 3
         assert sample_cam_parameters.post_processor == CAMPostProcessor.LINUXCNC

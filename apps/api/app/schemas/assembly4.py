@@ -264,6 +264,17 @@ class AssemblyConstraint(BaseModel):
             if needs_lcs2 and not self.reference2.lcs_name:
                 raise ValueError(f"{self.type} kısıtı için reference2'de LCS gereklidir")
         
+        # Validate joint physics parameters
+        if self.stiffness is not None and self.damping is not None:
+            total = self.stiffness + self.damping
+            if total > 1.0:
+                raise ValueError(f"Joint stiffness + damping sum ({total}) exceeds 1.0")
+        
+        # Validate joint limits
+        if self.min_limit is not None and self.max_limit is not None:
+            if self.min_limit >= self.max_limit:
+                raise ValueError(f"Joint min_limit ({self.min_limit}) must be less than max_limit ({self.max_limit})")
+        
         return self
 
 

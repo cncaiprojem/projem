@@ -712,6 +712,17 @@ class Assembly4Service:
                     # Import STEP file
                     shape = Part.Shape()
                     shape.read(part_ref.model_ref)
+                    
+                    # Validate shape
+                    if not shape.isValid():
+                        logger.warning(f"Shape validation failed for {part_ref.id}, attempting to fix")
+                        shape.fix(0.01, 0.01, 0.01)  # Fix with tolerance
+                        if not shape.isValid():
+                            raise Assembly4Exception(
+                                f"Invalid shape in part {part_ref.id}",
+                                Assembly4ErrorCode.INVALID_INPUT
+                            )
+                    
                     obj = doc.addObject("Part::Feature", part_ref.id)
                     obj.Shape = shape
                     parts_map[part_ref.id] = obj
@@ -752,7 +763,11 @@ class Assembly4Service:
         
         # Add global LCS definitions
         for lcs_def in assembly_input.lcs_definitions:
-            lcs = doc.addObject("PartDesign::CoordinateSystem", lcs_def.name)
+            try:
+                lcs = doc.addObject("PartDesign::CoordinateSystem", lcs_def.name)
+            except Exception as e:
+                logger.warning(f"Failed to create LCS {lcs_def.name}: {e}")
+                continue
             
             # Apply placement
             placement = FreeCAD.Placement()
@@ -778,8 +793,12 @@ class Assembly4Service:
                 # Look for existing LCS in part
                 if hasattr(part_obj, "Group"):
                     for sub_obj in part_obj.Group:
-                        if sub_obj.TypeId == "PartDesign::CoordinateSystem":
-                            lcs_map[f"{part_ref.id}::{sub_obj.Label}"] = sub_obj
+                        if sub_obj and hasattr(sub_obj, "TypeId") and sub_obj.TypeId == "PartDesign::CoordinateSystem":
+                            # Validate LCS object
+                            if hasattr(sub_obj, "Placement"):
+                                lcs_map[f"{part_ref.id}::{sub_obj.Label}"] = sub_obj
+                            else:
+                                logger.warning(f"Invalid LCS object {sub_obj.Label} in part {part_ref.id}")
         
         return lcs_map
     
@@ -1144,7 +1163,15 @@ class Assembly4Service:
                     op = doc.addObject("Path::FeaturePython", f"Helix_{i}")
                     PathHelix.Create(op)
                     op.StartRadius = operation.tool.diameter * 2  # Start radius based on tool diameter
-                    op.Direction = (operation.cut_mode or "climb").capitalize()
+                    # FreeCAD Path expects 'CW' or 'CCW' for Helix Direction
+                    direction_map = {
+                        "climb": "CCW",  # Climb milling = Counter-clockwise
+                        "conventional": "CW",  # Conventional milling = Clockwise
+                        "ccw": "CCW",
+                        "cw": "CW"
+                    }
+                    cut_mode = (operation.cut_mode or "climb").lower()
+                    op.Direction = direction_map.get(cut_mode, "CCW")
                     
                 elif operation.type.value == "Engrave":
                     op = doc.addObject("Path::FeaturePython", f"Engrave_{i}")
@@ -1165,9 +1192,17 @@ class Assembly4Service:
                     if hasattr(op, 'FinishDepth') and operation.finish_pass:
                         op.FinishDepth = 0.1  # Leave 0.1mm for finish pass
                     
-                    # Set cut mode
-                    if hasattr(op, 'Direction'):
-                        op.Direction = operation.cut_mode or "Climb"
+                    # Set cut mode for operations that support it
+                    if hasattr(op, 'Direction') and operation.type.value != "Helix":
+                        # For non-Helix operations, use Climb/Conventional
+                        direction_map = {
+                            "climb": "Climb",
+                            "conventional": "Conventional",
+                            "ccw": "Climb",  # CCW is equivalent to climb milling
+                            "cw": "Conventional"  # CW is equivalent to conventional milling
+                        }
+                        cut_mode = (operation.cut_mode or "climb").lower()
+                        op.Direction = direction_map.get(cut_mode, "Climb")
                     
                     # Add to job
                     job.Operations.Group = job.Operations.Group + [op]
