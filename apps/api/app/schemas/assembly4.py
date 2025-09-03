@@ -18,6 +18,7 @@ Features:
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
@@ -26,6 +27,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator, model_validator, ConfigDict
 from pydantic import PositiveInt, NonNegativeInt, PositiveFloat, NonNegativeFloat
+
+logger = logging.getLogger(__name__)
 
 
 # Constraint Types Enumeration
@@ -265,10 +268,27 @@ class AssemblyConstraint(BaseModel):
                 raise ValueError(f"{self.type} kısıtı için reference2'de LCS gereklidir")
         
         # Validate joint physics parameters
+        if self.stiffness is not None:
+            if self.stiffness <= 0:
+                raise ValueError(f"Joint stiffness must be greater than 0, got {self.stiffness}")
+        
+        if self.damping is not None:
+            if self.damping < 0:
+                raise ValueError(f"Joint damping must be greater than or equal to 0, got {self.damping}")
+        
+        # Prevent invalid combination of stiffness=0, damping>0 (physically impossible)
+        # (This is redundant now since stiffness > 0 is already enforced, but kept for clarity)
+        if self.stiffness is not None and self.stiffness == 0 and self.damping is not None and self.damping > 0:
+            raise ValueError(f"Invalid physics: Cannot have damping ({self.damping}) without stiffness")
+        
+        # Optional: Check combined range for realistic values
         if self.stiffness is not None and self.damping is not None:
-            total = self.stiffness + self.damping
-            if total > 1.0:
-                raise ValueError(f"Joint stiffness + damping sum ({total}) exceeds 1.0")
+            # Damping ratio = damping / (2 * sqrt(stiffness * mass))
+            # For stability, damping ratio should typically be < 1.0
+            # Since we don't have mass, we can't calculate exact damping ratio
+            # But we can ensure reasonable relative values
+            if self.damping > 10 * self.stiffness:  # Overly damped system warning
+                logger.warning(f"High damping ratio detected: damping={self.damping}, stiffness={self.stiffness}")
         
         # Validate joint limits
         if self.min_limit is not None and self.max_limit is not None:

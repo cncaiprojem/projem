@@ -464,6 +464,25 @@ class Assembly4Service:
     # Memory estimation constant for cached shapes
     ESTIMATED_MB_PER_CACHED_SHAPE = 10  # Megabytes per cached shape object
     
+    # Direction mapping constants (for CAM helix operations - extracted as class constants)
+    DIRECTION_MAPPING_HELIX = {
+        "climb": "CCW",  # Climb milling = Counter-clockwise
+        "conventional": "CW",  # Conventional milling = Clockwise
+        "ccw": "CCW",
+        "cw": "CW"
+    }
+    
+    # Direction mapping for standard operations (non-helix)
+    DIRECTION_MAPPING_STANDARD = {
+        "climb": "Climb",
+        "conventional": "Conventional",
+        "ccw": "Climb",  # CCW is equivalent to climb milling
+        "cw": "Conventional"  # CW is equivalent to conventional milling
+    }
+    
+    # Default shape fix tolerances (instead of hardcoded values)
+    SHAPE_FIX_TOLERANCE = 0.01  # Default tolerance for shape fixing operations
+    
     # AST node whitelist for safe script execution
     # Will be populated in __init__ to avoid module-level import issues
     SAFE_AST_NODES: set = None
@@ -716,7 +735,9 @@ class Assembly4Service:
                     # Validate shape
                     if not shape.isValid():
                         logger.warning(f"Shape validation failed for {part_ref.id}, attempting to fix")
-                        shape.fix(0.01, 0.01, 0.01)  # Fix with tolerance
+                        # Use assembly tolerance or class default for shape fixing
+                        fix_tolerance = getattr(assembly_input, 'tolerance', self.SHAPE_FIX_TOLERANCE)
+                        shape.fix(fix_tolerance, fix_tolerance, fix_tolerance)  # Fix with tolerance
                         if not shape.isValid():
                             raise Assembly4Exception(
                                 f"Invalid shape in part {part_ref.id}",
@@ -1163,15 +1184,9 @@ class Assembly4Service:
                     op = doc.addObject("Path::FeaturePython", f"Helix_{i}")
                     PathHelix.Create(op)
                     op.StartRadius = operation.tool.diameter * 2  # Start radius based on tool diameter
-                    # FreeCAD Path expects 'CW' or 'CCW' for Helix Direction
-                    direction_map = {
-                        "climb": "CCW",  # Climb milling = Counter-clockwise
-                        "conventional": "CW",  # Conventional milling = Clockwise
-                        "ccw": "CCW",
-                        "cw": "CW"
-                    }
+                    # Use class-level direction mapping constant for Helix
                     cut_mode = (operation.cut_mode or "climb").lower()
-                    op.Direction = direction_map.get(cut_mode, "CCW")
+                    op.Direction = self.DIRECTION_MAPPING_HELIX.get(cut_mode, "CCW")
                     
                 elif operation.type.value == "Engrave":
                     op = doc.addObject("Path::FeaturePython", f"Engrave_{i}")
@@ -1194,15 +1209,9 @@ class Assembly4Service:
                     
                     # Set cut mode for operations that support it
                     if hasattr(op, 'Direction') and operation.type.value != "Helix":
-                        # For non-Helix operations, use Climb/Conventional
-                        direction_map = {
-                            "climb": "Climb",
-                            "conventional": "Conventional",
-                            "ccw": "Climb",  # CCW is equivalent to climb milling
-                            "cw": "Conventional"  # CW is equivalent to conventional milling
-                        }
+                        # For non-Helix operations, use standard direction mapping
                         cut_mode = (operation.cut_mode or "climb").lower()
-                        op.Direction = direction_map.get(cut_mode, "Climb")
+                        op.Direction = self.DIRECTION_MAPPING_STANDARD.get(cut_mode, "Climb")
                     
                     # Add to job
                     job.Operations.Group = job.Operations.Group + [op]

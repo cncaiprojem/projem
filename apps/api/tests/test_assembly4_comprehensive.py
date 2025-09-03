@@ -595,9 +595,6 @@ class TestCAMParameters:
                 feed_rate=400.0,
                 plunge_rate=100.0,
                 spindle_speed=5000,
-                spindle_direction="CW",
-                surface_speed=80.0,
-                chip_load=0.05,
                 step_down=2.0,
                 step_over=20.0
             ),

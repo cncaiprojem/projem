@@ -110,7 +110,8 @@ async def validate_assembly(
         # Use DOFAnalyzer service for constraint analysis
         from ..services.assembly4_service import DOFAnalyzer
         dof_analyzer = DOFAnalyzer()
-        dof_result = dof_analyzer.analyze(request)
+        # DOFAnalyzer.analyze expects (parts, constraints) not the full request
+        dof_result = dof_analyzer.analyze(request.parts, request.constraints)
         
         if dof_result.is_over_constrained:
             validation_result["warnings"].append(
