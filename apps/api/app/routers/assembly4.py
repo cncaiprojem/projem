@@ -107,19 +107,14 @@ async def validate_assembly(
                 "Kısıt tanımlanmamış - parçalar sabit olmayabilir"
             )
         
-        # Check for over-constraint
-        num_dof = len(request.parts) * 6
-        constraint_dof = sum(
-            6 if c.type == "Attachment" else
-            4 if c.type == "AxisCoincident" else
-            3 if c.type == "PlaneCoincident" else
-            1
-            for c in request.constraints if c.enabled
-        )
+        # Use DOFAnalyzer service for constraint analysis
+        from ..services.assembly4_service import DOFAnalyzer
+        dof_analyzer = DOFAnalyzer()
+        dof_result = dof_analyzer.analyze(request)
         
-        if constraint_dof > num_dof:
+        if dof_result.is_over_constrained:
             validation_result["warnings"].append(
-                f"Potansiyel aşırı kısıtlama: {constraint_dof} DOF kısıtı, {num_dof} DOF mevcut"
+                f"Potansiyel aşırı kısıtlama: {dof_result.constrained_dof} DOF kısıtı, {dof_result.total_dof} DOF mevcut"
             )
         
         metrics.assembly_validations.labels(

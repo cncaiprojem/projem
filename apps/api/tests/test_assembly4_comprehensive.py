@@ -19,10 +19,7 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 from pydantic import ValidationError
 
-# Add project root to path
-import sys
-import os
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+# Imports already handle module resolution
 
 from app.schemas.assembly4 import (
     Assembly4Input,
@@ -30,22 +27,22 @@ from app.schemas.assembly4 import (
     AssemblyHierarchy,
     CAMJobParameters,
     CAMOperation,
+    CAMOperationType,
+    CAMPostProcessor,
+    CAMStrategy,
     CollisionReport,
     ConstraintReference,
     ConstraintType,
     DOFAnalysis,
     ExportOptions,
-    FeedsAndSpeeds,
     LCSDefinition,
-    OperationType,
     PartReference,
     Placement,
-    PostProcessor,
+    Rotation3D,
     SolverType,
-    Stock,
-    Tool,
+    StockDefinition,
+    ToolDefinition,
     Vector3D,
-    WorkCoordinateSystem,
 )
 from app.services.assembly4_service import (
     Assembly4Service,
@@ -68,9 +65,9 @@ def sample_assembly_input():
                 model_ref="/models/base_plate.step",
                 initial_placement=Placement(
                     position=Vector3D(x=0, y=0, z=0),
-                    rotation=Vector3D(x=0, y=0, z=0)
+                    rotation=Rotation3D(roll=0, pitch=0, yaw=0)
                 ),
-                lcs=["LCS_Origin", "LCS_Top"],
+                lcs_list=["LCS_Origin", "LCS_Top"],
                 quantity=1,
                 visible=True
             ),
@@ -79,9 +76,9 @@ def sample_assembly_input():
                 model_ref="/models/bearing.fcstd",
                 initial_placement=Placement(
                     position=Vector3D(x=50, y=50, z=10),
-                    rotation=Vector3D(x=0, y=0, z=0)
+                    rotation=Rotation3D(roll=0, pitch=0, yaw=0)
                 ),
-                lcs=["LCS_Center"],
+                lcs_list=["LCS_Center"],
                 quantity=4,
                 visible=True,
                 color="#FF5733"
@@ -91,9 +88,9 @@ def sample_assembly_input():
                 model_ref="/models/shaft.step",
                 initial_placement=Placement(
                     position=Vector3D(x=50, y=50, z=20),
-                    rotation=Vector3D(x=0, y=0, z=90)
+                    rotation=Rotation3D(roll=0, pitch=0, yaw=1.5708)  # 90 degrees in radians
                 ),
-                lcs=["LCS_Bottom", "LCS_Top"],
+                lcs_list=["LCS_Bottom", "LCS_Top"],
                 quantity=1,
                 visible=True
             )
@@ -126,7 +123,7 @@ def sample_assembly_input():
                 name="world_origin",
                 placement=Placement(
                     position=Vector3D(x=0, y=0, z=0),
-                    rotation=Vector3D(x=0, y=0, z=0)
+                    rotation=Rotation3D(roll=0, pitch=0, yaw=0)
                 ),
                 visible=True
             )
@@ -147,19 +144,16 @@ def sample_assembly_input():
 def sample_cam_parameters():
     """Create sample CAM parameters for testing."""
     return CAMJobParameters(
-        wcs=WorkCoordinateSystem(
-            coordinate_system="G54",
-            origin_lcs="world_origin",
-            offset=Vector3D(x=0, y=0, z=0)
-        ),
-        stock=Stock(
+        wcs_origin="world_origin",
+        wcs_offset=Vector3D(x=0, y=0, z=0),
+        stock=StockDefinition(
             type="box",
             margins=Vector3D(x=5, y=5, z=2)
         ),
         operations=[
             CAMOperation(
-                type=OperationType.FACING,
-                tool=Tool(
+                type=CAMOperationType.FACING,
+                tool=ToolDefinition(
                     name="FaceMill_10mm",
                     number=1,
                     type="endmill",
@@ -167,12 +161,12 @@ def sample_cam_parameters():
                     flutes=4,
                     cutting_height=15.0
                 ),
-                feeds_speeds=FeedsAndSpeeds(
-                    feed_rate=300.0,
-                    plunge_rate=100.0,
-                    spindle_speed=3000,
-                    spindle_direction="CW"
-                ),
+                feeds_and_speeds={
+                    "feed_rate": 300.0,
+                    "plunge_rate": 100.0,
+                    "spindle_speed": 3000,
+                    "spindle_direction": "CW"
+                },
                 depths={
                     "start_depth": 0.0,
                     "final_depth": -0.5,
@@ -185,8 +179,8 @@ def sample_cam_parameters():
                 }
             ),
             CAMOperation(
-                type=OperationType.POCKET,
-                tool=Tool(
+                type=CAMOperationType.POCKET,
+                tool=ToolDefinition(
                     name="EndMill_6mm",
                     number=2,
                     type="endmill",
@@ -194,12 +188,12 @@ def sample_cam_parameters():
                     flutes=2,
                     cutting_height=20.0
                 ),
-                feeds_speeds=FeedsAndSpeeds(
-                    feed_rate=200.0,
-                    plunge_rate=50.0,
-                    spindle_speed=4000,
-                    spindle_direction="CW"
-                ),
+                feeds_and_speeds={
+                    "feed_rate": 200.0,
+                    "plunge_rate": 50.0,
+                    "spindle_speed": 4000,
+                    "spindle_direction": "CW"
+                },
                 depths={
                     "start_depth": 0.0,
                     "final_depth": -5.0,
@@ -211,20 +205,20 @@ def sample_cam_parameters():
                 coolant="Mist"
             ),
             CAMOperation(
-                type=OperationType.DRILLING,
-                tool=Tool(
+                type=CAMOperationType.DRILLING,
+                tool=ToolDefinition(
                     name="Drill_8mm",
                     number=3,
                     type="drill",
                     diameter=8.0,
                     tip_angle=118.0
                 ),
-                feeds_speeds=FeedsAndSpeeds(
-                    feed_rate=50.0,
-                    plunge_rate=50.0,
-                    spindle_speed=1500,
-                    spindle_direction="CW"
-                ),
+                feeds_and_speeds={
+                    "feed_rate": 50.0,
+                    "plunge_rate": 50.0,
+                    "spindle_speed": 1500,
+                    "spindle_direction": "CW"
+                },
                 depths={
                     "start_depth": 0.0,
                     "final_depth": -15.0,
@@ -237,13 +231,10 @@ def sample_cam_parameters():
                 }
             )
         ],
-        post_processor=PostProcessor.LINUXCNC,
-        optimize_sequence=True,
-        safety={
-            "clearance_height": 10.0,
-            "safe_height": 5.0,
-            "retract_height": 1.0
-        }
+        post_processor=CAMPostProcessor.LINUXCNC,
+        safety_height=10.0,
+        clearance_height=5.0,
+        rapid_feed_rate=5000.0
     )
 
 
@@ -275,11 +266,11 @@ class TestAssembly4Input:
                         type=ConstraintType.ATTACHMENT,
                         reference1=ConstraintReference(
                             part_id="nonexistent",
-                            lcs="LCS1"
+                            lcs_name="LCS1"
                         ),
                         reference2=ConstraintReference(
                             part_id="part1",
-                            lcs="LCS2"
+                            lcs_name="LCS2"
                         )
                     )
                 ]

@@ -123,7 +123,7 @@ class OndselSolverWrapper:
             self.solver = py_slvs
             logger.info("OndselSolver (py_slvs) başarıyla yüklendi")
         except ImportError:
-            logger.warning("OndselSolver bulunamadı, fallback solver kullanılacak")
+            logger.warning("OndselSolver bulunamadı, yedek çözücü kullanılacak")
     
     def is_available(self) -> bool:
         """Check if OndselSolver is available."""
@@ -186,7 +186,7 @@ class OndselSolverWrapper:
         - AxisCoincident: Align axes
         - PlaneCoincident: Align planes
         """
-        logger.info("Fallback solver ile çözümleniyor...")
+        logger.info("Yedek çözücü ile çözümleniyor...")
         
         # Initialize with initial placements
         placements = {}
@@ -457,13 +457,76 @@ class DOFAnalyzer:
 class Assembly4Service:
     """Main Assembly4 service."""
     
+    # Security: Define allowed upload directories (configurable via environment)
+    _DEFAULT_UPLOAD_DIRS = "/work/uploads:/tmp/freecad_uploads"
+    ALLOWED_UPLOAD_DIRS = [d for d in os.getenv("ALLOWED_UPLOAD_DIRS", _DEFAULT_UPLOAD_DIRS).split(':') if d.strip()]
+    
+    # Memory estimation constant for cached shapes
+    ESTIMATED_MB_PER_CACHED_SHAPE = 10  # Megabytes per cached shape object
+    
+    # AST node whitelist for safe script execution
+    # Will be populated in __init__ to avoid module-level import issues
+    SAFE_AST_NODES: set = None
+    
+    # Allowed function calls for script execution
+    ALLOWED_FUNCTIONS = {
+        'doc.addObject', 'Part.makeBox', 'Part.makeCylinder',
+        'Part.makeSphere', 'Part.makeCone', 'Part.makeTorus',
+        'FreeCAD.Vector', 'FreeCAD.Rotation', 'FreeCAD.Placement',
+        'float', 'int', 'str', 'len', 'range', 'min', 'max',
+        'abs', 'round', 'sum', 'any', 'all'
+    }
+    
     def __init__(self):
-        """Initialize Assembly4 service."""
+        """Initialize Assembly4 service with security features."""
         self.document_manager = document_manager
         self.rules_engine = freecad_rules_engine
         self.solver_wrapper = OndselSolverWrapper()
         self.collision_detector = CollisionDetector()
         self.dof_analyzer = DOFAnalyzer()
+        
+        # Initialize AST nodes set if not already done
+        if Assembly4Service.SAFE_AST_NODES is None:
+            import ast
+            Assembly4Service.SAFE_AST_NODES = {
+                # Literals and basic types
+                ast.Constant, ast.Num, ast.Str, ast.Bytes, ast.NameConstant,
+                ast.List, ast.Tuple, ast.Dict, ast.Set,
+                # Variables and attributes
+                ast.Name, ast.Load, ast.Store, ast.Del, ast.Attribute,
+                # Basic operations
+                ast.BinOp, ast.UnaryOp, ast.Compare, ast.BoolOp,
+                ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
+                # Control flow (limited)
+                ast.If, ast.For, ast.While, ast.Break, ast.Continue,
+                ast.Expr, ast.Pass,
+                # Function calls (will be filtered)
+                ast.Call, ast.keyword,
+                # Module level
+                ast.Module, ast.Interactive, ast.Expression,
+            }
+        
+        # Cache resolved allowed directories for O(1) path validation
+        self._resolved_upload_dirs = [
+            Path(os.path.realpath(d))
+            for d in self.ALLOWED_UPLOAD_DIRS 
+            if d.strip()
+        ]
+        
+        # Initialize instance-level shape cache for upload_ref components
+        self._shape_cache = {}
+        
+        # Import PathValidator if available
+        try:
+            from .freecad.path_validator import PathValidator, PathValidationError
+            self.PathValidator = PathValidator
+            self.PathValidationError = PathValidationError
+            self.path_validators = {}
+        except ImportError:
+            logger.warning("PathValidator not available, using fallback validation")
+            self.PathValidator = None
+            self.PathValidationError = ValueError
+            self.path_validators = {}
     
     @contextmanager
     def _timer(self, operation: str):
@@ -920,24 +983,20 @@ class Assembly4Service:
             job.Model = assembly.Group if hasattr(assembly, 'Group') else [assembly]
             
             # Configure WCS (Work Coordinate System)
-            if cam_parameters.wcs:
-                # Set origin from LCS or model origin
-                if cam_parameters.wcs.origin_lcs:
-                    # Find LCS and use its placement
-                    for obj in doc.Objects:
-                        if obj.Label == cam_parameters.wcs.origin_lcs:
-                            job.SetupSheet.SetupOrigin = obj.Placement.Base
-                            break
-                else:
-                    # Use model origin with offsets
-                    job.SetupSheet.SetupOrigin = FreeCAD.Vector(
-                        cam_parameters.wcs.offset.x,
-                        cam_parameters.wcs.offset.y,
-                        cam_parameters.wcs.offset.z
-                    )
-                
-                # Set coordinate system (G54-G59)
-                job.SetupSheet.WorkCoordinateSystem = cam_parameters.wcs.coordinate_system
+            # Use flat schema structure instead of nested
+            if cam_parameters.wcs_origin:
+                # Find LCS and use its placement
+                for obj in doc.Objects:
+                    if obj.Label == cam_parameters.wcs_origin:
+                        job.SetupSheet.SetupOrigin = obj.Placement.Base
+                        break
+            else:
+                # Use model origin with offsets
+                job.SetupSheet.SetupOrigin = FreeCAD.Vector(
+                    cam_parameters.wcs_offset.x,
+                    cam_parameters.wcs_offset.y,
+                    cam_parameters.wcs_offset.z
+                )
             
             # Configure stock
             stock = doc.addObject("Path::FeaturePython", "Stock")
@@ -965,10 +1024,11 @@ class Assembly4Service:
                 
             job.Stock = stock
             
-            # Set safety heights
-            job.SetupSheet.ClearanceHeightOffset = cam_parameters.safety.clearance_height
-            job.SetupSheet.SafeHeightOffset = cam_parameters.safety.safe_height
-            job.SetupSheet.RetractHeight = cam_parameters.safety.retract_height
+            # Set safety heights (use flat schema structure)
+            job.SetupSheet.ClearanceHeightOffset = cam_parameters.clearance_height
+            job.SetupSheet.SafeHeightOffset = cam_parameters.safety_height
+            # Set rapid feed rate from flat schema
+            job.SetupSheet.HorizRapid = cam_parameters.rapid_feed_rate
             
             # Process operations
             tool_changes = 0
@@ -1210,7 +1270,148 @@ class Assembly4Service:
                 {"error": str(e)},
                 f"CAM üretimi başarısız: {str(e)}"
             )
+    
+    def _validate_upload_path(self, file_path: str) -> Path:
+        """
+        Validate upload file path to prevent directory traversal attacks.
+        
+        Args:
+            file_path: Path to validate
+            
+        Returns:
+            Validated Path object
+            
+        Raises:
+            ValueError: If path is outside allowed directories
+        """
+        if self.PathValidator is not None:
+            # Use PathValidator if available
+            cache_key = frozenset(self.ALLOWED_UPLOAD_DIRS)
+            if cache_key not in self.path_validators:
+                self.path_validators[cache_key] = self.PathValidator(self.ALLOWED_UPLOAD_DIRS)
+                logger.debug(f"Created new PathValidator for {len(self.ALLOWED_UPLOAD_DIRS)} directories")
+            
+            validator = self.path_validators[cache_key]
+            return validator.validate_path(file_path, "upload")
+        else:
+            # Fallback validation
+            if not file_path:
+                raise ValueError("Invalid path: Path cannot be empty")
+            
+            # Check against each allowed directory
+            for allowed_dir in self._resolved_upload_dirs:
+                path_str = str(file_path)
+                if not os.path.isabs(path_str):
+                    path_str = os.path.join(str(allowed_dir), path_str)
+                
+                real_path = os.path.realpath(path_str)
+                real_allowed = os.path.realpath(str(allowed_dir))
+                
+                try:
+                    if os.path.commonpath([real_path, real_allowed]) == real_allowed:
+                        return Path(real_path)
+                except ValueError:
+                    # Different drives on Windows
+                    continue
+            
+            raise ValueError(f"Path {file_path} is outside allowed directories")
+    
+    def _execute_safe_script(self, script: str, doc: Any, component_id: str) -> Any:
+        """
+        Execute a script safely using AST validation.
+        
+        Args:
+            script: Python script to execute
+            doc: FreeCAD document
+            component_id: Component ID to create
+            
+        Returns:
+            Created component object
+        """
+        import ast
+        # Parse the script
+        try:
+            tree = ast.parse(script, mode='exec')
+        except SyntaxError as e:
+            raise ValueError(f"Script syntax error: {e}")
+        
+        # Validate AST nodes
+        self._validate_ast_safety(tree)
+        
+        # Prepare sandboxed globals
+        safe_globals = {
+            'doc': doc,
+            'comp_id': component_id,
+            'float': float, 'int': int, 'str': str,
+            'len': len, 'range': range, 'min': min, 'max': max,
+            '__builtins__': {'True': True, 'False': False, 'None': None}
+        }
+        
+        # Execute in sandboxed environment
+        try:
+            exec(compile(tree, '<sandboxed>', 'exec'), safe_globals)
+            return doc.getObject(component_id)
+        except Exception as e:
+            logger.error(f"Script execution error: {e}")
+            raise ValueError(f"Script execution failed: {e}")
+    
+    def _validate_ast_safety(self, tree: ast.AST):
+        """Validate AST tree for safety."""
+        import ast
+        
+        class SafetyValidator(ast.NodeVisitor):
+            def __init__(self, allowed_nodes, allowed_functions):
+                self.allowed_nodes = allowed_nodes
+                self.allowed_functions = allowed_functions
+                self.errors = []
+            
+            def visit(self, node):
+                if type(node) not in self.allowed_nodes:
+                    self.errors.append(f"Unsafe AST node: {type(node).__name__}")
+                
+                if isinstance(node, ast.Call):
+                    func_name = self._get_func_name(node.func)
+                    if func_name and func_name not in self.allowed_functions:
+                        self.errors.append(f"Unsafe function call: {func_name}")
+                
+                self.generic_visit(node)
+            
+            def _get_func_name(self, node):
+                if isinstance(node, ast.Name):
+                    return node.id
+                elif isinstance(node, ast.Attribute):
+                    parts = []
+                    current = node
+                    while isinstance(current, ast.Attribute):
+                        parts.append(current.attr)
+                        current = current.value
+                    if isinstance(current, ast.Name):
+                        parts.append(current.id)
+                    return '.'.join(reversed(parts))
+                return None
+        
+        validator = SafetyValidator(self.SAFE_AST_NODES, self.ALLOWED_FUNCTIONS)
+        validator.visit(tree)
+        
+        if validator.errors:
+            error_msg = "Script contains unsafe operations:\n" + "\n".join(validator.errors)
+            logger.error(f"Security: {error_msg}")
+            raise ValueError(error_msg)
+    
+    def clear_shape_cache(self):
+        """Clear the shape cache to free memory."""
+        cache_size = len(self._shape_cache)
+        self._shape_cache.clear()
+        logger.info(f"Cleared shape cache ({cache_size} entries)")
+    
+    def get_cache_stats(self) -> Dict[str, Any]:
+        """Get cache statistics for monitoring."""
+        return {
+            "cache_size": len(self._shape_cache),
+            "cached_files": list(self._shape_cache.keys()),
+            "memory_estimate_mb": len(self._shape_cache) * self.ESTIMATED_MB_PER_CACHED_SHAPE
+        }
 
 
-# Singleton instance
+# Global service instance
 assembly4_service = Assembly4Service()

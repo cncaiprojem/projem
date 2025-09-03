@@ -177,7 +177,7 @@ class PartReference(BaseModel):
     lcs_list: List[str] = Field(default_factory=list, description="List of LCS names in this part")
     quantity: PositiveInt = Field(default=1, description="Number of instances")
     visible: bool = Field(default=True, description="Part visibility")
-    color: Optional[str] = Field(None, regex=r"^#[0-9A-Fa-f]{6}$", description="Part color (hex)")
+    color: Optional[str] = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$", description="Part color (hex)")
     
     model_config = ConfigDict(json_schema_extra={
         "example": {
@@ -223,6 +223,11 @@ class AssemblyConstraint(BaseModel):
     value: Optional[float] = Field(None, description="Constraint value (angle/distance)")
     tolerance: float = Field(default=0.01, gt=0, description="Constraint tolerance in mm")
     enabled: bool = Field(default=True, description="Is constraint active?")
+    # Joint physics parameters (from old assembly)
+    stiffness: Optional[float] = Field(None, ge=0, description="Joint stiffness coefficient")
+    damping: Optional[float] = Field(None, ge=0, description="Joint damping coefficient")
+    min_limit: Optional[float] = Field(None, description="Minimum joint limit (angle/distance)")
+    max_limit: Optional[float] = Field(None, description="Maximum joint limit (angle/distance)")
     
     model_config = ConfigDict(json_schema_extra={
         "example": {
@@ -329,10 +334,11 @@ class Assembly4Input(BaseModel):
         part_lcs_map = {p.id: set(p.lcs_list) for p in self.parts}
         
         for constraint in self.constraints:
-            # Check part references
-            if constraint.reference1.part_id not in part_ids:
+            # Check part references (allow "world" or "ground" as special references for ground frame)
+            special_parts = {"world", "ground"}
+            if constraint.reference1.part_id not in part_ids and constraint.reference1.part_id not in special_parts:
                 raise ValueError(f"Kısıt referansı bulunamadı: {constraint.reference1.part_id}")
-            if constraint.reference2.part_id not in part_ids:
+            if constraint.reference2.part_id not in part_ids and constraint.reference2.part_id not in special_parts:
                 raise ValueError(f"Kısıt referansı bulunamadı: {constraint.reference2.part_id}")
             
             # Check LCS references if specified
