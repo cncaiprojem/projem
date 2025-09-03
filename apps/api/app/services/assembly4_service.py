@@ -516,11 +516,24 @@ class Assembly4Service:
                 # Basic operations
                 ast.BinOp, ast.UnaryOp, ast.Compare, ast.BoolOp,
                 ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
+                # Bitwise operators
+                ast.LShift, ast.RShift, ast.BitOr, ast.BitXor, ast.BitAnd,
+                ast.FloorDiv, 
+                # Logical operators
+                ast.And, ast.Or, ast.Not,
+                # Comparison operators
+                ast.Eq, ast.NotEq, ast.Lt, ast.LtE, ast.Gt, ast.GtE,
+                ast.Is, ast.IsNot, ast.In, ast.NotIn,
                 # Control flow (limited)
                 ast.If, ast.For, ast.While, ast.Break, ast.Continue,
                 ast.Expr, ast.Pass,
                 # Function calls (will be filtered)
                 ast.Call, ast.keyword,
+                # Assignments
+                ast.Assign, ast.AugAssign,
+                # Comprehensions
+                ast.ListComp, ast.DictComp, ast.SetComp,
+                ast.comprehension,
                 # Module level
                 ast.Module, ast.Interactive, ast.Expression,
             }
@@ -598,7 +611,7 @@ class Assembly4Service:
                     
                     # Step 1: Load referenced parts
                     with self._timer("load_parts"):
-                        parts_map = self._load_parts(doc, assembly_input.parts)
+                        parts_map = self._load_parts(doc, assembly_input.parts, assembly_input)
                     
                     # Step 2: Extract and index LCS
                     with self._timer("extract_lcs"):
@@ -706,7 +719,7 @@ class Assembly4Service:
                 computation_time_ms=computation_time
             )
     
-    def _load_parts(self, doc, parts: List[PartReference]) -> Dict[str, Any]:
+    def _load_parts(self, doc, parts: List[PartReference], assembly_input: Assembly4Input) -> Dict[str, Any]:
         """Load referenced parts into document."""
         import FreeCAD
         import Part
@@ -1078,13 +1091,23 @@ class Assembly4Service:
             total_time = 0.0
             operations_created = []
             
+            # Dictionary to track tool controllers by tool name to avoid duplicates
+            tool_controllers = {}
+            
             for i, operation in enumerate(cam_parameters.operations):
                 logger.info(f"Creating operation {i+1}: {operation.type}")
                 
-                # Create tool controller
-                tool_controller = doc.addObject("Path::FeaturePython", f"TC_{operation.tool.name}")
-                PathToolController.ToolController(tool_controller)
-                PathToolController.ViewProviderToolController(tool_controller.ViewObject)
+                # Create or reuse tool controller
+                if operation.tool.name not in tool_controllers:
+                    # Create unique name for new tool controller
+                    tool_controller_name = f"TC_{operation.tool.name}_{len(tool_controllers)+1}"
+                    tool_controller = doc.addObject("Path::FeaturePython", tool_controller_name)
+                    PathToolController.ToolController(tool_controller)
+                    PathToolController.ViewProviderToolController(tool_controller.ViewObject)
+                    tool_controllers[operation.tool.name] = tool_controller
+                else:
+                    # Reuse existing tool controller for this tool
+                    tool_controller = tool_controllers[operation.tool.name]
                 
                 # Configure tool
                 tool_controller.Label = operation.tool.name

@@ -276,11 +276,6 @@ class AssemblyConstraint(BaseModel):
             if self.damping < 0:
                 raise ValueError(f"Joint damping must be greater than or equal to 0, got {self.damping}")
         
-        # Prevent invalid combination of stiffness=0, damping>0 (physically impossible)
-        # (This is redundant now since stiffness > 0 is already enforced, but kept for clarity)
-        if self.stiffness is not None and self.stiffness == 0 and self.damping is not None and self.damping > 0:
-            raise ValueError(f"Invalid physics: Cannot have damping ({self.damping}) without stiffness")
-        
         # Optional: Check combined range for realistic values
         if self.stiffness is not None and self.damping is not None:
             # Damping ratio = damping / (2 * sqrt(stiffness * mass))
