@@ -518,7 +518,7 @@ class Assembly4Service:
                 ast.Add, ast.Sub, ast.Mult, ast.Div, ast.Mod, ast.Pow,
                 # Bitwise operators
                 ast.LShift, ast.RShift, ast.BitOr, ast.BitXor, ast.BitAnd,
-                ast.FloorDiv, 
+                ast.FloorDiv,
                 # Logical operators
                 ast.And, ast.Or, ast.Not,
                 # Comparison operators
@@ -720,7 +720,13 @@ class Assembly4Service:
             )
     
     def _load_parts(self, doc, parts: List[PartReference], assembly_input: Assembly4Input) -> Dict[str, Any]:
-        """Load referenced parts into document."""
+        """Load referenced parts into document.
+        
+        Args:
+            doc: FreeCAD document to load parts into
+            parts: List of part references to load
+            assembly_input: Full assembly input for accessing tolerance settings
+        """
         import FreeCAD
         import Part
         
@@ -732,12 +738,31 @@ class Assembly4Service:
                 if part_ref.model_ref.lower().endswith(".fcstd"):
                     # Load FreeCAD document
                     part_doc = FreeCAD.openDocument(part_ref.model_ref)
-                    # Import objects
+                    
+                    # Collect ALL shapes from the document to support multi-body files
+                    shapes_to_combine = []
                     for obj in part_doc.Objects:
-                        if hasattr(obj, "Shape"):
-                            imported = doc.copyObject(obj, True)
-                            parts_map[part_ref.id] = imported
-                            break
+                        if hasattr(obj, "Shape") and obj.Shape and not obj.Shape.isNull():
+                            shapes_to_combine.append(obj.Shape)
+                    
+                    if shapes_to_combine:
+                        if len(shapes_to_combine) == 1:
+                            # Single shape - import directly
+                            for obj in part_doc.Objects:
+                                if hasattr(obj, "Shape") and obj.Shape and not obj.Shape.isNull():
+                                    imported = doc.copyObject(obj, True)
+                                    parts_map[part_ref.id] = imported
+                                    break
+                        else:
+                            # Multiple shapes - create a compound
+                            compound_shape = Part.makeCompound(shapes_to_combine)
+                            compound_obj = doc.addObject("Part::Feature", f"{part_ref.id}_compound")
+                            compound_obj.Shape = compound_shape
+                            parts_map[part_ref.id] = compound_obj
+                            logger.info(f"Created compound from {len(shapes_to_combine)} shapes for {part_ref.id}")
+                    else:
+                        logger.warning(f"No valid shapes found in {part_ref.model_ref}")
+                    
                     FreeCAD.closeDocument(part_doc.Name)
                     
                 elif part_ref.model_ref.lower().endswith((".step", ".stp")):
@@ -1091,28 +1116,45 @@ class Assembly4Service:
             total_time = 0.0
             operations_created = []
             
-            # Dictionary to track tool controllers by tool name to avoid duplicates
+            # Dictionary to track tool controllers by unique tool properties
+            # Key is tuple of (name, type, diameter, length) to ensure uniqueness
             tool_controllers = {}
+            tool_number_counter = 1
             
             for i, operation in enumerate(cam_parameters.operations):
                 logger.info(f"Creating operation {i+1}: {operation.type}")
                 
+                # Create unique key for tool based on all relevant properties
+                tool_key = (
+                    operation.tool.name,
+                    operation.tool.type,
+                    operation.tool.diameter,
+                    operation.tool.length
+                )
+                
                 # Create or reuse tool controller
-                if operation.tool.name not in tool_controllers:
+                if tool_key not in tool_controllers:
                     # Create unique name for new tool controller
-                    tool_controller_name = f"TC_{operation.tool.name}_{len(tool_controllers)+1}"
+                    tool_controller_name = f"TC_{operation.tool.name}_{tool_number_counter}"
                     tool_controller = doc.addObject("Path::FeaturePython", tool_controller_name)
                     PathToolController.ToolController(tool_controller)
                     PathToolController.ViewProviderToolController(tool_controller.ViewObject)
-                    tool_controllers[operation.tool.name] = tool_controller
+                    
+                    # Store with assigned tool number
+                    tool_controllers[tool_key] = (tool_controller, tool_number_counter)
+                    actual_tool_number = tool_number_counter
+                    tool_number_counter += 1
+                    
+                    logger.info(f"Created new tool controller: {tool_controller_name} with tool number {actual_tool_number}")
                 else:
-                    # Reuse existing tool controller for this tool
-                    tool_controller = tool_controllers[operation.tool.name]
+                    # Reuse existing tool controller for this exact tool configuration
+                    tool_controller, actual_tool_number = tool_controllers[tool_key]
+                    logger.info(f"Reusing tool controller for {operation.tool.name} with tool number {actual_tool_number}")
                 
                 # Configure tool
                 tool_controller.Label = operation.tool.name
-                # ToolDefinition doesn't have 'number' field, use index
-                tool_controller.ToolNumber = i + 1
+                # Use the actual tool number assigned when controller was created
+                tool_controller.ToolNumber = actual_tool_number
                 tool = Path.Tool()
                 tool.Name = operation.tool.name
                 tool.Diameter = operation.tool.diameter
