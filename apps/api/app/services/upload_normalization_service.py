@@ -357,9 +357,9 @@ if config.normalize_orientation:
                 shape = obj.Shape
                 if hasattr(shape, 'MatrixOfInertia'):
                     inertia_matrix = shape.MatrixOfInertia
-                    # Calculate principal axes (eigenvectors of inertia matrix)
-                    # The eigenvector with smallest eigenvalue is the principal axis
-                    # For now, use improved heuristic based on bounding box aspect ratio
+                    # Note: Proper principal axes calculation from MatrixOfInertia would require
+                    # eigenvalue decomposition which is complex and not always reliable for all shapes.
+                    # Using bounding box aspect ratio heuristic for robust orientation detection instead.
                     bbox = shape.BoundBox
                     dims = [bbox.XLength, bbox.YLength, bbox.ZLength]
                     
@@ -652,7 +652,7 @@ print(json.dumps(result))
                     scale_factor = source_factor / target_factor
                     
                     # Apply scaling if needed
-                    if scale_factor != 1.0:
+                    if abs(scale_factor - 1.0) > EPSILON_FLOAT_COMPARISON:
                         mesh.apply_scale(scale_factor)
                         logger.info(f"Applied unit conversion scale factor: {scale_factor} ({original_units.value} -> {config.target_units.value})")
                 

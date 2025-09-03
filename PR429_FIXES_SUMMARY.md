@@ -5,10 +5,10 @@
 ### 1. CRITICAL - Units Enum AttributeError (Lines 648-661)
 **Problem:** The code was using plural enum members that don't exist:
 - `Units.INCHES` → Should be `Units.INCH`
-- `Units.METERS` → Should be `Units.METER`  
+- `Units.METERS` → Should be `Units.METER`
 - `Units.CENTIMETERS` → Should be `Units.CENTIMETER`
 
-**Solution:** 
+**Solution:**
 - Refactored STLHandler to use centralized `UNIT_CONVERSION_FACTORS` dictionary
 - Eliminated direct enum comparisons in favor of dictionary-based approach
 - This matches the pattern used by other handlers and prevents AttributeError

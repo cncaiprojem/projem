@@ -12,11 +12,6 @@ from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import tempfile
 
-import sys
-from pathlib import Path
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
-
 from app.services.upload_normalization_service import (
     Units,
     UNIT_CONVERSION_FACTORS,
