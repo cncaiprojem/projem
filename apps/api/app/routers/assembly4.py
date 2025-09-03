@@ -156,6 +156,7 @@ async def analyze_dof(
         from ..services.assembly4_service import DOFAnalyzer
         
         analyzer = DOFAnalyzer()
+        # DOFAnalyzer.analyze expects (parts, constraints) not the whole request
         result = analyzer.analyze(request.parts, request.constraints)
         
         metrics.assembly_analyses.labels(
@@ -546,9 +547,16 @@ async def list_assembly_jobs(
             if job.metrics:
                 assembly_input = job.metrics.get("request", {}).get("input", {})
                 if assembly_input:
+                    # Map job status to AssemblyResult status (which is a Literal)
+                    result_status = "failed"  # default
+                    if job.status in ("succeeded", "completed"):
+                        result_status = "success"
+                    elif job.status in ("pending", "queued", "processing"):
+                        result_status = "partial"
+                    
                     response.assembly_result = AssemblyResult(
                         job_id=str(job.id),
-                        status=job.status,
+                        status=result_status,
                         errors=job.error_message.split(";") if job.error_message else [],
                         warnings=[],
                         computation_time_ms=0

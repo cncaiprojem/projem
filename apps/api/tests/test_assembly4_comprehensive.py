@@ -35,6 +35,7 @@ from app.schemas.assembly4 import (
     ConstraintType,
     DOFAnalysis,
     ExportOptions,
+    FeedsAndSpeeds,
     LCSDefinition,
     PartReference,
     Placement,
@@ -99,22 +100,22 @@ def sample_assembly_input():
             AssemblyConstraint(
                 id="fix_base",
                 type=ConstraintType.ATTACHMENT,
-                reference1=ConstraintReference(part_id="base_plate", lcs="LCS_Origin"),
-                reference2=ConstraintReference(part_id="world", lcs="Origin"),
+                reference1=ConstraintReference(part_id="base_plate", lcs_name="LCS_Origin"),
+                reference2=ConstraintReference(part_id="world", lcs_name="Origin"),
                 enabled=True
             ),
             AssemblyConstraint(
                 id="bearing_on_plate",
                 type=ConstraintType.PLANE_COINCIDENT,
-                reference1=ConstraintReference(part_id="bearing", lcs="LCS_Center"),
-                reference2=ConstraintReference(part_id="base_plate", lcs="LCS_Top"),
+                reference1=ConstraintReference(part_id="bearing", lcs_name="LCS_Center"),
+                reference2=ConstraintReference(part_id="base_plate", lcs_name="LCS_Top"),
                 enabled=True
             ),
             AssemblyConstraint(
                 id="shaft_in_bearing",
                 type=ConstraintType.AXIS_COINCIDENT,
-                reference1=ConstraintReference(part_id="shaft", lcs="LCS_Bottom"),
-                reference2=ConstraintReference(part_id="bearing", lcs="LCS_Center"),
+                reference1=ConstraintReference(part_id="shaft", lcs_name="LCS_Bottom"),
+                reference2=ConstraintReference(part_id="bearing", lcs_name="LCS_Center"),
                 enabled=True
             )
         ],
@@ -129,7 +130,7 @@ def sample_assembly_input():
             )
         ],
         hierarchy=AssemblyHierarchy(
-            root="base_plate",
+            root_part_id="base_plate",
             parent_child_map={
                 "base_plate": ["bearing"],
                 "bearing": ["shaft"]
@@ -152,83 +153,73 @@ def sample_cam_parameters():
         ),
         operations=[
             CAMOperation(
+                name="Facing Operation",
                 type=CAMOperationType.FACING,
                 tool=ToolDefinition(
                     name="FaceMill_10mm",
-                    number=1,
                     type="endmill",
                     diameter=10.0,
                     flutes=4,
-                    cutting_height=15.0
+                    length=50.0,
+                    material="Carbide"
                 ),
-                feeds_and_speeds={
-                    "feed_rate": 300.0,
-                    "plunge_rate": 100.0,
-                    "spindle_speed": 3000,
-                    "spindle_direction": "CW"
-                },
-                depths={
-                    "start_depth": 0.0,
-                    "final_depth": -0.5,
-                    "step_down": 0.5
-                },
-                strategy="ZigZag",
-                cut_mode="Climb",
-                parameters={
-                    "step_over": 60
-                }
+                feeds_speeds=FeedsAndSpeeds(
+                    spindle_speed=3000,
+                    feed_rate=300.0,
+                    plunge_rate=100.0,
+                    step_down=0.5,
+                    step_over=60.0
+                ),
+                strategy=CAMStrategy.ZIGZAG,
+                cut_mode="climb",
+                coolant=True,
+                finish_pass=False
             ),
             CAMOperation(
+                name="Pocket Operation",
                 type=CAMOperationType.POCKET,
                 tool=ToolDefinition(
                     name="EndMill_6mm",
-                    number=2,
                     type="endmill",
                     diameter=6.0,
                     flutes=2,
-                    cutting_height=20.0
+                    length=40.0,
+                    material="HSS"
                 ),
-                feeds_and_speeds={
-                    "feed_rate": 200.0,
-                    "plunge_rate": 50.0,
-                    "spindle_speed": 4000,
-                    "spindle_direction": "CW"
-                },
-                depths={
-                    "start_depth": 0.0,
-                    "final_depth": -5.0,
-                    "step_down": 1.0
-                },
-                strategy="Offset",
-                cut_mode="Climb",
-                finish_pass=True,
-                coolant="Mist"
+                feeds_speeds=FeedsAndSpeeds(
+                    spindle_speed=4000,
+                    feed_rate=200.0,
+                    plunge_rate=50.0,
+                    step_down=1.0,
+                    step_over=40.0
+                ),
+                strategy=CAMStrategy.OFFSET,
+                cut_mode="climb",
+                coolant=True,
+                finish_pass=True
             ),
             CAMOperation(
+                name="Drilling Operation",
                 type=CAMOperationType.DRILLING,
                 tool=ToolDefinition(
                     name="Drill_8mm",
-                    number=3,
                     type="drill",
                     diameter=8.0,
-                    tip_angle=118.0
+                    flutes=2,
+                    length=60.0,
+                    material="HSS"
                 ),
-                feeds_and_speeds={
-                    "feed_rate": 50.0,
-                    "plunge_rate": 50.0,
-                    "spindle_speed": 1500,
-                    "spindle_direction": "CW"
-                },
-                depths={
-                    "start_depth": 0.0,
-                    "final_depth": -15.0,
-                    "step_down": 3.0
-                },
-                parameters={
-                    "peck_depth": 3.0,
-                    "dwell": 0.5,
-                    "retract": 2.0
-                }
+                feeds_speeds=FeedsAndSpeeds(
+                    spindle_speed=1500,
+                    feed_rate=50.0,
+                    plunge_rate=50.0,
+                    step_down=3.0,
+                    step_over=100.0  # Not used for drilling but required
+                ),
+                strategy=CAMStrategy.ZIGZAG,  # Not used for drilling but required
+                cut_mode="conventional",
+                coolant=True,
+                finish_pass=False
             )
         ],
         post_processor=CAMPostProcessor.LINUXCNC,
@@ -286,7 +277,7 @@ class TestAssembly4Input:
                 ],
                 constraints=[],
                 hierarchy=AssemblyHierarchy(
-                    root="nonexistent",
+                    root_part_id="nonexistent",
                     parent_child_map={"part1": ["part2"]}
                 )
             )

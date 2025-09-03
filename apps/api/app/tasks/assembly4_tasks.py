@@ -18,7 +18,7 @@ import json
 import time
 import traceback
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 from celery import Task
 from sqlalchemy.orm import Session
@@ -232,13 +232,14 @@ def process_assembly4_task(
             
             # Upload BOM
             if result.bom:
-                bom_json = result.bom.model_dump_json(indent=2)
+                # Use model_dump() directly for more efficient serialization
                 s3_key = f"assembly4/{job_id}/bom.json"
-                s3_service.upload_json(json.loads(bom_json), s3_key)
+                bom_data = result.bom.model_dump()
+                s3_service.upload_json(bom_data, s3_key)
                 artifacts.append({
                     "type": "bom",
                     "s3_key": s3_key,
-                    "size": len(bom_json)
+                    "size": s3_service.get_file_size(s3_key)
                 })
             
             # Upload CAM files

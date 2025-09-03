@@ -363,7 +363,13 @@ class Assembly4Input(BaseModel):
         
         # Validate at least one grounded reference
         has_root = any(lcs.is_root for lcs in self.lcs_definitions)
-        has_fixed_part = any(c.type == ConstraintType.ATTACHMENT for c in self.constraints)
+        # Check specifically for attachment to world/ground (not just any attachment)
+        has_fixed_part = any(
+            c.type == ConstraintType.ATTACHMENT and 
+            (c.reference1.part_id in {"world", "ground"} or 
+             c.reference2.part_id in {"world", "ground"})
+            for c in self.constraints
+        )
         if not (has_root or has_fixed_part or (self.hierarchy and self.hierarchy.root_part_id)):
             raise ValueError("En az bir sabit referans (root LCS veya fixed base) gereklidir")
         
@@ -672,7 +678,10 @@ class Assembly4Request(BaseModel):
     input: Assembly4Input = Field(..., description="Assembly4 input data")
     generate_cam: bool = Field(default=False, description="Generate CAM paths")
     cam_parameters: Optional[CAMJobParameters] = Field(None, description="CAM parameters")
-    export_options: ExportOptions = Field(default_factory=ExportOptions, description="Export options")
+    export_options: ExportOptions = Field(
+        default_factory=lambda: ExportOptions(formats=["FCStd"]), 
+        description="Export options"
+    )
     
     model_config = ConfigDict(json_schema_extra={
         "example": {

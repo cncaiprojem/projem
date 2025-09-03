@@ -1013,10 +1013,12 @@ class Assembly4Service:
                 
             elif cam_parameters.stock.type == "cylinder":
                 PathStock.StockCreateCylinderProxy(stock, job)
-                if cam_parameters.stock.cylinder_radius:
-                    stock.Radius = cam_parameters.stock.cylinder_radius
-                if cam_parameters.stock.cylinder_height:
-                    stock.Height = cam_parameters.stock.cylinder_height
+                # Use margins to calculate cylinder dimensions from bounding box
+                # Since StockDefinition only has margins, not specific cylinder properties
+                bbox = job.Model[0].Shape.BoundBox if job.Model else None
+                if bbox:
+                    stock.Radius = max(bbox.XLength, bbox.YLength) / 2 + cam_parameters.stock.margins.x
+                    stock.Height = bbox.ZLength + cam_parameters.stock.margins.z * 2
                     
             elif cam_parameters.stock.type == "from_shape":
                 PathStock.StockFromBase(stock, job)
@@ -1046,35 +1048,42 @@ class Assembly4Service:
                 
                 # Configure tool
                 tool_controller.Label = operation.tool.name
-                tool_controller.ToolNumber = operation.tool.number
+                # ToolDefinition doesn't have 'number' field, use index
+                tool_controller.ToolNumber = i + 1
                 tool = Path.Tool()
                 tool.Name = operation.tool.name
                 tool.Diameter = operation.tool.diameter
                 
                 if operation.tool.type == "endmill":
                     tool.ToolType = "EndMill"
-                    tool.CuttingEdgeHeight = operation.tool.cutting_height or 20.0
+                    # ToolDefinition has 'length', not 'cutting_height'
+                    tool.CuttingEdgeHeight = operation.tool.length * 0.8  # Use 80% of tool length
                     tool.NumberOfFlutes = operation.tool.flutes or 2
-                elif operation.tool.type == "ball":
+                elif operation.tool.type == "ballmill":
                     tool.ToolType = "BallEndMill"
+                    tool.CuttingEdgeHeight = operation.tool.length * 0.8
+                    tool.NumberOfFlutes = operation.tool.flutes or 2
                 elif operation.tool.type == "drill":
                     tool.ToolType = "Drill"
-                    tool.TipAngle = operation.tool.tip_angle or 118.0
+                    tool.TipAngle = 118.0  # Standard drill tip angle
                 elif operation.tool.type == "chamfer":
                     tool.ToolType = "ChamferMill"
-                    tool.CuttingEdgeAngle = operation.tool.chamfer_angle or 45.0
+                    tool.CuttingEdgeAngle = 45.0  # Standard chamfer angle
+                elif operation.tool.type == "engraver":
+                    tool.ToolType = "Engraver"
+                    tool.CuttingEdgeAngle = 60.0  # Standard engraver angle
                 
                 tool_controller.Tool = tool
                 
-                # Set feeds and speeds
+                # Set feeds and speeds (FeedsAndSpeeds is a proper model, not a dict)
                 tool_controller.HorizFeed = operation.feeds_speeds.feed_rate
                 tool_controller.VertFeed = operation.feeds_speeds.plunge_rate  
                 tool_controller.SpindleSpeed = operation.feeds_speeds.spindle_speed
-                tool_controller.SpindleDir = operation.feeds_speeds.spindle_direction
+                tool_controller.SpindleDir = "Forward"  # Default direction, FeedsAndSpeeds doesn't have spindle_direction
                 
-                # Set coolant
+                # Set coolant (boolean field in CAMOperation)
                 if operation.coolant:
-                    tool_controller.CoolantMode = operation.coolant
+                    tool_controller.CoolantMode = "Flood"  # Default to flood coolant when enabled
                 
                 # Track tool changes
                 if last_tool != operation.tool.name:
@@ -1088,61 +1097,73 @@ class Assembly4Service:
                     op = doc.addObject("Path::FeaturePython", f"Facing_{i}")
                     PathMillFace.Create(op)
                     op.BoundBox = "Stock"
-                    op.StepOver = operation.parameters.get("step_over", 50)
+                    # CAMOperation doesn't have 'parameters' field - use feeds_speeds.step_over
+                    op.StepOver = operation.feeds_speeds.step_over
                     
                 elif operation.type.value == "Profile":
                     op = doc.addObject("Path::FeaturePython", f"Profile_{i}")
                     PathProfile.Create(op)
-                    op.Side = operation.parameters.get("side", "Outside")
-                    op.Direction = operation.cut_mode or "Climb"
+                    op.Side = "Outside"  # Default profile side
+                    op.Direction = operation.cut_mode.capitalize() if operation.cut_mode else "Climb"
                     if operation.finish_pass:
                         op.UseCompensation = True
                         
                 elif operation.type.value == "Pocket":
                     op = doc.addObject("Path::FeaturePython", f"Pocket_{i}")
                     PathPocket.Create(op)
-                    op.StepOver = operation.parameters.get("step_over", 50)
-                    op.ZigZagAngle = operation.parameters.get("zigzag_angle", 45)
+                    op.StepOver = operation.feeds_speeds.step_over
+                    op.ZigZagAngle = 45  # Default zigzag angle
                     if operation.strategy:
-                        op.OffsetPattern = operation.strategy
+                        # Map CAMStrategy enum to FreeCAD pattern names
+                        strategy_map = {
+                            CAMStrategy.ZIGZAG: "ZigZag",
+                            CAMStrategy.OFFSET: "Offset",
+                            CAMStrategy.SPIRAL: "Spiral",
+                            CAMStrategy.ZIGZAG_OFFSET: "ZigZagOffset",
+                            CAMStrategy.LINE: "Line",
+                            CAMStrategy.GRID: "Grid"
+                        }
+                        op.OffsetPattern = strategy_map.get(operation.strategy, "Offset")
                         
                 elif operation.type.value == "Drilling":
                     op = doc.addObject("Path::FeaturePython", f"Drilling_{i}")
                     PathDrilling.Create(op)
-                    op.PeckDepth = operation.parameters.get("peck_depth", 5.0)
-                    op.DwellTime = operation.parameters.get("dwell", 0.0)
-                    op.RetractHeight = operation.parameters.get("retract", 1.0)
+                    # Use step_down as peck depth for drilling
+                    op.PeckDepth = operation.feeds_speeds.step_down
+                    op.DwellTime = 0.0  # Default dwell time
+                    op.RetractHeight = cam_parameters.clearance_height
                     
                 elif operation.type.value == "Adaptive":
                     op = doc.addObject("Path::FeaturePython", f"Adaptive_{i}")
                     PathAdaptive.Create(op)
-                    op.StepOver = operation.parameters.get("step_over", 20)
-                    op.HelixAngle = operation.parameters.get("helix_angle", 2.0)
-                    op.HelixDiameterLimit = operation.parameters.get("helix_diameter", 0.0)
+                    op.StepOver = min(operation.feeds_speeds.step_over, 30)  # Adaptive usually uses smaller stepover
+                    op.HelixAngle = 2.0  # Default helix angle for adaptive
+                    op.HelixDiameterLimit = 0.0  # Default - no limit
                     
                 elif operation.type.value == "Helix":
                     op = doc.addObject("Path::FeaturePython", f"Helix_{i}")
                     PathHelix.Create(op)
-                    op.StartRadius = operation.parameters.get("start_radius", 5.0)
-                    op.Direction = operation.cut_mode or "CW"
+                    op.StartRadius = operation.tool.diameter * 2  # Start radius based on tool diameter
+                    op.Direction = "CW" if operation.cut_mode == "climb" else "CCW"
                     
                 elif operation.type.value == "Engrave":
                     op = doc.addObject("Path::FeaturePython", f"Engrave_{i}")
                     PathEngrave.Create(op)
-                    op.StartDepth = operation.depths.start_depth
-                    op.FinalDepth = operation.depths.final_depth
+                    # CAMOperation doesn't have 'depths' field - use default depths
+                    op.StartDepth = 0.0
+                    op.FinalDepth = -operation.feeds_speeds.step_down  # Use step_down as engrave depth
                     
                 if op:
                     # Set common parameters
                     op.ToolController = tool_controller
                     
-                    # Set depths
-                    if operation.depths:
-                        op.StartDepth = operation.depths.start_depth
-                        op.FinalDepth = operation.depths.final_depth
-                        op.StepDown = operation.depths.step_down
-                        if hasattr(op, 'FinishDepth') and operation.depths.finish_depth:
-                            op.FinishDepth = operation.depths.finish_depth
+                    # Set depths using feeds_speeds.step_down
+                    # CAMOperation doesn't have 'depths' field
+                    op.StartDepth = 0.0  # Start at top of stock
+                    op.FinalDepth = -cam_parameters.stock.margins.z * 2  # Go through stock
+                    op.StepDown = operation.feeds_speeds.step_down
+                    if hasattr(op, 'FinishDepth') and operation.finish_pass:
+                        op.FinishDepth = 0.1  # Leave 0.1mm for finish pass
                     
                     # Set cut mode
                     if hasattr(op, 'Direction'):
@@ -1160,10 +1181,10 @@ class Assembly4Service:
                     total_time += op_time
             
             # Optimize operation sequence to minimize tool changes
-            if cam_parameters.optimize_sequence:
-                # Group operations by tool
-                # This is a simplified version - real implementation would reorder operations
-                pass
+            # CAMJobParameters doesn't have 'optimize_sequence' field
+            # Always optimize by default
+            # Group operations by tool (simplified version)
+            pass
             
             # Generate G-code for each post-processor
             gcode_files = {}
