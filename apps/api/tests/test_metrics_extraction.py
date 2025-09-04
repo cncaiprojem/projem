@@ -299,52 +299,76 @@ class TestMetricsExtractor:
         assert "test_phase" in extractor._phase_timers
         assert extractor._phase_timers["test_phase"] >= 10  # At least 10ms
     
-    @patch('apps.api.app.services.metrics_extractor.logger')
-    def test_extract_metrics_with_mock_document(self, mock_logger):
-        """Test metrics extraction with mocked FreeCAD document."""
-        # Create mock FreeCAD objects
-        mock_shape = Mock()
-        mock_shape.Solids = [Mock()] * 2
-        mock_shape.Faces = [Mock()] * 12
-        mock_shape.Edges = [Mock()] * 24
-        mock_shape.Vertexes = [Mock()] * 16
-        mock_shape.isClosed.return_value = True
-        mock_shape.isValid.return_value = True
-        mock_shape.Volume = 125000  # mm³
-        mock_shape.Area = 15000  # mm²
+    @patch.object(MetricsExtractor, '_extract_shape_metrics')
+    @patch.object(MetricsExtractor, '_extract_bounding_box')
+    @patch.object(MetricsExtractor, '_extract_volume_metrics')
+    @patch.object(MetricsExtractor, '_extract_mesh_metrics')
+    @patch.object(MetricsExtractor, '_capture_telemetry')
+    def test_extract_metrics_with_mock_methods(self, mock_telemetry, mock_mesh, mock_volume, mock_bbox, mock_shape):
+        """Test metrics extraction by mocking individual extraction methods."""
+        # Setup mock return values
+        mock_shape.return_value = ShapeMetrics(
+            solids=2, faces=12, edges=24, vertices=16,
+            is_closed=True, is_valid=True, shape_type="solid"
+        )
         
-        mock_bbox = Mock()
-        mock_bbox.XLength = 100  # mm
-        mock_bbox.YLength = 50
-        mock_bbox.ZLength = 25
-        mock_bbox.Center = Mock(x=50, y=25, z=12.5)
-        mock_bbox.XMin = 0
-        mock_bbox.YMin = 0
-        mock_bbox.ZMin = 0
-        mock_bbox.XMax = 100
-        mock_bbox.YMax = 50
-        mock_bbox.ZMax = 25
-        mock_shape.BoundBox = mock_bbox
+        mock_bbox.return_value = BoundingBoxMetrics(
+            width_m=Decimal("0.1"), height_m=Decimal("0.05"), depth_m=Decimal("0.025"),
+            center=[Decimal("0.05"), Decimal("0.025"), Decimal("0.0125")],
+            min_point=[Decimal("0"), Decimal("0"), Decimal("0")],
+            max_point=[Decimal("0.1"), Decimal("0.05"), Decimal("0.025")],
+            diagonal_m=Decimal("0.114564")
+        )
         
-        mock_obj = Mock()
-        mock_obj.Shape = mock_shape
+        mock_volume.return_value = VolumeMetrics(
+            volume_m3=Decimal("0.000125"),
+            surface_area_m2=Decimal("0.015"),
+            material_name="aluminum",
+            density_kg_m3=Decimal("2700"),
+            density_source="database",
+            mass_kg=Decimal("0.3375")
+        )
         
+        mock_mesh.return_value = MeshMetrics(
+            triangle_count=1024,
+            vertex_count=514,
+            stl_hash="abc123def456789"
+        )
+        
+        mock_telemetry.return_value = RuntimeTelemetry(
+            duration_ms=1234,
+            phase_timings={"shape_analysis": 100},
+            cpu_user_s=0.234,
+            ram_peak_mb=128.5,
+            queue_name="model"
+        )
+        
+        # Create extractor and extract metrics
+        extractor = MetricsExtractor()
         mock_doc = Mock()
-        mock_doc.Objects = [mock_obj]
         
-        # Mock FreeCAD modules
-        with patch('apps.api.app.services.metrics_extractor.logger'):
-            extractor = MetricsExtractor()
-            
-            # Extract metrics (will fail due to missing FreeCAD, but structure is tested)
-            try:
-                metrics = extractor.extract_metrics(
-                    document=mock_doc,
-                    job_id="test-job",
-                    material="aluminum"
-                )
-            except Exception:
-                pass  # Expected since FreeCAD is not available in tests
+        metrics = extractor.extract_metrics(
+            document=mock_doc,
+            stl_path=Path("/tmp/test.stl"),
+            job_id="test-job",
+            material="aluminum",
+            queue_name="model"
+        )
+        
+        # Verify all methods were called
+        mock_shape.assert_called_once_with(mock_doc)
+        mock_bbox.assert_called_once_with(mock_doc)
+        mock_volume.assert_called_once_with(mock_doc, "aluminum")
+        mock_mesh.assert_called_once_with(Path("/tmp/test.stl"))
+        mock_telemetry.assert_called_once_with("model")
+        
+        # Verify the returned metrics
+        assert metrics.shape.solids == 2
+        assert metrics.bounding_box.width_m == Decimal("0.1")
+        assert metrics.volume.material_name == "aluminum"
+        assert metrics.mesh.triangle_count == 1024
+        assert metrics.telemetry.duration_ms == 1234
+        assert metrics.job_id == "test-job"
 
 
 class TestMetricsSchema:

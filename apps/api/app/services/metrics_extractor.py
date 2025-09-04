@@ -21,9 +21,15 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import resource
 import struct
 import time
+
+# Try to import resource module (Unix-only)
+try:
+    import resource
+    RESOURCE_AVAILABLE = True
+except ImportError:
+    RESOURCE_AVAILABLE = False
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_EVEN
@@ -320,14 +326,24 @@ class MetricsExtractor:
         self._runtime_start = time.perf_counter()
         self._phase_timers.clear()
         
+        # Initialize CPU percent by calling once and discarding result (psutil requirement)
+        if self._process:
+            try:
+                _ = self._process.cpu_percent()  # First call always returns 0.0, initialize it
+            except Exception:
+                pass
+        
         # Capture CPU start
-        try:
-            rusage = resource.getrusage(resource.RUSAGE_SELF)
-            self._cpu_start = {
-                'user': rusage.ru_utime,
-                'system': rusage.ru_stime
-            }
-        except Exception:
+        if RESOURCE_AVAILABLE:
+            try:
+                rusage = resource.getrusage(resource.RUSAGE_SELF)
+                self._cpu_start = {
+                    'user': rusage.ru_utime,
+                    'system': rusage.ru_stime
+                }
+            except Exception:
+                self._cpu_start = None
+        else:
             self._cpu_start = None
         
         # Capture memory start
@@ -561,15 +577,28 @@ class MetricsExtractor:
             
             metrics = VolumeMetrics()
             
-            # Get shape
+            # Get shape and collect all materials
             if hasattr(document, 'Objects'):
                 shapes = []
+                materials_found = []
                 for obj in document.Objects:
                     if hasattr(obj, 'Shape') and obj.Shape and not obj.Shape.isNull():
                         shapes.append(obj.Shape)
-                        # Check for material property
-                        if not material and hasattr(obj, 'Material'):
-                            material = str(obj.Material)
+                        # Collect material property from each object
+                        if hasattr(obj, 'Material') and obj.Material:
+                            mat_str = str(obj.Material)
+                            if mat_str and mat_str not in materials_found:
+                                materials_found.append(mat_str)
+                
+                # Handle multiple materials
+                if not material and materials_found:
+                    if len(materials_found) > 1:
+                        logger.warning(
+                            f"Multiple materials found in assembly: {materials_found}. "
+                            f"Using first material '{materials_found[0]}' for density lookup. "
+                            "Consider weighted average for accurate mass calculation."
+                        )
+                    material = materials_found[0]
                 
                 if shapes:
                     shape = Part.makeCompound(shapes) if len(shapes) > 1 else shapes[0]
@@ -634,11 +663,10 @@ class MetricsExtractor:
                 
                 # ASCII STL starts with "solid"
                 if header.startswith(b'solid'):
-                    # ASCII STL - count lines
+                    # ASCII STL - count lines efficiently without loading entire file
                     with open(stl_path, 'r') as ascii_f:
-                        lines = ascii_f.readlines()
-                        facet_lines = [l for l in lines if 'facet normal' in l]
-                        metrics.triangle_count = len(facet_lines)
+                        # Use generator expression to count facet lines without loading all into memory
+                        metrics.triangle_count = sum(1 for line in ascii_f if 'facet normal' in line)
                 else:
                     # Binary STL - read triangle count from header
                     f.seek(80)
@@ -692,7 +720,7 @@ class MetricsExtractor:
             pass
         
         # Capture CPU metrics
-        if self._cpu_start:
+        if RESOURCE_AVAILABLE and self._cpu_start:
             try:
                 rusage = resource.getrusage(resource.RUSAGE_SELF)
                 telemetry.cpu_user_s = rusage.ru_utime - self._cpu_start['user']

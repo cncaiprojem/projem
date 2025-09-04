@@ -48,6 +48,7 @@ from ...core.telemetry import create_span
 # Import metrics extractor for Task 7.10
 try:
     from ..metrics_extractor import extract_model_metrics
+    from ...schemas.metrics import ModelMetricsSummary
     METRICS_AVAILABLE = True
 except ImportError:
     METRICS_AVAILABLE = False
@@ -398,18 +399,17 @@ class UnifiedDeterministicExporter:
                     queue_name=queue_name
                 )
                 
-                # Add to results
+                # Add to results using proper summary method
+                from ...schemas.metrics import ModelMetricsSchema
+                
+                # Convert to schema then create summary
+                metrics_schema = ModelMetricsSchema.model_validate(model_metrics.model_dump())
+                summary = ModelMetricsSummary.from_full_metrics(metrics_schema)
+                
                 results["metrics"] = {
                     "extracted": True,
                     "data": model_metrics.model_dump(),
-                    "summary": {
-                        "solids": model_metrics.shape.solids if model_metrics.shape else None,
-                        "faces": model_metrics.shape.faces if model_metrics.shape else None,
-                        "volume_m3": float(model_metrics.volume.volume_m3) if model_metrics.volume and model_metrics.volume.volume_m3 else None,
-                        "mass_kg": float(model_metrics.volume.mass_kg) if model_metrics.volume and model_metrics.volume.mass_kg else None,
-                        "triangles": model_metrics.mesh.triangle_count if model_metrics.mesh else None,
-                        "duration_ms": model_metrics.telemetry.duration_ms if model_metrics.telemetry else None
-                    }
+                    "summary": summary.model_dump(exclude_none=True)
                 }
                 
                 # Add metrics to export metadata

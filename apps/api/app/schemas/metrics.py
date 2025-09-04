@@ -10,10 +10,14 @@ Comprehensive Pydantic schemas for model metrics including:
 - Turkish localization support
 """
 
+import locale as system_locale
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, ConfigDict
+
+# Constants
+METERS_TO_MILLIMETERS = 1000
 
 
 class ModelMetricsBase(BaseModel):
@@ -127,34 +131,41 @@ class ModelMetricsSummary(BaseModel):
     
     @classmethod
     def from_full_metrics(cls, metrics: ModelMetricsSchema) -> "ModelMetricsSummary":
-        """Create summary from full metrics."""
-        summary = cls()
+        """Create summary from full metrics using declarative initialization."""
+        # Build kwargs declaratively
+        kwargs = {}
         
         # Shape metrics
         if metrics.shape:
-            summary.solids_count = metrics.shape.solids
-            summary.faces_count = metrics.shape.faces
+            kwargs.update({
+                "solids_count": metrics.shape.solids,
+                "faces_count": metrics.shape.faces
+            })
         
         # Volume metrics
         if metrics.volume:
-            summary.volume_m3 = metrics.volume.volume_m3
-            summary.mass_kg = metrics.volume.mass_kg
+            kwargs.update({
+                "volume_m3": metrics.volume.volume_m3,
+                "mass_kg": metrics.volume.mass_kg
+            })
         
         # Mesh metrics
         if metrics.mesh:
-            summary.triangles_count = metrics.mesh.triangle_count
+            kwargs["triangles_count"] = metrics.mesh.triangle_count
         
         # Bounding box - convert to mm for display
         if metrics.bounding_box:
-            summary.width_mm = metrics.bounding_box.width_m * 1000
-            summary.height_mm = metrics.bounding_box.height_m * 1000
-            summary.depth_mm = metrics.bounding_box.depth_m * 1000
+            kwargs.update({
+                "width_mm": metrics.bounding_box.width_m * METERS_TO_MILLIMETERS,
+                "height_mm": metrics.bounding_box.height_m * METERS_TO_MILLIMETERS,
+                "depth_mm": metrics.bounding_box.depth_m * METERS_TO_MILLIMETERS
+            })
         
         # Performance
         if metrics.telemetry:
-            summary.extraction_time_ms = metrics.telemetry.duration_ms
+            kwargs["extraction_time_ms"] = metrics.telemetry.duration_ms
         
-        return summary
+        return cls(**kwargs)
 
 
 # Turkish display mappings
@@ -181,13 +192,16 @@ TURKISH_METRIC_LABELS = {
 }
 
 
-def format_metric_for_display(value: Any, locale: str = "en") -> str:
+def format_metric_for_display(value: Any, locale_code: str = "en") -> str:
     """
     Format metric value for display with proper localization.
     
+    Uses locale-aware formatting for numbers when available,
+    falls back to manual formatting if locale module fails.
+    
     Args:
         value: Metric value to format
-        locale: Locale code (en, tr)
+        locale_code: Locale code (en, tr)
     
     Returns:
         Formatted string
@@ -195,17 +209,42 @@ def format_metric_for_display(value: Any, locale: str = "en") -> str:
     if value is None:
         return "-"
     
-    if locale == "tr":
-        # Turkish formatting: comma as decimal separator
-        if isinstance(value, (float, Decimal)):
-            return f"{value:,.3f}".replace(".", "X").replace(",", ".").replace("X", ",")
-        elif isinstance(value, bool):
+    # Boolean formatting
+    if isinstance(value, bool):
+        if locale_code == "tr":
             return "Evet" if value else "Hayır"
-    
-    # Default English formatting
-    if isinstance(value, (float, Decimal)):
-        return f"{value:,.3f}"
-    elif isinstance(value, bool):
         return "Yes" if value else "No"
+    
+    # Number formatting
+    if isinstance(value, (float, Decimal, int)):
+        # Try locale-aware formatting first
+        try:
+            if locale_code == "tr":
+                # Set Turkish locale if available
+                try:
+                    system_locale.setlocale(system_locale.LC_NUMERIC, 'tr_TR.UTF-8')
+                except:
+                    # Fallback to C locale if Turkish not available
+                    system_locale.setlocale(system_locale.LC_NUMERIC, 'C')
+                
+                # Use locale formatting
+                if isinstance(value, (int, Decimal)):
+                    formatted = system_locale.format_string("%.3f", float(value), grouping=True)
+                else:
+                    formatted = system_locale.format_string("%.3f", value, grouping=True)
+                
+                # Reset locale to default
+                system_locale.setlocale(system_locale.LC_NUMERIC, '')
+                return formatted
+            else:
+                # English formatting with thousands separator
+                return f"{value:,.3f}"
+        except Exception:
+            # Fallback to manual formatting if locale fails
+            if locale_code == "tr":
+                # Turkish: comma as decimal, period as thousands
+                return f"{value:,.3f}".replace(".", "X").replace(",", ".").replace("X", ",")
+            else:
+                return f"{value:,.3f}"
     
     return str(value)
