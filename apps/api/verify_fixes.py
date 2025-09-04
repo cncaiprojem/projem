@@ -13,7 +13,8 @@ def verify_code_changes():
     issues_found = []
     
     # Check metrics_extractor.py
-    metrics_file = Path("app/services/metrics_extractor.py")
+    base_dir = Path(__file__).parent
+    metrics_file = base_dir / "app" / "services" / "metrics_extractor.py"
     if metrics_file.exists():
         content = metrics_file.read_text(encoding='utf-8')
         
@@ -44,7 +45,7 @@ def verify_code_changes():
         issues_found.append("metrics_extractor.py not found")
     
     # Check schemas/metrics.py
-    metrics_schema = Path("app/schemas/metrics.py")
+    metrics_schema = base_dir / "app" / "schemas" / "metrics.py"
     if metrics_schema.exists():
         content = metrics_schema.read_text(encoding='utf-8')
         
@@ -69,7 +70,7 @@ def verify_code_changes():
         issues_found.append("schemas/metrics.py not found")
     
     # Check deterministic_exporter.py
-    exporter_file = Path("app/services/freecad/deterministic_exporter.py")
+    exporter_file = base_dir / "app" / "services" / "freecad" / "deterministic_exporter.py"
     if exporter_file.exists():
         content = exporter_file.read_text(encoding='utf-8')
         
@@ -82,7 +83,7 @@ def verify_code_changes():
         issues_found.append("deterministic_exporter.py not found")
     
     # Check test file
-    test_file = Path("tests/test_metrics_extraction.py")
+    test_file = base_dir / "tests" / "test_metrics_extraction.py"
     if test_file.exists():
         content = test_file.read_text(encoding='utf-8')
         

@@ -22,6 +22,7 @@ import hashlib
 import json
 import os
 import struct
+import threading  # Move inline import to top
 import time
 
 # Try to import resource module (Unix-only)
@@ -43,6 +44,16 @@ from ..core.metrics import freecad_operation_duration_seconds
 from ..core.telemetry import create_span
 from ..middleware.correlation_middleware import get_correlation_id
 
+# Import metrics models from schemas to avoid duplication
+from ..schemas.metrics import (
+    ShapeMetricsSchema as ShapeMetrics,
+    BoundingBoxMetricsSchema as BoundingBoxMetrics,
+    VolumeMetricsSchema as VolumeMetrics,
+    MeshMetricsSchema as MeshMetrics,
+    RuntimeTelemetrySchema as RuntimeTelemetry,
+    ModelMetricsSchema as ModelMetrics,
+)
+
 logger = get_logger(__name__)
 
 # Try to import psutil for runtime telemetry
@@ -53,212 +64,15 @@ except ImportError:
     PSUTIL_AVAILABLE = False
     logger.warning("psutil not available, runtime telemetry will be limited")
 
-
-class ShapeMetrics(BaseModel):
-    """Shape analysis metrics from FreeCAD TopoShape."""
-    
-    model_config = ConfigDict(validate_assignment=True)
-    
-    # Topology counts
-    solids: int = Field(description="Number of solid shapes")
-    faces: int = Field(description="Number of faces")
-    edges: int = Field(description="Number of edges")
-    vertices: int = Field(description="Number of vertices")
-    
-    # Closure status
-    is_closed: bool = Field(description="Whether shape is closed")
-    is_valid: bool = Field(description="Whether shape is topologically valid")
-    
-    # Shape type
-    shape_type: Optional[str] = Field(default=None, description="Primary shape type")
-    
-    def to_turkish(self) -> Dict[str, Any]:
-        """Convert to Turkish localized format."""
-        return {
-            "katılar": self.solids,
-            "yüzeyler": self.faces,
-            "kenarlar": self.edges,
-            "köşeler": self.vertices,
-            "kapalı": self.is_closed,
-            "geçerli": self.is_valid,
-            "şekil_tipi": self.shape_type
-        }
-
-
-class BoundingBoxMetrics(BaseModel):
-    """Bounding box metrics with dimensional information."""
-    
-    model_config = ConfigDict(validate_assignment=True)
-    
-    # Dimensions in SI units (meters)
-    width_m: Decimal = Field(description="Width (X dimension) in meters")
-    height_m: Decimal = Field(description="Height (Y dimension) in meters")
-    depth_m: Decimal = Field(description="Depth (Z dimension) in meters")
-    
-    # Center point
-    center: List[Decimal] = Field(description="Center point [x, y, z] in meters")
-    
-    # Bounds
-    min_point: List[Decimal] = Field(description="Minimum corner [x, y, z] in meters")
-    max_point: List[Decimal] = Field(description="Maximum corner [x, y, z] in meters")
-    
-    # Diagonal length
-    diagonal_m: Optional[Decimal] = Field(default=None, description="Diagonal length in meters")
-    
-    def to_turkish(self) -> Dict[str, Any]:
-        """Convert to Turkish localized format."""
-        return {
-            "genişlik_m": float(self.width_m),
-            "yükseklik_m": float(self.height_m),
-            "derinlik_m": float(self.depth_m),
-            "merkez": [float(x) for x in self.center],
-            "min_nokta": [float(x) for x in self.min_point],
-            "maks_nokta": [float(x) for x in self.max_point],
-            "köşegen_m": float(self.diagonal_m) if self.diagonal_m else None
-        }
-
-
-class VolumeMetrics(BaseModel):
-    """Volume and mass calculation metrics."""
-    
-    model_config = ConfigDict(validate_assignment=True)
-    
-    # Volume in SI units (cubic meters)
-    volume_m3: Optional[Decimal] = Field(default=None, description="Volume in cubic meters")
-    
-    # Surface area
-    surface_area_m2: Optional[Decimal] = Field(default=None, description="Surface area in square meters")
-    
-    # Material properties
-    material_name: Optional[str] = Field(default=None, description="Material name")
-    density_kg_m3: Optional[Decimal] = Field(default=None, description="Density in kg/m³")
-    density_source: Optional[str] = Field(default=None, description="Source of density value")
-    
-    # Mass calculation
-    mass_kg: Optional[Decimal] = Field(default=None, description="Mass in kilograms")
-    
-    def to_turkish(self) -> Dict[str, Any]:
-        """Convert to Turkish localized format."""
-        return {
-            "hacim_m3": float(self.volume_m3) if self.volume_m3 else None,
-            "yüzey_alanı_m2": float(self.surface_area_m2) if self.surface_area_m2 else None,
-            "malzeme": self.material_name,
-            "yoğunluk_kg_m3": float(self.density_kg_m3) if self.density_kg_m3 else None,
-            "yoğunluk_kaynağı": self.density_source,
-            "kütle_kg": float(self.mass_kg) if self.mass_kg else None
-        }
-
-
-class MeshMetrics(BaseModel):
-    """Mesh and tessellation metrics."""
-    
-    model_config = ConfigDict(validate_assignment=True)
-    
-    # Triangle count
-    triangle_count: Optional[int] = Field(default=None, description="Number of triangles in mesh")
-    vertex_count: Optional[int] = Field(default=None, description="Number of vertices in mesh")
-    
-    # STL parameters used
-    linear_deflection: Optional[float] = Field(default=None, description="Linear deflection used")
-    angular_deflection: Optional[float] = Field(default=None, description="Angular deflection used")
-    relative: Optional[bool] = Field(default=None, description="Whether relative deflection was used")
-    
-    # STL file hash for traceability
-    stl_hash: Optional[str] = Field(default=None, description="SHA256 hash of STL file")
-    
-    def to_turkish(self) -> Dict[str, Any]:
-        """Convert to Turkish localized format."""
-        return {
-            "üçgen_sayısı": self.triangle_count,
-            "köşe_sayısı": self.vertex_count,
-            "doğrusal_sapma": self.linear_deflection,
-            "açısal_sapma": self.angular_deflection,
-            "göreli": self.relative,
-            "stl_özeti": self.stl_hash[:8] if self.stl_hash else None
-        }
-
-
-class RuntimeTelemetry(BaseModel):
-    """Runtime performance telemetry."""
-    
-    model_config = ConfigDict(validate_assignment=True)
-    
-    # Timing
-    duration_ms: int = Field(description="Total duration in milliseconds")
-    phase_timings: Optional[Dict[str, int]] = Field(default=None, description="Per-phase timings in ms")
-    
-    # CPU usage
-    cpu_user_s: Optional[float] = Field(default=None, description="User CPU time in seconds")
-    cpu_system_s: Optional[float] = Field(default=None, description="System CPU time in seconds")
-    cpu_percent_peak: Optional[float] = Field(default=None, description="Peak CPU usage percentage")
-    
-    # Memory usage
-    ram_peak_mb: Optional[float] = Field(default=None, description="Peak RAM usage in MB")
-    ram_delta_mb: Optional[float] = Field(default=None, description="Memory delta in MB")
-    
-    # Worker metadata
-    worker_pid: Optional[int] = Field(default=None, description="Process ID")
-    worker_hostname: Optional[str] = Field(default=None, description="Worker hostname")
-    worker_thread_id: Optional[int] = Field(default=None, description="Thread ID")
-    queue_name: Optional[str] = Field(default=None, description="Queue name")
-    
-    def to_turkish(self) -> Dict[str, Any]:
-        """Convert to Turkish localized format."""
-        return {
-            "süre_ms": self.duration_ms,
-            "faz_süreleri": self.phase_timings,
-            "cpu_kullanıcı_sn": self.cpu_user_s,
-            "cpu_sistem_sn": self.cpu_system_s,
-            "cpu_tepe_yüzde": self.cpu_percent_peak,
-            "bellek_tepe_mb": self.ram_peak_mb,
-            "bellek_delta_mb": self.ram_delta_mb,
-            "işçi_pid": self.worker_pid,
-            "işçi_sunucu": self.worker_hostname,
-            "iş_parçacığı_id": self.worker_thread_id,
-            "kuyruk_adı": self.queue_name
-        }
-
-
-class ModelMetrics(BaseModel):
-    """Complete model metrics container."""
-    
-    model_config = ConfigDict(validate_assignment=True)
-    
-    # Core metrics
-    shape: Optional[ShapeMetrics] = Field(default=None, description="Shape analysis")
-    bounding_box: Optional[BoundingBoxMetrics] = Field(default=None, description="Bounding box")
-    volume: Optional[VolumeMetrics] = Field(default=None, description="Volume and mass")
-    mesh: Optional[MeshMetrics] = Field(default=None, description="Mesh metrics")
-    
-    # Runtime telemetry
-    telemetry: Optional[RuntimeTelemetry] = Field(default=None, description="Runtime telemetry")
-    
-    # Metadata
-    metrics_version: str = Field(default="1.0.0", description="Metrics schema version")
-    request_id: Optional[str] = Field(default=None, description="Request correlation ID")
-    job_id: Optional[str] = Field(default=None, description="Job identifier")
-    timestamp: Optional[str] = Field(default=None, description="Extraction timestamp")
-    
-    # Warnings and errors
-    warnings: List[str] = Field(default_factory=list, description="Non-fatal warnings")
-    errors: List[str] = Field(default_factory=list, description="Extraction errors")
-    
-    def to_turkish(self) -> Dict[str, Any]:
-        """Convert to Turkish localized format."""
-        result = {
-            "şekil": self.shape.to_turkish() if self.shape else None,
-            "sınır_kutusu": self.bounding_box.to_turkish() if self.bounding_box else None,
-            "hacim": self.volume.to_turkish() if self.volume else None,
-            "ağ": self.mesh.to_turkish() if self.mesh else None,
-            "telemetri": self.telemetry.to_turkish() if self.telemetry else None,
-            "metrik_sürümü": self.metrics_version,
-            "istek_id": self.request_id,
-            "iş_id": self.job_id,
-            "zaman_damgası": self.timestamp,
-            "uyarılar": self.warnings,
-            "hatalar": self.errors
-        }
-        return result
+# Try to import FreeCAD modules
+try:
+    import FreeCAD
+    import Part
+    import Mesh
+    FREECAD_AVAILABLE = True
+except ImportError:
+    FREECAD_AVAILABLE = False
+    logger.warning("FreeCAD modules not available, metrics extraction will be limited")
 
 
 class MetricsExtractor:
@@ -308,7 +122,7 @@ class MetricsExtractor:
         if PSUTIL_AVAILABLE:
             try:
                 self._process = psutil.Process()
-            except Exception as e:
+            except (psutil.NoSuchProcess, psutil.AccessDenied) as e:
                 logger.warning(f"Could not initialize process monitoring: {e}")
     
     @contextmanager
@@ -326,11 +140,13 @@ class MetricsExtractor:
         self._runtime_start = time.perf_counter()
         self._phase_timers.clear()
         
-        # Initialize CPU percent by calling once and discarding result (psutil requirement)
+        # Initialize CPU percent by calling once and discarding result
+        # psutil requires an initial call to cpu_percent() to establish a baseline
+        # for subsequent percentage calculations. The first call always returns 0.0
         if self._process:
             try:
-                _ = self._process.cpu_percent()  # First call always returns 0.0, initialize it
-            except Exception:
+                _ = self._process.cpu_percent()  # Establish baseline for CPU percentage calculation
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 pass
         
         # Capture CPU start
@@ -350,7 +166,7 @@ class MetricsExtractor:
         if self._process:
             try:
                 self._memory_start = self._process.memory_info().rss / (1024 * 1024)  # MB
-            except Exception:
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 self._memory_start = None
     
     def extract_metrics(
@@ -448,8 +264,8 @@ class MetricsExtractor:
     def _extract_shape_metrics(self, document: Any) -> ShapeMetrics:
         """Extract shape topology metrics."""
         try:
-            import FreeCAD
-            import Part
+            if not FREECAD_AVAILABLE:
+                raise ImportError("FreeCAD modules not available")
             
             # Get all shapes from document
             shapes = []
@@ -506,8 +322,8 @@ class MetricsExtractor:
     def _extract_bounding_box(self, document: Any) -> BoundingBoxMetrics:
         """Extract bounding box metrics."""
         try:
-            import FreeCAD
-            import Part
+            if not FREECAD_AVAILABLE:
+                raise ImportError("FreeCAD modules not available")
             
             # Get bounding box
             if hasattr(document, 'Objects'):
@@ -572,8 +388,8 @@ class MetricsExtractor:
     def _extract_volume_metrics(self, document: Any, material: Optional[str] = None) -> VolumeMetrics:
         """Extract volume and mass metrics."""
         try:
-            import FreeCAD
-            import Part
+            if not FREECAD_AVAILABLE:
+                raise ImportError("FreeCAD modules not available")
             
             metrics = VolumeMetrics()
             
@@ -664,7 +480,7 @@ class MetricsExtractor:
                 # ASCII STL starts with "solid"
                 if header.startswith(b'solid'):
                     # ASCII STL - count lines efficiently without loading entire file
-                    with open(stl_path, 'r') as ascii_f:
+                    with open(stl_path, 'r', encoding='utf-8', errors='ignore') as ascii_f:
                         # Use generator expression to count facet lines without loading all into memory
                         metrics.triangle_count = sum(1 for line in ascii_f if 'facet normal' in line)
                 else:
@@ -682,7 +498,8 @@ class MetricsExtractor:
             
             # Try to load with FreeCAD Mesh module for more details
             try:
-                import Mesh
+                if not FREECAD_AVAILABLE:
+                    raise ImportError("FreeCAD Mesh module not available")
                 mesh = Mesh.Mesh(str(stl_path))
                 metrics.vertex_count = mesh.CountPoints
                 
@@ -714,7 +531,6 @@ class MetricsExtractor:
         telemetry.worker_pid = os.getpid()
         telemetry.worker_hostname = os.environ.get('HOSTNAME', 'unknown')
         try:
-            import threading
             telemetry.worker_thread_id = threading.current_thread().ident
         except Exception:
             pass
@@ -740,7 +556,7 @@ class MetricsExtractor:
                 
                 # Get CPU percent
                 telemetry.cpu_percent_peak = self._process.cpu_percent()
-            except Exception as e:
+            except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
                 logger.debug(f"Could not capture psutil metrics: {e}")
         
         return telemetry

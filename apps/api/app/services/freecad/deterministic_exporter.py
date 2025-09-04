@@ -48,7 +48,7 @@ from ...core.telemetry import create_span
 # Import metrics extractor for Task 7.10
 try:
     from ..metrics_extractor import extract_model_metrics
-    from ...schemas.metrics import ModelMetricsSummary
+    from ...schemas.metrics import ModelMetricsSummary, ModelMetricsSchema
     METRICS_AVAILABLE = True
 except ImportError:
     METRICS_AVAILABLE = False
@@ -400,8 +400,6 @@ class UnifiedDeterministicExporter:
                 )
                 
                 # Add to results using proper summary method
-                from ...schemas.metrics import ModelMetricsSchema
-                
                 # Convert to schema then create summary
                 metrics_schema = ModelMetricsSchema.model_validate(model_metrics.model_dump())
                 summary = ModelMetricsSummary.from_full_metrics(metrics_schema)

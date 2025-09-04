@@ -12,6 +12,7 @@ This test suite verifies:
 """
 
 import json
+import locale
 import tempfile
 from decimal import Decimal
 from pathlib import Path
@@ -441,9 +442,18 @@ class TestLocalization:
         assert format_metric_for_display(False, "en") == "No"
         assert format_metric_for_display(None, "en") == "-"
     
-    def test_format_metric_for_display_turkish(self):
-        """Test Turkish metric formatting."""
+    @patch('app.schemas.metrics.system_locale.setlocale')
+    @patch('app.schemas.metrics.system_locale.getlocale')
+    def test_format_metric_for_display_turkish(self, mock_getlocale, mock_setlocale):
+        """Test Turkish metric formatting with mocked locale."""
+        # Mock locale functions to avoid system dependency
+        mock_getlocale.return_value = ('en_US', 'UTF-8')
+        
+        # Test with fallback formatting (when locale setting fails)
+        mock_setlocale.side_effect = locale.Error("Locale not available")
         assert format_metric_for_display(123.456, "tr") == "123,456"
+        
+        # Test boolean formatting (doesn't use locale)
         assert format_metric_for_display(True, "tr") == "Evet"
         assert format_metric_for_display(False, "tr") == "Hayır"
         assert format_metric_for_display(None, "tr") == "-"

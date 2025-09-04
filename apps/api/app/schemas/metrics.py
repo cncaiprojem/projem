@@ -40,6 +40,18 @@ class ShapeMetricsSchema(ModelMetricsBase):
     is_closed: bool = Field(description="Kapalı mı / Whether shape is closed")
     is_valid: bool = Field(description="Geçerli mi / Whether shape is valid")
     shape_type: Optional[str] = Field(None, description="Şekil tipi / Shape type")
+    
+    def to_turkish(self) -> Dict[str, Any]:
+        """Convert to Turkish localized format."""
+        return {
+            "katılar": self.solids,
+            "yüzeyler": self.faces,
+            "kenarlar": self.edges,
+            "köşeler": self.vertices,
+            "kapalı": self.is_closed,
+            "geçerli": self.is_valid,
+            "şekil_tipi": self.shape_type
+        }
 
 
 class BoundingBoxMetricsSchema(ModelMetricsBase):
@@ -52,6 +64,18 @@ class BoundingBoxMetricsSchema(ModelMetricsBase):
     min_point: List[float] = Field(description="Minimum köşe [x,y,z] / Minimum corner")
     max_point: List[float] = Field(description="Maksimum köşe [x,y,z] / Maximum corner")
     diagonal_m: Optional[float] = Field(None, description="Köşegen uzunluğu (m) / Diagonal length")
+    
+    def to_turkish(self) -> Dict[str, Any]:
+        """Convert to Turkish localized format."""
+        return {
+            "genişlik_m": self.width_m,
+            "yükseklik_m": self.height_m,
+            "derinlik_m": self.depth_m,
+            "merkez": self.center,
+            "min_nokta": self.min_point,
+            "maks_nokta": self.max_point,
+            "köşegen_m": self.diagonal_m
+        }
 
 
 class VolumeMetricsSchema(ModelMetricsBase):
@@ -63,6 +87,17 @@ class VolumeMetricsSchema(ModelMetricsBase):
     density_kg_m3: Optional[float] = Field(None, description="Yoğunluk (kg/m³) / Density")
     density_source: Optional[str] = Field(None, description="Yoğunluk kaynağı / Density source")
     mass_kg: Optional[float] = Field(None, description="Kütle (kg) / Mass in kilograms")
+    
+    def to_turkish(self) -> Dict[str, Any]:
+        """Convert to Turkish localized format."""
+        return {
+            "hacim_m3": self.volume_m3,
+            "yüzey_alanı_m2": self.surface_area_m2,
+            "malzeme": self.material_name,
+            "yoğunluk_kg_m3": self.density_kg_m3,
+            "yoğunluk_kaynağı": self.density_source,
+            "kütle_kg": self.mass_kg
+        }
 
 
 class MeshMetricsSchema(ModelMetricsBase):
@@ -74,6 +109,17 @@ class MeshMetricsSchema(ModelMetricsBase):
     angular_deflection: Optional[float] = Field(None, description="Açısal sapma / Angular deflection")
     relative: Optional[bool] = Field(None, description="Göreli sapma / Relative deflection")
     stl_hash: Optional[str] = Field(None, description="STL dosya özeti / STL file hash")
+    
+    def to_turkish(self) -> Dict[str, Any]:
+        """Convert to Turkish localized format."""
+        return {
+            "üçgen_sayısı": self.triangle_count,
+            "köşe_sayısı": self.vertex_count,
+            "doğrusal_sapma": self.linear_deflection,
+            "açısal_sapma": self.angular_deflection,
+            "göreli": self.relative,
+            "stl_özeti": self.stl_hash[:8] if self.stl_hash else None
+        }
 
 
 class RuntimeTelemetrySchema(ModelMetricsBase):
@@ -90,6 +136,22 @@ class RuntimeTelemetrySchema(ModelMetricsBase):
     worker_hostname: Optional[str] = Field(None, description="Sunucu adı / Worker hostname")
     worker_thread_id: Optional[int] = Field(None, description="İş parçacığı ID / Thread ID")
     queue_name: Optional[str] = Field(None, description="Kuyruk adı / Queue name")
+    
+    def to_turkish(self) -> Dict[str, Any]:
+        """Convert to Turkish localized format."""
+        return {
+            "süre_ms": self.duration_ms,
+            "faz_süreleri": self.phase_timings,
+            "cpu_kullanıcı_sn": self.cpu_user_s,
+            "cpu_sistem_sn": self.cpu_system_s,
+            "cpu_tepe_yüzde": self.cpu_percent_peak,
+            "bellek_tepe_mb": self.ram_peak_mb,
+            "bellek_delta_mb": self.ram_delta_mb,
+            "işçi_pid": self.worker_pid,
+            "işçi_sunucu": self.worker_hostname,
+            "iş_parçacığı_id": self.worker_thread_id,
+            "kuyruk_adı": self.queue_name
+        }
 
 
 class ModelMetricsSchema(ModelMetricsBase):
@@ -107,6 +169,23 @@ class ModelMetricsSchema(ModelMetricsBase):
     timestamp: Optional[str] = Field(None, description="Zaman damgası / Extraction timestamp")
     warnings: List[str] = Field(default_factory=list, description="Uyarılar / Non-fatal warnings")
     errors: List[str] = Field(default_factory=list, description="Hatalar / Extraction errors")
+    
+    def to_turkish(self) -> Dict[str, Any]:
+        """Convert to Turkish localized format."""
+        result = {
+            "şekil": self.shape.to_turkish() if self.shape else None,
+            "sınır_kutusu": self.bounding_box.to_turkish() if self.bounding_box else None,
+            "hacim": self.volume.to_turkish() if self.volume else None,
+            "ağ": self.mesh.to_turkish() if self.mesh else None,
+            "telemetri": self.telemetry.to_turkish() if self.telemetry else None,
+            "metrik_sürümü": self.metrics_version,
+            "istek_id": self.request_id,
+            "iş_id": self.job_id,
+            "zaman_damgası": self.timestamp,
+            "uyarılar": self.warnings,
+            "hatalar": self.errors
+        }
+        return result
 
 
 class ModelMetricsSummary(BaseModel):
@@ -218,12 +297,16 @@ def format_metric_for_display(value: Any, locale_code: str = "en") -> str:
     # Number formatting
     if isinstance(value, (float, Decimal, int)):
         # Try locale-aware formatting first
+        original_locale = None
         try:
             if locale_code == "tr":
+                # Save original locale
+                original_locale = system_locale.getlocale(system_locale.LC_NUMERIC)
+                
                 # Set Turkish locale if available
                 try:
                     system_locale.setlocale(system_locale.LC_NUMERIC, 'tr_TR.UTF-8')
-                except:
+                except system_locale.Error:
                     # Fallback to C locale if Turkish not available
                     system_locale.setlocale(system_locale.LC_NUMERIC, 'C')
                 
@@ -233,18 +316,24 @@ def format_metric_for_display(value: Any, locale_code: str = "en") -> str:
                 else:
                     formatted = system_locale.format_string("%.3f", value, grouping=True)
                 
-                # Reset locale to default
-                system_locale.setlocale(system_locale.LC_NUMERIC, '')
                 return formatted
             else:
                 # English formatting with thousands separator
                 return f"{value:,.3f}"
-        except Exception:
+        except system_locale.Error:
             # Fallback to manual formatting if locale fails
             if locale_code == "tr":
                 # Turkish: comma as decimal, period as thousands
                 return f"{value:,.3f}".replace(".", "X").replace(",", ".").replace("X", ",")
             else:
                 return f"{value:,.3f}"
+        finally:
+            # Always reset locale to original if it was changed
+            if original_locale is not None:
+                try:
+                    system_locale.setlocale(system_locale.LC_NUMERIC, original_locale)
+                except system_locale.Error:
+                    # If we can't restore, at least reset to default
+                    system_locale.setlocale(system_locale.LC_NUMERIC, '')
     
     return str(value)
