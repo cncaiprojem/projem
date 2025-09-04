@@ -528,6 +528,7 @@ class CAMOperation(BaseModel):
     cut_mode: Literal["climb", "conventional"] = Field(default="climb", description="Cut mode")
     coolant: bool = Field(default=True, description="Use coolant")
     finish_pass: bool = Field(default=False, description="Add finish pass")
+    final_depth: Optional[float] = Field(None, description="Final cutting depth in mm (negative value, e.g., -10.0). If not provided, will be calculated from stock height")
     
     model_config = ConfigDict(json_schema_extra={
         "example": {
@@ -549,7 +550,8 @@ class CAMOperation(BaseModel):
             },
             "strategy": "ZigZag",
             "cut_mode": "climb",
-            "coolant": True
+            "coolant": True,
+            "final_depth": -10.0
         }
     })
 

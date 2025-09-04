@@ -1012,7 +1012,7 @@ class Assembly4Service:
     
     def _setup_cam_job(
         self, doc, assembly, job_id: str, cam_parameters: CAMJobParameters
-    ):
+    ) -> Tuple[Any, Any]:
         """
         Setup CAM job with stock and WCS configuration.
         
@@ -1087,7 +1087,7 @@ class Assembly4Service:
     
     def _manage_tool_controller(
         self, doc, operation, tool_controllers: Dict, tool_number_counter: int
-    ):
+    ) -> Tuple[Any, int, bool]:
         """
         Create or retrieve tool controller for operation.
         
@@ -1169,7 +1169,7 @@ class Assembly4Service:
     
     def _create_cam_operation(
         self, doc, operation, tool_controller, index: int, cam_parameters: CAMJobParameters
-    ):
+    ) -> Any:
         """
         Create specific CAM operation based on type.
         
@@ -1249,7 +1249,18 @@ class Assembly4Service:
             
             # Set depths
             op.StartDepth = 0.0
-            op.FinalDepth = -cam_parameters.stock.margins.z * 2
+            
+            # Use provided final_depth if available, otherwise calculate from stock
+            if operation.final_depth is not None:
+                # User provided explicit final depth
+                op.FinalDepth = operation.final_depth
+            else:
+                # Calculate final depth based on stock dimensions
+                # Assuming we want to cut the full depth of the stock
+                # The final depth should be negative (below Z=0)
+                # Using stock margins to determine how deep to cut
+                op.FinalDepth = -cam_parameters.stock.margins.z
+                
             op.StepDown = operation.feeds_speeds.step_down
             if hasattr(op, 'FinishDepth') and operation.finish_pass:
                 op.FinishDepth = 0.1
@@ -1262,8 +1273,8 @@ class Assembly4Service:
         return op
     
     def _post_process_job(
-        self, job, job_id: str, cam_parameters: CAMJobParameters, operations_created: List
-    ):
+        self, job, job_id: str, cam_parameters: CAMJobParameters, operations_created: List[Any]
+    ) -> Tuple[Dict[str, str], Dict[str, Any]]:
         """
         Post-process CAM job to generate G-code.
         
