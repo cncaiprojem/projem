@@ -45,6 +45,13 @@ from ...core.logging import get_logger
 from ...core.metrics import freecad_operation_duration_seconds
 from ...core.telemetry import create_span
 
+# Import metrics extractor for Task 7.10
+try:
+    from ..metrics_extractor import extract_model_metrics
+    METRICS_AVAILABLE = True
+except ImportError:
+    METRICS_AVAILABLE = False
+
 logger = get_logger(__name__)
 
 
@@ -298,7 +305,10 @@ class UnifiedDeterministicExporter:
         base_path: Path,
         formats: Optional[List[str]] = None,
         job_id: Optional[str] = None,
-        validate: Optional[bool] = None
+        validate: Optional[bool] = None,
+        extract_metrics: bool = True,
+        material: Optional[str] = None,
+        queue_name: Optional[str] = None
     ) -> Dict[str, Dict[str, Any]]:
         """
         Export document to all requested formats with deterministic output.
@@ -309,9 +319,13 @@ class UnifiedDeterministicExporter:
             formats: List of formats to export (default: all supported)
             job_id: Optional job ID for tracking
             validate: Override validation setting
+            extract_metrics: Whether to extract metrics (Task 7.10)
+            material: Material name for density lookup
+            queue_name: Queue name for telemetry
         
         Returns:
             Dictionary mapping format to export info (path, hash, size, metadata)
+            Also includes 'metrics' key with ModelMetrics if extraction enabled
             
         Raises:
             RuntimeError: If required dependencies are missing
@@ -366,6 +380,56 @@ class UnifiedDeterministicExporter:
                         logger.error(f"Failed to export {fmt}: {e}")
                         results[fmt_upper] = {"error": str(e)}
                         span.set_attribute(f"error.{fmt_upper}", str(e))
+        
+        # Extract metrics if enabled (Task 7.10)
+        if extract_metrics and METRICS_AVAILABLE:
+            try:
+                # Get STL path if exported
+                stl_path = None
+                if "STL" in results and "path" in results["STL"]:
+                    stl_path = Path(results["STL"]["path"])
+                
+                # Extract comprehensive metrics
+                model_metrics = extract_model_metrics(
+                    document=document,
+                    stl_path=stl_path,
+                    job_id=job_id,
+                    material=material,
+                    queue_name=queue_name
+                )
+                
+                # Add to results
+                results["metrics"] = {
+                    "extracted": True,
+                    "data": model_metrics.model_dump(),
+                    "summary": {
+                        "solids": model_metrics.shape.solids if model_metrics.shape else None,
+                        "faces": model_metrics.shape.faces if model_metrics.shape else None,
+                        "volume_m3": float(model_metrics.volume.volume_m3) if model_metrics.volume and model_metrics.volume.volume_m3 else None,
+                        "mass_kg": float(model_metrics.volume.mass_kg) if model_metrics.volume and model_metrics.volume.mass_kg else None,
+                        "triangles": model_metrics.mesh.triangle_count if model_metrics.mesh else None,
+                        "duration_ms": model_metrics.telemetry.duration_ms if model_metrics.telemetry else None
+                    }
+                }
+                
+                # Add metrics to export metadata
+                self.metadata.export_parameters["metrics_extracted"] = True
+                self.metadata.export_parameters["metrics_version"] = model_metrics.metrics_version
+                
+                logger.info(f"Metrics extraction completed for job {job_id}")
+                
+            except Exception as e:
+                logger.error(f"Metrics extraction failed: {e}")
+                results["metrics"] = {
+                    "extracted": False,
+                    "error": str(e)
+                }
+        elif extract_metrics and not METRICS_AVAILABLE:
+            logger.warning("Metrics extraction requested but metrics_extractor module not available")
+            results["metrics"] = {
+                "extracted": False,
+                "error": "Metrics extractor module not available"
+            }
         
         # Save metadata
         metadata_path = base_path.with_suffix(".export_metadata.json")
@@ -1030,7 +1094,10 @@ def export_deterministic(
     document: Any,
     output_dir: Union[str, Path],
     formats: Optional[List[str]] = None,
-    job_id: Optional[str] = None
+    job_id: Optional[str] = None,
+    extract_metrics: bool = True,
+    material: Optional[str] = None,
+    queue_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Export document with deterministic output.
@@ -1040,9 +1107,12 @@ def export_deterministic(
         output_dir: Output directory path
         formats: List of export formats
         job_id: Optional job ID
+        extract_metrics: Whether to extract metrics (Task 7.10)
+        material: Material name for density lookup
+        queue_name: Queue name for telemetry
     
     Returns:
-        Export results dictionary
+        Export results dictionary with metrics if enabled
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -1054,7 +1124,10 @@ def export_deterministic(
         document=document,
         base_path=base_path,
         formats=formats,
-        job_id=job_id
+        job_id=job_id,
+        extract_metrics=extract_metrics,
+        material=material,
+        queue_name=queue_name
     )
 
 
