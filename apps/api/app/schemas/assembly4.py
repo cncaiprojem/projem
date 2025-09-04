@@ -483,7 +483,8 @@ class ToolDefinition(BaseModel):
     diameter: PositiveFloat = Field(..., description="Tool diameter in mm")
     flutes: PositiveInt = Field(default=2, description="Number of flutes")
     length: PositiveFloat = Field(..., description="Tool length in mm")
-    material: str = Field(default="HSS", description="Tool material")
+    material: str = Field(default="HSS", description="Tool material (HSS, Carbide, Cobalt, etc.)")
+    coating: Optional[str] = Field(default=None, description="Tool coating (TiN, TiAlN, DLC, etc.)")
     
     model_config = ConfigDict(json_schema_extra={
         "example": {
@@ -492,7 +493,8 @@ class ToolDefinition(BaseModel):
             "diameter": 6.0,
             "flutes": 4,
             "length": 50.0,
-            "material": "Carbide"
+            "material": "Carbide",
+            "coating": "TiAlN"
         }
     })
 

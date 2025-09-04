@@ -465,6 +465,7 @@ class Assembly4Service:
     ESTIMATED_MB_PER_CACHED_SHAPE = 10  # Megabytes per cached shape object
     
     # Direction mapping constants (for CAM helix operations - extracted as class constants)
+    DEFAULT_HELIX_DIRECTION = "CCW"  # Default direction for helix operations
     DIRECTION_MAPPING_HELIX = {
         "climb": "CCW",  # Climb milling = Counter-clockwise
         "conventional": "CW",  # Conventional milling = Clockwise
@@ -758,6 +759,8 @@ class Assembly4Service:
                             compound_shape = Part.makeCompound(shapes_to_combine)
                             compound_obj = doc.addObject("Part::Feature", f"{part_ref.id}_compound")
                             compound_obj.Shape = compound_shape
+                            # Recompute document to ensure geometry is properly registered
+                            doc.recompute()
                             parts_map[part_ref.id] = compound_obj
                             logger.info(f"Created compound from {len(shapes_to_combine)} shapes for {part_ref.id}")
                     else:
@@ -1125,11 +1128,15 @@ class Assembly4Service:
                 logger.info(f"Creating operation {i+1}: {operation.type}")
                 
                 # Create unique key for tool based on all relevant properties
+                # Include material, flutes, and coating for better tool differentiation
                 tool_key = (
                     operation.tool.name,
                     operation.tool.type,
                     operation.tool.diameter,
-                    operation.tool.length
+                    operation.tool.length,
+                    operation.tool.flutes or 2,  # Default to 2 flutes if not specified
+                    operation.tool.material or "HSS",  # Default material
+                    operation.tool.coating or "None"  # Default coating
                 )
                 
                 # Create or reuse tool controller
@@ -1251,7 +1258,7 @@ class Assembly4Service:
                     op.StartRadius = operation.tool.diameter * 2  # Start radius based on tool diameter
                     # Use class-level direction mapping constant for Helix
                     cut_mode = (operation.cut_mode or "climb").lower()
-                    op.Direction = self.DIRECTION_MAPPING_HELIX.get(cut_mode, "CCW")
+                    op.Direction = self.DIRECTION_MAPPING_HELIX.get(cut_mode, self.DEFAULT_HELIX_DIRECTION)
                     
                 elif operation.type.value == "Engrave":
                     op = doc.addObject("Path::FeaturePython", f"Engrave_{i}")

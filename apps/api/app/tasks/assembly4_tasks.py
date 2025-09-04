@@ -232,9 +232,10 @@ def process_assembly4_task(
             
             # Upload BOM
             if result.bom:
-                # Use model_dump() directly for more efficient serialization
+                # Use model_dump(mode='json') to properly serialize Decimal objects to JSON-compatible types
+                # This converts Decimal to float for JSON serialization
                 s3_key = f"assembly4/{job_id}/bom.json"
-                bom_data = result.bom.model_dump()
+                bom_data = result.bom.model_dump(mode='json')
                 s3_service.upload_json(bom_data, s3_key)
                 artifacts.append({
                     "type": "bom",
