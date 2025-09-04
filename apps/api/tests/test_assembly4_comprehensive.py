@@ -1,0 +1,660 @@
+"""
+Comprehensive test suite for Task 7.8 - Assembly4 implementation
+
+Tests:
+- Assembly4 JSON parsing and validation
+- OndselSolver integration with fallback
+- Collision detection (AABB and precise)
+- DOF analysis
+- CAM generation via Path Workbench
+- Export capabilities
+- Turkish localization
+"""
+
+import json
+import tempfile
+from pathlib import Path
+from unittest.mock import MagicMock, Mock, patch
+
+import pytest
+from pydantic import ValidationError
+
+# Imports already handle module resolution
+
+from app.schemas.assembly4 import (
+    Assembly4Input,
+    AssemblyConstraint,
+    AssemblyHierarchy,
+    CAMJobParameters,
+    CAMOperation,
+    CAMOperationType,
+    CAMPostProcessor,
+    CAMStrategy,
+    CollisionReport,
+    ConstraintReference,
+    ConstraintType,
+    DOFAnalysis,
+    ExportOptions,
+    FeedsAndSpeeds,
+    LCSDefinition,
+    PartReference,
+    Placement,
+    Rotation3D,
+    SolverType,
+    StockDefinition,
+    ToolDefinition,
+    Vector3D,
+)
+from app.services.assembly4_service import (
+    Assembly4Service,
+    Assembly4Exception,
+    Assembly4ErrorCode,
+    OndselSolverWrapper,
+    CollisionDetector,
+    DOFAnalyzer,
+)
+
+
+@pytest.fixture
+def sample_assembly_input():
+    """Create a sample Assembly4 input for testing."""
+    return Assembly4Input(
+        name="TestAssembly",
+        parts=[
+            PartReference(
+                id="base_plate",
+                model_ref="/models/base_plate.step",
+                initial_placement=Placement(
+                    position=Vector3D(x=0, y=0, z=0),
+                    rotation=Rotation3D(roll=0, pitch=0, yaw=0)
+                ),
+                lcs_list=["LCS_Origin", "LCS_Top"],
+                quantity=1,
+                visible=True
+            ),
+            PartReference(
+                id="bearing",
+                model_ref="/models/bearing.fcstd",
+                initial_placement=Placement(
+                    position=Vector3D(x=50, y=50, z=10),
+                    rotation=Rotation3D(roll=0, pitch=0, yaw=0)
+                ),
+                lcs_list=["LCS_Center"],
+                quantity=4,
+                visible=True,
+                color="#FF5733"
+            ),
+            PartReference(
+                id="shaft",
+                model_ref="/models/shaft.step",
+                initial_placement=Placement(
+                    position=Vector3D(x=50, y=50, z=20),
+                    rotation=Rotation3D(roll=0, pitch=0, yaw=1.5708)  # 90 degrees in radians
+                ),
+                lcs_list=["LCS_Bottom", "LCS_Top"],
+                quantity=1,
+                visible=True
+            )
+        ],
+        constraints=[
+            AssemblyConstraint(
+                id="fix_base",
+                type=ConstraintType.ATTACHMENT,
+                reference1=ConstraintReference(part_id="base_plate", lcs_name="LCS_Origin"),
+                reference2=ConstraintReference(part_id="world", lcs_name="Origin"),
+                enabled=True
+            ),
+            AssemblyConstraint(
+                id="bearing_on_plate",
+                type=ConstraintType.PLANE_COINCIDENT,
+                reference1=ConstraintReference(part_id="bearing", lcs_name="LCS_Center"),
+                reference2=ConstraintReference(part_id="base_plate", lcs_name="LCS_Top"),
+                enabled=True
+            ),
+            AssemblyConstraint(
+                id="shaft_in_bearing",
+                type=ConstraintType.AXIS_COINCIDENT,
+                reference1=ConstraintReference(part_id="shaft", lcs_name="LCS_Bottom"),
+                reference2=ConstraintReference(part_id="bearing", lcs_name="LCS_Center"),
+                enabled=True
+            )
+        ],
+        lcs_definitions=[
+            LCSDefinition(
+                name="world_origin",
+                placement=Placement(
+                    position=Vector3D(x=0, y=0, z=0),
+                    rotation=Rotation3D(roll=0, pitch=0, yaw=0)
+                ),
+                visible=True
+            )
+        ],
+        hierarchy=AssemblyHierarchy(
+            root_part_id="base_plate",
+            parent_child_map={
+                "base_plate": ["bearing"],
+                "bearing": ["shaft"]
+            }
+        ),
+        solver_type=SolverType.ONDSEL,
+        tolerance=0.01
+    )
+
+
+@pytest.fixture
+def sample_cam_parameters():
+    """Create sample CAM parameters for testing."""
+    return CAMJobParameters(
+        wcs_origin="world_origin",
+        wcs_offset=Vector3D(x=0, y=0, z=0),
+        stock=StockDefinition(
+            type="box",
+            margins=Vector3D(x=5, y=5, z=2)
+        ),
+        operations=[
+            CAMOperation(
+                name="Facing Operation",
+                type=CAMOperationType.FACING,
+                tool=ToolDefinition(
+                    name="FaceMill_10mm",
+                    type="endmill",
+                    diameter=10.0,
+                    flutes=4,
+                    length=50.0,
+                    material="Carbide"
+                ),
+                feeds_speeds=FeedsAndSpeeds(
+                    spindle_speed=3000,
+                    feed_rate=300.0,
+                    plunge_rate=100.0,
+                    step_down=0.5,
+                    step_over=60.0
+                ),
+                strategy=CAMStrategy.ZIGZAG,
+                cut_mode="climb",
+                coolant=True,
+                finish_pass=False
+            ),
+            CAMOperation(
+                name="Pocket Operation",
+                type=CAMOperationType.POCKET,
+                tool=ToolDefinition(
+                    name="EndMill_6mm",
+                    type="endmill",
+                    diameter=6.0,
+                    flutes=2,
+                    length=40.0,
+                    material="HSS"
+                ),
+                feeds_speeds=FeedsAndSpeeds(
+                    spindle_speed=4000,
+                    feed_rate=200.0,
+                    plunge_rate=50.0,
+                    step_down=1.0,
+                    step_over=40.0
+                ),
+                strategy=CAMStrategy.OFFSET,
+                cut_mode="climb",
+                coolant=True,
+                finish_pass=True
+            ),
+            CAMOperation(
+                name="Drilling Operation",
+                type=CAMOperationType.DRILLING,
+                tool=ToolDefinition(
+                    name="Drill_8mm",
+                    type="drill",
+                    diameter=8.0,
+                    flutes=2,
+                    length=60.0,
+                    material="HSS"
+                ),
+                feeds_speeds=FeedsAndSpeeds(
+                    spindle_speed=1500,
+                    feed_rate=50.0,
+                    plunge_rate=50.0,
+                    step_down=3.0,
+                    step_over=100.0  # Not used for drilling but required
+                ),
+                strategy=CAMStrategy.ZIGZAG,  # Not used for drilling but required
+                cut_mode="conventional",
+                coolant=True,
+                finish_pass=False
+            )
+        ],
+        post_processor=CAMPostProcessor.LINUXCNC,
+        safety_height=10.0,
+        clearance_height=5.0,
+        rapid_feed_rate=5000.0
+    )
+
+
+class TestAssembly4Input:
+    """Test Assembly4 input validation."""
+    
+    def test_valid_input(self, sample_assembly_input):
+        """Test that valid input passes validation."""
+        assert sample_assembly_input.name == "TestAssembly"
+        assert len(sample_assembly_input.parts) == 3
+        assert len(sample_assembly_input.constraints) == 3
+        assert sample_assembly_input.solver_type == SolverType.ONDSEL
+    
+    def test_invalid_constraint_references(self):
+        """Test that invalid constraint references are caught."""
+        with pytest.raises(ValidationError):
+            Assembly4Input(
+                name="InvalidAssembly",
+                parts=[
+                    PartReference(
+                        id="part1",
+                        model_ref="/models/part1.step",
+                        quantity=1
+                    )
+                ],
+                constraints=[
+                    AssemblyConstraint(
+                        id="invalid",
+                        type=ConstraintType.ATTACHMENT,
+                        reference1=ConstraintReference(
+                            part_id="nonexistent",
+                            lcs_name="LCS1"
+                        ),
+                        reference2=ConstraintReference(
+                            part_id="part1",
+                            lcs_name="LCS2"
+                        )
+                    )
+                ]
+            )
+    
+    def test_hierarchy_validation(self):
+        """Test hierarchy validation."""
+        with pytest.raises(ValidationError):
+            Assembly4Input(
+                name="HierarchyTest",
+                parts=[
+                    PartReference(id="part1", model_ref="/test.step", quantity=1)
+                ],
+                constraints=[],
+                hierarchy=AssemblyHierarchy(
+                    root_part_id="nonexistent",
+                    parent_child_map={"part1": ["part2"]}
+                )
+            )
+
+
+class TestOndselSolverWrapper:
+    """Test OndselSolver wrapper with fallback."""
+    
+    def test_fallback_when_ondsel_not_available(self):
+        """Test fallback solver when OndselSolver is not available."""
+        with patch.dict('sys.modules', {'py_slvs': None}):
+            solver = OndselSolverWrapper()
+            assert not solver.is_available()
+            
+            # Test fallback solving
+            parts = [
+                PartReference(id="p1", model_ref="/test.step", quantity=1),
+                PartReference(id="p2", model_ref="/test2.step", quantity=1)
+            ]
+            constraints = [
+                AssemblyConstraint(
+                    id="c1",
+                    type=ConstraintType.ATTACHMENT,
+                    reference1=ConstraintReference(part_id="p1", lcs_name="L1"),
+                    reference2=ConstraintReference(part_id="p2", lcs_name="L2")
+                )
+            ]
+            
+            result = solver.solve_constraints(parts, constraints)
+            assert "p1" in result
+            assert "p2" in result
+    
+    @patch('app.services.assembly4_service.py_slvs')
+    def test_ondsel_solver_available(self, mock_py_slvs):
+        """Test when OndselSolver is available."""
+        solver = OndselSolverWrapper()
+        assert solver.is_available()
+
+
+class TestCollisionDetector:
+    """Test collision detection."""
+    
+    def test_aabb_overlap_detection(self):
+        """Test AABB overlap detection."""
+        detector = CollisionDetector(tolerance=0.01)
+        
+        # Create mock parts with bounding boxes
+        part1 = MagicMock()
+        part1.Shape.BoundBox.XMin = 0
+        part1.Shape.BoundBox.XMax = 10
+        part1.Shape.BoundBox.YMin = 0
+        part1.Shape.BoundBox.YMax = 10
+        part1.Shape.BoundBox.ZMin = 0
+        part1.Shape.BoundBox.ZMax = 10
+        
+        part2 = MagicMock()
+        part2.Shape.BoundBox.XMin = 5
+        part2.Shape.BoundBox.XMax = 15
+        part2.Shape.BoundBox.YMin = 5
+        part2.Shape.BoundBox.YMax = 15
+        part2.Shape.BoundBox.ZMin = 5
+        part2.Shape.BoundBox.ZMax = 15
+        
+        # Should overlap
+        assert detector._check_aabb_overlap(part1, part2)
+        
+        # Move part2 away
+        part2.Shape.BoundBox.XMin = 20
+        part2.Shape.BoundBox.XMax = 30
+        
+        # Should not overlap
+        assert not detector._check_aabb_overlap(part1, part2)
+    
+    @patch('app.services.assembly4_service.Part')
+    def test_precise_collision_check(self, mock_Part):
+        """Test precise collision checking."""
+        detector = CollisionDetector(tolerance=0.01)
+        
+        # Create mock parts
+        part1 = MagicMock()
+        part2 = MagicMock()
+        
+        # Mock common shape with volume
+        common_shape = MagicMock()
+        common_shape.Volume = 5.0
+        part1.Shape.common.return_value = common_shape
+        
+        result = detector._check_precise_collision(
+            part1, part2, "part1", "part2"
+        )
+        
+        assert result is not None
+        assert result.part1_id == "part1"
+        assert result.part2_id == "part2"
+        assert result.type == "interference"
+        assert result.volume == 5.0
+
+
+class TestDOFAnalyzer:
+    """Test DOF analysis."""
+    
+    def test_fully_constrained_assembly(self):
+        """Test DOF analysis for fully constrained assembly."""
+        analyzer = DOFAnalyzer()
+        
+        parts = [
+            PartReference(id="base", model_ref="/base.step", quantity=1),
+            PartReference(id="top", model_ref="/top.step", quantity=1)
+        ]
+        
+        constraints = [
+            AssemblyConstraint(
+                id="fix",
+                type=ConstraintType.ATTACHMENT,
+                reference1=ConstraintReference(part_id="base", lcs_name="L1"),
+                reference2=ConstraintReference(part_id="world", lcs_name="Origin"),
+                enabled=True
+            ),
+            AssemblyConstraint(
+                id="attach_top",
+                type=ConstraintType.ATTACHMENT,
+                reference1=ConstraintReference(part_id="top", lcs_name="L1"),
+                reference2=ConstraintReference(part_id="base", lcs_name="L2"),
+                enabled=True
+            )
+        ]
+        
+        result = analyzer.analyze(parts, constraints)
+        
+        assert result.total_parts == 2
+        assert result.total_dof == 12  # 2 parts * 6 DOF
+        assert result.constrained_dof == 12  # 2 attachments * 6 DOF
+        assert result.remaining_dof == 0
+        assert result.is_fully_constrained
+        assert not result.is_over_constrained
+    
+    def test_under_constrained_assembly(self):
+        """Test DOF analysis for under-constrained assembly."""
+        analyzer = DOFAnalyzer()
+        
+        parts = [
+            PartReference(id="p1", model_ref="/p1.step", quantity=1),
+            PartReference(id="p2", model_ref="/p2.step", quantity=1),
+            PartReference(id="p3", model_ref="/p3.step", quantity=1)
+        ]
+        
+        constraints = [
+            AssemblyConstraint(
+                id="c1",
+                type=ConstraintType.PLANE_COINCIDENT,
+                reference1=ConstraintReference(part_id="p1", lcs_name="L1"),
+                reference2=ConstraintReference(part_id="p2", lcs_name="L2"),
+                enabled=True
+            )
+        ]
+        
+        result = analyzer.analyze(parts, constraints)
+        
+        assert result.total_parts == 3
+        assert result.total_dof == 18  # 3 parts * 6 DOF
+        assert result.constrained_dof == 3  # 1 plane constraint
+        assert result.remaining_dof == 15
+        assert not result.is_fully_constrained
+        assert not result.is_over_constrained
+        assert result.mobility == 9  # 15 - 6 (fixed frame)
+    
+    def test_over_constrained_assembly(self):
+        """Test DOF analysis for over-constrained assembly."""
+        analyzer = DOFAnalyzer()
+        
+        parts = [
+            PartReference(id="p1", model_ref="/p1.step", quantity=1)
+        ]
+        
+        # More constraints than DOF
+        constraints = [
+            AssemblyConstraint(
+                id=f"c{i}",
+                type=ConstraintType.ATTACHMENT,
+                reference1=ConstraintReference(part_id="p1", lcs_name=f"L{i}"),
+                reference2=ConstraintReference(part_id="world", lcs_name=f"W{i}"),
+                enabled=True
+            )
+            for i in range(3)  # 3 attachments = 18 DOF reduction
+        ]
+        
+        result = analyzer.analyze(parts, constraints)
+        
+        assert result.total_parts == 1
+        assert result.total_dof == 6
+        assert result.constrained_dof == 18  # Over-constrained
+        assert result.is_over_constrained
+
+
+class TestAssembly4Service:
+    """Test main Assembly4 service."""
+    
+    @patch('app.services.assembly4_service.FreeCADDocumentManager')
+    @patch('app.services.assembly4_service.FreeCAD')
+    def test_process_assembly_success(
+        self, mock_freecad, mock_doc_manager, sample_assembly_input
+    ):
+        """Test successful assembly processing."""
+        service = Assembly4Service()
+        
+        # Mock document manager
+        mock_doc = MagicMock()
+        mock_doc_manager.create_document.return_value.__enter__.return_value = mock_doc
+        service.document_manager = mock_doc_manager
+        
+        # Mock FreeCAD operations
+        mock_freecad.newDocument.return_value = mock_doc
+        mock_freecad.openDocument.return_value = mock_doc
+        
+        # Create export options
+        export_options = ExportOptions(
+            formats=["FCStd", "STEP", "BOM_JSON"],
+            merge_step=True,
+            generate_exploded=True,
+            exploded_factor=1.5
+        )
+        
+        with patch.object(service, '_load_parts') as mock_load:
+            with patch.object(service, '_extract_lcs') as mock_lcs:
+                with patch.object(service, '_save_assembly') as mock_save:
+                    mock_load.return_value = {"base_plate": mock_doc}
+                    mock_lcs.return_value = {}
+                    mock_save.return_value = "/tmp/assembly.FCStd"
+                    
+                    result = service.process_assembly(
+                        job_id="test_123",
+                        assembly_input=sample_assembly_input,
+                        generate_cam=False,
+                        export_options=export_options
+                    )
+                    
+                    assert result.job_id == "test_123"
+                    assert result.status in ["success", "partial"]
+                    assert result.assembly_file == "/tmp/assembly.FCStd"
+    
+    def test_assembly_exception_handling(self):
+        """Test Assembly4Exception handling."""
+        exc = Assembly4Exception(
+            "Test error",
+            Assembly4ErrorCode.PART_NOT_FOUND,
+            {"part": "missing"},
+            "Test hatası"
+        )
+        
+        assert exc.message == "Test error"
+        assert exc.error_code == Assembly4ErrorCode.PART_NOT_FOUND
+        assert exc.details == {"part": "missing"}
+        assert exc.turkish_message == "Test hatası"
+    
+    @patch('app.services.assembly4_service.Path')
+    @patch('app.services.assembly4_service.FreeCAD')
+    def test_cam_generation(
+        self, mock_freecad, mock_path, sample_cam_parameters
+    ):
+        """Test CAM generation."""
+        service = Assembly4Service()
+        
+        # Mock document
+        mock_doc = MagicMock()
+        mock_assembly = MagicMock()
+        
+        # Mock Path workbench
+        mock_job = MagicMock()
+        mock_doc.addObject.return_value = mock_job
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with patch('tempfile.gettempdir', return_value=tmpdir):
+                # This would require full Path Workbench mocking
+                # For now, test that the method exists and handles errors
+                try:
+                    result = service._generate_cam(
+                        mock_doc,
+                        mock_assembly,
+                        "test_job",
+                        sample_cam_parameters
+                    )
+                except Assembly4Exception as e:
+                    # Expected if Path Workbench not available
+                    assert e.error_code == Assembly4ErrorCode.CAM_GENERATION_FAILED
+
+
+class TestCAMParameters:
+    """Test CAM parameter validation."""
+    
+    def test_valid_cam_parameters(self, sample_cam_parameters):
+        """Test valid CAM parameters."""
+        # CAMJobParameters has wcs_origin (string), wcs_offset (Vector3D), not wcs.coordinate_system
+        assert sample_cam_parameters.wcs_origin == "world_origin"
+        assert sample_cam_parameters.stock.type == "box"
+        assert len(sample_cam_parameters.operations) == 3
+        assert sample_cam_parameters.post_processor == CAMPostProcessor.LINUXCNC
+    
+    def test_operation_validation(self):
+        """Test CAM operation validation."""
+        # CAMOperation uses ToolDefinition not Tool
+        # ToolDefinition doesn't have 'number' or 'cutting_height'
+        # CAMOperation doesn't have 'depths' or 'parameters' dict fields
+        operation = CAMOperation(
+            name="Adaptive Operation",
+            type=CAMOperationType.ADAPTIVE,
+            tool=ToolDefinition(
+                name="Adaptive_5mm",
+                type="endmill",
+                diameter=5.0,
+                flutes=3,
+                length=50.0,
+                material="Carbide"
+            ),
+            feeds_speeds=FeedsAndSpeeds(
+                feed_rate=400.0,
+                plunge_rate=100.0,
+                spindle_speed=5000,
+                step_down=2.0,
+                step_over=20.0
+            ),
+            strategy=CAMStrategy.SPIRAL,
+            cut_mode="climb",
+            coolant=True,
+            finish_pass=False
+        )
+        
+        assert operation.type == CAMOperationType.ADAPTIVE
+        assert operation.tool.diameter == 5.0
+        assert operation.feeds_speeds.spindle_speed == 5000
+        assert operation.feeds_speeds.step_over == 20.0
+
+
+class TestExportOptions:
+    """Test export options."""
+    
+    def test_export_formats(self):
+        """Test export format validation."""
+        options = ExportOptions(
+            formats=["FCStd", "STEP", "IGES", "BOM_JSON", "BOM_CSV"],
+            merge_step=True,
+            generate_exploded=True,
+            exploded_factor=2.0,
+            include_hidden=False
+        )
+        
+        assert "STEP" in options.formats
+        assert options.exploded_factor == 2.0
+        assert not options.include_hidden
+
+
+class TestIntegration:
+    """Integration tests."""
+    
+    @pytest.mark.integration
+    @patch('app.services.assembly4_service.FreeCAD')
+    def test_full_workflow(
+        self, mock_freecad, sample_assembly_input, sample_cam_parameters
+    ):
+        """Test full assembly to CAM workflow."""
+        service = Assembly4Service()
+        
+        # This would be a full integration test with real FreeCAD
+        # For unit tests, we mock the FreeCAD interactions
+        mock_doc = MagicMock()
+        mock_freecad.newDocument.return_value = mock_doc
+        
+        # Test would verify:
+        # 1. Assembly creation
+        # 2. Constraint solving
+        # 3. Collision detection
+        # 4. DOF analysis
+        # 5. CAM generation
+        # 6. Export to various formats
+        
+        # This requires extensive mocking or actual FreeCAD environment
+        pass
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

@@ -304,7 +304,8 @@ for obj in doc.Objects:
 
 # Heal shapes
 for shape in shapes:
-    shape.fix(0.001, 0.001, 0.001)
+    # Fix with three parameters: working precision, min tolerance, max tolerance
+    shape.fix(0.001, 0.0, 0.01)
     shape.removeSplitter()
 
 # Save result

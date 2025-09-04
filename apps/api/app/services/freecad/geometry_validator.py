@@ -156,7 +156,8 @@ class GeometryValidator:
                 
                 # Try to fix
                 try:
-                    fixed = shape.fix(0.1, 0.1, 0.1)
+                    # Fix with three parameters: working precision, min tolerance, max tolerance
+                    fixed = shape.fix(0.1, 0.0, 1.0)
                     if fixed.isValid():
                         result.warnings.append("Shape was invalid but has been fixed")
                         shape = fixed
