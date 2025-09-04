@@ -555,7 +555,7 @@ async def list_assembly_jobs(
                     response.assembly_result = AssemblyResult(
                         job_id=str(job.id),
                         status=result_status,
-                        errors=job.error_message.split(";") if job.error_message else [],
+                        errors=[job.error_message] if job.error_message else [],
                         warnings=[],
                         computation_time_ms=0
                     )

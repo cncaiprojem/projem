@@ -10,6 +10,13 @@ Features:
 - Export to multiple formats
 - Progress tracking and notifications
 - Error handling with DLQ support
+
+Note on Decimal serialization:
+When handling financial data (especially BOM calculations), we use Python's Decimal type 
+for precise calculations to avoid float precision issues. When storing to JSON (e.g., S3),
+we use Pydantic's model_dump(mode='json') to properly serialize Decimal objects to 
+JSON-compatible types. This maintains compatibility with S3 JSON storage while preserving
+calculation precision during processing.
 """
 
 from __future__ import annotations
@@ -232,12 +239,7 @@ def process_assembly4_task(
             
             # Upload BOM
             if result.bom:
-                # Use model_dump(mode='json') to properly serialize Decimal objects to JSON-compatible types
-                # This is required because:
-                # 1. Decimal type from Python's decimal module is not JSON serializable by default
-                # 2. BOM calculations use Decimal for precise financial calculations (avoiding float precision issues)
-                # 3. mode='json' ensures all Decimal values are converted to their float equivalents for JSON storage
-                # 4. This maintains compatibility with S3 JSON storage while preserving calculation precision
+                # Convert Decimal to JSON-compatible types (see module docstring for details)
                 s3_key = f"assembly4/{job_id}/bom.json"
                 bom_data = result.bom.model_dump(mode='json')
                 s3_service.upload_json(bom_data, s3_key)

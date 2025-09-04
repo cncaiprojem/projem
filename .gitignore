@@ -55,6 +55,7 @@ out/
 *.env.bak
 .env.*.bak
 .env.backup*
+*.bak
 
 # Development overrides
 .env.development.local

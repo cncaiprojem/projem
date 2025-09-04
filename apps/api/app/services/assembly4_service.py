@@ -465,6 +465,16 @@ class Assembly4Service:
     ESTIMATED_MB_PER_CACHED_SHAPE = 10  # Megabytes per cached shape object
     
     # Direction mapping constants (for CAM helix operations - extracted as class constants)
+    
+    # Tool default constants
+    DEFAULT_TOOL_MATERIAL = "HSS"
+    DEFAULT_TOOL_COATING = "Uncoated"
+    DEFAULT_TOOL_FLUTES = 2
+    
+    # Depth safety constants
+    MIN_SAFE_DEPTH = -0.5  # mm, minimum safe depth
+    MAX_SAFE_DEPTH = -50.0  # mm, maximum reasonable depth for typical operations
+    DEFAULT_DEPTH_SAFETY_FACTOR = 0.95  # Use 95% of stock thickness as max depth
     DEFAULT_HELIX_DIRECTION = "CCW"  # Default direction for helix operations
     DIRECTION_MAPPING_HELIX = {
         "climb": "CCW",  # Climb milling = Counter-clockwise
@@ -1103,9 +1113,9 @@ class Assembly4Service:
             operation.tool.type,
             operation.tool.diameter,
             operation.tool.length,
-            operation.tool.flutes or 2,  
-            operation.tool.material or "HSS",
-            operation.tool.coating or "Uncoated"
+            operation.tool.flutes or self.DEFAULT_TOOL_FLUTES,  
+            operation.tool.material or self.DEFAULT_TOOL_MATERIAL,
+            operation.tool.coating or self.DEFAULT_TOOL_COATING
         )
         
         # Create or reuse tool controller
@@ -1252,14 +1262,35 @@ class Assembly4Service:
             
             # Use provided final_depth if available, otherwise calculate from stock
             if operation.final_depth is not None:
-                # User provided explicit final depth
-                op.FinalDepth = operation.final_depth
+                # User provided explicit final depth - validate it
+                final_depth = operation.final_depth
+                
+                # Ensure depth is negative
+                if final_depth > 0:
+                    final_depth = -final_depth
+                    logger.warning(f"Final depth was positive ({operation.final_depth}), converting to negative: {final_depth}")
+                
+                # Validate depth is within safe limits
+                stock_thickness = cam_parameters.stock.margins.z if cam_parameters.stock.margins else 10.0
+                max_depth = -stock_thickness * self.DEFAULT_DEPTH_SAFETY_FACTOR
+                
+                if final_depth < self.MAX_SAFE_DEPTH:
+                    logger.warning(f"Final depth {final_depth} exceeds maximum safe depth {self.MAX_SAFE_DEPTH}, clamping")
+                    final_depth = self.MAX_SAFE_DEPTH
+                elif final_depth > self.MIN_SAFE_DEPTH:
+                    logger.warning(f"Final depth {final_depth} is less than minimum safe depth {self.MIN_SAFE_DEPTH}, clamping")
+                    final_depth = self.MIN_SAFE_DEPTH
+                elif final_depth < max_depth:
+                    logger.warning(f"Final depth {final_depth} exceeds stock thickness limit {max_depth}, clamping")
+                    final_depth = max_depth
+                
+                op.FinalDepth = final_depth
             else:
                 # Calculate final depth based on stock dimensions
-                # Assuming we want to cut the full depth of the stock
                 # The final depth should be negative (below Z=0)
-                # Using stock margins to determine how deep to cut
-                op.FinalDepth = -cam_parameters.stock.margins.z
+                # Using stock margins to determine how deep to cut with safety factor
+                stock_thickness = cam_parameters.stock.margins.z if cam_parameters.stock.margins else 10.0
+                op.FinalDepth = -stock_thickness * self.DEFAULT_DEPTH_SAFETY_FACTOR
                 
             op.StepDown = operation.feeds_speeds.step_down
             if hasattr(op, 'FinishDepth') and operation.finish_pass:

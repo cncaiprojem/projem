@@ -528,7 +528,17 @@ class CAMOperation(BaseModel):
     cut_mode: Literal["climb", "conventional"] = Field(default="climb", description="Cut mode")
     coolant: bool = Field(default=True, description="Use coolant")
     finish_pass: bool = Field(default=False, description="Add finish pass")
-    final_depth: Optional[float] = Field(None, description="Final cutting depth in mm (negative value, e.g., -10.0). If not provided, will be calculated from stock height")
+    final_depth: Optional[float] = Field(
+        None, 
+        description="Final cutting depth in mm (negative value, e.g., -10.0). "
+                    "If not provided, will be calculated from stock height. "
+                    "Safety guidelines: Typical range is -0.5mm to -50mm. "
+                    "Should not exceed stock thickness. "
+                    "Consider tooling capabilities and material specifications. "
+                    "WARNING: Excessive depths may damage tools or workpiece.",
+        ge=-100.0,  # Maximum depth limit
+        le=-0.1     # Minimum depth (must cut something)
+    )
     
     model_config = ConfigDict(json_schema_extra={
         "example": {
