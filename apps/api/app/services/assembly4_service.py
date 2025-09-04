@@ -769,8 +769,8 @@ class Assembly4Service:
                             compound_shape = Part.makeCompound(shapes_to_combine)
                             compound_obj = doc.addObject("Part::Feature", f"{part_ref.id}_compound")
                             compound_obj.Shape = compound_shape
-                            # Note: Document recompute deferred for batch processing performance
-                            # Will be done after all parts are loaded
+                            # Recompute document to update geometry
+                            doc.recompute()
                             parts_map[part_ref.id] = compound_obj
                             logger.info(f"Created compound from {len(shapes_to_combine)} shapes for {part_ref.id}")
                     else:
@@ -788,7 +788,9 @@ class Assembly4Service:
                         logger.warning(f"Shape validation failed for {part_ref.id}, attempting to fix")
                         # Use assembly tolerance or class default for shape fixing
                         fix_tolerance = getattr(assembly_input, 'tolerance', self.SHAPE_FIX_TOLERANCE)
-                        shape.fix(fix_tolerance, fix_tolerance, fix_tolerance)  # Fix with tolerance
+                        # Use correct FreeCAD fix method with three parameters:
+                        # working precision, minimum tolerance, maximum tolerance
+                        shape.fix(fix_tolerance, 0.0, fix_tolerance * 10)  # Fix with tolerance
                         if not shape.isValid():
                             raise Assembly4Exception(
                                 f"Invalid shape in part {part_ref.id}",
@@ -824,6 +826,9 @@ class Assembly4Service:
                     {"part_id": part_ref.id, "model_ref": part_ref.model_ref},
                     f"Parça yüklenemedi: {part_ref.id}"
                 )
+        
+        # Final recompute after all parts loaded to ensure consistency
+        doc.recompute()
         
         return parts_map
     
@@ -1265,10 +1270,14 @@ class Assembly4Service:
                 # User provided explicit final depth - validate it
                 final_depth = operation.final_depth
                 
-                # Ensure depth is negative
+                # Validate depth is negative (user error)
                 if final_depth > 0:
-                    final_depth = -final_depth
-                    logger.warning(f"Final depth was positive ({operation.final_depth}), converting to negative: {final_depth}")
+                    raise Assembly4Exception(
+                        f"Final depth must be negative for cutting operations. "
+                        f"Received positive value: {final_depth}mm. "
+                        f"Please provide a negative depth value (e.g., -5.0 for 5mm depth).",
+                        Assembly4ErrorCode.INVALID_INPUT
+                    )
                 
                 # Validate depth is within safe limits
                 stock_thickness = cam_parameters.stock.margins.z if cam_parameters.stock.margins else 10.0

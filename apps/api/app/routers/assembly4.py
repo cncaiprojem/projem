@@ -547,7 +547,7 @@ async def list_assembly_jobs(
                 if assembly_input:
                     # Map job status to AssemblyResult status (which is a Literal)
                     result_status = "failed"  # default
-                    if job.status in ("succeeded", "completed"):
+                    if job.status == "succeeded":
                         result_status = "success"
                     elif job.status in ("pending", "queued", "processing"):
                         result_status = "partial"
