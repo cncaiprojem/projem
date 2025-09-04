@@ -15,9 +15,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 
 def test_core_fixes():
-    """Test the core fixes for PR #449 feedback."""
+    """Test the core fixes for PR #450 feedback."""
     
-    print("Testing PR #449 fixes...")
+    print("Testing PR #450 fixes...")
     print("-" * 40)
     
     # Test 1: CPU telemetry initialization

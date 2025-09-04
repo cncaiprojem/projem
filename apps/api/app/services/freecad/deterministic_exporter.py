@@ -400,9 +400,8 @@ class UnifiedDeterministicExporter:
                 )
                 
                 # Add to results using proper summary method
-                # Convert to schema then create summary
-                metrics_schema = ModelMetricsSchema.model_validate(model_metrics.model_dump())
-                summary = ModelMetricsSummary.from_full_metrics(metrics_schema)
+                # model_metrics is already a ModelMetricsSchema (aliased as ModelMetrics in metrics_extractor)
+                summary = ModelMetricsSummary.from_full_metrics(model_metrics)
                 
                 results["metrics"] = {
                     "extracted": True,

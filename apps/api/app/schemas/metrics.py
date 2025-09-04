@@ -298,17 +298,16 @@ def format_metric_for_display(value: Any, locale_code: str = "en") -> str:
     if isinstance(value, (float, Decimal, int)):
         # Try locale-aware formatting first
         original_locale = None
+        locale_changed = False
         try:
             if locale_code == "tr":
                 # Save original locale
                 original_locale = system_locale.getlocale(system_locale.LC_NUMERIC)
                 
                 # Set Turkish locale if available
-                try:
-                    system_locale.setlocale(system_locale.LC_NUMERIC, 'tr_TR.UTF-8')
-                except system_locale.Error:
-                    # Fallback to C locale if Turkish not available
-                    system_locale.setlocale(system_locale.LC_NUMERIC, 'C')
+                # Let outer try/except handle fallback if Turkish locale not available
+                system_locale.setlocale(system_locale.LC_NUMERIC, 'tr_TR.UTF-8')
+                locale_changed = True
                 
                 # Use locale formatting
                 if isinstance(value, (int, Decimal)):
@@ -329,7 +328,7 @@ def format_metric_for_display(value: Any, locale_code: str = "en") -> str:
                 return f"{value:,.3f}"
         finally:
             # Always reset locale to original if it was changed
-            if original_locale is not None:
+            if locale_changed and original_locale is not None:
                 try:
                     system_locale.setlocale(system_locale.LC_NUMERIC, original_locale)
                 except system_locale.Error:

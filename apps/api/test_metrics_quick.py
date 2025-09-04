@@ -171,7 +171,7 @@ def test_memory_efficient_stl_reading():
 def main():
     """Run all tests."""
     print("=" * 60)
-    print("PR #449 Metrics Extraction Fixes - Test Suite")
+    print("PR #450 Metrics Extraction Fixes - Test Suite")
     print("=" * 60)
     
     tests = [

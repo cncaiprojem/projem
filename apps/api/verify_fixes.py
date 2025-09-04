@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Verify that all PR #449 fixes are in place."""
+"""Verify that all PR #450 fixes are in place."""
 
 from pathlib import Path
 
