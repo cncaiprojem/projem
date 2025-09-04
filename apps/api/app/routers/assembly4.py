@@ -52,7 +52,7 @@ from ..schemas.assembly4 import (
     DOFAnalysis,
     ExportOptions,
 )
-from ..services.assembly4_service import assembly4_service, Assembly4Exception
+from ..services.assembly4_service import assembly4_service, Assembly4Exception, DOFAnalyzer
 from ..services.job_control import is_queue_paused
 from ..services.s3_service import s3_service
 from ..tasks.assembly4_tasks import process_assembly4_task
@@ -108,7 +108,6 @@ async def validate_assembly(
             )
         
         # Use DOFAnalyzer service for constraint analysis
-        from ..services.assembly4_service import DOFAnalyzer
         dof_analyzer = DOFAnalyzer()
         # DOFAnalyzer.analyze expects (parts, constraints) not the full request
         dof_result = dof_analyzer.analyze(request.parts, request.constraints)
@@ -154,8 +153,6 @@ async def analyze_dof(
     - Mobility analysis
     """
     try:
-        from ..services.assembly4_service import DOFAnalyzer
-        
         analyzer = DOFAnalyzer()
         # Pass parts and constraints separately as DOFAnalyzer.analyze expects
         result = analyzer.analyze(request.parts, request.constraints)

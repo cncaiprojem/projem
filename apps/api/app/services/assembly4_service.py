@@ -759,8 +759,8 @@ class Assembly4Service:
                             compound_shape = Part.makeCompound(shapes_to_combine)
                             compound_obj = doc.addObject("Part::Feature", f"{part_ref.id}_compound")
                             compound_obj.Shape = compound_shape
-                            # Recompute document to ensure geometry is properly registered
-                            doc.recompute()
+                            # Note: Document recompute deferred for batch processing performance
+                            # Will be done after all parts are loaded
                             parts_map[part_ref.id] = compound_obj
                             logger.info(f"Created compound from {len(shapes_to_combine)} shapes for {part_ref.id}")
                     else:
@@ -924,6 +924,8 @@ class Assembly4Service:
                             # But we can group them visually
                             pass
         
+        # Batch recompute after all assembly operations for performance
+        # This is more efficient than recomputing after each compound creation
         doc.recompute()
         return assembly
     
@@ -1008,6 +1010,351 @@ class Assembly4Service:
         
         return results
     
+    def _setup_cam_job(
+        self, doc, assembly, job_id: str, cam_parameters: CAMJobParameters
+    ):
+        """
+        Setup CAM job with stock and WCS configuration.
+        
+        Returns:
+            Tuple of (job, stock) FreeCAD objects
+        """
+        import FreeCAD
+        import PathScripts.PathJob as PathJob
+        import PathScripts.PathStock as PathStock
+        
+        logger.info(f"Setting up CAM job for {job_id}")
+        
+        # Create Path Job
+        job = doc.addObject("Path::FeaturePython", f"Job_{job_id}")
+        PathJob.ObjectJob(job)
+        PathJob.ViewProviderJob(job.ViewObject)
+        
+        # Set job base objects (the assembly)
+        job.Model = assembly.Group if hasattr(assembly, 'Group') else [assembly]
+        
+        # Configure WCS (Work Coordinate System)
+        # Use flat schema structure instead of nested
+        if cam_parameters.wcs_origin:
+            # Find LCS and use its placement
+            for obj in doc.Objects:
+                if obj.Label == cam_parameters.wcs_origin:
+                    job.SetupSheet.SetupOrigin = obj.Placement.Base
+                    break
+        else:
+            # Use model origin with offsets
+            job.SetupSheet.SetupOrigin = FreeCAD.Vector(
+                cam_parameters.wcs_offset.x,
+                cam_parameters.wcs_offset.y,
+                cam_parameters.wcs_offset.z
+            )
+        
+        # Configure stock
+        stock = doc.addObject("Path::FeaturePython", "Stock")
+        
+        if cam_parameters.stock.type == "box":
+            PathStock.StockCreateBoxProxy(stock, job)
+            # Set box dimensions with margins
+            stock.ExtXneg = cam_parameters.stock.margins.x
+            stock.ExtXpos = cam_parameters.stock.margins.x
+            stock.ExtYneg = cam_parameters.stock.margins.y
+            stock.ExtYpos = cam_parameters.stock.margins.y
+            stock.ExtZneg = cam_parameters.stock.margins.z
+            stock.ExtZpos = cam_parameters.stock.margins.z
+            
+        elif cam_parameters.stock.type == "cylinder":
+            PathStock.StockCreateCylinderProxy(stock, job)
+            # Use margins to calculate cylinder dimensions from bounding box
+            # Since StockDefinition only has margins, not specific cylinder properties
+            bbox = job.Model[0].Shape.BoundBox if job.Model else None
+            if bbox:
+                stock.Radius = max(bbox.XLength, bbox.YLength) / 2 + cam_parameters.stock.margins.x
+                stock.Height = bbox.ZLength + cam_parameters.stock.margins.z * 2
+                
+        elif cam_parameters.stock.type == "from_shape":
+            PathStock.StockFromBase(stock, job)
+            # Use shape from model
+            
+        job.Stock = stock
+        
+        # Set safety heights (use flat schema structure)
+        job.SetupSheet.ClearanceHeightOffset = cam_parameters.clearance_height
+        job.SetupSheet.SafeHeightOffset = cam_parameters.safety_height
+        # Set rapid feed rate from flat schema
+        job.SetupSheet.HorizRapid = cam_parameters.rapid_feed_rate
+        
+        return job, stock
+    
+    def _manage_tool_controller(
+        self, doc, operation, tool_controllers: Dict, tool_number_counter: int
+    ):
+        """
+        Create or retrieve tool controller for operation.
+        
+        Returns:
+            Tuple of (tool_controller, tool_number, is_new_tool)
+        """
+        import Path
+        import PathScripts.PathToolController as PathToolController
+        
+        # Create unique key for tool based on all relevant properties
+        tool_key = (
+            operation.tool.name,
+            operation.tool.type,
+            operation.tool.diameter,
+            operation.tool.length,
+            operation.tool.flutes or 2,  
+            operation.tool.material or "HSS",
+            operation.tool.coating or "Uncoated"
+        )
+        
+        # Create or reuse tool controller
+        if tool_key not in tool_controllers:
+            # Create unique name for new tool controller
+            tool_controller_name = f"TC_{operation.tool.name}_{tool_number_counter}"
+            tool_controller = doc.addObject("Path::FeaturePython", tool_controller_name)
+            PathToolController.ToolController(tool_controller)
+            PathToolController.ViewProviderToolController(tool_controller.ViewObject)
+            
+            # Store with assigned tool number
+            tool_controllers[tool_key] = (tool_controller, tool_number_counter)
+            actual_tool_number = tool_number_counter
+            is_new_tool = True
+            
+            logger.info(f"Created new tool controller: {tool_controller_name} with tool number {actual_tool_number}")
+        else:
+            # Reuse existing tool controller for this exact tool configuration
+            tool_controller, actual_tool_number = tool_controllers[tool_key]
+            is_new_tool = False
+            logger.info(f"Reusing tool controller for {operation.tool.name} with tool number {actual_tool_number}")
+        
+        # Configure tool
+        tool_controller.Label = operation.tool.name
+        tool_controller.ToolNumber = actual_tool_number
+        tool = Path.Tool()
+        tool.Name = operation.tool.name
+        tool.Diameter = operation.tool.diameter
+        
+        if operation.tool.type == "endmill":
+            tool.ToolType = "EndMill"
+            tool.CuttingEdgeHeight = operation.tool.length * 0.8
+            tool.NumberOfFlutes = operation.tool.flutes or 2
+        elif operation.tool.type == "ballmill":
+            tool.ToolType = "BallEndMill"
+            tool.CuttingEdgeHeight = operation.tool.length * 0.8
+            tool.NumberOfFlutes = operation.tool.flutes or 2
+        elif operation.tool.type == "drill":
+            tool.ToolType = "Drill"
+            tool.TipAngle = 118.0
+        elif operation.tool.type == "chamfer":
+            tool.ToolType = "ChamferMill"
+            tool.CuttingEdgeAngle = 45.0
+        elif operation.tool.type == "engraver":
+            tool.ToolType = "Engraver"
+            tool.CuttingEdgeAngle = 60.0
+        
+        tool_controller.Tool = tool
+        
+        # Set feeds and speeds
+        tool_controller.HorizFeed = operation.feeds_speeds.feed_rate
+        tool_controller.VertFeed = operation.feeds_speeds.plunge_rate
+        tool_controller.SpindleSpeed = operation.feeds_speeds.spindle_speed
+        tool_controller.SpindleDir = "Forward"
+        
+        # Set coolant
+        if operation.coolant:
+            tool_controller.CoolantMode = "Flood"
+        
+        return tool_controller, actual_tool_number, is_new_tool
+    
+    def _create_cam_operation(
+        self, doc, operation, tool_controller, index: int, cam_parameters: CAMJobParameters
+    ):
+        """
+        Create specific CAM operation based on type.
+        
+        Returns:
+            Created operation object
+        """
+        import PathScripts.PathMillFace as PathMillFace
+        import PathScripts.PathProfile as PathProfile
+        import PathScripts.PathPocket as PathPocket
+        import PathScripts.PathDrilling as PathDrilling
+        import PathScripts.PathAdaptive as PathAdaptive
+        import PathScripts.PathHelix as PathHelix
+        import PathScripts.PathEngrave as PathEngrave
+        
+        op = None
+        
+        if operation.type.value == "Facing":
+            op = doc.addObject("Path::FeaturePython", f"Facing_{index}")
+            PathMillFace.Create(op)
+            op.BoundBox = "Stock"
+            op.StepOver = operation.feeds_speeds.step_over
+            
+        elif operation.type.value == "Profile":
+            op = doc.addObject("Path::FeaturePython", f"Profile_{index}")
+            PathProfile.Create(op)
+            op.Side = "Outside"
+            op.Direction = operation.cut_mode.capitalize() if operation.cut_mode else "Climb"
+            if operation.finish_pass:
+                op.UseCompensation = True
+                
+        elif operation.type.value == "Pocket":
+            op = doc.addObject("Path::FeaturePython", f"Pocket_{index}")
+            PathPocket.Create(op)
+            op.StepOver = operation.feeds_speeds.step_over
+            op.ZigZagAngle = 45
+            if operation.strategy:
+                strategy_map = {
+                    CAMStrategy.ZIGZAG: "ZigZag",
+                    CAMStrategy.OFFSET: "Offset",
+                    CAMStrategy.SPIRAL: "Spiral",
+                    CAMStrategy.ZIGZAG_OFFSET: "ZigZagOffset",
+                    CAMStrategy.LINE: "Line",
+                    CAMStrategy.GRID: "Grid"
+                }
+                op.OffsetPattern = strategy_map.get(operation.strategy, "Offset")
+                
+        elif operation.type.value == "Drilling":
+            op = doc.addObject("Path::FeaturePython", f"Drilling_{index}")
+            PathDrilling.Create(op)
+            op.PeckDepth = operation.feeds_speeds.step_down
+            op.DwellTime = 0.0
+            op.RetractHeight = cam_parameters.clearance_height
+            
+        elif operation.type.value == "Adaptive":
+            op = doc.addObject("Path::FeaturePython", f"Adaptive_{index}")
+            PathAdaptive.Create(op)
+            op.StepOver = min(operation.feeds_speeds.step_over, 30)
+            op.HelixAngle = 2.0
+            op.HelixDiameterLimit = 0.0
+            
+        elif operation.type.value == "Helix":
+            op = doc.addObject("Path::FeaturePython", f"Helix_{index}")
+            PathHelix.Create(op)
+            op.StartRadius = operation.tool.diameter * 2
+            cut_mode = (operation.cut_mode or "climb").lower()
+            op.Direction = self.DIRECTION_MAPPING_HELIX.get(cut_mode, self.DEFAULT_HELIX_DIRECTION)
+            
+        elif operation.type.value == "Engrave":
+            op = doc.addObject("Path::FeaturePython", f"Engrave_{index}")
+            PathEngrave.Create(op)
+            op.StartDepth = 0.0
+            op.FinalDepth = -operation.feeds_speeds.step_down
+        
+        if op:
+            # Set common parameters
+            op.ToolController = tool_controller
+            
+            # Set depths
+            op.StartDepth = 0.0
+            op.FinalDepth = -cam_parameters.stock.margins.z * 2
+            op.StepDown = operation.feeds_speeds.step_down
+            if hasattr(op, 'FinishDepth') and operation.finish_pass:
+                op.FinishDepth = 0.1
+            
+            # Set cut mode for operations that support it
+            if hasattr(op, 'Direction') and operation.type.value != "Helix":
+                cut_mode = (operation.cut_mode or "climb").lower()
+                op.Direction = self.DIRECTION_MAPPING_STANDARD.get(cut_mode, "Climb")
+        
+        return op
+    
+    def _post_process_job(
+        self, job, job_id: str, cam_parameters: CAMJobParameters, operations_created: List
+    ):
+        """
+        Post-process CAM job to generate G-code.
+        
+        Returns:
+            Tuple of (gcode_files, cam_report)
+        """
+        import PathScripts.PathPost as PathPost
+        from pathlib import Path as FilePath
+        from datetime import datetime
+        import tempfile
+        
+        gcode_files = {}
+        cam_report = {
+            "operations": len(operations_created),
+            "tools_used": [],
+            "total_operations": len(cam_parameters.operations),
+            "warnings": []
+        }
+        
+        # Collect tool information
+        tools_used = {}
+        for op in operations_created:
+            if hasattr(op, 'ToolController'):
+                tc = op.ToolController
+                if tc.Label not in tools_used:
+                    tools_used[tc.Label] = {
+                        "name": tc.Label,
+                        "number": tc.ToolNumber,
+                        "diameter": tc.Tool.Diameter,
+                        "operations": []
+                    }
+                tools_used[tc.Label]["operations"].append(op.Label)
+        
+        cam_report["tools_used"] = list(tools_used.values())
+        
+        # Post-process to G-code
+        post_processor = cam_parameters.post_processor.value
+        
+        # Map post processor names to file extensions
+        post_extensions = {
+            "LinuxCNC": "ngc",
+            "GRBL": "nc",
+            "Mach3": "tap",
+            "Mach4": "tap",
+            "Haas": "nc",
+            "Fanuc": "nc",
+            "Siemens": "mpf"
+        }
+        
+        ext = post_extensions.get(post_processor, "gcode")
+        gcode_path = FilePath(tempfile.gettempdir()) / f"job_{job_id}.{ext}"
+        
+        try:
+            # Configure post processor
+            postArgs = [
+                f"--no-show",
+                f"--output-units=mm",
+                f"--output-precision=3",
+                f"--preamble=; Job ID: {job_id}",
+                f"--preamble=; Generated: {datetime.now().isoformat()}",
+                f"--preamble=; Post: {post_processor}"
+            ]
+            
+            # Generate G-code
+            PathPost.CommandPathPost().Activated(job, str(gcode_path), postArgs)
+            
+            if gcode_path.exists():
+                gcode_files[post_processor] = str(gcode_path)
+                
+                # Validate G-code
+                with open(gcode_path, 'r') as f:
+                    gcode_content = f.read()
+                    
+                    # Check for required headers
+                    if "G21" not in gcode_content:
+                        cam_report["warnings"].append("G21 (metric) not found in G-code")
+                    if "G90" not in gcode_content:
+                        cam_report["warnings"].append("G90 (absolute) not found in G-code")
+                    
+                    # Check spindle/coolant balance
+                    m3_count = gcode_content.count("M3") + gcode_content.count("M4")
+                    m5_count = gcode_content.count("M5")
+                    if m3_count != m5_count:
+                        cam_report["warnings"].append("Unbalanced spindle start/stop commands")
+                        
+        except Exception as e:
+            logger.error(f"Post-processing failed: {e}")
+            cam_report["warnings"].append(f"Post-processing warning: {str(e)}")
+        
+        return gcode_files, cam_report
+    
     def _generate_cam(
         self, doc, assembly, job_id: str, cam_parameters: CAMJobParameters
     ) -> CAMResult:
@@ -1022,24 +1369,22 @@ class Assembly4Service:
         - Post-processor support
         - Time estimation
         """
-        import FreeCAD
-        import Part
+        import tempfile
         from pathlib import Path as FilePath
         
         logger.info(f"Generating CAM for job {job_id}")
         
-        # Initialize Path module (may need special handling)
+        # Initialize Path module
         try:
             import Path
             import PathScripts.PathJob as PathJob
             import PathScripts.PathStock as PathStock
             import PathScripts.PathToolController as PathToolController
-            import PathScripts.PathOp as PathOp
             import PathScripts.PathPost as PathPost
             
             # Import specific operations
             import PathScripts.PathMillFace as PathMillFace
-            import PathScripts.PathProfile as PathProfile  
+            import PathScripts.PathProfile as PathProfile
             import PathScripts.PathPocket as PathPocket
             import PathScripts.PathDrilling as PathDrilling
             import PathScripts.PathAdaptive as PathAdaptive
@@ -1055,332 +1400,51 @@ class Assembly4Service:
             )
         
         try:
-            # Create Path Job
-            job = doc.addObject("Path::FeaturePython", f"Job_{job_id}")
-            PathJob.ObjectJob(job)
-            PathJob.ViewProviderJob(job.ViewObject)
-            
-            # Set job base objects (the assembly)
-            job.Model = assembly.Group if hasattr(assembly, 'Group') else [assembly]
-            
-            # Configure WCS (Work Coordinate System)
-            # Use flat schema structure instead of nested
-            if cam_parameters.wcs_origin:
-                # Find LCS and use its placement
-                for obj in doc.Objects:
-                    if obj.Label == cam_parameters.wcs_origin:
-                        job.SetupSheet.SetupOrigin = obj.Placement.Base
-                        break
-            else:
-                # Use model origin with offsets
-                job.SetupSheet.SetupOrigin = FreeCAD.Vector(
-                    cam_parameters.wcs_offset.x,
-                    cam_parameters.wcs_offset.y,
-                    cam_parameters.wcs_offset.z
-                )
-            
-            # Configure stock
-            stock = doc.addObject("Path::FeaturePython", "Stock")
-            
-            if cam_parameters.stock.type == "box":
-                PathStock.StockCreateBoxProxy(stock, job)
-                # Set box dimensions with margins
-                stock.ExtXneg = cam_parameters.stock.margins.x
-                stock.ExtXpos = cam_parameters.stock.margins.x
-                stock.ExtYneg = cam_parameters.stock.margins.y
-                stock.ExtYpos = cam_parameters.stock.margins.y
-                stock.ExtZneg = cam_parameters.stock.margins.z
-                stock.ExtZpos = cam_parameters.stock.margins.z
-                
-            elif cam_parameters.stock.type == "cylinder":
-                PathStock.StockCreateCylinderProxy(stock, job)
-                # Use margins to calculate cylinder dimensions from bounding box
-                # Since StockDefinition only has margins, not specific cylinder properties
-                bbox = job.Model[0].Shape.BoundBox if job.Model else None
-                if bbox:
-                    stock.Radius = max(bbox.XLength, bbox.YLength) / 2 + cam_parameters.stock.margins.x
-                    stock.Height = bbox.ZLength + cam_parameters.stock.margins.z * 2
-                    
-            elif cam_parameters.stock.type == "from_shape":
-                PathStock.StockFromBase(stock, job)
-                # Use shape from model
-                
-            job.Stock = stock
-            
-            # Set safety heights (use flat schema structure)
-            job.SetupSheet.ClearanceHeightOffset = cam_parameters.clearance_height
-            job.SetupSheet.SafeHeightOffset = cam_parameters.safety_height
-            # Set rapid feed rate from flat schema
-            job.SetupSheet.HorizRapid = cam_parameters.rapid_feed_rate
+            # Setup job with stock and WCS
+            job, stock = self._setup_cam_job(doc, assembly, job_id, cam_parameters)
             
             # Process operations
             tool_changes = 0
             last_tool = None
             total_time = 0.0
             operations_created = []
-            
-            # Dictionary to track tool controllers by unique tool properties
-            # Key is tuple of (name, type, diameter, length) to ensure uniqueness
             tool_controllers = {}
             tool_number_counter = 1
             
             for i, operation in enumerate(cam_parameters.operations):
                 logger.info(f"Creating operation {i+1}: {operation.type}")
                 
-                # Create unique key for tool based on all relevant properties
-                # Include material, flutes, and coating for better tool differentiation
-                tool_key = (
-                    operation.tool.name,
-                    operation.tool.type,
-                    operation.tool.diameter,
-                    operation.tool.length,
-                    operation.tool.flutes or 2,  # Default to 2 flutes if not specified
-                    operation.tool.material or "HSS",  # Default material
-                    operation.tool.coating or "None"  # Default coating
+                # Manage tool controller
+                tool_controller, actual_tool_number, is_new_tool = self._manage_tool_controller(
+                    doc, operation, tool_controllers, tool_number_counter
                 )
                 
-                # Create or reuse tool controller
-                if tool_key not in tool_controllers:
-                    # Create unique name for new tool controller
-                    tool_controller_name = f"TC_{operation.tool.name}_{tool_number_counter}"
-                    tool_controller = doc.addObject("Path::FeaturePython", tool_controller_name)
-                    PathToolController.ToolController(tool_controller)
-                    PathToolController.ViewProviderToolController(tool_controller.ViewObject)
-                    
-                    # Store with assigned tool number
-                    tool_controllers[tool_key] = (tool_controller, tool_number_counter)
-                    actual_tool_number = tool_number_counter
+                if is_new_tool:
                     tool_number_counter += 1
-                    
-                    logger.info(f"Created new tool controller: {tool_controller_name} with tool number {actual_tool_number}")
-                else:
-                    # Reuse existing tool controller for this exact tool configuration
-                    tool_controller, actual_tool_number = tool_controllers[tool_key]
-                    logger.info(f"Reusing tool controller for {operation.tool.name} with tool number {actual_tool_number}")
-                
-                # Configure tool
-                tool_controller.Label = operation.tool.name
-                # Use the actual tool number assigned when controller was created
-                tool_controller.ToolNumber = actual_tool_number
-                tool = Path.Tool()
-                tool.Name = operation.tool.name
-                tool.Diameter = operation.tool.diameter
-                
-                if operation.tool.type == "endmill":
-                    tool.ToolType = "EndMill"
-                    # ToolDefinition has 'length', not 'cutting_height'
-                    tool.CuttingEdgeHeight = operation.tool.length * 0.8  # Use 80% of tool length
-                    tool.NumberOfFlutes = operation.tool.flutes or 2
-                elif operation.tool.type == "ballmill":
-                    tool.ToolType = "BallEndMill"
-                    tool.CuttingEdgeHeight = operation.tool.length * 0.8
-                    tool.NumberOfFlutes = operation.tool.flutes or 2
-                elif operation.tool.type == "drill":
-                    tool.ToolType = "Drill"
-                    tool.TipAngle = 118.0  # Standard drill tip angle
-                elif operation.tool.type == "chamfer":
-                    tool.ToolType = "ChamferMill"
-                    tool.CuttingEdgeAngle = 45.0  # Standard chamfer angle
-                elif operation.tool.type == "engraver":
-                    tool.ToolType = "Engraver"
-                    tool.CuttingEdgeAngle = 60.0  # Standard engraver angle
-                
-                tool_controller.Tool = tool
-                
-                # Set feeds and speeds (FeedsAndSpeeds is a proper model, not a dict)
-                tool_controller.HorizFeed = operation.feeds_speeds.feed_rate
-                tool_controller.VertFeed = operation.feeds_speeds.plunge_rate  
-                tool_controller.SpindleSpeed = operation.feeds_speeds.spindle_speed
-                tool_controller.SpindleDir = "Forward"  # Default direction, FeedsAndSpeeds doesn't have spindle_direction
-                
-                # Set coolant (boolean field in CAMOperation)
-                if operation.coolant:
-                    tool_controller.CoolantMode = "Flood"  # Default to flood coolant when enabled
                 
                 # Track tool changes
                 if last_tool != operation.tool.name:
                     tool_changes += 1
                     last_tool = operation.tool.name
                 
-                # Create operation based on type
-                op = None
+                # Create operation
+                op = self._create_cam_operation(doc, operation, tool_controller, i, cam_parameters)
                 
-                if operation.type.value == "Facing":
-                    op = doc.addObject("Path::FeaturePython", f"Facing_{i}")
-                    PathMillFace.Create(op)
-                    op.BoundBox = "Stock"
-                    # CAMOperation doesn't have 'parameters' field - use feeds_speeds.step_over
-                    op.StepOver = operation.feeds_speeds.step_over
-                    
-                elif operation.type.value == "Profile":
-                    op = doc.addObject("Path::FeaturePython", f"Profile_{i}")
-                    PathProfile.Create(op)
-                    op.Side = "Outside"  # Default profile side
-                    op.Direction = operation.cut_mode.capitalize() if operation.cut_mode else "Climb"
-                    if operation.finish_pass:
-                        op.UseCompensation = True
-                        
-                elif operation.type.value == "Pocket":
-                    op = doc.addObject("Path::FeaturePython", f"Pocket_{i}")
-                    PathPocket.Create(op)
-                    op.StepOver = operation.feeds_speeds.step_over
-                    op.ZigZagAngle = 45  # Default zigzag angle
-                    if operation.strategy:
-                        # Map CAMStrategy enum to FreeCAD pattern names
-                        strategy_map = {
-                            CAMStrategy.ZIGZAG: "ZigZag",
-                            CAMStrategy.OFFSET: "Offset",
-                            CAMStrategy.SPIRAL: "Spiral",
-                            CAMStrategy.ZIGZAG_OFFSET: "ZigZagOffset",
-                            CAMStrategy.LINE: "Line",
-                            CAMStrategy.GRID: "Grid"
-                        }
-                        op.OffsetPattern = strategy_map.get(operation.strategy, "Offset")
-                        
-                elif operation.type.value == "Drilling":
-                    op = doc.addObject("Path::FeaturePython", f"Drilling_{i}")
-                    PathDrilling.Create(op)
-                    # Use step_down as peck depth for drilling
-                    op.PeckDepth = operation.feeds_speeds.step_down
-                    op.DwellTime = 0.0  # Default dwell time
-                    op.RetractHeight = cam_parameters.clearance_height
-                    
-                elif operation.type.value == "Adaptive":
-                    op = doc.addObject("Path::FeaturePython", f"Adaptive_{i}")
-                    PathAdaptive.Create(op)
-                    op.StepOver = min(operation.feeds_speeds.step_over, 30)  # Adaptive usually uses smaller stepover
-                    op.HelixAngle = 2.0  # Default helix angle for adaptive
-                    op.HelixDiameterLimit = 0.0  # Default - no limit
-                    
-                elif operation.type.value == "Helix":
-                    op = doc.addObject("Path::FeaturePython", f"Helix_{i}")
-                    PathHelix.Create(op)
-                    op.StartRadius = operation.tool.diameter * 2  # Start radius based on tool diameter
-                    # Use class-level direction mapping constant for Helix
-                    cut_mode = (operation.cut_mode or "climb").lower()
-                    op.Direction = self.DIRECTION_MAPPING_HELIX.get(cut_mode, self.DEFAULT_HELIX_DIRECTION)
-                    
-                elif operation.type.value == "Engrave":
-                    op = doc.addObject("Path::FeaturePython", f"Engrave_{i}")
-                    PathEngrave.Create(op)
-                    # CAMOperation doesn't have 'depths' field - use default depths
-                    op.StartDepth = 0.0
-                    op.FinalDepth = -operation.feeds_speeds.step_down  # Use step_down as engrave depth
-                    
                 if op:
-                    # Set common parameters
-                    op.ToolController = tool_controller
-                    
-                    # Set depths using feeds_speeds.step_down
-                    # CAMOperation doesn't have 'depths' field
-                    op.StartDepth = 0.0  # Start at top of stock
-                    op.FinalDepth = -cam_parameters.stock.margins.z * 2  # Go through stock
-                    op.StepDown = operation.feeds_speeds.step_down
-                    if hasattr(op, 'FinishDepth') and operation.finish_pass:
-                        op.FinishDepth = 0.1  # Leave 0.1mm for finish pass
-                    
-                    # Set cut mode for operations that support it
-                    if hasattr(op, 'Direction') and operation.type.value != "Helix":
-                        # For non-Helix operations, use standard direction mapping
-                        cut_mode = (operation.cut_mode or "climb").lower()
-                        op.Direction = self.DIRECTION_MAPPING_STANDARD.get(cut_mode, "Climb")
-                    
                     # Add to job
                     job.Operations.Group = job.Operations.Group + [op]
                     operations_created.append(op)
                     
                     # Estimate time (simplified)
-                    # Real estimation would analyze toolpath length
                     op_time = 5.0  # Base time in minutes
                     if operation.type.value in ["Pocket", "Adaptive"]:
                         op_time *= 2
                     total_time += op_time
             
-            # Optimize operation sequence to minimize tool changes
-            # CAMJobParameters doesn't have 'optimize_sequence' field
-            # Always optimize by default
-            # Group operations by tool (simplified version)
-            pass
-            
-            # Generate G-code for each post-processor
-            gcode_files = {}
-            cam_report = {
-                "operations": len(operations_created),
-                "tools_used": [],
-                "total_operations": len(cam_parameters.operations),
-                "warnings": []
-            }
-            
-            # Collect tool information
-            tools_used = {}
-            for op in operations_created:
-                if hasattr(op, 'ToolController'):
-                    tc = op.ToolController
-                    if tc.Label not in tools_used:
-                        tools_used[tc.Label] = {
-                            "name": tc.Label,
-                            "number": tc.ToolNumber,
-                            "diameter": tc.Tool.Diameter,
-                            "operations": []
-                        }
-                    tools_used[tc.Label]["operations"].append(op.Label)
-            
-            cam_report["tools_used"] = list(tools_used.values())
-            
-            # Post-process to G-code
-            post_processor = cam_parameters.post_processor.value
-            
-            # Map post processor names to file extensions
-            post_extensions = {
-                "LinuxCNC": "ngc",
-                "GRBL": "nc",
-                "Mach3": "tap",
-                "Mach4": "tap",
-                "Haas": "nc",
-                "Fanuc": "nc",
-                "Siemens": "mpf"
-            }
-            
-            ext = post_extensions.get(post_processor, "gcode")
-            gcode_path = FilePath(tempfile.gettempdir()) / f"job_{job_id}.{ext}"
-            
-            try:
-                # Configure post processor
-                postArgs = []
-                postArgs.append(f"--no-show")
-                postArgs.append(f"--output-units=mm")  # Metric output
-                postArgs.append(f"--output-precision=3")
-                
-                # Add header comments
-                postArgs.append(f"--preamble=; Job ID: {job_id}")
-                postArgs.append(f"--preamble=; Generated: {datetime.now().isoformat()}")
-                postArgs.append(f"--preamble=; Post: {post_processor}")
-                
-                # Generate G-code
-                PathPost.CommandPathPost().Activated(job, str(gcode_path), postArgs)
-                
-                if gcode_path.exists():
-                    gcode_files[post_processor] = str(gcode_path)
-                    
-                    # Validate G-code
-                    with open(gcode_path, 'r') as f:
-                        gcode_content = f.read()
-                        
-                        # Check for required headers
-                        if "G21" not in gcode_content:  # Metric units
-                            cam_report["warnings"].append("G21 (metric) not found in G-code")
-                        if "G90" not in gcode_content:  # Absolute coordinates
-                            cam_report["warnings"].append("G90 (absolute) not found in G-code")
-                        
-                        # Check spindle/coolant balance
-                        m3_count = gcode_content.count("M3") + gcode_content.count("M4")
-                        m5_count = gcode_content.count("M5")
-                        if m3_count != m5_count:
-                            cam_report["warnings"].append("Unbalanced spindle start/stop commands")
-                            
-            except Exception as e:
-                logger.error(f"Post-processing failed: {e}")
-                cam_report["warnings"].append(f"Post-processing warning: {str(e)}")
+            # Post-process and generate G-code
+            gcode_files, cam_report = self._post_process_job(
+                job, job_id, cam_parameters, operations_created
+            )
             
             # Save job document
             job_path = FilePath(tempfile.gettempdir()) / f"cam_job_{job_id}.FCStd"
