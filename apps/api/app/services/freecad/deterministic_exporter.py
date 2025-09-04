@@ -23,6 +23,7 @@ Date: 2025
 
 from __future__ import annotations
 
+import fnmatch
 import gc
 import hashlib
 import json
@@ -41,7 +42,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ...core.logging import get_logger
-from ...core.metrics import export_operation_duration
+from ...core.metrics import freecad_operation_duration_seconds
 from ...core.telemetry import create_span
 
 logger = get_logger(__name__)
@@ -135,7 +136,7 @@ class DeterministicEnvironment:
         if self.original_locale:
             try:
                 locale.setlocale(locale.LC_ALL, self.original_locale)
-            except:
+            except Exception:
                 pass
         
         # Restore timezone
@@ -285,9 +286,10 @@ class UnifiedDeterministicExporter:
         finally:
             elapsed = (time.time() - start) * 1000
             logger.info(f"{operation} for {format_type} completed in {elapsed:.2f}ms")
-            export_operation_duration.labels(
-                operation=operation,
-                format=format_type
+            freecad_operation_duration_seconds.labels(
+                operation_type=f"export_{format_type}",
+                license_tier="standard",
+                status="success"
             ).observe(elapsed / 1000)
     
     def export_unified(
@@ -433,7 +435,6 @@ class UnifiedDeterministicExporter:
                     if name.startswith(pattern):
                         return True
                 elif '*' in pattern:
-                    import fnmatch
                     if fnmatch.fnmatch(name, pattern):
                         return True
                 elif name == pattern:
@@ -728,31 +729,56 @@ class UnifiedDeterministicExporter:
         }
     
     def _sort_mesh_facets(self, mesh):
-        """Sort mesh facets for deterministic ordering."""
+        """
+        Sort mesh facets for deterministic ordering.
+        
+        Reconstructs the mesh with facets sorted by their vertex coordinates
+        to ensure consistent STL output regardless of creation method.
+        """
         try:
-            import numpy as np
+            import FreeCAD
+            import Mesh as MeshModule
             
-            # Get facets as numpy array
-            facets = []
+            # Extract all facets with their points
+            facet_data = []
             for i in range(mesh.CountFacets):
                 facet = mesh.Facets[i]
                 points = facet.Points
-                # Create tuple of coordinates for sorting
-                facets.append((
-                    points[0][0], points[0][1], points[0][2],
-                    points[1][0], points[1][1], points[1][2],
-                    points[2][0], points[2][1], points[2][2]
-                ))
+                
+                # Create sortable tuple of all 9 coordinates (3 points x 3 coords)
+                # This ensures deterministic ordering based on spatial position
+                sort_key = (
+                    round(points[0][0], 6), round(points[0][1], 6), round(points[0][2], 6),
+                    round(points[1][0], 6), round(points[1][1], 6), round(points[1][2], 6),
+                    round(points[2][0], 6), round(points[2][1], 6), round(points[2][2], 6)
+                )
+                
+                # Store both the sort key and the actual points
+                facet_data.append((sort_key, points))
             
-            # Sort facets
-            facets.sort()
+            # Sort facets by their spatial coordinates
+            facet_data.sort(key=lambda x: x[0])
             
-            # Reconstruct mesh with sorted facets
-            # Note: This is a simplified approach
-            # Full implementation would recreate the mesh
+            # Create a new mesh with sorted facets
+            new_mesh = MeshModule.Mesh()
+            for _, points in facet_data:
+                # Add each facet to the new mesh using FreeCAD Vectors
+                new_mesh.addFacet(
+                    FreeCAD.Vector(points[0][0], points[0][1], points[0][2]),
+                    FreeCAD.Vector(points[1][0], points[1][1], points[1][2]),
+                    FreeCAD.Vector(points[2][0], points[2][1], points[2][2])
+                )
+            
+            # Replace the original mesh's internal structure with sorted one
+            # This modifies the mesh in-place to maintain any document references
+            mesh.clear()
+            mesh.addMesh(new_mesh)
+            
+            logger.debug(f"Successfully sorted {mesh.CountFacets} mesh facets for deterministic output")
             
         except Exception as e:
-            logger.debug(f"Could not sort mesh facets: {e}")
+            # Log but don't fail - unsorted mesh is still valid, just not deterministic
+            logger.warning(f"Could not sort mesh facets for deterministic output: {e}")
     
     def _export_glb_unified(self, document: Any, base_path: Path) -> Dict[str, Any]:
         """
