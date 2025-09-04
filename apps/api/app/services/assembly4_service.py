@@ -472,8 +472,8 @@ class Assembly4Service:
     DEFAULT_TOOL_FLUTES = 2
     
     # Depth safety constants
-    MIN_SAFE_DEPTH = -0.5  # mm, minimum safe depth
-    MAX_SAFE_DEPTH = -50.0  # mm, maximum reasonable depth for typical operations
+    SHALLOWEST_CUT_DEPTH = -0.5  # mm, shallowest allowed cutting depth
+    DEEPEST_CUT_DEPTH = -50.0  # mm, deepest allowed cutting depth for typical operations
     DEFAULT_DEPTH_SAFETY_FACTOR = 0.95  # Use 95% of stock thickness as max depth
     DEFAULT_HELIX_DIRECTION = "CCW"  # Default direction for helix operations
     DIRECTION_MAPPING_HELIX = {
@@ -1275,7 +1275,10 @@ class Assembly4Service:
                     raise Assembly4Exception(
                         f"Final depth must be negative for cutting operations. "
                         f"Received positive value: {final_depth}mm. "
-                        f"Please provide a negative depth value (e.g., -5.0 for 5mm depth).",
+                        f"Please provide a negative depth value (e.g., -5.0 for 5mm depth).\n"
+                        f"Kesme işlemleri için son derinlik negatif olmalıdır. "
+                        f"Pozitif değer alındı: {final_depth}mm. "
+                        f"Lütfen negatif bir derinlik değeri girin (örn: 5mm derinlik için -5.0).",
                         Assembly4ErrorCode.INVALID_INPUT
                     )
                 
@@ -1283,12 +1286,12 @@ class Assembly4Service:
                 stock_thickness = cam_parameters.stock.margins.z if cam_parameters.stock.margins else 10.0
                 max_depth = -stock_thickness * self.DEFAULT_DEPTH_SAFETY_FACTOR
                 
-                if final_depth < self.MAX_SAFE_DEPTH:
-                    logger.warning(f"Final depth {final_depth} exceeds maximum safe depth {self.MAX_SAFE_DEPTH}, clamping")
-                    final_depth = self.MAX_SAFE_DEPTH
-                elif final_depth > self.MIN_SAFE_DEPTH:
-                    logger.warning(f"Final depth {final_depth} is less than minimum safe depth {self.MIN_SAFE_DEPTH}, clamping")
-                    final_depth = self.MIN_SAFE_DEPTH
+                if final_depth < self.DEEPEST_CUT_DEPTH:
+                    logger.warning(f"Final depth {final_depth} exceeds deepest allowed cutting depth {self.DEEPEST_CUT_DEPTH}, clamping")
+                    final_depth = self.DEEPEST_CUT_DEPTH
+                elif final_depth > self.SHALLOWEST_CUT_DEPTH:
+                    logger.warning(f"Final depth {final_depth} is less than shallowest allowed cutting depth {self.SHALLOWEST_CUT_DEPTH}, clamping")
+                    final_depth = self.SHALLOWEST_CUT_DEPTH
                 elif final_depth < max_depth:
                     logger.warning(f"Final depth {final_depth} exceeds stock thickness limit {max_depth}, clamping")
                     final_depth = max_depth

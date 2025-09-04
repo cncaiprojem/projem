@@ -35,6 +35,7 @@ from fastapi import (
 )
 from sqlalchemy.orm import Session
 
+from ..core.celery_app import celery_app
 from ..core.database import get_db
 from ..core.security import get_current_user
 from ..core.environment import environment as settings
@@ -483,7 +484,6 @@ async def cancel_assembly_job(
         
         # Cancel Celery task if running
         if job.task_id:
-            from ..core.celery_app import celery_app
             celery_app.control.revoke(job.task_id, terminate=True)
         
         # Update job status

@@ -536,8 +536,8 @@ class CAMOperation(BaseModel):
                     "Should not exceed stock thickness. "
                     "Consider tooling capabilities and material specifications. "
                     "WARNING: Excessive depths may damage tools or workpiece.",
-        ge=-100.0,  # Minimum depth limit (cannot go deeper than -100mm)
-        le=-0.1     # Maximum depth limit (must cut at least 0.1mm)
+        ge=-100.0,  # Maximum cutting depth (cannot cut deeper than -100mm)
+        le=-0.1     # Minimum cutting depth (must cut at least 0.1mm deep)
     )
     
     model_config = ConfigDict(json_schema_extra={
