@@ -11,7 +11,7 @@ Comprehensive Pydantic schemas for model metrics including:
 """
 
 import locale as system_locale
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -292,13 +292,25 @@ def _format_number_locale_independent(
     Returns:
         Formatted string with specified separators
     """
-    # Convert to float if needed and round to specified decimals
-    if isinstance(value, (int, Decimal)):
-        value = float(value)
-    
-    # Format with standard Python formatting (always uses . for decimal)
-    # This is locale-independent since we specify the format explicitly
-    formatted = f"{value:.{decimals}f}"
+    # Handle Decimal with quantization to preserve precision
+    if isinstance(value, Decimal):
+        # Quantize the Decimal to the specified decimal places
+        # Use string formatting to create the precision specifier
+        precision = Decimal(f'1e-{decimals}')
+        value = value.quantize(precision, rounding=ROUND_HALF_UP)
+        # Format to fixed-point notation to avoid scientific notation
+        # Use 'f' format type with explicit precision
+        formatted = format(value, f'.{decimals}f')
+    elif isinstance(value, int):
+        # Convert int to Decimal for consistent formatting
+        value = Decimal(str(value))
+        precision = Decimal(f'1e-{decimals}')
+        value = value.quantize(precision, rounding=ROUND_HALF_UP)
+        # Format to fixed-point notation
+        formatted = format(value, f'.{decimals}f')
+    else:
+        # For float, use standard formatting
+        formatted = f"{value:.{decimals}f}"
     
     # Split on the decimal point
     parts = formatted.split('.')
@@ -366,11 +378,9 @@ def format_metric_for_display(value: Any, locale_code: str = "en") -> str:
                 system_locale.setlocale(system_locale.LC_NUMERIC, 'tr_TR.UTF-8')
                 locale_changed = True
                 
-                # Use locale formatting
-                if isinstance(value, (int, Decimal)):
-                    formatted = system_locale.format_string("%.3f", float(value), grouping=True)
-                else:
-                    formatted = system_locale.format_string("%.3f", value, grouping=True)
+                # Use locale formatting - format_string requires float, so conversion is necessary
+                # This is a limitation of the locale module, not our code
+                formatted = system_locale.format_string("%.3f", float(value), grouping=True)
                 
                 return formatted
             else:

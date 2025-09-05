@@ -20,7 +20,7 @@ from unittest.mock import Mock, patch
 
 import pytest
 
-from apps.api.app.services.metrics_extractor import (
+from app.services.metrics_extractor import (
     MetricsExtractor,
     ModelMetrics,
     ShapeMetrics,
@@ -30,7 +30,7 @@ from apps.api.app.services.metrics_extractor import (
     RuntimeTelemetry,
     extract_model_metrics
 )
-from apps.api.app.schemas.metrics import (
+from app.schemas.metrics import (
     ModelMetricsSchema,
     ModelMetricsSummary,
     format_metric_for_display,
