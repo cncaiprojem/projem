@@ -18,6 +18,23 @@ from pydantic import BaseModel, Field, ConfigDict
 
 # Constants
 METERS_TO_MILLIMETERS = 1000
+METERS_TO_MILLIMETERS_DECIMAL = Decimal('1000')  # Decimal constant for precise multiplication
+
+
+def _format_decimal_or_none(value: Optional[Decimal]) -> Optional[str]:
+    """
+    Format a Decimal value as string, or return None if value is None.
+    
+    This helper function reduces code duplication in to_turkish() methods
+    and ensures consistent handling of optional Decimal fields.
+    
+    Args:
+        value: Optional Decimal value to format
+    
+    Returns:
+        String representation of the Decimal or None
+    """
+    return str(value) if value is not None else None
 
 
 class ModelMetricsBase(BaseModel):
@@ -68,13 +85,13 @@ class BoundingBoxMetricsSchema(ModelMetricsBase):
     def to_turkish(self) -> Dict[str, Any]:
         """Convert to Turkish localized format."""
         return {
-            "genişlik_m": str(self.width_m) if self.width_m is not None else None,
-            "yükseklik_m": str(self.height_m) if self.height_m is not None else None,
-            "derinlik_m": str(self.depth_m) if self.depth_m is not None else None,
+            "genişlik_m": _format_decimal_or_none(self.width_m),
+            "yükseklik_m": _format_decimal_or_none(self.height_m),
+            "derinlik_m": _format_decimal_or_none(self.depth_m),
             "merkez": [str(v) for v in self.center] if self.center else None,
             "min_nokta": [str(v) for v in self.min_point] if self.min_point else None,
             "maks_nokta": [str(v) for v in self.max_point] if self.max_point else None,
-            "köşegen_m": str(self.diagonal_m) if self.diagonal_m is not None else None
+            "köşegen_m": _format_decimal_or_none(self.diagonal_m)
         }
 
 
@@ -91,12 +108,12 @@ class VolumeMetricsSchema(ModelMetricsBase):
     def to_turkish(self) -> Dict[str, Any]:
         """Convert to Turkish localized format."""
         return {
-            "hacim_m3": str(self.volume_m3) if self.volume_m3 is not None else None,
-            "yüzey_alanı_m2": str(self.surface_area_m2) if self.surface_area_m2 is not None else None,
+            "hacim_m3": _format_decimal_or_none(self.volume_m3),
+            "yüzey_alanı_m2": _format_decimal_or_none(self.surface_area_m2),
             "malzeme": self.material_name,
-            "yoğunluk_kg_m3": str(self.density_kg_m3) if self.density_kg_m3 is not None else None,
+            "yoğunluk_kg_m3": _format_decimal_or_none(self.density_kg_m3),
             "yoğunluk_kaynağı": self.density_source,
-            "kütle_kg": str(self.mass_kg) if self.mass_kg is not None else None
+            "kütle_kg": _format_decimal_or_none(self.mass_kg)
         }
 
 
@@ -115,8 +132,8 @@ class MeshMetricsSchema(ModelMetricsBase):
         return {
             "üçgen_sayısı": self.triangle_count,
             "köşe_sayısı": self.vertex_count,
-            "doğrusal_sapma": str(self.linear_deflection) if self.linear_deflection is not None else None,
-            "açısal_sapma": str(self.angular_deflection) if self.angular_deflection is not None else None,
+            "doğrusal_sapma": _format_decimal_or_none(self.linear_deflection),
+            "açısal_sapma": _format_decimal_or_none(self.angular_deflection),
             "göreli": self.relative,
             "stl_özeti": self.stl_hash[:8] if self.stl_hash else None
         }
@@ -142,11 +159,11 @@ class RuntimeTelemetrySchema(ModelMetricsBase):
         return {
             "süre_ms": self.duration_ms,
             "faz_süreleri": self.phase_timings,
-            "cpu_kullanıcı_sn": str(self.cpu_user_s) if self.cpu_user_s is not None else None,
-            "cpu_sistem_sn": str(self.cpu_system_s) if self.cpu_system_s is not None else None,
-            "cpu_ortalama_yüzde": str(self.cpu_percent_avg) if self.cpu_percent_avg is not None else None,
-            "bellek_tepe_mb": str(self.ram_peak_mb) if self.ram_peak_mb is not None else None,
-            "bellek_delta_mb": str(self.ram_delta_mb) if self.ram_delta_mb is not None else None,
+            "cpu_kullanıcı_sn": _format_decimal_or_none(self.cpu_user_s),
+            "cpu_sistem_sn": _format_decimal_or_none(self.cpu_system_s),
+            "cpu_ortalama_yüzde": _format_decimal_or_none(self.cpu_percent_avg),
+            "bellek_tepe_mb": _format_decimal_or_none(self.ram_peak_mb),
+            "bellek_delta_mb": _format_decimal_or_none(self.ram_delta_mb),
             "işçi_pid": self.worker_pid,
             "işçi_sunucu": self.worker_hostname,
             "iş_parçacığı_id": self.worker_thread_id,
@@ -240,9 +257,9 @@ class ModelMetricsSummary(BaseModel):
         # Bounding box - convert to mm for display
         if metrics.bounding_box:
             kwargs.update({
-                "width_mm": metrics.bounding_box.width_m * Decimal(str(METERS_TO_MILLIMETERS)),
-                "height_mm": metrics.bounding_box.height_m * Decimal(str(METERS_TO_MILLIMETERS)),
-                "depth_mm": metrics.bounding_box.depth_m * Decimal(str(METERS_TO_MILLIMETERS))
+                "width_mm": metrics.bounding_box.width_m * METERS_TO_MILLIMETERS_DECIMAL,
+                "height_mm": metrics.bounding_box.height_m * METERS_TO_MILLIMETERS_DECIMAL,
+                "depth_mm": metrics.bounding_box.depth_m * METERS_TO_MILLIMETERS_DECIMAL
             })
         
         # Performance

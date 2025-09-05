@@ -115,11 +115,11 @@ class TestBoundingBoxMetrics:
         
         turkish = metrics.to_turkish()
         
-        assert turkish["genişlik_m"] == 0.100
-        assert turkish["yükseklik_m"] == 0.050
-        assert turkish["derinlik_m"] == 0.025
-        assert turkish["merkez"] == [0.050, 0.025, 0.0125]
-        assert turkish["köşegen_m"] == 0.114564
+        assert turkish["genişlik_m"] == "0.100"
+        assert turkish["yükseklik_m"] == "0.050"
+        assert turkish["derinlik_m"] == "0.025"
+        assert turkish["merkez"] == ["0.050", "0.025", "0.0125"]
+        assert turkish["köşegen_m"] == "0.114564"
 
 
 class TestVolumeMetrics:
@@ -158,16 +158,16 @@ class TestMeshMetrics:
         metrics = MeshMetrics(
             triangle_count=1024,
             vertex_count=514,
-            linear_deflection=0.1,
-            angular_deflection=0.5,
+            linear_deflection=Decimal("0.1"),
+            angular_deflection=Decimal("0.5"),
             relative=False,
             stl_hash="abc123def456"
         )
         
         assert metrics.triangle_count == 1024
         assert metrics.vertex_count == 514
-        assert metrics.linear_deflection == 0.1
-        assert metrics.angular_deflection == 0.5
+        assert metrics.linear_deflection == Decimal("0.1")
+        assert metrics.angular_deflection == Decimal("0.5")
         assert metrics.relative is False
     
     def test_mesh_metrics_turkish_conversion(self):
@@ -197,11 +197,11 @@ class TestRuntimeTelemetry:
                 "bounding_box": 50,
                 "volume_calculation": 84
             },
-            cpu_user_s=0.234,
-            cpu_system_s=0.056,
-            cpu_percent_avg=45.6,
-            ram_peak_mb=128.5,
-            ram_delta_mb=32.0,
+            cpu_user_s=Decimal("0.234"),
+            cpu_system_s=Decimal("0.056"),
+            cpu_percent_avg=Decimal("45.6"),
+            ram_peak_mb=Decimal("128.5"),
+            ram_delta_mb=Decimal("32.0"),
             worker_pid=12345,
             worker_hostname="worker-01",
             worker_thread_id=67890,
@@ -210,16 +210,16 @@ class TestRuntimeTelemetry:
         
         assert telemetry.duration_ms == 1234
         assert telemetry.phase_timings["shape_analysis"] == 100
-        assert telemetry.cpu_percent_avg == 45.6
-        assert telemetry.ram_peak_mb == 128.5
+        assert telemetry.cpu_percent_avg == Decimal("45.6")
+        assert telemetry.ram_peak_mb == Decimal("128.5")
         assert telemetry.queue_name == "model"
     
     def test_telemetry_turkish_conversion(self):
         """Test Turkish localization of telemetry."""
         telemetry = RuntimeTelemetry(
             duration_ms=1234,
-            cpu_user_s=0.234,
-            ram_peak_mb=128.5,
+            cpu_user_s=Decimal("0.234"),
+            ram_peak_mb=Decimal("128.5"),
             worker_hostname="worker-01",
             queue_name="model"
         )
@@ -227,8 +227,8 @@ class TestRuntimeTelemetry:
         turkish = telemetry.to_turkish()
         
         assert turkish["süre_ms"] == 1234
-        assert turkish["cpu_kullanıcı_sn"] == 0.234
-        assert turkish["bellek_tepe_mb"] == 128.5
+        assert turkish["cpu_kullanıcı_sn"] == "0.234"
+        assert turkish["bellek_tepe_mb"] == "128.5"
         assert turkish["işçi_sunucu"] == "worker-01"
         assert turkish["kuyruk_adı"] == "model"
 
@@ -339,8 +339,8 @@ class TestMetricsExtractor:
         mock_telemetry.return_value = RuntimeTelemetry(
             duration_ms=1234,
             phase_timings={"shape_analysis": 100},
-            cpu_user_s=0.234,
-            ram_peak_mb=128.5,
+            cpu_user_s=Decimal("0.234"),
+            ram_peak_mb=Decimal("128.5"),
             queue_name="model"
         )
         
