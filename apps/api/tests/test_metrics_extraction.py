@@ -388,12 +388,12 @@ class TestMetricsSchema:
                 "shape_type": "solid"
             },
             "bounding_box": {
-                "width_m": 0.1,
-                "height_m": 0.05,
-                "depth_m": 0.025,
-                "center": [0.05, 0.025, 0.0125],
-                "min_point": [0, 0, 0],
-                "max_point": [0.1, 0.05, 0.025]
+                "width_m": "0.1",
+                "height_m": "0.05",
+                "depth_m": "0.025",
+                "center": ["0.05", "0.025", "0.0125"],
+                "min_point": ["0", "0", "0"],
+                "max_point": ["0.1", "0.05", "0.025"]
             },
             "job_id": "job-123",
             "metrics_version": "1.0.0"
@@ -402,7 +402,7 @@ class TestMetricsSchema:
         schema = ModelMetricsSchema(**data)
         
         assert schema.shape.solids == 1
-        assert schema.bounding_box.width_m == 0.1
+        assert schema.bounding_box.width_m == Decimal("0.1")
         assert schema.job_id == "job-123"
     
     def test_metrics_summary_creation(self):
@@ -410,13 +410,13 @@ class TestMetricsSchema:
         full_metrics = ModelMetricsSchema(
             shape={"solids": 2, "faces": 12, "edges": 24, "vertices": 16, 
                    "is_closed": True, "is_valid": True},
-            volume={"volume_m3": 0.001, "mass_kg": 2.7},
+            volume={"volume_m3": "0.001", "mass_kg": "2.7"},
             mesh={"triangle_count": 1024},
             bounding_box={
-                "width_m": 0.1, "height_m": 0.05, "depth_m": 0.025,
-                "center": [0.05, 0.025, 0.0125],
-                "min_point": [0, 0, 0],
-                "max_point": [0.1, 0.05, 0.025]
+                "width_m": "0.1", "height_m": "0.05", "depth_m": "0.025",
+                "center": ["0.05", "0.025", "0.0125"],
+                "min_point": ["0", "0", "0"],
+                "max_point": ["0.1", "0.05", "0.025"]
             }
         )
         
@@ -424,12 +424,12 @@ class TestMetricsSchema:
         
         assert summary.solids_count == 2
         assert summary.faces_count == 12
-        assert summary.volume_m3 == 0.001
-        assert summary.mass_kg == 2.7
+        assert summary.volume_m3 == Decimal("0.001")
+        assert summary.mass_kg == Decimal("2.7")
         assert summary.triangles_count == 1024
-        assert summary.width_mm == 100  # 0.1m = 100mm
-        assert summary.height_mm == 50
-        assert summary.depth_mm == 25
+        assert summary.width_mm == Decimal("100")  # 0.1m = 100mm
+        assert summary.height_mm == Decimal("50")
+        assert summary.depth_mm == Decimal("25")
 
 
 class TestLocalization:
