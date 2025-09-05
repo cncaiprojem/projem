@@ -129,7 +129,7 @@ class RuntimeTelemetrySchema(ModelMetricsBase):
     phase_timings: Optional[Dict[str, int]] = Field(None, description="Faz süreleri / Phase timings")
     cpu_user_s: Optional[float] = Field(None, description="CPU kullanıcı süresi (s) / User CPU time")
     cpu_system_s: Optional[float] = Field(None, description="CPU sistem süresi (s) / System CPU time")
-    cpu_percent_peak: Optional[float] = Field(None, description="CPU tepe kullanımı (%) / Peak CPU usage")
+    cpu_percent_avg: Optional[float] = Field(None, description="CPU ortalama kullanımı (%) / Average CPU usage")
     ram_peak_mb: Optional[float] = Field(None, description="Bellek tepe kullanımı (MB) / Peak RAM usage")
     ram_delta_mb: Optional[float] = Field(None, description="Bellek değişimi (MB) / Memory delta")
     worker_pid: Optional[int] = Field(None, description="İşlem ID / Process ID")
@@ -144,7 +144,7 @@ class RuntimeTelemetrySchema(ModelMetricsBase):
             "faz_süreleri": self.phase_timings,
             "cpu_kullanıcı_sn": self.cpu_user_s,
             "cpu_sistem_sn": self.cpu_system_s,
-            "cpu_tepe_yüzde": self.cpu_percent_peak,
+            "cpu_ortalama_yüzde": self.cpu_percent_avg,
             "bellek_tepe_mb": self.ram_peak_mb,
             "bellek_delta_mb": self.ram_delta_mb,
             "işçi_pid": self.worker_pid,
@@ -265,7 +265,7 @@ TURKISH_METRIC_LABELS = {
     "duration_ms": "Süre (ms)",
     "cpu_user_s": "CPU Kullanıcı (sn)",
     "cpu_system_s": "CPU Sistem (sn)",
-    "cpu_percent_peak": "CPU Tepe (%)",
+    "cpu_percent_avg": "CPU Ortalama (%)",
     "ram_peak_mb": "Bellek Tepe (MB)",
     "units": "Birimler"
 }
@@ -298,16 +298,19 @@ def _format_number_locale_independent(
         # Use string formatting to create the precision specifier
         precision = Decimal(f'1e-{decimals}')
         value = value.quantize(precision, rounding=ROUND_HALF_UP)
-        # Format to fixed-point notation to avoid scientific notation
-        # Use 'f' format type with explicit precision
-        formatted = format(value, f'.{decimals}f')
+        # Use str() to preserve exact Decimal value without float conversion
+        formatted = str(value)
     elif isinstance(value, int):
-        # Convert int to Decimal for consistent formatting
-        value = Decimal(str(value))
-        precision = Decimal(f'1e-{decimals}')
-        value = value.quantize(precision, rounding=ROUND_HALF_UP)
-        # Format to fixed-point notation
-        formatted = format(value, f'.{decimals}f')
+        # For integers, don't add decimal places
+        if decimals == 0:
+            formatted = str(value)
+        else:
+            # Convert int to Decimal for consistent formatting when decimals needed
+            value = Decimal(str(value))
+            precision = Decimal(f'1e-{decimals}')
+            value = value.quantize(precision, rounding=ROUND_HALF_UP)
+            # Use str() to preserve exact value
+            formatted = str(value)
     else:
         # For float, use standard formatting
         formatted = f"{value:.{decimals}f}"
@@ -363,44 +366,20 @@ def format_metric_for_display(value: Any, locale_code: str = "en") -> str:
             return "Evet" if value else "Hayır"
         return "Yes" if value else "No"
     
-    # Number formatting
+    # Number formatting - thread-safe, no locale changes
     if isinstance(value, (float, Decimal, int)):
-        # Try locale-aware formatting first
-        original_locale = None
-        locale_changed = False
-        try:
-            if locale_code == "tr":
-                # Save original locale
-                original_locale = system_locale.getlocale(system_locale.LC_NUMERIC)
-                
-                # Set Turkish locale if available
-                # Let outer try/except handle fallback if Turkish locale not available
-                system_locale.setlocale(system_locale.LC_NUMERIC, 'tr_TR.UTF-8')
-                locale_changed = True
-                
-                # Use locale formatting - format_string requires float, so conversion is necessary
-                # This is a limitation of the locale module, not our code
-                formatted = system_locale.format_string("%.3f", float(value), grouping=True)
-                
-                return formatted
-            else:
-                # English formatting with thousands separator - use locale-independent approach
-                return _format_number_locale_independent(value, thousands_sep=',', decimal_sep='.', decimals=3)
-        except system_locale.Error:
-            # Fallback to locale-independent manual formatting if locale fails
-            if locale_code == "tr":
-                # Turkish: period as thousands, comma as decimal
-                return _format_number_locale_independent(value, thousands_sep='.', decimal_sep=',', decimals=3)
-            else:
-                # English: comma as thousands, period as decimal
-                return _format_number_locale_independent(value, thousands_sep=',', decimal_sep='.', decimals=3)
-        finally:
-            # Always reset locale to original if it was changed
-            if locale_changed and original_locale is not None:
-                try:
-                    system_locale.setlocale(system_locale.LC_NUMERIC, original_locale)
-                except system_locale.Error:
-                    # If we can't restore, at least reset to default
-                    system_locale.setlocale(system_locale.LC_NUMERIC, '')
+        # Determine decimal places based on type
+        # Integers should not have decimal places added
+        is_integer = isinstance(value, int) or (isinstance(value, Decimal) and value % 1 == 0)
+        decimals = 0 if is_integer else 3
+        
+        # Use custom locale-independent formatting for thread safety
+        # This avoids setlocale() which is not thread-safe
+        if locale_code == "tr":
+            # Turkish: period as thousands separator, comma as decimal separator
+            return _format_number_locale_independent(value, thousands_sep='.', decimal_sep=',', decimals=decimals)
+        else:
+            # English: comma as thousands separator, period as decimal separator
+            return _format_number_locale_independent(value, thousands_sep=',', decimal_sep='.', decimals=decimals)
     
     return str(value)

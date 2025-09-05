@@ -554,8 +554,8 @@ class MetricsExtractor:
                 if self._memory_start:
                     telemetry.ram_delta_mb = current_mb - self._memory_start
                 
-                # Get CPU percent
-                telemetry.cpu_percent_peak = self._process.cpu_percent()
+                # Get average CPU percent since start_telemetry() was called
+                telemetry.cpu_percent_avg = self._process.cpu_percent()
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
                 logger.debug(f"Could not capture psutil metrics: {e}")
         

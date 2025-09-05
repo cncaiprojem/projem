@@ -199,7 +199,7 @@ class TestRuntimeTelemetry:
             },
             cpu_user_s=0.234,
             cpu_system_s=0.056,
-            cpu_percent_peak=45.6,
+            cpu_percent_avg=45.6,
             ram_peak_mb=128.5,
             ram_delta_mb=32.0,
             worker_pid=12345,
@@ -210,7 +210,7 @@ class TestRuntimeTelemetry:
         
         assert telemetry.duration_ms == 1234
         assert telemetry.phase_timings["shape_analysis"] == 100
-        assert telemetry.cpu_percent_peak == 45.6
+        assert telemetry.cpu_percent_avg == 45.6
         assert telemetry.ram_peak_mb == 128.5
         assert telemetry.queue_name == "model"
     
