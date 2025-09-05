@@ -162,10 +162,12 @@ class MetricsExtractor:
         else:
             self._cpu_start = None
         
-        # Capture memory start
+        # Capture memory start with Decimal precision
         if self._process:
             try:
-                self._memory_start = self._process.memory_info().rss / (1024 * 1024)  # MB
+                memory_bytes = self._process.memory_info().rss
+                # Convert to MB using Decimal for precision
+                self._memory_start = Decimal(str(memory_bytes)) / (Decimal('1024') * Decimal('1024'))
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
                 self._memory_start = None
     
@@ -227,8 +229,11 @@ class MetricsExtractor:
             # Extract volume and mass
             with self.phase_timer("volume_calculation"):
                 try:
-                    volume_metrics = self._extract_volume_metrics(document, material)
+                    volume_metrics, volume_warning = self._extract_volume_metrics(document, material)
                     metrics.volume = volume_metrics
+                    # Add warning if present
+                    if volume_warning:
+                        metrics.warnings.append(volume_warning)
                 except Exception as e:
                     logger.warning(f"Could not extract volume metrics: {e}")
                     metrics.warnings.append(f"Volume calculation failed: {str(e)}")
@@ -385,13 +390,18 @@ class MetricsExtractor:
             logger.error(f"Bounding box extraction failed: {e}")
             raise
     
-    def _extract_volume_metrics(self, document: Any, material: Optional[str] = None) -> VolumeMetrics:
-        """Extract volume and mass metrics."""
+    def _extract_volume_metrics(self, document: Any, material: Optional[str] = None) -> Tuple[VolumeMetrics, Optional[str]]:
+        """Extract volume and mass metrics.
+        
+        Returns:
+            Tuple of (VolumeMetrics, Optional warning message)
+        """
         try:
             if not FREECAD_AVAILABLE:
                 raise ImportError("FreeCAD modules not available")
             
             metrics = VolumeMetrics()
+            warning_msg = None
             
             # Get shape and collect all materials
             if hasattr(document, 'Objects'):
@@ -409,21 +419,22 @@ class MetricsExtractor:
                 # Handle multiple materials
                 if not material and materials_found:
                     if len(materials_found) > 1:
-                        logger.warning(
+                        warning_msg = (
                             f"Multiple materials found in assembly: {materials_found}. "
                             f"Using first material '{materials_found[0]}' for density lookup. "
                             "Consider weighted average for accurate mass calculation."
                         )
+                        logger.warning(warning_msg)
                     material = materials_found[0]
                 
                 if shapes:
                     shape = Part.makeCompound(shapes) if len(shapes) > 1 else shapes[0]
                 else:
-                    return metrics
+                    return metrics, warning_msg
             elif hasattr(document, 'Volume'):
                 shape = document
             else:
-                return metrics
+                return metrics, warning_msg
             
             # Calculate volume if shape has solids or is closed
             if shape.Solids or (hasattr(shape, 'isClosed') and shape.isClosed()):
@@ -459,7 +470,7 @@ class MetricsExtractor:
                     mass_kg = metrics.volume_m3 * metrics.density_kg_m3
                     metrics.mass_kg = mass_kg.quantize(self.MASS_PRECISION, rounding=ROUND_HALF_EVEN)
             
-            return metrics
+            return metrics, warning_msg
             
         except Exception as e:
             logger.error(f"Volume metrics extraction failed: {e}")
@@ -535,27 +546,34 @@ class MetricsExtractor:
         except Exception:
             pass
         
-        # Capture CPU metrics
+        # Capture CPU metrics with Decimal precision
         if RESOURCE_AVAILABLE and self._cpu_start:
             try:
                 rusage = resource.getrusage(resource.RUSAGE_SELF)
-                telemetry.cpu_user_s = rusage.ru_utime - self._cpu_start['user']
-                telemetry.cpu_system_s = rusage.ru_stime - self._cpu_start['system']
+                # Convert to Decimal for precision
+                telemetry.cpu_user_s = float(Decimal(str(rusage.ru_utime)) - Decimal(str(self._cpu_start['user'])))
+                telemetry.cpu_system_s = float(Decimal(str(rusage.ru_stime)) - Decimal(str(self._cpu_start['system'])))
             except Exception as e:
                 logger.debug(f"Could not capture CPU metrics: {e}")
         
-        # Capture memory metrics with psutil
+        # Capture memory metrics with psutil using Decimal precision
         if self._process:
             try:
                 memory_info = self._process.memory_info()
-                current_mb = memory_info.rss / (1024 * 1024)
-                telemetry.ram_peak_mb = current_mb
+                # Convert to MB using Decimal for precision
+                current_mb = Decimal(str(memory_info.rss)) / (Decimal('1024') * Decimal('1024'))
+                # Store as float for schema compatibility but maintain precision in calculation
+                telemetry.ram_peak_mb = float(current_mb)
                 
-                if self._memory_start:
-                    telemetry.ram_delta_mb = current_mb - self._memory_start
+                # Check if memory_start is not None explicitly
+                if self._memory_start is not None:
+                    delta_mb = current_mb - self._memory_start
+                    telemetry.ram_delta_mb = float(delta_mb)
                 
                 # Get average CPU percent since start_telemetry() was called
-                telemetry.cpu_percent_avg = self._process.cpu_percent()
+                cpu_percent = self._process.cpu_percent()
+                # Convert to Decimal for consistency, then back to float for schema
+                telemetry.cpu_percent_avg = float(Decimal(str(cpu_percent)))
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
                 logger.debug(f"Could not capture psutil metrics: {e}")
         
