@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """
-Verification script for PR #454 fixes.
+Verification script for PR #455 fixes.
 
-Tests all critical issues identified by Copilot and Gemini:
-1. Decimal precision preservation using str() instead of format()
-2. Thread-safe formatting without setlocale()
-3. Integer formatting without unnecessary decimals
-4. cpu_percent_avg naming consistency
+Tests all critical Decimal precision issues identified by Copilot and Gemini:
+1. JSON encoder using str instead of float for Decimal
+2. All numerical fields converted from float to Decimal  
+3. Thread-safe formatting without setlocale()
+4. Integer formatting without unnecessary decimals
+5. cpu_percent_avg naming consistency
+6. to_turkish methods return JSON-serializable strings
 """
 
 import threading
@@ -22,7 +24,10 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from app.schemas.metrics import (
     _format_number_locale_independent,
     format_metric_for_display,
-    RuntimeTelemetrySchema
+    RuntimeTelemetrySchema,
+    BoundingBoxMetricsSchema,
+    VolumeMetricsSchema,
+    ModelMetricsSummary
 )
 
 
@@ -136,16 +141,16 @@ def test_cpu_metric_naming():
     """Test that cpu_percent_avg is used instead of cpu_percent_peak."""
     print("Testing CPU metric naming...")
     
-    # Create telemetry with cpu_percent_avg
+    # Create telemetry with cpu_percent_avg (using Decimal now)
     telemetry = RuntimeTelemetrySchema(
         duration_ms=1000,
-        cpu_percent_avg=45.6,
-        ram_peak_mb=512.0
+        cpu_percent_avg=Decimal("45.6"),
+        ram_peak_mb=Decimal("512.0")
     )
     
     # Check that the field exists and has correct value
     assert hasattr(telemetry, 'cpu_percent_avg'), "Missing cpu_percent_avg field"
-    assert telemetry.cpu_percent_avg == 45.6, f"Expected 45.6, got {telemetry.cpu_percent_avg}"
+    assert telemetry.cpu_percent_avg == Decimal("45.6"), f"Expected Decimal('45.6'), got {telemetry.cpu_percent_avg}"
     
     # Check that old field doesn't exist
     assert not hasattr(telemetry, 'cpu_percent_peak'), "Old cpu_percent_peak field still exists"
@@ -153,9 +158,66 @@ def test_cpu_metric_naming():
     # Check Turkish translation
     turkish = telemetry.to_turkish()
     assert 'cpu_ortalama_yüzde' in turkish, "Missing Turkish translation for cpu_percent_avg"
-    assert turkish['cpu_ortalama_yüzde'] == 45.6, "Turkish translation has wrong value"
+    assert turkish['cpu_ortalama_yüzde'] == "45.6", "Turkish translation should be string"
     
     print("[PASS] CPU metric naming tests passed")
+
+
+def test_decimal_schemas():
+    """Test that Pydantic schemas use Decimal and serialize correctly."""
+    print("Testing Decimal-based schemas...")
+    
+    # Test BoundingBoxMetricsSchema
+    bbox = BoundingBoxMetricsSchema(
+        width_m=Decimal("1.234567890"),
+        height_m=Decimal("2.345678901"),
+        depth_m=Decimal("3.456789012"),
+        center=[Decimal("1.1"), Decimal("2.2"), Decimal("3.3")],
+        min_point=[Decimal("0.0"), Decimal("0.0"), Decimal("0.0")],
+        max_point=[Decimal("10.0"), Decimal("10.0"), Decimal("10.0")],
+        diagonal_m=Decimal("5.123456789")
+    )
+    
+    # Test JSON serialization (should use str for Decimal)
+    import json
+    json_data = bbox.model_dump_json()
+    parsed = json.loads(json_data)
+    
+    # Check that values are strings (preserving precision)
+    assert parsed["width_m"] == "1.234567890", f"Expected string '1.234567890', got {parsed['width_m']}"
+    assert parsed["diagonal_m"] == "5.123456789", f"Expected string '5.123456789', got {parsed['diagonal_m']}"
+    
+    # Test Turkish conversion
+    turkish = bbox.to_turkish()
+    assert turkish["genişlik_m"] == "1.234567890", f"Turkish width should be string"
+    assert isinstance(turkish["merkez"], list), "Turkish center should be list"
+    assert turkish["merkez"][0] == "1.1", "Turkish center values should be strings"
+    
+    # Test VolumeMetricsSchema
+    volume = VolumeMetricsSchema(
+        volume_m3=Decimal("0.001234567"),
+        mass_kg=Decimal("2.345678901"),
+        density_kg_m3=Decimal("1000.123456")
+    )
+    
+    json_data = volume.model_dump_json()
+    parsed = json.loads(json_data)
+    assert parsed["volume_m3"] == "0.001234567", "Volume should preserve precision"
+    assert parsed["mass_kg"] == "2.345678901", "Mass should preserve precision"
+    
+    # Test RuntimeTelemetrySchema
+    telemetry = RuntimeTelemetrySchema(
+        duration_ms=1234,
+        cpu_percent_avg=Decimal("45.678"),
+        ram_peak_mb=Decimal("512.345")
+    )
+    
+    json_data = telemetry.model_dump_json()
+    parsed = json.loads(json_data)
+    assert parsed["cpu_percent_avg"] == "45.678", "CPU percent should preserve precision"
+    assert parsed["ram_peak_mb"] == "512.345", "RAM should preserve precision"
+    
+    print("[PASS] Decimal schemas tests passed")
 
 
 def test_locale_independent_formatting():
@@ -187,7 +249,7 @@ def test_locale_independent_formatting():
 def main():
     """Run all verification tests."""
     print("=" * 60)
-    print("PR #454 Fixes Verification")
+    print("PR #455 Decimal Precision Fixes Verification")
     print("=" * 60)
     
     try:
@@ -195,6 +257,7 @@ def main():
         test_integer_formatting()
         test_thread_safety()
         test_cpu_metric_naming()
+        test_decimal_schemas()
         test_locale_independent_formatting()
         
         print("\n" + "=" * 60)
@@ -205,7 +268,8 @@ def main():
         print("2. [PASS] Thread-safe formatting without setlocale()")
         print("3. [PASS] Integers formatted without unnecessary decimals")
         print("4. [PASS] cpu_percent_avg used instead of cpu_percent_peak")
-        print("5. [PASS] Locale-independent formatting works correctly")
+        print("5. [PASS] Pydantic schemas use Decimal types with str JSON encoding")
+        print("6. [PASS] Locale-independent formatting works correctly")
         
     except AssertionError as e:
         print("\n" + "=" * 60)

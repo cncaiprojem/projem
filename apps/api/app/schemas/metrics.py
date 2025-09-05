@@ -25,7 +25,7 @@ class ModelMetricsBase(BaseModel):
     
     model_config = ConfigDict(
         json_encoders={
-            Decimal: lambda v: float(v)  # Convert Decimal to float for JSON serialization
+            Decimal: str  # Preserve exact precision by converting to string
         }
     )
 
@@ -57,46 +57,46 @@ class ShapeMetricsSchema(ModelMetricsBase):
 class BoundingBoxMetricsSchema(ModelMetricsBase):
     """Bounding box dimensional metrics."""
     
-    width_m: float = Field(description="Genişlik (m) / Width in meters")
-    height_m: float = Field(description="Yükseklik (m) / Height in meters")
-    depth_m: float = Field(description="Derinlik (m) / Depth in meters")
-    center: List[float] = Field(description="Merkez noktası [x,y,z] / Center point")
-    min_point: List[float] = Field(description="Minimum köşe [x,y,z] / Minimum corner")
-    max_point: List[float] = Field(description="Maksimum köşe [x,y,z] / Maximum corner")
-    diagonal_m: Optional[float] = Field(None, description="Köşegen uzunluğu (m) / Diagonal length")
+    width_m: Decimal = Field(description="Genişlik (m) / Width in meters")
+    height_m: Decimal = Field(description="Yükseklik (m) / Height in meters")
+    depth_m: Decimal = Field(description="Derinlik (m) / Depth in meters")
+    center: List[Decimal] = Field(description="Merkez noktası [x,y,z] / Center point")
+    min_point: List[Decimal] = Field(description="Minimum köşe [x,y,z] / Minimum corner")
+    max_point: List[Decimal] = Field(description="Maksimum köşe [x,y,z] / Maximum corner")
+    diagonal_m: Optional[Decimal] = Field(None, description="Köşegen uzunluğu (m) / Diagonal length")
     
     def to_turkish(self) -> Dict[str, Any]:
         """Convert to Turkish localized format."""
         return {
-            "genişlik_m": self.width_m,
-            "yükseklik_m": self.height_m,
-            "derinlik_m": self.depth_m,
-            "merkez": self.center,
-            "min_nokta": self.min_point,
-            "maks_nokta": self.max_point,
-            "köşegen_m": self.diagonal_m
+            "genişlik_m": str(self.width_m) if self.width_m is not None else None,
+            "yükseklik_m": str(self.height_m) if self.height_m is not None else None,
+            "derinlik_m": str(self.depth_m) if self.depth_m is not None else None,
+            "merkez": [str(v) for v in self.center] if self.center else None,
+            "min_nokta": [str(v) for v in self.min_point] if self.min_point else None,
+            "maks_nokta": [str(v) for v in self.max_point] if self.max_point else None,
+            "köşegen_m": str(self.diagonal_m) if self.diagonal_m is not None else None
         }
 
 
 class VolumeMetricsSchema(ModelMetricsBase):
     """Volume and mass metrics."""
     
-    volume_m3: Optional[float] = Field(None, description="Hacim (m³) / Volume in cubic meters")
-    surface_area_m2: Optional[float] = Field(None, description="Yüzey alanı (m²) / Surface area")
+    volume_m3: Optional[Decimal] = Field(None, description="Hacim (m³) / Volume in cubic meters")
+    surface_area_m2: Optional[Decimal] = Field(None, description="Yüzey alanı (m²) / Surface area")
     material_name: Optional[str] = Field(None, description="Malzeme adı / Material name")
-    density_kg_m3: Optional[float] = Field(None, description="Yoğunluk (kg/m³) / Density")
+    density_kg_m3: Optional[Decimal] = Field(None, description="Yoğunluk (kg/m³) / Density")
     density_source: Optional[str] = Field(None, description="Yoğunluk kaynağı / Density source")
-    mass_kg: Optional[float] = Field(None, description="Kütle (kg) / Mass in kilograms")
+    mass_kg: Optional[Decimal] = Field(None, description="Kütle (kg) / Mass in kilograms")
     
     def to_turkish(self) -> Dict[str, Any]:
         """Convert to Turkish localized format."""
         return {
-            "hacim_m3": self.volume_m3,
-            "yüzey_alanı_m2": self.surface_area_m2,
+            "hacim_m3": str(self.volume_m3) if self.volume_m3 is not None else None,
+            "yüzey_alanı_m2": str(self.surface_area_m2) if self.surface_area_m2 is not None else None,
             "malzeme": self.material_name,
-            "yoğunluk_kg_m3": self.density_kg_m3,
+            "yoğunluk_kg_m3": str(self.density_kg_m3) if self.density_kg_m3 is not None else None,
             "yoğunluk_kaynağı": self.density_source,
-            "kütle_kg": self.mass_kg
+            "kütle_kg": str(self.mass_kg) if self.mass_kg is not None else None
         }
 
 
@@ -105,8 +105,8 @@ class MeshMetricsSchema(ModelMetricsBase):
     
     triangle_count: Optional[int] = Field(None, description="Üçgen sayısı / Number of triangles")
     vertex_count: Optional[int] = Field(None, description="Köşe sayısı / Number of vertices")
-    linear_deflection: Optional[float] = Field(None, description="Doğrusal sapma / Linear deflection")
-    angular_deflection: Optional[float] = Field(None, description="Açısal sapma / Angular deflection")
+    linear_deflection: Optional[Decimal] = Field(None, description="Doğrusal sapma / Linear deflection")
+    angular_deflection: Optional[Decimal] = Field(None, description="Açısal sapma / Angular deflection")
     relative: Optional[bool] = Field(None, description="Göreli sapma / Relative deflection")
     stl_hash: Optional[str] = Field(None, description="STL dosya özeti / STL file hash")
     
@@ -115,8 +115,8 @@ class MeshMetricsSchema(ModelMetricsBase):
         return {
             "üçgen_sayısı": self.triangle_count,
             "köşe_sayısı": self.vertex_count,
-            "doğrusal_sapma": self.linear_deflection,
-            "açısal_sapma": self.angular_deflection,
+            "doğrusal_sapma": str(self.linear_deflection) if self.linear_deflection is not None else None,
+            "açısal_sapma": str(self.angular_deflection) if self.angular_deflection is not None else None,
             "göreli": self.relative,
             "stl_özeti": self.stl_hash[:8] if self.stl_hash else None
         }
@@ -127,11 +127,11 @@ class RuntimeTelemetrySchema(ModelMetricsBase):
     
     duration_ms: int = Field(description="Toplam süre (ms) / Total duration")
     phase_timings: Optional[Dict[str, int]] = Field(None, description="Faz süreleri / Phase timings")
-    cpu_user_s: Optional[float] = Field(None, description="CPU kullanıcı süresi (s) / User CPU time")
-    cpu_system_s: Optional[float] = Field(None, description="CPU sistem süresi (s) / System CPU time")
-    cpu_percent_avg: Optional[float] = Field(None, description="CPU ortalama kullanımı (%) / Average CPU usage")
-    ram_peak_mb: Optional[float] = Field(None, description="Bellek tepe kullanımı (MB) / Peak RAM usage")
-    ram_delta_mb: Optional[float] = Field(None, description="Bellek değişimi (MB) / Memory delta")
+    cpu_user_s: Optional[Decimal] = Field(None, description="CPU kullanıcı süresi (s) / User CPU time")
+    cpu_system_s: Optional[Decimal] = Field(None, description="CPU sistem süresi (s) / System CPU time")
+    cpu_percent_avg: Optional[Decimal] = Field(None, description="CPU ortalama kullanımı (%) / Average CPU usage")
+    ram_peak_mb: Optional[Decimal] = Field(None, description="Bellek tepe kullanımı (MB) / Peak RAM usage")
+    ram_delta_mb: Optional[Decimal] = Field(None, description="Bellek değişimi (MB) / Memory delta")
     worker_pid: Optional[int] = Field(None, description="İşlem ID / Process ID")
     worker_hostname: Optional[str] = Field(None, description="Sunucu adı / Worker hostname")
     worker_thread_id: Optional[int] = Field(None, description="İş parçacığı ID / Thread ID")
@@ -142,11 +142,11 @@ class RuntimeTelemetrySchema(ModelMetricsBase):
         return {
             "süre_ms": self.duration_ms,
             "faz_süreleri": self.phase_timings,
-            "cpu_kullanıcı_sn": self.cpu_user_s,
-            "cpu_sistem_sn": self.cpu_system_s,
-            "cpu_ortalama_yüzde": self.cpu_percent_avg,
-            "bellek_tepe_mb": self.ram_peak_mb,
-            "bellek_delta_mb": self.ram_delta_mb,
+            "cpu_kullanıcı_sn": str(self.cpu_user_s) if self.cpu_user_s is not None else None,
+            "cpu_sistem_sn": str(self.cpu_system_s) if self.cpu_system_s is not None else None,
+            "cpu_ortalama_yüzde": str(self.cpu_percent_avg) if self.cpu_percent_avg is not None else None,
+            "bellek_tepe_mb": str(self.ram_peak_mb) if self.ram_peak_mb is not None else None,
+            "bellek_delta_mb": str(self.ram_delta_mb) if self.ram_delta_mb is not None else None,
             "işçi_pid": self.worker_pid,
             "işçi_sunucu": self.worker_hostname,
             "iş_parçacığı_id": self.worker_thread_id,
@@ -191,19 +191,24 @@ class ModelMetricsSchema(ModelMetricsBase):
 class ModelMetricsSummary(BaseModel):
     """Summary metrics for display."""
     
-    model_config = ConfigDict(from_attributes=True)
+    model_config = ConfigDict(
+        from_attributes=True,
+        json_encoders={
+            Decimal: str  # Preserve exact precision by converting to string
+        }
+    )
     
     # Key metrics
     solids_count: Optional[int] = Field(None, description="Katı sayısı / Number of solids")
     faces_count: Optional[int] = Field(None, description="Yüzey sayısı / Number of faces")
-    volume_m3: Optional[float] = Field(None, description="Hacim (m³) / Volume")
-    mass_kg: Optional[float] = Field(None, description="Kütle (kg) / Mass")
+    volume_m3: Optional[Decimal] = Field(None, description="Hacim (m³) / Volume")
+    mass_kg: Optional[Decimal] = Field(None, description="Kütle (kg) / Mass")
     triangles_count: Optional[int] = Field(None, description="Üçgen sayısı / Triangle count")
     
     # Dimensions
-    width_mm: Optional[float] = Field(None, description="Genişlik (mm) / Width in mm")
-    height_mm: Optional[float] = Field(None, description="Yükseklik (mm) / Height in mm")
-    depth_mm: Optional[float] = Field(None, description="Derinlik (mm) / Depth in mm")
+    width_mm: Optional[Decimal] = Field(None, description="Genişlik (mm) / Width in mm")
+    height_mm: Optional[Decimal] = Field(None, description="Yükseklik (mm) / Height in mm")
+    depth_mm: Optional[Decimal] = Field(None, description="Derinlik (mm) / Depth in mm")
     
     # Performance
     extraction_time_ms: Optional[int] = Field(None, description="Çıkarım süresi (ms) / Extraction time")
@@ -235,9 +240,9 @@ class ModelMetricsSummary(BaseModel):
         # Bounding box - convert to mm for display
         if metrics.bounding_box:
             kwargs.update({
-                "width_mm": metrics.bounding_box.width_m * METERS_TO_MILLIMETERS,
-                "height_mm": metrics.bounding_box.height_m * METERS_TO_MILLIMETERS,
-                "depth_mm": metrics.bounding_box.depth_m * METERS_TO_MILLIMETERS
+                "width_mm": metrics.bounding_box.width_m * Decimal(str(METERS_TO_MILLIMETERS)),
+                "height_mm": metrics.bounding_box.height_m * Decimal(str(METERS_TO_MILLIMETERS)),
+                "depth_mm": metrics.bounding_box.depth_m * Decimal(str(METERS_TO_MILLIMETERS))
             })
         
         # Performance
