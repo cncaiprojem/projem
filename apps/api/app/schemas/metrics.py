@@ -12,7 +12,7 @@ Comprehensive Pydantic schemas for model metrics including:
 
 import locale as system_locale
 from decimal import Decimal
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -271,6 +271,63 @@ TURKISH_METRIC_LABELS = {
 }
 
 
+def _format_number_locale_independent(
+    value: Union[float, Decimal, int], 
+    thousands_sep: str = ',', 
+    decimal_sep: str = '.', 
+    decimals: int = 3
+) -> str:
+    """
+    Format a number with custom separators in a locale-independent way.
+    
+    This function does not rely on the system locale and produces consistent
+    output regardless of the system's locale settings.
+    
+    Args:
+        value: The number to format
+        thousands_sep: Character to use for thousands separator
+        decimal_sep: Character to use for decimal point
+        decimals: Number of decimal places
+    
+    Returns:
+        Formatted string with specified separators
+    """
+    # Convert to float if needed and round to specified decimals
+    if isinstance(value, (int, Decimal)):
+        value = float(value)
+    
+    # Format with standard Python formatting (always uses . for decimal)
+    # This is locale-independent since we specify the format explicitly
+    formatted = f"{value:.{decimals}f}"
+    
+    # Split on the decimal point
+    parts = formatted.split('.')
+    integer_part = parts[0]
+    decimal_part = parts[1] if len(parts) > 1 else ""
+    
+    # Handle negative sign
+    is_negative = integer_part.startswith('-')
+    if is_negative:
+        integer_part = integer_part[1:]
+    
+    # Add thousands separators to integer part
+    # Process from right to left, adding separator every 3 digits
+    formatted_integer = ""
+    for i, digit in enumerate(reversed(integer_part)):
+        if i > 0 and i % 3 == 0:
+            formatted_integer = thousands_sep + formatted_integer
+        formatted_integer = digit + formatted_integer
+    
+    # Add negative sign back if needed
+    if is_negative:
+        formatted_integer = '-' + formatted_integer
+    
+    # Combine integer and decimal parts with the specified decimal separator
+    if decimal_part:
+        return formatted_integer + decimal_sep + decimal_part
+    return formatted_integer
+
+
 def format_metric_for_display(value: Any, locale_code: str = "en") -> str:
     """
     Format metric value for display with proper localization.
@@ -317,15 +374,16 @@ def format_metric_for_display(value: Any, locale_code: str = "en") -> str:
                 
                 return formatted
             else:
-                # English formatting with thousands separator
-                return f"{value:,.3f}"
+                # English formatting with thousands separator - use locale-independent approach
+                return _format_number_locale_independent(value, thousands_sep=',', decimal_sep='.', decimals=3)
         except system_locale.Error:
-            # Fallback to manual formatting if locale fails
+            # Fallback to locale-independent manual formatting if locale fails
             if locale_code == "tr":
-                # Turkish: comma as decimal, period as thousands
-                return f"{value:,.3f}".replace(".", "X").replace(",", ".").replace("X", ",")
+                # Turkish: period as thousands, comma as decimal
+                return _format_number_locale_independent(value, thousands_sep='.', decimal_sep=',', decimals=3)
             else:
-                return f"{value:,.3f}"
+                # English: comma as thousands, period as decimal
+                return _format_number_locale_independent(value, thousands_sep=',', decimal_sep='.', decimals=3)
         finally:
             # Always reset locale to original if it was changed
             if locale_changed and original_locale is not None:
