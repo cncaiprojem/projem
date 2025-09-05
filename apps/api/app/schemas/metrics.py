@@ -314,7 +314,12 @@ def _format_number_locale_independent(
     Returns:
         Formatted string with specified separators
     """
-    # Handle Decimal with quantization to preserve precision
+    # Convert all numeric types to Decimal for consistent handling
+    # This ensures consistent rounding and precision across all number types
+    if isinstance(value, (float, int)):
+        # Convert float/int to Decimal to avoid precision loss
+        value = Decimal(str(value))
+    
     if isinstance(value, Decimal):
         # Quantize the Decimal to the specified decimal places
         # Use string formatting to create the precision specifier
@@ -322,20 +327,9 @@ def _format_number_locale_independent(
         value = value.quantize(precision, rounding=ROUND_HALF_UP)
         # Use str() to preserve exact Decimal value without float conversion
         formatted = str(value)
-    elif isinstance(value, int):
-        # For integers, don't add decimal places
-        if decimals == 0:
-            formatted = str(value)
-        else:
-            # Convert int to Decimal for consistent formatting when decimals needed
-            value = Decimal(str(value))
-            precision = Decimal(f'1e-{decimals}')
-            value = value.quantize(precision, rounding=ROUND_HALF_UP)
-            # Use str() to preserve exact value
-            formatted = str(value)
     else:
-        # For float, use standard formatting
-        formatted = f"{value:.{decimals}f}"
+        # Fallback for any other type (shouldn't happen with proper type checking)
+        formatted = str(value)
     
     # Split on the decimal point
     parts = formatted.split('.')

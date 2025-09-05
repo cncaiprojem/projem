@@ -258,7 +258,7 @@ class MetricsExtractor:
                 job_id=job_id,
                 duration_ms=telemetry.duration_ms if telemetry else 0,
                 shape_valid=metrics.shape.is_valid if metrics.shape else False,
-                volume_m3=float(metrics.volume.volume_m3) if metrics.volume and metrics.volume.volume_m3 else None,
+                volume_m3=metrics.volume.volume_m3 if metrics.volume and metrics.volume.volume_m3 is not None else None,
                 triangles=metrics.mesh.triangle_count if metrics.mesh else None,
                 warnings=len(metrics.warnings),
                 correlation_id=correlation_id
@@ -550,9 +550,9 @@ class MetricsExtractor:
         if RESOURCE_AVAILABLE and self._cpu_start:
             try:
                 rusage = resource.getrusage(resource.RUSAGE_SELF)
-                # Convert to Decimal for precision
-                telemetry.cpu_user_s = float(Decimal(str(rusage.ru_utime)) - Decimal(str(self._cpu_start['user'])))
-                telemetry.cpu_system_s = float(Decimal(str(rusage.ru_stime)) - Decimal(str(self._cpu_start['system'])))
+                # Keep as Decimal for precision - schema expects Decimal
+                telemetry.cpu_user_s = Decimal(str(rusage.ru_utime)) - Decimal(str(self._cpu_start['user']))
+                telemetry.cpu_system_s = Decimal(str(rusage.ru_stime)) - Decimal(str(self._cpu_start['system']))
             except Exception as e:
                 logger.debug(f"Could not capture CPU metrics: {e}")
         
@@ -560,20 +560,20 @@ class MetricsExtractor:
         if self._process:
             try:
                 memory_info = self._process.memory_info()
-                # Convert to MB using Decimal for precision
+                # Convert to MB using Decimal for precision - schema expects Decimal
                 current_mb = Decimal(str(memory_info.rss)) / (Decimal('1024') * Decimal('1024'))
-                # Store as float for schema compatibility but maintain precision in calculation
-                telemetry.ram_peak_mb = float(current_mb)
+                # Keep as Decimal - schema expects Decimal, not float
+                telemetry.ram_peak_mb = current_mb
                 
                 # Check if memory_start is not None explicitly
                 if self._memory_start is not None:
                     delta_mb = current_mb - self._memory_start
-                    telemetry.ram_delta_mb = float(delta_mb)
+                    telemetry.ram_delta_mb = delta_mb
                 
                 # Get average CPU percent since start_telemetry() was called
                 cpu_percent = self._process.cpu_percent()
-                # Convert to Decimal for consistency, then back to float for schema
-                telemetry.cpu_percent_avg = float(Decimal(str(cpu_percent)))
+                # Keep as Decimal for consistency - schema expects Decimal
+                telemetry.cpu_percent_avg = Decimal(str(cpu_percent))
             except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess) as e:
                 logger.debug(f"Could not capture psutil metrics: {e}")
         
