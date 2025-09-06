@@ -163,10 +163,17 @@ class WorkerProgressReporter:
             # Try to get existing event loop first
             try:
                 loop = asyncio.get_running_loop()
-                # If we have a running loop, schedule the coroutine
-                asyncio.ensure_future(
+                # If we have a running loop, schedule the coroutine with proper error handling
+                task = asyncio.create_task(
                     redis_progress_pubsub.publish_progress(job_id, progress)
                 )
+                # Add error callback to log failures
+                def handle_publish_error(future):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.warning(f"Failed to publish progress to Redis: {e}")
+                task.add_done_callback(handle_publish_error)
             except RuntimeError:
                 # No running loop, use asyncio.run()
                 asyncio.run(
@@ -295,10 +302,17 @@ class WorkerProgressReporter:
             # Try to get existing event loop first
             try:
                 loop = asyncio.get_running_loop()
-                # If we have a running loop, schedule the coroutine
-                asyncio.ensure_future(
+                # If we have a running loop, schedule the coroutine with proper error handling
+                task = asyncio.create_task(
                     redis_progress_pubsub.publish_progress(job_id, progress, force=kwargs.get("milestone", False))
                 )
+                # Add error callback to log failures
+                def handle_phase_error(future):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.warning(f"Failed to publish operation phase: {e}")
+                task.add_done_callback(handle_phase_error)
             except RuntimeError:
                 # No running loop, use asyncio.run()
                 asyncio.run(
@@ -453,14 +467,21 @@ class WorkerProgressReporter:
             # Try to get existing event loop first
             try:
                 loop = asyncio.get_running_loop()
-                # If we have a running loop, schedule the coroutine
-                asyncio.ensure_future(
+                # If we have a running loop, schedule the coroutine with proper error handling
+                task = asyncio.create_task(
                     redis_progress_pubsub.publish_progress(
                         job_id,
                         progress,
                         force=progress.milestone
                     )
                 )
+                # Add error callback to log failures
+                def handle_async_error(future):
+                    try:
+                        future.result()
+                    except Exception as e:
+                        logger.warning(f"Failed to publish progress: {e}")
+                task.add_done_callback(handle_async_error)
             except RuntimeError:
                 # No running loop, use asyncio.run()
                 asyncio.run(

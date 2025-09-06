@@ -284,7 +284,7 @@ async def websocket_job_progress(
                                     logger.info(f"Job {job_id} finished with status {progress.status}")
                                     break
                                     
-                            except Exception as e:
+                            except (json.JSONDecodeError, ValueError) as e:
                                 logger.warning(f"Failed to parse progress message: {e}")
                     
                     except asyncio.CancelledError:

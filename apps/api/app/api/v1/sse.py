@@ -118,7 +118,7 @@ async def progress_event_generator(
         ) as pubsub:
             
             # Send keepalive every 30 seconds
-            last_keepalive = asyncio.get_event_loop().time()
+            last_keepalive = asyncio.get_running_loop().time()
             keepalive_interval = 30.0
             
             while True:
@@ -165,11 +165,11 @@ async def progress_event_generator(
                                 yield final_event
                                 break
                         
-                        except Exception as e:
+                        except (json.JSONDecodeError, ValueError) as e:
                             logger.warning(f"Failed to parse progress message: {e}")
                     
                     # Send keepalive if needed
-                    current_time = asyncio.get_event_loop().time()
+                    current_time = asyncio.get_running_loop().time()
                     if current_time - last_keepalive > keepalive_interval:
                         keepalive_event = {
                             "event": "keepalive",
