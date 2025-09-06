@@ -71,16 +71,17 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
                     correlation_id=correlation_id
                 )
                 
-                # Update metrics
+                # Update metrics with normalized path
+                normalized_path = self._normalize_path(str(request.url.path))
                 metrics.http_requests_total.labels(
                     method=request.method,
-                    endpoint=str(request.url.path),
+                    endpoint=normalized_path,
                     status=response.status_code
                 ).inc()
                 
                 metrics.http_request_duration_seconds.labels(
                     method=request.method,
-                    endpoint=str(request.url.path)
+                    endpoint=normalized_path
                 ).observe(duration_ms / 1000)
             
             return response
@@ -229,13 +230,13 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         # HTTP metrics
         metrics.http_requests_total.labels(
             method=request.method,
-            endpoint=str(request.url.path),
+            endpoint=self._normalize_path(str(request.url.path)),
             status=http_status
         ).inc()
         
         metrics.http_request_duration_seconds.labels(
             method=request.method,
-            endpoint=str(request.url.path)
+            endpoint=self._normalize_path(str(request.url.path))
         ).observe(duration_ms / 1000)
         
         # Error metrics
@@ -247,31 +248,78 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             http_status=http_status
         ).inc()
         
-        # Track error rate per endpoint
-        endpoint_key = f"{request.method}:{request.url.path}"
+        # Track error rate per endpoint with normalized path
+        normalized_path = self._normalize_path(str(request.url.path))
+        endpoint_key = f"{request.method}:{normalized_path}"
         self.error_counts[endpoint_key] = self.error_counts.get(endpoint_key, 0) + 1
     
+    def _normalize_path(self, path: str) -> str:
+        """Normalize path by replacing dynamic segments with placeholders.
+        
+        This prevents sensitive information in path parameters from being
+        exposed in metrics and logs.
+        
+        Examples:
+            /users/123 -> /users/{id}
+            /jobs/abc-def-123 -> /jobs/{id}
+            /queues/my_queue/pause -> /queues/{name}/pause
+        """
+        import re
+        
+        # Common patterns for dynamic segments
+        patterns = [
+            # UUIDs
+            (r'/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})', '/{id}'),
+            # Numeric IDs
+            (r'/(\d+)(?=/|$)', '/{id}'),
+            # Alphanumeric IDs (at least 8 chars, common for job IDs)
+            (r'/([a-zA-Z0-9_-]{8,})(?=/|$)', '/{id}'),
+            # Queue names or resource names between slashes
+            (r'/queues/([^/]+)/', '/queues/{name}/'),
+            (r'/users/([^/]+)/', '/users/{username}/'),
+            (r'/projects/([^/]+)/', '/projects/{name}/'),
+            (r'/artefacts/([^/]+)/', '/artefacts/{id}/'),
+            (r'/jobs/([^/]+)/', '/jobs/{id}/'),
+        ]
+        
+        normalized = path
+        for pattern, replacement in patterns:
+            normalized = re.sub(pattern, replacement, normalized)
+        
+        return normalized
+    
     def _get_error_category(self, error_code: ErrorCode) -> str:
-        """Get error category from error code."""
+        """Get error category from error code using dictionary lookup."""
+        
+        # Dictionary mapping prefixes to categories for cleaner code
+        category_map = {
+            "AI_": "ai",
+            "VALIDATION_": "validation",
+            "FC_": "freecad",
+            "STORAGE_": "storage",
+            "AUTH_": "auth",
+        }
+        
+        # Special cases
+        special_cases = {
+            "RATE_LIMITED": "rate_limit",
+            "TIMEOUT_WORKER": "system",
+            "MEMORY_LIMIT_EXCEEDED": "system",
+            "CPU_LIMIT_EXCEEDED": "system",
+        }
         
         code_str = error_code.value
         
-        if code_str.startswith("AI_"):
-            return "ai"
-        elif code_str.startswith("VALIDATION_"):
-            return "validation"
-        elif code_str.startswith("FC_"):
-            return "freecad"
-        elif code_str.startswith("STORAGE_"):
-            return "storage"
-        elif code_str.startswith("AUTH_"):
-            return "auth"
-        elif code_str == "RATE_LIMITED":
-            return "rate_limit"
-        elif code_str in ["TIMEOUT_WORKER", "MEMORY_LIMIT_EXCEEDED", "CPU_LIMIT_EXCEEDED"]:
-            return "system"
-        else:
-            return "unknown"
+        # Check special cases first
+        if code_str in special_cases:
+            return special_cases[code_str]
+        
+        # Check prefixes
+        for prefix, category in category_map.items():
+            if code_str.startswith(prefix):
+                return category
+        
+        return "unknown"
 
 
 def create_error_handlers(app: FastAPI) -> None:
