@@ -41,6 +41,7 @@ from app.schemas.artefact import (
     ArtefactUpdate,
 )
 from app.services.audit_service import audit_service
+from app.core.storage import get_storage_client
 from app.services.storage_client import StorageClient, StorageClientError
 from app.tasks.garbage_collection import schedule_artefact_gc
 
@@ -106,49 +107,23 @@ class ArtefactServiceV2:
         """
         Initialize enhanced artefact service.
         
+        Note: Bucket initialization is now handled at application startup
+        via the lifespan context manager to avoid redundant initialization
+        on every request (PR #471 fix).
+        
         Args:
             db: Database session
-            storage_client: Storage client instance
+            storage_client: Storage client instance (uses singleton if not provided)
             default_bucket: Default bucket name
         """
         self.db = db
-        self.storage_client = storage_client or StorageClient()
+        # Use singleton storage client if not provided
+        self.storage_client = storage_client or get_storage_client()
         self.default_bucket = default_bucket or "artefacts"
 
         # Presigned URL defaults
         self.default_presign_ttl = 900  # 15 minutes
         self.max_presign_ttl = 86400  # 24 hours
-
-        # Initialize bucket with versioning and lifecycle
-        self._initialize_bucket()
-
-    def _initialize_bucket(self):
-        """Initialize default bucket with versioning and lifecycle rules."""
-        try:
-            # Enable versioning
-            self.storage_client.enable_bucket_versioning(self.default_bucket)
-
-            # Setup lifecycle rules
-            self.storage_client.setup_lifecycle_rules(self.default_bucket)
-
-            # Set private bucket policy
-            self.storage_client.set_bucket_policy_private(self.default_bucket)
-
-            logger.info("Bucket initialized", bucket=self.default_bucket)
-
-        except Exception as e:
-            logger.error(
-                "Failed to initialize bucket",
-                bucket=self.default_bucket,
-                error=str(e),
-            )
-            # Raise an error to prevent the application from continuing with an uninitialized bucket
-            raise ArtefactServiceV2Error(
-                code="storage.unavailable",
-                message=f"Failed to initialize storage bucket: {str(e)}",
-                turkish_message=f"Depolama kovası başlatılamadı: {str(e)}",
-                status_code=503,  # Service Unavailable
-            )
 
     async def upload_artefact(
         self,
@@ -581,7 +556,7 @@ class ArtefactServiceV2:
                 },
             )
 
-            self.db.commit()
+            await asyncio.to_thread(self.db.commit)
 
             logger.info(
                 "Artefact deletion scheduled",
@@ -590,10 +565,10 @@ class ArtefactServiceV2:
             )
 
         except ArtefactServiceV2Error:
-            self.db.rollback()
+            await asyncio.to_thread(self.db.rollback)
             raise
         except Exception as e:
-            self.db.rollback()
+            await asyncio.to_thread(self.db.rollback)
             logger.error(
                 "Failed to schedule artefact deletion",
                 artefact_id=artefact_id,
@@ -616,8 +591,10 @@ class ArtefactServiceV2:
             Number of artefacts scheduled for deletion
         """
         try:
-            # Get all artefacts for the job
-            artefacts = self.db.query(Artefact).filter_by(job_id=job_id).all()
+            # Get all artefacts for the job - run in thread pool
+            artefacts = await asyncio.to_thread(
+                self.db.query(Artefact).filter_by(job_id=job_id).all
+            )
 
             deleted_count = 0
             for artefact in artefacts:
@@ -650,7 +627,7 @@ class ArtefactServiceV2:
                     )
                     artefact.last_error = str(e)
 
-            self.db.commit()
+            await asyncio.to_thread(self.db.commit)
 
             logger.info(
                 "Job artefacts scheduled for deletion",
@@ -661,7 +638,7 @@ class ArtefactServiceV2:
             return deleted_count
 
         except Exception as e:
-            self.db.rollback()
+            await asyncio.to_thread(self.db.rollback)
             logger.error(
                 "Failed to delete job artefacts",
                 job_id=job_id,
@@ -681,9 +658,9 @@ class ArtefactServiceV2:
             Number of retried deletions
         """
         try:
-            # Find artefacts with deletion pending and errors
-            failed_artefacts = (
-                self.db.query(Artefact)
+            # Find artefacts with deletion pending and errors - run in thread pool
+            failed_artefacts = await asyncio.to_thread(
+                lambda: self.db.query(Artefact)
                 .filter(
                     and_(
                         Artefact.deletion_pending == True,
@@ -718,7 +695,7 @@ class ArtefactServiceV2:
                     )
                     artefact.last_error = str(e)
 
-            self.db.commit()
+            await asyncio.to_thread(self.db.commit)
 
             logger.info(
                 "Retried failed deletions",
@@ -729,7 +706,7 @@ class ArtefactServiceV2:
             return retry_count
 
         except Exception as e:
-            self.db.rollback()
+            await asyncio.to_thread(self.db.rollback)
             logger.error("Failed to retry deletions", error=str(e))
             return 0
 

@@ -384,6 +384,11 @@ class TestArtefactServiceV2:
     @pytest.mark.asyncio
     async def test_turkish_error_messages(self, db_session, mock_storage_client):
         """Test Turkish localization in error messages."""
+        # Create test user
+        user = User(id=1, email="test@example.com", role="user")
+        db_session.add(user)
+        db_session.commit()
+        
         service = ArtefactServiceV2(db_session, mock_storage_client)
 
         # Test job not found error

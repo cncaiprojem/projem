@@ -351,7 +351,6 @@ async def delete_artefact(
     status_code=status.HTTP_202_ACCEPTED,
     summary="Delete all artefacts for a job",
     description="Schedule deletion of all artefacts associated with a job",
-    dependencies=[Depends(get_current_user)],
 )
 async def delete_job_artefacts(
     job_id: int,
@@ -401,7 +400,6 @@ async def delete_job_artefacts(
     status_code=status.HTTP_200_OK,
     summary="Retry failed deletions",
     description="Retry garbage collection for failed deletions",
-    dependencies=[Depends(get_current_user)],
 )
 async def retry_failed_deletions(
     db: Session = Depends(get_db),

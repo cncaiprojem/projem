@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Verification script for PR #468 fixes.
+Verification script for PR #471 fixes.
 Tests that the code changes are correct without requiring full environment setup.
 """
 
