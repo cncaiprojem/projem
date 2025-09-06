@@ -217,7 +217,6 @@ def bulk_artefact_gc(job_id: int) -> dict:
         Dict with bulk deletion results
     """
     db = SessionLocal()
-    storage_client = StorageClient()
     
     try:
         # Get all artefacts for the job

@@ -201,7 +201,7 @@ async def generate_download_url(
         # Generate presigned URL
         url, artefact = await service.generate_presigned_download_url(
             artefact_id=artefact_id,
-            user_id=current_user.id,
+            user=current_user,
             expires_in=expires_in,
             response_content_disposition=content_disposition,
             ip_address=client_ip,
@@ -259,7 +259,7 @@ async def generate_head_url(
         # Generate HEAD URL
         url = await service.generate_presigned_head_url(
             artefact_id=artefact_id,
-            user_id=current_user.id,
+            user=current_user,
             expires_in=expires_in,
         )
         
@@ -310,7 +310,7 @@ async def delete_artefact(
     try:
         await service.delete_artefact(
             artefact_id=artefact_id,
-            user_id=current_user.id,
+            user=current_user,
             force=force,
             ip_address=client_ip,
             user_agent=user_agent,
@@ -467,7 +467,7 @@ async def validate_artefact(
     try:
         is_valid = await service.validate_artefact_integrity(
             artefact_id=artefact_id,
-            user_id=current_user.id,
+            user=current_user,
         )
         
         return {

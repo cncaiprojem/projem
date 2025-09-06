@@ -267,7 +267,7 @@ class ArtefactServiceV2:
             await audit_service.create_audit_entry(
                 db=self.db,
                 event_type="artefact_uploaded",
-                user_id=user_id,
+                user_id=user.id,
                 scope_type="artefact",
                 scope_id=artefact.id,
                 resource=f"artefact/{artefact_type}",
@@ -321,7 +321,7 @@ class ArtefactServiceV2:
     async def generate_presigned_download_url(
         self,
         artefact_id: int,
-        user_id: int,
+        user: User,
         expires_in: Optional[int] = None,
         response_content_type: Optional[str] = None,
         response_content_disposition: Optional[str] = None,
@@ -333,7 +333,7 @@ class ArtefactServiceV2:
         
         Args:
             artefact_id: Artefact ID
-            user_id: User requesting download
+            user: User object requesting download
             expires_in: URL expiration in seconds (default 15 min, max 24 hours)
             response_content_type: Override content type
             response_content_disposition: Override disposition
@@ -345,7 +345,7 @@ class ArtefactServiceV2:
         """
         try:
             # Get artefact with access check
-            artefact = await self.get_artefact(artefact_id, user_id, check_access=True)
+            artefact = await self.get_artefact(artefact_id, user, check_access=True)
 
             # Validate and set expiration
             if expires_in is None:
@@ -371,7 +371,7 @@ class ArtefactServiceV2:
             await audit_service.create_audit_entry(
                 db=self.db,
                 event_type="presigned_url_generated",
-                user_id=user_id,
+                user_id=user.id,
                 scope_type="artefact",
                 scope_id=artefact_id,
                 resource=f"artefact/{artefact.type}",
@@ -388,7 +388,7 @@ class ArtefactServiceV2:
             logger.info(
                 "Presigned URL generated",
                 artefact_id=artefact_id,
-                user_id=user_id,
+                user_id=user.id,
                 expires_in=expires_in,
                 version_id=artefact.version_id,
             )
@@ -412,7 +412,7 @@ class ArtefactServiceV2:
     async def generate_presigned_head_url(
         self,
         artefact_id: int,
-        user_id: int,
+        user: User,
         expires_in: Optional[int] = None,
     ) -> str:
         """
@@ -420,7 +420,7 @@ class ArtefactServiceV2:
         
         Args:
             artefact_id: Artefact ID
-            user_id: User requesting validation
+            user: User object requesting validation
             expires_in: URL expiration in seconds
             
         Returns:
@@ -447,7 +447,7 @@ class ArtefactServiceV2:
     async def get_artefact(
         self,
         artefact_id: int,
-        user_id: int,
+        user: User,
         check_access: bool = True,
     ) -> Artefact:
         """
@@ -455,7 +455,7 @@ class ArtefactServiceV2:
         
         Args:
             artefact_id: Artefact ID
-            user_id: User requesting access
+            user: User object requesting access
             check_access: Whether to check user access
             
         Returns:
@@ -477,15 +477,12 @@ class ArtefactServiceV2:
             )
 
         if check_access:
-            # Check user access - run query in thread pool
-            user = await asyncio.to_thread(
-                self.db.query(User).filter_by(id=user_id).first
-            )
-            is_admin = user and user.role == "admin"
+            # Check user access - no need to query database, we already have the User object
+            is_admin = user.role == "admin"
 
             if not is_admin:
                 job = artefact.job
-                if job.user_id != user_id and artefact.created_by != user_id:
+                if job.user_id != user.id and artefact.created_by != user.id:
                     raise ArtefactServiceV2Error(
                         code="artefacts.access_denied",
                         message="You don't have access to this artefact",
@@ -497,7 +494,7 @@ class ArtefactServiceV2:
     async def delete_artefact(
         self,
         artefact_id: int,
-        user_id: int,
+        user: User,
         force: bool = False,
         ip_address: Optional[str] = None,
         user_agent: Optional[str] = None,
@@ -507,14 +504,14 @@ class ArtefactServiceV2:
         
         Args:
             artefact_id: Artefact ID to delete
-            user_id: User performing deletion
+            user: User object performing deletion
             force: Force delete even for invoices
             ip_address: Client IP for audit
             user_agent: Client user agent for audit
         """
         try:
             # Get artefact with access check
-            artefact = await self.get_artefact(artefact_id, user_id, check_access=True)
+            artefact = await self.get_artefact(artefact_id, user, check_access=True)
 
             # Check if it's an invoice (special handling)
             if artefact.type == "invoice" and not force:
@@ -542,7 +539,7 @@ class ArtefactServiceV2:
             await audit_service.create_audit_entry(
                 db=self.db,
                 event_type="artefact_deletion_scheduled",
-                user_id=user_id,
+                user_id=user.id,
                 scope_type="artefact",
                 scope_id=artefact_id,
                 resource=f"artefact/{artefact.type}",
@@ -561,7 +558,7 @@ class ArtefactServiceV2:
             logger.info(
                 "Artefact deletion scheduled",
                 artefact_id=artefact_id,
-                user_id=user_id,
+                user_id=user.id,
             )
 
         except ArtefactServiceV2Error:
@@ -713,14 +710,14 @@ class ArtefactServiceV2:
     async def validate_artefact_integrity(
         self,
         artefact_id: int,
-        user_id: int,
+        user: User,
     ) -> bool:
         """
         Validate artefact integrity by checking SHA256 and object existence.
         
         Args:
             artefact_id: Artefact ID
-            user_id: User requesting validation
+            user: User object requesting validation
             
         Returns:
             True if integrity check passes
@@ -731,7 +728,7 @@ class ArtefactServiceV2:
 
             # Generate HEAD URL to check if object exists
             head_url = await self.generate_presigned_head_url(
-                artefact_id, user_id, expires_in=60
+                artefact_id, user, expires_in=60
             )
 
             # Actually make a HEAD request to verify the object exists

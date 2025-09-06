@@ -321,7 +321,7 @@ class TestArtefactServiceV2:
         # Generate presigned URL
         url, retrieved_artefact = await service.generate_presigned_download_url(
             artefact_id=1,
-            user_id=1,
+            user=user,
             expires_in=3600,
         )
 
@@ -368,14 +368,14 @@ class TestArtefactServiceV2:
 
         # Try to delete invoice without force
         with pytest.raises(ArtefactServiceV2Error) as exc_info:
-            await service.delete_artefact(artefact_id=1, user_id=1, force=False)
+            await service.delete_artefact(artefact_id=1, user=user, force=False)
 
         assert exc_info.value.code == "artefacts.invoice.delete_prohibited"
         assert "yasal gereklilikler" in exc_info.value.turkish_message
 
         # Delete with force should work
         with patch("app.tasks.garbage_collection.schedule_artefact_gc.delay"):
-            await service.delete_artefact(artefact_id=1, user_id=1, force=True)
+            await service.delete_artefact(artefact_id=1, user=user, force=True)
 
         # Verify deletion was scheduled
         db_session.refresh(artefact)
@@ -407,7 +407,7 @@ class TestArtefactServiceV2:
 
         # Test artefact not found error
         with pytest.raises(ArtefactServiceV2Error) as exc_info:
-            await service.get_artefact(artefact_id=999, user_id=1)
+            await service.get_artefact(artefact_id=999, user=user)
 
         assert exc_info.value.code == "artefacts.not_found"
         assert exc_info.value.turkish_message == TURKISH_MESSAGES["artefacts.not_found"]
