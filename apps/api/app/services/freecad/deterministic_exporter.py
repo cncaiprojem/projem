@@ -383,7 +383,50 @@ class UnifiedDeterministicExporter:
                         span.set_attribute(f"error.{fmt_upper}", str(e))
         
         # Extract metrics if enabled (Task 7.10)
-        if extract_metrics and METRICS_AVAILABLE:
+        if extract_metrics:
+            self._extract_and_record_metrics(
+                document=document,
+                results=results,
+                job_id=job_id,
+                material=material,
+                queue_name=queue_name
+            )
+        
+        # Save metadata
+        metadata_path = base_path.with_suffix(".export_metadata.json")
+        self.metadata.save(metadata_path)
+        results["metadata"] = {
+            "path": str(metadata_path),
+            "content": self.metadata.to_dict()
+        }
+        
+        return results
+    
+    def _extract_and_record_metrics(
+        self,
+        document: Any,
+        results: Dict[str, Any],
+        job_id: Optional[str],
+        material: Optional[str],
+        queue_name: Optional[str]
+    ) -> None:
+        """
+        Extract and record model metrics into the results dictionary.
+        
+        This helper method handles metrics extraction for Task 7.10, including:
+        - Extracting comprehensive model metrics from the document
+        - Creating a metrics summary for quick reference
+        - Adding metrics to export metadata
+        - Handling errors gracefully
+        
+        Args:
+            document: FreeCAD document to extract metrics from
+            results: Dictionary to add metrics to (modified in-place)
+            job_id: Optional job ID for tracking
+            material: Material name for density lookup
+            queue_name: Queue name for telemetry
+        """
+        if METRICS_AVAILABLE:
             try:
                 # Get STL path if exported
                 stl_path = None
@@ -424,22 +467,12 @@ class UnifiedDeterministicExporter:
                     "extracted": False,
                     "error": str(e)
                 }
-        elif extract_metrics and not METRICS_AVAILABLE:
+        else:
             logger.warning("Metrics extraction requested but metrics_extractor module not available")
             results["metrics"] = {
                 "extracted": False,
                 "error": "Metrics extractor module not available"
             }
-        
-        # Save metadata
-        metadata_path = base_path.with_suffix(".export_metadata.json")
-        self.metadata.save(metadata_path)
-        results["metadata"] = {
-            "path": str(metadata_path),
-            "content": self.metadata.to_dict()
-        }
-        
-        return results
     
     def _export_fcstd_unified(self, document: Any, base_path: Path) -> Dict[str, Any]:
         """

@@ -342,12 +342,19 @@ def _format_number_locale_independent(
         integer_part = integer_part[1:]
     
     # Add thousands separators to integer part
-    # Process from right to left, adding separator every 3 digits
-    formatted_integer = ""
-    for i, digit in enumerate(reversed(integer_part)):
-        if i > 0 and i % 3 == 0:
-            formatted_integer = thousands_sep + formatted_integer
-        formatted_integer = digit + formatted_integer
+    # More Pythonic approach using list comprehension
+    n = len(integer_part)
+    if n > 3:
+        # Calculate the remainder for the first group
+        rem = n % 3
+        if rem == 0:
+            rem = 3
+        # Build the groups: first group, then groups of 3
+        parts = [integer_part[:rem]]
+        parts.extend(integer_part[i:i+3] for i in range(rem, n, 3))
+        formatted_integer = thousands_sep.join(parts)
+    else:
+        formatted_integer = integer_part
     
     # Add negative sign back if needed
     if is_negative:
