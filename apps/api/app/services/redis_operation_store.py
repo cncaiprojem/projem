@@ -171,9 +171,15 @@ class RedisOperationStore:
                         # Convert numeric strings back to appropriate types
                         if field_name in NUMERIC_FIELDS:
                             try:
-                                context[field_name] = float(field_value) if '.' in field_value else int(field_value)
+                                # Try int conversion first
+                                context[field_name] = int(field_value)
                             except ValueError:
-                                context[field_name] = field_value
+                                try:
+                                    # Fall back to float if int fails
+                                    context[field_name] = float(field_value)
+                                except ValueError:
+                                    # Keep as string if both conversions fail
+                                    context[field_name] = field_value
                         else:
                             context[field_name] = field_value
                 

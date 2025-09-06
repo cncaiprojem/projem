@@ -98,6 +98,7 @@ async def progress_event_generator(
         return
     
     # Send initial status event
+    current_event_id = last_event_id + 1 if last_event_id else 1
     initial_event = {
         "event": "status",
         "data": json.dumps({
@@ -106,16 +107,51 @@ async def progress_event_generator(
             "progress": job.progress,
             "timestamp": datetime.now(timezone.utc).isoformat()
         }),
-        "id": str(last_event_id + 1 if last_event_id else 1)
+        "id": str(current_event_id)
     }
     yield initial_event
+    current_event_id += 1
     
-    # Subscribe to Redis pub/sub
+    # CRITICAL FIX: Fetch and send missed events BEFORE subscribing to new events
+    if last_event_id is not None:
+        try:
+            # Get missed events from cache
+            missed_events = await redis_progress_pubsub.get_missed_events(job_id, last_event_id)
+            
+            # Send missed events to client, applying filters
+            for event_json in missed_events:
+                try:
+                    progress_data = json.loads(event_json)
+                    progress = ProgressMessageV2(**progress_data)
+                    
+                    # Apply the same filters as for new events
+                    if milestones_only and not progress.milestone:
+                        continue
+                    
+                    if event_filter and progress.event_type not in event_filter:
+                        continue
+                    
+                    # Send the missed event to the client
+                    sse_event = {
+                        "event": "progress",
+                        "data": progress.model_dump_json(),
+                        "id": str(progress.event_id)
+                    }
+                    yield sse_event
+                    
+                    # Update current event ID
+                    if progress.event_id:
+                        current_event_id = max(current_event_id, progress.event_id + 1)
+                    
+                except (json.JSONDecodeError, ValueError) as e:
+                    logger.warning(f"Failed to parse missed event: {e}")
+                    
+        except Exception as e:
+            logger.warning(f"Failed to fetch missed events: {e}", exc_info=True)
+    
+    # Subscribe to Redis pub/sub for new events (no last_event_id needed anymore)
     try:
-        async with redis_progress_pubsub.subscribe_to_job(
-            job_id,
-            last_event_id
-        ) as pubsub:
+        async with redis_progress_pubsub.subscribe_to_job(job_id) as pubsub:
             
             # Send keepalive every 30 seconds
             last_keepalive = asyncio.get_running_loop().time()

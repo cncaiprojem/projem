@@ -154,15 +154,13 @@ class ConnectionManager:
         self.connection_jobs[connection_id] = set()
         logger.info(f"WebSocket connected: {connection_id}")
     
-    def disconnect(self, connection_id: str) -> None:
-        """Remove WebSocket connection."""
-        # Clean up job subscriptions
+    async def disconnect(self, connection_id: str) -> None:
+        """Remove WebSocket connection and clean up resources."""
+        # Clean up job subscriptions and stop listeners if needed
         if connection_id in self.connection_jobs:
-            for job_id in self.connection_jobs[connection_id]:
-                if job_id in self.job_connections:
-                    self.job_connections[job_id].discard(connection_id)
-                    if not self.job_connections[job_id]:
-                        del self.job_connections[job_id]
+            # Unsubscribe from all jobs for this connection
+            for job_id in list(self.connection_jobs[connection_id]):
+                await self.unsubscribe_from_job(connection_id, job_id)
             del self.connection_jobs[connection_id]
         
         # Remove connection
@@ -408,11 +406,8 @@ async def websocket_job_progress(
             pass
     
     finally:
-        # Cleanup - unsubscribe from job and disconnect
-        if job_id:
-            await manager.unsubscribe_from_job(connection_id, job_id)
-        
-        manager.disconnect(connection_id)
+        # Cleanup - use async disconnect which handles all unsubscriptions
+        await manager.disconnect(connection_id)
         
         # Try to close WebSocket gracefully
         try:

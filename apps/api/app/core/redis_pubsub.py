@@ -179,15 +179,13 @@ class RedisProgressPubSub:
     @asynccontextmanager
     async def subscribe_to_job(
         self,
-        job_id: int,
-        last_event_id: Optional[int] = None
+        job_id: int
     ) -> AsyncGenerator[PubSub, None]:
         """
         Subscribe to job progress updates.
         
         Args:
             job_id: Job ID to subscribe to
-            last_event_id: Last event ID for resumption
             
         Yields:
             PubSub client for receiving messages
@@ -205,10 +203,6 @@ class RedisProgressPubSub:
             
             # Store client for cleanup
             self._pubsub_clients[job_id] = pubsub
-            
-            # If resuming, fetch missed events from cache
-            if last_event_id is not None:
-                await self._send_missed_events(pubsub, job_id, last_event_id)
             
             yield pubsub
             
@@ -257,25 +251,6 @@ class RedisProgressPubSub:
         
         return events
     
-    async def _send_missed_events(
-        self,
-        pubsub: PubSub,
-        job_id: int,
-        last_event_id: int
-    ) -> List[str]:
-        """
-        DEPRECATED: Use get_missed_events() instead.
-        Kept for backward compatibility - returns missed events.
-        
-        Args:
-            pubsub: PubSub client (unused)
-            job_id: Job ID
-            last_event_id: Last received event ID
-            
-        Returns:
-            List of missed event JSON strings
-        """
-        return await self.get_missed_events(job_id, last_event_id)
     
     async def cache_progress_event(
         self,

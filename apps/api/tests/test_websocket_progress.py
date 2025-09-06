@@ -24,11 +24,11 @@ from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 from websocket import create_connection
 
-from ..app.core.redis_pubsub import redis_progress_pubsub
-from ..app.models.job import Job
-from ..app.models.enums import JobStatus, JobType
-from ..app.models.user import User
-from ..app.schemas.progress import (
+from app.core.redis_pubsub import redis_progress_pubsub
+from app.models.job import Job
+from app.models.enums import JobStatus, JobType
+from app.models.user import User
+from app.schemas.progress import (
     ProgressMessageV2,
     EventType,
     Phase,
@@ -40,7 +40,7 @@ from ..app.schemas.progress import (
     TopologyPhase,
     ExportFormat
 )
-from ..app.services.progress_service import progress_service
+from app.services.progress_service import progress_service
 
 
 @pytest.fixture
