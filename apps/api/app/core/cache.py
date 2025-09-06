@@ -23,11 +23,14 @@ Features:
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import os
 import platform
+import random
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -38,7 +41,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 from functools import lru_cache
-from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import redis.asyncio as redis_async
 import redis
@@ -350,7 +353,6 @@ class CacheKeyGenerator:
         # Generate SHA256 hash and encode as base64 (for URL safety)
         hash_bytes = hashlib.sha256(combined.encode('utf-8')).digest()
         # Use base64 URL-safe encoding, trim to 16 chars for brevity
-        import base64
         hash_b64 = base64.urlsafe_b64encode(hash_bytes).decode('ascii')[:16]
         
         # Build key
@@ -783,7 +785,6 @@ class CacheManager:
             git_sha = os.environ.get("GIT_SHA", "unknown")
             if git_sha == "unknown":
                 try:
-                    import subprocess
                     result = subprocess.run(
                         ["git", "rev-parse", "HEAD"],
                         capture_output=True,
@@ -901,7 +902,7 @@ class CacheManager:
         self,
         flow_type: CacheFlowType,
         canonical_data: str,
-        compute_func: Callable,
+        compute_func: Callable[[], Awaitable[Any]],
         artifact_type: str = "data",
         ttl: Optional[int] = None
     ) -> Any:
@@ -935,14 +936,33 @@ class CacheManager:
                     logger.info("Serving stale value", cache_key=cache_key)
                     return stale_value
                 
-                # Wait and retry
-                await asyncio.sleep(1)
-                value = await self.get(flow_type, canonical_data, artifact_type)
-                if value is not None:
-                    return value
+                # Polling loop with exponential backoff to prevent thundering herd
+                max_wait_time = self.config.lock_timeout_seconds
+                poll_interval = 0.2  # Start with 200ms
+                total_waited = 0.0
                 
-                # If still nothing, compute anyway
-                logger.warning("No value after lock wait, computing", cache_key=cache_key)
+                while total_waited < max_wait_time:
+                    await asyncio.sleep(poll_interval)
+                    total_waited += poll_interval
+                    
+                    # Check if value is now available
+                    value = await self.get(flow_type, canonical_data, artifact_type)
+                    if value is not None:
+                        logger.debug(f"Value available after {total_waited:.1f}s wait", cache_key=cache_key)
+                        return value
+                    
+                    # Exponential backoff with jitter, cap at 1 second
+                    jitter = random.uniform(-0.05, 0.05)  # Add small jitter to prevent synchronization
+                    poll_interval = min(poll_interval * 1.5 + jitter, 1.0)
+                
+                # Timeout reached, raise exception instead of computing
+                logger.warning(f"Lock wait timeout after {total_waited:.1f}s", cache_key=cache_key)
+                raise CacheException(
+                    f"Cache lock timeout after {total_waited:.1f}s",
+                    CacheErrorCode.LOCK_TIMEOUT,
+                    f"Önbellek kilidi {total_waited:.1f} saniye sonra zaman aşımına uğradı",
+                    {"cache_key": cache_key, "wait_time": total_waited}
+                )
             
             try:
                 # Double-check cache (another request might have computed)

@@ -20,6 +20,7 @@ Features:
 
 from __future__ import annotations
 
+import asyncio
 import gc
 import os
 import platform
@@ -49,6 +50,9 @@ from ..core import metrics
 from ..core.cache import get_cache_manager, CacheFlowType, Canonicalizer
 
 logger = get_logger(__name__)
+
+# Worker configuration constants
+MAX_MEMORY_PER_CHILD_KB = 700 * 1024  # 700 MB in KB
 
 # Global references for preloaded modules
 _freecad_app = None
@@ -352,7 +356,6 @@ class OptimizedFreeCADTask(Task):
             })
             
             # Try to get cached result
-            import asyncio
             try:
                 cached = asyncio.run(
                     self.cache_manager.get(
@@ -417,7 +420,6 @@ class OptimizedFreeCADTask(Task):
                 'key': idempotency_key
             })
             
-            import asyncio
             loop = asyncio.new_event_loop()
             try:
                 loop.run_until_complete(
@@ -504,7 +506,7 @@ def configure_celery_for_freecad(app: Celery):
         
         # Worker recycling
         worker_max_tasks_per_child=25,
-        worker_max_memory_per_child=700 * 1024,  # 700 MB in KB
+        worker_max_memory_per_child=MAX_MEMORY_PER_CHILD_KB,
         
         # Disable result backend for performance (unless needed)
         task_ignore_result=False,  # Keep results for caching
@@ -577,13 +579,16 @@ def freecad_document_context(name: str = None):
     
     doc = None
     try:
-        # Use template or create new
+        # Create new document
+        doc = _freecad_app.newDocument(name or f"Doc_{int(time.time() * 1000)}")
+        
+        # Copy template content if available
         if _document_template:
-            # Clone template (faster than creating new)
-            doc = _freecad_app.newDocument(name or f"Doc_{int(time.time() * 1000)}")
-            # Copy template content if needed
-        else:
-            doc = _freecad_app.newDocument(name or f"Doc_{int(time.time() * 1000)}")
+            # The template serves as a warm-up for module loading
+            # and OCCT initialization. We don't need to copy objects
+            # as each task creates its own geometry. The template
+            # just ensures all modules are loaded and initialized.
+            pass
         
         yield doc
         
