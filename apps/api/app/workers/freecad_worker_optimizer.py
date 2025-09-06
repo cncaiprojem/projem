@@ -29,7 +29,7 @@ import sys
 import tempfile
 import time
 from contextlib import contextmanager
-from typing import Any, Dict, Optional
+from typing import Any
 
 from celery import Celery, Task
 from celery.signals import (
@@ -344,7 +344,7 @@ class OptimizedFreeCADTask(Task):
             self._cache_manager = get_cache_manager()
         return self._cache_manager
     
-    def before_start(self, task_id, args, kwargs):
+    def before_start(self, task_id: str, args: tuple, kwargs: dict) -> None:
         """Called before task execution starts."""
         # Check for idempotency key in kwargs
         idempotency_key = kwargs.get('idempotency_key')
@@ -394,7 +394,7 @@ class OptimizedFreeCADTask(Task):
             queue=self.queue or "default"
         ).inc()
     
-    def after_return(self, status, retval, task_id, args, kwargs, einfo):
+    def after_return(self, status: str, retval: Any, task_id: str, args: tuple, kwargs: dict, einfo: Any) -> None:
         """Called after task execution completes."""
         # Calculate duration
         start_time = kwargs.pop('_start_time', None)
@@ -444,7 +444,7 @@ class OptimizedFreeCADTask(Task):
                     )
                 )
     
-    def on_failure(self, exc, task_id, args, kwargs, einfo):
+    def on_failure(self, exc: Exception, task_id: str, args: tuple, kwargs: dict, einfo: Any) -> None:
         """Called when task fails."""
         logger.error(
             "FreeCAD task failed",
@@ -460,7 +460,7 @@ class OptimizedFreeCADTask(Task):
             idempotency_key_reused="false"
         ).inc()
     
-    def on_retry(self, exc, task_id, args, kwargs, einfo):
+    def on_retry(self, exc: Exception, task_id: str, args: tuple, kwargs: dict, einfo: Any) -> None:
         """Called when task is retried."""
         logger.warning(
             "FreeCAD task retrying",
@@ -477,7 +477,7 @@ class OptimizedFreeCADTask(Task):
             attempt=str(self.request.retries + 1)
         ).inc()
     
-    def on_success(self, retval, task_id, args, kwargs):
+    def on_success(self, retval: Any, task_id: str, args: tuple, kwargs: dict) -> None:
         """Called when task succeeds."""
         logger.info(
             "FreeCAD task completed",

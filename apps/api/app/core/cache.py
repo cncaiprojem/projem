@@ -41,7 +41,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 from functools import lru_cache
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Tuple, Union
+from typing import Any, Awaitable, Callable
 
 import redis.asyncio as redis_async
 import redis
@@ -81,8 +81,8 @@ class CacheException(Exception):
         self,
         message: str,
         error_code: CacheErrorCode,
-        turkish_message: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None
+        turkish_message: str | None = None,
+        details: dict[str, Any] | None = None
     ):
         super().__init__(message)
         self.error_code = error_code
@@ -116,8 +116,8 @@ class EngineFingerprint(BaseModel):
     python_version: str = Field(description="Python major.minor version")
     mesh_params_version: str = Field(default="m1", description="Meshing parameters version")
     git_sha: str = Field(description="Git commit SHA")
-    enabled_workbenches: List[str] = Field(default_factory=list, description="Enabled workbenches")
-    feature_flags: Dict[str, bool] = Field(default_factory=dict, description="Feature flags")
+    enabled_workbenches: list[str] = Field(default_factory=list, description="Enabled workbenches")
+    feature_flags: dict[str, bool] = Field(default_factory=dict, description="Feature flags")
     
     def to_string(self) -> str:
         """Generate fingerprint string."""
@@ -298,14 +298,14 @@ class Canonicalizer:
         return ''.join(parts)
     
     @staticmethod
-    def canonicalize_upload(file_bytes: bytes, import_opts: Dict[str, Any]) -> str:
+    def canonicalize_upload(file_bytes: bytes, import_opts: dict[str, Any]) -> str:
         """Canonicalize upload parameters."""
         file_hash = hashlib.sha256(file_bytes).hexdigest()
         opts_canonical = Canonicalizer.normalize_json(import_opts)
         return f"{file_hash}|{opts_canonical}"
     
     @staticmethod
-    def canonicalize_assembly(bom: List[Dict], constraints: List[Dict], placements: List[Dict]) -> str:
+    def canonicalize_assembly(bom: list[dict], constraints: list[dict], placements: list[dict]) -> str:
         """Canonicalize Assembly4 parameters."""
         # Sort BOM by link path
         sorted_bom = sorted(bom, key=lambda x: x.get('link_path', ''))
@@ -375,7 +375,7 @@ class InFlightCoalescer:
     """Coalesce concurrent identical requests per worker."""
     
     def __init__(self):
-        self._requests: Dict[str, asyncio.Future] = {}
+        self._requests: dict[str, asyncio.Future] = {}
         self._lock = asyncio.Lock()
     
     async def coalesce(self, key: str, func: Callable[[], Awaitable[Any]]) -> Any:
@@ -425,9 +425,10 @@ class InFlightCoalescer:
             future.set_exception(e)
             raise
         finally:
-            # Clean up
+            # Clean up - only remove if it's our future
             async with self._lock:
-                self._requests.pop(key, None)
+                if self._requests.get(key) is future:
+                    self._requests.pop(key, None)
 
 
 class L1Cache:
@@ -435,13 +436,13 @@ class L1Cache:
     
     def __init__(self, config: CacheConfig):
         self.config = config
-        self._cache: Dict[str, Tuple[Any, float, int]] = {}  # key -> (value, timestamp, size_bytes)
-        self._access_order: List[str] = []
+        self._cache: dict[str, tuple[Any, float, int]] = {}  # key -> (value, timestamp, size_bytes)
+        self._access_order: list[str] = []
         self._total_size_bytes = 0
         self._lock = threading.RLock()
         self._max_memory_bytes = config.l1_memory_limit_mb * 1024 * 1024
     
-    def get(self, key: str) -> Optional[Any]:
+    def get(self, key: str) -> Any | None:
         """Get value from L1 cache."""
         with self._lock:
             if key not in self._cache:
@@ -456,7 +457,7 @@ class L1Cache:
             metrics.mgf_cache_hits_total.labels(cache="l1").inc()
             return value
     
-    def set(self, key: str, value: Any, size_bytes: Optional[int] = None) -> bool:
+    def set(self, key: str, value: Any, size_bytes: int | None = None) -> bool:
         """Set value in L1 cache."""
         if size_bytes is None:
             # Estimate size
@@ -555,7 +556,7 @@ class RedisCache:
             )
         return self._async_pool
     
-    def _compress(self, data: bytes) -> Tuple[bytes, bool]:
+    def _compress(self, data: bytes) -> tuple[bytes, bool]:
         """Compress data if above threshold."""
         if not self.config.compression_enabled:
             return data, False
@@ -595,7 +596,7 @@ class RedisCache:
                 "Önbellek verisi açılamadı"
             )
     
-    async def get(self, key: str) -> Optional[Any]:
+    async def get(self, key: str) -> Any | None:
         """Get value from Redis with decompression."""
         try:
             async with redis_async.Redis(connection_pool=self.async_pool) as client:
@@ -635,7 +636,7 @@ class RedisCache:
         self,
         key: str,
         value: Any,
-        ttl: Optional[int] = None,
+        ttl: int | None = None,
         content_type: str = "json"
     ) -> bool:
         """Set value in Redis with compression and TTL."""
@@ -782,7 +783,7 @@ class RedisCache:
 class CacheManager:
     """Main cache manager with two-tier caching and stampede control."""
     
-    def __init__(self, config: Optional[CacheConfig] = None):
+    def __init__(self, config: CacheConfig | None = None):
         self.config = config or CacheConfig.from_env()
         self.l1_cache = L1Cache(self.config)
         self.l2_cache = RedisCache(self.config)
@@ -866,7 +867,7 @@ class CacheManager:
         flow_type: CacheFlowType,
         canonical_data: str,
         artifact_type: str = "data"
-    ) -> Optional[Any]:
+    ) -> Any | None:
         """Get value from cache (L1 -> L2)."""
         correlation_id = get_correlation_id()
         
@@ -902,7 +903,7 @@ class CacheManager:
         canonical_data: str,
         value: Any,
         artifact_type: str = "data",
-        ttl: Optional[int] = None
+        ttl: int | None = None
     ) -> bool:
         """Set value in cache (L1 + L2)."""
         correlation_id = get_correlation_id()
@@ -938,7 +939,7 @@ class CacheManager:
         canonical_data: str,
         compute_func: Callable[[], Awaitable[Any]],
         artifact_type: str = "data",
-        ttl: Optional[int] = None
+        ttl: int | None = None
     ) -> Any:
         """Get from cache or compute with stampede control."""
         correlation_id = get_correlation_id()
@@ -1050,7 +1051,7 @@ class CacheManager:
         # Use coalescer to handle concurrent identical requests
         return await self.coalescer.coalesce(cache_key, _get_or_compute)
     
-    async def invalidate_engine(self, old_fingerprint: Optional[EngineFingerprint] = None):
+    async def invalidate_engine(self, old_fingerprint: EngineFingerprint | None = None):
         """Invalidate all cache entries for an engine fingerprint."""
         if old_fingerprint:
             old_generator = CacheKeyGenerator(old_fingerprint)
@@ -1072,7 +1073,7 @@ class CacheManager:
 
 
 # Global cache manager instance
-_cache_manager: Optional[CacheManager] = None
+_cache_manager: CacheManager | None = None
 
 
 def get_cache_manager() -> CacheManager:
