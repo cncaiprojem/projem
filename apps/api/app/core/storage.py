@@ -5,6 +5,7 @@ Provides a singleton storage client instance that is initialized once
 at application startup to avoid redundant bucket initialization.
 """
 
+import asyncio
 from functools import lru_cache
 from typing import Optional
 
@@ -42,14 +43,20 @@ class StorageManager:
         default_bucket = "artefacts"
         
         try:
-            # Enable versioning
-            storage_client.enable_bucket_versioning(default_bucket)
+            # Enable versioning - wrap blocking call in asyncio.to_thread
+            await asyncio.to_thread(
+                storage_client.enable_bucket_versioning, default_bucket
+            )
             
-            # Setup lifecycle rules
-            storage_client.setup_lifecycle_rules(default_bucket)
+            # Setup lifecycle rules - wrap blocking call in asyncio.to_thread
+            await asyncio.to_thread(
+                storage_client.setup_lifecycle_rules, default_bucket
+            )
             
-            # Set private bucket policy
-            storage_client.set_bucket_policy_private(default_bucket)
+            # Set private bucket policy - wrap blocking call in asyncio.to_thread
+            await asyncio.to_thread(
+                storage_client.set_bucket_policy_private, default_bucket
+            )
             
             self._initialized = True
             logger.info("Bucket initialized successfully", bucket=default_bucket)

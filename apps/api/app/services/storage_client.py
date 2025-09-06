@@ -726,6 +726,33 @@ class StorageClient:
                 turkish_message=f"Nesne silinemedi: {str(e)}",
             )
 
+    def _process_batch_delete_errors(
+        self, errors, bucket: str, batch_size: int
+    ) -> int:
+        """
+        Process errors from batch delete operations.
+        
+        Args:
+            errors: Iterator of deletion errors from MinIO client
+            bucket: Bucket name for logging context
+            batch_size: Number of objects in the batch
+            
+        Returns:
+            Number of objects successfully deleted (0 if any errors occurred)
+        """
+        error_count = 0
+        for error in errors:
+            error_count += 1
+            logger.warning(
+                "Failed to delete object in batch",
+                bucket=bucket,
+                key=error.object_name,
+                error=error.error_message,
+            )
+        
+        # Only count as deleted if there were no errors
+        return batch_size if error_count == 0 else 0
+
     def delete_all_versions(self, bucket: str, prefix: str) -> int:
         """
         Delete all versions of objects with given prefix using bulk operations.
@@ -759,20 +786,10 @@ class StorageClient:
                             delete_object_list=objects_to_delete,
                         )
                         
-                        # Process any errors
-                        error_count = 0
-                        for error in errors:
-                            error_count += 1
-                            logger.warning(
-                                "Failed to delete object in batch",
-                                bucket=bucket,
-                                key=error.object_name,
-                                error=error.error_message,
-                            )
-                        
-                        # Only count as deleted if there were no errors
-                        if error_count == 0:
-                            deleted_count += len(objects_to_delete)
+                        # Process batch deletion errors using helper method
+                        deleted_count += self._process_batch_delete_errors(
+                            errors, bucket, len(objects_to_delete)
+                        )
                         
                         objects_to_delete = []
                 
@@ -783,19 +800,10 @@ class StorageClient:
                         delete_object_list=objects_to_delete,
                     )
                     
-                    error_count = 0
-                    for error in errors:
-                        error_count += 1
-                        logger.warning(
-                            "Failed to delete object in batch",
-                            bucket=bucket,
-                            key=error.object_name,
-                            error=error.error_message,
-                        )
-                    
-                    # Only count as deleted if there were no errors
-                    if error_count == 0:
-                        deleted_count += len(objects_to_delete)
+                    # Process batch deletion errors using helper method
+                    deleted_count += self._process_batch_delete_errors(
+                        errors, bucket, len(objects_to_delete)
+                    )
 
             else:
                 # Use boto3 batch delete operations
