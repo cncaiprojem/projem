@@ -21,6 +21,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union
 
+import httpx
 import structlog
 from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
@@ -155,7 +156,7 @@ class ArtefactServiceV2:
         job_id: int,
         artefact_type: str,
         filename: str,
-        user_id: int,
+        user: User,  # Accept User object directly
         machine_id: Optional[int] = None,
         post_processor: Optional[str] = None,
         exporter_version: Optional[str] = None,
@@ -171,7 +172,7 @@ class ArtefactServiceV2:
             job_id: Associated job ID
             artefact_type: Type of artefact (model, gcode, report, etc.)
             filename: Original filename
-            user_id: User performing upload
+            user: User object performing upload (avoids redundant DB query)
             machine_id: Optional machine ID
             post_processor: Optional post-processor used
             exporter_version: Version of exporter/converter
@@ -195,9 +196,9 @@ class ArtefactServiceV2:
                     status_code=404,
                 )
 
-            # Check user access
-            user = self.db.query(User).filter_by(id=user_id).first()
-            is_admin = user and user.role == "admin"
+            # Check user access (no need to query User again)
+            is_admin = user.role == "admin"
+            user_id = user.id
 
             if not is_admin and job.user_id != user_id:
                 raise ArtefactServiceV2Error(
@@ -737,8 +738,6 @@ class ArtefactServiceV2:
         Returns:
             True if integrity check passes
         """
-        import httpx
-        
         try:
             # Get artefact
             artefact = await self.get_artefact(artefact_id, user_id, check_access=True)

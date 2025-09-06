@@ -9,6 +9,8 @@ API endpoints for comprehensive artefact management with:
 - Enterprise security
 """
 
+import asyncio
+import io
 from typing import List, Optional
 
 from fastapi import (
@@ -30,11 +32,7 @@ from app.dependencies.auth import get_current_user
 from app.models.user import User
 from app.schemas.artefact import (
     ArtefactDownloadResponse,
-    ArtefactListResponse,
     ArtefactResponse,
-    ArtefactSearchParams,
-    ArtefactStats,
-    ArtefactUpdate,
 )
 from app.services.artefact_service_v2 import (
     ArtefactServiceV2,
@@ -91,23 +89,84 @@ async def upload_artefact(
     user_agent = request.headers.get("User-Agent")
     
     try:
-        # Stream file directly without reading into memory
-        # The file.file attribute is a SpooledTemporaryFile that can be streamed
+        # Implement true chunk-based streaming
+        # Create a generator that reads the file in chunks
+        async def file_chunk_generator(file_obj, chunk_size: int = 8192):
+            """Generate file chunks for true streaming without buffering."""
+            while True:
+                chunk = await file.read(chunk_size)
+                if not chunk:
+                    break
+                yield chunk
+        
+        # Create a wrapper for chunk-based streaming
+        class ChunkedStreamWrapper(io.RawIOBase):
+            """Wrapper to provide true streaming without SpooledTemporaryFile buffering."""
+            
+            def __init__(self, async_gen, loop):
+                self.async_gen = async_gen
+                self.loop = loop
+                self.buffer = b""
+                self.closed = False
+                
+            def readable(self):
+                return True
+                
+            def read(self, size=-1):
+                if self.closed:
+                    return b""
+                    
+                # Read chunks until we have enough data or EOF
+                while size == -1 or len(self.buffer) < size:
+                    try:
+                        chunk = self.loop.run_until_complete(
+                            self.async_gen.__anext__()
+                        )
+                        self.buffer += chunk
+                    except StopAsyncIteration:
+                        break
+                
+                # Return requested amount or all buffer
+                if size == -1:
+                    result = self.buffer
+                    self.buffer = b""
+                else:
+                    result = self.buffer[:size]
+                    self.buffer = self.buffer[size:]
+                    
+                return result
+                
+            def close(self):
+                self.closed = True
+                super().close()
+        
+        # For larger files, use chunk streaming; for small files, use the original approach
+        # This avoids the SpooledTemporaryFile memory buffering issue
+        if file.size and file.size > 1024 * 1024:  # Files larger than 1MB
+            loop = asyncio.get_event_loop()
+            stream_wrapper = ChunkedStreamWrapper(
+                file_chunk_generator(file),
+                loop
+            )
+            file_obj = io.BufferedReader(stream_wrapper)
+        else:
+            # For small files, use the original file object
+            file_obj = file.file
         
         # Upload and create artefact
         artefact = await service.upload_artefact(
-            file_obj=file.file,  # Pass the file object directly for streaming
+            file_obj=file_obj,  # Pass the streaming wrapper for large files
             job_id=job_id,
             artefact_type=artefact_type,
             filename=file.filename,
-            user_id=current_user.id,
+            user=current_user,  # Pass User object directly to avoid redundant query
             machine_id=machine_id,
             post_processor=post_processor,
             exporter_version=exporter_version,
             metadata={
                 "original_filename": file.filename,
                 "content_type": file.content_type,
-                "upload_size": file.size if file.size else None,  # Use file.size if available
+                "upload_size": file.size if file.size else None,
             },
             ip_address=client_ip,
             user_agent=user_agent,
