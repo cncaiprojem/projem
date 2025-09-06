@@ -105,34 +105,21 @@ make pre-commit-run                        # Run hooks on all files
 - **MinIO**: http://localhost:9000 (Console: 9001, User: minioadmin, Pass: minioadmin)
 - **RabbitMQ**: localhost:5672 (Management: http://localhost:15672, User: freecad, Pass: freecad_dev_pass)
 
-### Project Structure
-```
-apps/
-├── api/                    # FastAPI backend
-│   ├── app/
-│   │   ├── routers/       # API endpoints (auth, jobs, models, files)
-│   │   ├── models/        # SQLAlchemy ORM models
-│   │   ├── schemas/       # Pydantic validation schemas
-│   │   ├── services/      # Business logic (freecad_service, s3, auth)
-│   │   ├── tasks/         # Celery async tasks
-│   │   ├── core/          # Settings, logging, database, security
-│   │   └── scripts/       # Utility scripts (smoke tests, seeds)
-│   └── alembic/           # Database migrations
-│
-└── web/                    # Next.js frontend
-    ├── src/
-    │   ├── app/           # App Router pages (Turkish UI)
-    │   ├── components/    # React components (3D viewer, forms)
-    │   ├── lib/          # API clients, utilities
-    │   └── hooks/        # Custom React hooks
-    └── public/           # Static assets
+### Artefact Storage System (Task 7.11)
 
-infra/
-├── compose/               # Docker Compose configs
-├── docker/               # Dockerfiles
-├── minio/               # MinIO bootstrap scripts
-└── rabbitmq/            # RabbitMQ init scripts
-```
+**Two-Tier Artefact Management**:
+- **v1 (`/artefacts`)**: Metadata management for files uploaded by backend services
+- **v2 (`/api/v2/artefacts`)**: Direct file upload with streaming, versioning, and lifecycle management
+
+**Key Differences**:
+| Feature | v1 (Task 5.7) | v2 (Task 7.11) |
+|---------|---------------|----------------|
+| Purpose | Metadata tracking | Full lifecycle management |
+| File Upload | Already uploaded | Direct streaming upload |
+| Storage | MinIO client | Singleton StorageClient |
+| Deletion | Soft delete only | Garbage collection via Celery |
+| URLs | Basic presigned | GET & HEAD presigned |
+| Performance | Per-request init | Singleton pattern |
 
 ### Key Services & Queues
 
@@ -158,57 +145,31 @@ infra/
 
 ## Development Patterns
 
-### API Development
+### API Performance Optimizations (PR #474)
 ```python
-# Router pattern (apps/api/app/routers/jobs.py)
-@router.post("/jobs", response_model=JobResponse)
-async def create_job(
-    job: JobCreate,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    # Business logic in service layer
-    return await job_service.create_job(db, job, current_user)
-
-# Celery task pattern (apps/api/app/tasks/freecad_tasks.py)
-@celery_app.task(bind=True, name="generate_model", queue="freecad")
-def generate_model_task(self, job_id: str, params: dict):
-    try:
-        result = freecad_service.generate_model(params)
-        s3_service.upload_file(result.file_path, f"models/{job_id}")
-        return {"status": "success", "url": presigned_url}
-    except Exception as e:
-        self.retry(exc=e, countdown=60, max_retries=3)
+# Pass User objects to avoid redundant DB queries
+async def get_artefact(
+    self,
+    artefact_id: int,
+    user: User,  # Pass User object, not user_id
+    check_access: bool = True,
+) -> Artefact:
+    # No DB query needed for user - already have the object
+    is_admin = user and user.role == "admin"
 ```
 
-### Frontend Development
-```typescript
-// API client pattern (apps/web/src/lib/api/jobs.ts)
-export const jobsApi = {
-  list: (params?: JobParams) => 
-    apiClient.get<JobList>('/jobs', { params }),
-  
-  create: (data: JobCreate) =>
-    apiClient.post<Job>('/jobs', data),
-    
-  getStatus: (id: string) =>
-    apiClient.get<JobStatus>(`/jobs/${id}/status`)
-}
+### Async IO Best Practices (PR #472)
+```python
+# Wrap blocking operations in asyncio.to_thread
+await asyncio.to_thread(
+    storage_client.enable_bucket_versioning, bucket
+)
 
-// Component pattern with Turkish UI
-export function JobList() {
-  const { data, isLoading } = useQuery({
-    queryKey: ['jobs'],
-    queryFn: jobsApi.list
-  })
-  
-  return (
-    <div>
-      <h1>İş Listesi</h1>
-      {/* Turkish UI elements */}
-    </div>
-  )
-}
+# Use helper methods to avoid code duplication
+def _process_batch_delete_errors(self, errors, bucket: str, batch_size: int) -> int:
+    """Process errors and return actual successful deletion count."""
+    error_count = sum(1 for error in errors)
+    return batch_size - error_count  # Return actual successes, not 0
 ```
 
 ### FreeCAD Integration
@@ -257,6 +218,7 @@ FREECADCMD_PATH=/usr/bin/FreeCADCmd       # Path to FreeCAD binary
 
 # Frontend
 NEXT_PUBLIC_API_BASE_URL=http://localhost:8000
+NEXT_PUBLIC_DEV_USER=dev@local
 ```
 
 ## Turkish Localization
@@ -286,7 +248,7 @@ curl http://localhost:8000/healthz
 # View logs
 docker logs fc_api_dev --tail 50 -f
 
-# Celery task monitoring (Task 6.1)
+# Celery task monitoring
 docker exec fc_worker_dev celery -A app.core.celery_app inspect active
 docker exec fc_worker_dev celery -A app.core.celery_app inspect reserved
 docker exec fc_worker_priority_dev celery -A app.core.celery_app inspect active_queues
@@ -323,81 +285,23 @@ curl -u freecad:freecad_dev_pass http://localhost:15672/api/bindings
 docker exec fc_freecad_dev FreeCADCmd --version
 ```
 
-## Security Notes
-
-- Never commit `.env` files (only `.env.example`)
-- All file uploads go through MinIO/S3, never local filesystem
-- Use presigned URLs for file access (expire in 1 hour)
-- Input validation with Pydantic schemas
-- SQL injection prevention via SQLAlchemy ORM
-- Rate limiting on API endpoints
-- CORS configured for frontend origin only
-
 ## Financial System Guidelines
 
 ### Enterprise Financial Precision Standards
 
-Following Gemini Code Assist feedback, all financial operations must maintain the highest precision standards:
+All financial operations must maintain the highest precision standards:
 
-**1. Decimal-Only Financial Calculations**
+**Decimal-Only Financial Calculations**:
 ```python
-# ✅ CORRECT: Use Decimal for all monetary calculations
 from decimal import Decimal, ROUND_HALF_UP
 
 amount_decimal = Decimal(amount_cents) / Decimal('100')
 tax_amount = (base_amount * tax_rate / Decimal('100')).quantize(
     Decimal('1'), rounding=ROUND_HALF_UP
 )
-
-# ❌ WRONG: Never use float for financial calculations
-amount_float = amount_cents / 100.0  # Precision loss risk
 ```
 
-**2. Enhanced Migration Safety**
-```python
-# ✅ CORRECT: Use enhanced enum creation
-from alembic.migration_helpers import create_enum_type_safe
-
-create_enum_type_safe('payment_status', ['pending', 'completed', 'failed'])
-
-# ❌ WRONG: Direct enum creation without safety checks
-op.execute("CREATE TYPE payment_status AS ENUM ('pending', 'completed', 'failed')")
-```
-
-**3. Import Organization Best Practices**
-```python
-# ✅ CORRECT: Organized imports with TYPE_CHECKING
-from __future__ import annotations
-
-from decimal import Decimal
-from typing import TYPE_CHECKING, List, Optional
-
-from sqlalchemy import BigInteger, CheckConstraint, DateTime
-from sqlalchemy.orm import Mapped, mapped_column, relationship
-
-if TYPE_CHECKING:
-    from .payment import Payment
-
-# ❌ WRONG: Disorganized imports causing circular dependencies
-from .payment import Payment  # Can cause circular import
-```
-
-**4. Financial Schema Validation**
-```python
-# ✅ CORRECT: Pydantic schemas with Decimal validation
-class MonetaryAmount(BaseModel):
-    amount_cents: PositiveInt
-    
-    @property
-    def amount_decimal(self) -> Decimal:
-        return Decimal(self.amount_cents) / Decimal('100')
-
-# ❌ WRONG: Float-based financial schemas
-class MonetaryAmount(BaseModel):
-    amount_float: float  # Precision loss risk
-```
-
-**5. Turkish Financial Compliance**
+**Turkish Financial Compliance**:
 - All monetary calculations use Turkish KDV standards (20% default)
 - Currency constraints support TRY-first with multi-currency options
 - Financial precision maintained for regulatory compliance
@@ -429,7 +333,7 @@ mcp__task-master__set_task_status --id "1.10" --status "done" --projectRoot "$(p
 mcp__task-master__expand_task --id "7" --projectRoot "$(pwd)"
 ```
 
-### Observability Stack (Task 6.10)
+## Observability Stack (Task 6.10)
 
 **Structured Logging** (`app/core/logging_config.py`):
 - TurkishCompliantFormatter with PII masking
@@ -450,10 +354,3 @@ mcp__task-master__expand_task --id "7" --projectRoot "$(pwd)"
 - 16 panels for comprehensive monitoring
 - Queue depths, job rates, error distributions
 - DLQ replay and cancellation tracking
-
-## Important Instruction Reminders
-
-- Do what has been asked; nothing more, nothing less
-- NEVER create files unless they're absolutely necessary for achieving your goal
-- ALWAYS prefer editing an existing file to creating a new one
-- NEVER proactively create documentation files (*.md) or README files unless explicitly requested

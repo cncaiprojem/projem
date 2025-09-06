@@ -112,6 +112,22 @@ async def lifespan(app: FastAPI):
         raise
     
     try:
+        # Initialize storage buckets (Task 7.11 - PR #471 fix)
+        from .core.storage import initialize_storage
+        await initialize_storage()
+        logger.info("Storage buckets initialized successfully", extra={
+            'operation': 'storage_initialization',
+            'task': '7.11'
+        })
+    except Exception as e:
+        logger.error("Failed to initialize storage buckets", exc_info=True, extra={
+            'operation': 'storage_initialization_failed',
+            'error_type': type(e).__name__
+        })
+        # Storage is critical - cannot continue without proper bucket setup
+        raise
+    
+    try:
         # Initialize enterprise rate limiting
         await rate_limiting_service.initialize()
         logger.info("Enterprise rate limiting initialized successfully", extra={
