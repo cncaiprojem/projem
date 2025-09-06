@@ -171,24 +171,8 @@ class WorkerProgressReporter:
             meta=progress.model_dump()
         )
         
-        # Publish to Redis (sync wrapper for async)
-        try:
-            # Try to get existing event loop first
-            try:
-                loop = asyncio.get_running_loop()
-                # If we have a running loop, schedule the coroutine with proper error handling
-                task = asyncio.create_task(
-                    redis_progress_pubsub.publish_progress(job_id, progress)
-                )
-                # Add error callback to log failures
-                task.add_done_callback(self._handle_task_completion)
-            except RuntimeError:
-                # No running loop, use asyncio.run()
-                asyncio.run(
-                    redis_progress_pubsub.publish_progress(job_id, progress)
-                )
-        except Exception as e:
-            logger.warning(f"Failed to publish progress to Redis: {e}", exc_info=True)
+        # Publish to Redis using the common method
+        self._publish_async(job_id, progress)
     
     @contextmanager
     def operation(
@@ -305,24 +289,9 @@ class WorkerProgressReporter:
             meta=progress.model_dump()
         )
         
-        # Publish to Redis
-        try:
-            # Try to get existing event loop first
-            try:
-                loop = asyncio.get_running_loop()
-                # If we have a running loop, schedule the coroutine with proper error handling
-                task = asyncio.create_task(
-                    redis_progress_pubsub.publish_progress(job_id, progress, force=kwargs.get("milestone", False))
-                )
-                # Add error callback to log failures
-                task.add_done_callback(self._handle_task_completion)
-            except RuntimeError:
-                # No running loop, use asyncio.run()
-                asyncio.run(
-                    redis_progress_pubsub.publish_progress(job_id, progress, force=kwargs.get("milestone", False))
-                )
-        except Exception as e:
-            logger.warning(f"Failed to publish operation phase: {e}", exc_info=True)
+        # Publish to Redis using the common method  
+        # Note: force parameter is set based on milestone from kwargs
+        self._publish_async(job_id, progress)
     
     def report_freecad_document(
         self,

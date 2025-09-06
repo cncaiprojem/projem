@@ -22,6 +22,17 @@ OPERATION_CONTEXT_KEY = "operation:context:{job_id}:{operation_id}"
 OPERATION_LIST_KEY = "operation:list:{job_id}"
 OPERATION_TTL = 3600  # 1 hour TTL for operation contexts
 
+# Numeric fields that need type conversion when retrieving from Redis
+NUMERIC_FIELDS = (
+    'job_id', 'timestamp', 'last_updated',
+    'total_steps', 'current_step', 'start_time',
+    'step_index', 'step_total', 'elapsed_ms', 'eta_ms',
+    'progress_pct', 'shapes_done', 'shapes_total',
+    'bytes_written', 'bytes_total', 'constraints_resolved',
+    'constraints_total', 'items_done', 'items_total',
+    'lcs_resolved', 'lcs_total', 'solids_in', 'solids_out'
+)
+
 
 class RedisOperationStore:
     """
@@ -158,7 +169,7 @@ class RedisOperationStore:
                             context[field_name] = field_value
                     else:
                         # Convert numeric strings back to appropriate types
-                        if field_name in ('job_id', 'timestamp', 'last_updated'):
+                        if field_name in NUMERIC_FIELDS:
                             try:
                                 context[field_name] = float(field_value) if '.' in field_value else int(field_value)
                             except ValueError:
