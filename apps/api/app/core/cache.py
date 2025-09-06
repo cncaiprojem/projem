@@ -352,11 +352,13 @@ class CacheKeyGenerator:
         
         # Generate SHA256 hash and encode as base64 (for URL safety)
         hash_bytes = hashlib.sha256(combined.encode('utf-8')).digest()
-        # Use base64 URL-safe encoding, trim to 16 chars for brevity
-        hash_b64 = base64.urlsafe_b64encode(hash_bytes).decode('ascii')[:16]
+        # Use full base64 URL-safe encoding for collision resistance
+        # Full SHA256 = 256 bits = 32 bytes = ~43 chars in base64
+        hash_b64 = base64.urlsafe_b64encode(hash_bytes).decode('ascii').rstrip('=')
         
-        # Build key
-        key = f"mgf:v2:{self.engine_str[:20]}:flow:{flow_type.value}:{artifact_type}:{hash_b64}"
+        # Build key using full engine string and full hash for collision resistance
+        # Keep key reasonable by using abbreviations but preserve uniqueness
+        key = f"mgf:v2:{self.engine_str}:f:{flow_type.value}:a:{artifact_type}:{hash_b64}"
         
         return key
     
@@ -938,30 +940,44 @@ class CacheManager:
                 
                 # Polling loop with exponential backoff to prevent thundering herd
                 max_wait_time = self.config.lock_timeout_seconds
-                poll_interval = 0.2  # Start with 200ms
-                total_waited = 0.0
+                wait_ms = 200  # Start with 200ms
+                start_time = time.time()  # Use time.time() for accurate elapsed time tracking
                 
-                while total_waited < max_wait_time:
-                    await asyncio.sleep(poll_interval)
-                    total_waited += poll_interval
+                while True:
+                    # Calculate actual elapsed time
+                    elapsed_time = time.time() - start_time
+                    if elapsed_time >= max_wait_time:
+                        break
+                    
+                    # Apply multiplicative jitter: random.uniform(0.8, 1.2)
+                    jitter = random.uniform(0.8, 1.2)
+                    actual_wait = (wait_ms / 1000.0) * jitter  # Convert to seconds with jitter
+                    
+                    # Don't exceed remaining time
+                    remaining_time = max_wait_time - elapsed_time
+                    if actual_wait > remaining_time:
+                        actual_wait = remaining_time
+                    
+                    await asyncio.sleep(actual_wait)
                     
                     # Check if value is now available
                     value = await self.get(flow_type, canonical_data, artifact_type)
                     if value is not None:
-                        logger.debug(f"Value available after {total_waited:.1f}s wait", cache_key=cache_key)
+                        final_elapsed = time.time() - start_time
+                        logger.debug(f"Value available after {final_elapsed:.1f}s wait", cache_key=cache_key)
                         return value
                     
-                    # Exponential backoff with jitter, cap at 1 second
-                    jitter = random.uniform(-0.05, 0.05)  # Add small jitter to prevent synchronization
-                    poll_interval = min(poll_interval * 1.5 + jitter, 1.0)
+                    # Exponential backoff: wait_ms * 2, cap at 1000ms (1 second)
+                    wait_ms = min(wait_ms * 2, 1000)
                 
                 # Timeout reached, raise exception instead of computing
-                logger.warning(f"Lock wait timeout after {total_waited:.1f}s", cache_key=cache_key)
+                final_elapsed = time.time() - start_time
+                logger.warning(f"Lock wait timeout after {final_elapsed:.1f}s", cache_key=cache_key)
                 raise CacheException(
-                    f"Cache lock timeout after {total_waited:.1f}s",
+                    f"Cache lock timeout after {final_elapsed:.1f}s",
                     CacheErrorCode.LOCK_TIMEOUT,
-                    f"Önbellek kilidi {total_waited:.1f} saniye sonra zaman aşımına uğradı",
-                    {"cache_key": cache_key, "wait_time": total_waited}
+                    f"Önbellek kilidi {final_elapsed:.1f} saniye sonra zaman aşımına uğradı",
+                    {"cache_key": cache_key, "wait_time": final_elapsed}
                 )
             
             try:
