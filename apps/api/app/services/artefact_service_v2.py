@@ -141,6 +141,13 @@ class ArtefactServiceV2:
                 bucket=self.default_bucket,
                 error=str(e),
             )
+            # Raise an error to prevent the application from continuing with an uninitialized bucket
+            raise ArtefactServiceV2Error(
+                code="storage.unavailable",
+                message=f"Failed to initialize storage bucket: {str(e)}",
+                turkish_message=f"Depolama kovası başlatılamadı: {str(e)}",
+                status_code=503,  # Service Unavailable
+            )
 
     async def upload_artefact(
         self,
@@ -719,7 +726,7 @@ class ArtefactServiceV2:
         user_id: int,
     ) -> bool:
         """
-        Validate artefact integrity by checking SHA256.
+        Validate artefact integrity by checking SHA256 and object existence.
         
         Args:
             artefact_id: Artefact ID
@@ -728,6 +735,8 @@ class ArtefactServiceV2:
         Returns:
             True if integrity check passes
         """
+        import httpx
+        
         try:
             # Get artefact
             artefact = await self.get_artefact(artefact_id, user_id, check_access=True)
@@ -737,16 +746,49 @@ class ArtefactServiceV2:
                 artefact_id, user_id, expires_in=60
             )
 
-            # In production, you would make a HEAD request to verify
-            # For now, we assume it exists if we can generate the URL
+            # Actually make a HEAD request to verify the object exists
+            async with httpx.AsyncClient() as client:
+                response = await client.head(head_url, timeout=10.0)
+                
+                # Check if object exists (200 OK for HEAD request)
+                if response.status_code != 200:
+                    logger.warning(
+                        "Artefact validation failed - object not found",
+                        artefact_id=artefact_id,
+                        status_code=response.status_code,
+                    )
+                    return False
+                
+                # Check if ETag matches if available
+                etag = response.headers.get("ETag")
+                if etag and artefact.etag:
+                    # Remove quotes from ETag if present
+                    etag = etag.strip('"')
+                    stored_etag = artefact.etag.strip('"')
+                    if etag != stored_etag:
+                        logger.warning(
+                            "Artefact validation failed - ETag mismatch",
+                            artefact_id=artefact_id,
+                            expected_etag=stored_etag,
+                            actual_etag=etag,
+                        )
+                        return False
+
             logger.info(
-                "Artefact integrity validated",
+                "Artefact integrity validated successfully",
                 artefact_id=artefact_id,
                 sha256=artefact.sha256,
             )
 
             return True
 
+        except httpx.RequestError as e:
+            logger.error(
+                "Failed to validate artefact integrity - request error",
+                artefact_id=artefact_id,
+                error=str(e),
+            )
+            return False
         except Exception as e:
             logger.error(
                 "Failed to validate artefact integrity",

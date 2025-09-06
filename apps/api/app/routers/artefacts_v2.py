@@ -9,7 +9,6 @@ API endpoints for comprehensive artefact management with:
 - Enterprise security
 """
 
-from io import BytesIO
 from typing import List, Optional
 
 from fastapi import (
@@ -92,13 +91,12 @@ async def upload_artefact(
     user_agent = request.headers.get("User-Agent")
     
     try:
-        # Read file content
-        content = await file.read()
-        file_obj = BytesIO(content)
+        # Stream file directly without reading into memory
+        # The file.file attribute is a SpooledTemporaryFile that can be streamed
         
         # Upload and create artefact
         artefact = await service.upload_artefact(
-            file_obj=file_obj,
+            file_obj=file.file,  # Pass the file object directly for streaming
             job_id=job_id,
             artefact_type=artefact_type,
             filename=file.filename,
@@ -109,7 +107,7 @@ async def upload_artefact(
             metadata={
                 "original_filename": file.filename,
                 "content_type": file.content_type,
-                "upload_size": len(content),
+                "upload_size": file.size if file.size else None,  # Use file.size if available
             },
             ip_address=client_ip,
             user_agent=user_agent,
@@ -450,7 +448,7 @@ async def retry_failed_deletions(
 
 
 @router.get(
-    "/{artefact_id}/validate",
+    "/{artefact_id}/validate-integrity",
     summary="Validate artefact integrity",
     description="Check if artefact exists and validate SHA256 integrity",
 )

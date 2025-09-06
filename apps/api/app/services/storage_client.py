@@ -31,6 +31,7 @@ from botocore.exceptions import ClientError, NoCredentialsError
 from minio import Minio
 from minio.commonconfig import ENABLED, Filter, Tags
 from minio.datatypes import Object as MinioObject
+from minio.deleteobjects import DeleteObject
 from minio.error import S3Error
 from minio.lifecycleconfig import (
     Expiration,
@@ -727,7 +728,7 @@ class StorageClient:
 
     def delete_all_versions(self, bucket: str, prefix: str) -> int:
         """
-        Delete all versions of objects with given prefix.
+        Delete all versions of objects with given prefix using bulk operations.
         
         Args:
             bucket: Bucket name
@@ -740,69 +741,111 @@ class StorageClient:
 
         try:
             if self.use_minio:
-                # List all versions
+                # Collect all objects to delete in batches
+                objects_to_delete = []
                 objects = self.minio_client.list_objects(
                     bucket_name=bucket, prefix=prefix, include_version=True
                 )
 
                 for obj in objects:
-                    try:
-                        self.minio_client.remove_object(
+                    objects_to_delete.append(
+                        DeleteObject(obj.object_name, obj.version_id)
+                    )
+                    
+                    # Process in batches of 1000 (MinIO limit)
+                    if len(objects_to_delete) >= 1000:
+                        errors = self.minio_client.remove_objects(
                             bucket_name=bucket,
-                            object_name=obj.object_name,
-                            version_id=obj.version_id,
+                            delete_object_list=objects_to_delete,
                         )
-                        deleted_count += 1
-                    except S3Error as e:
+                        
+                        # Process any errors
+                        for error in errors:
+                            logger.warning(
+                                "Failed to delete object in batch",
+                                bucket=bucket,
+                                key=error.object_name,
+                                error=error.error_message,
+                            )
+                        else:
+                            deleted_count += len(objects_to_delete)
+                        
+                        objects_to_delete = []
+                
+                # Delete remaining objects
+                if objects_to_delete:
+                    errors = self.minio_client.remove_objects(
+                        bucket_name=bucket,
+                        delete_object_list=objects_to_delete,
+                    )
+                    
+                    for error in errors:
                         logger.warning(
-                            "Failed to delete version",
+                            "Failed to delete object in batch",
                             bucket=bucket,
-                            key=obj.object_name,
-                            version_id=obj.version_id,
-                            error=str(e),
+                            key=error.object_name,
+                            error=error.error_message,
                         )
+                    else:
+                        deleted_count += len(objects_to_delete)
 
             else:
-                # List all versions with boto3
+                # Use boto3 batch delete operations
                 paginator = self.s3_client.get_paginator("list_object_versions")
                 pages = paginator.paginate(Bucket=bucket, Prefix=prefix)
 
                 for page in pages:
-                    # Delete versions
+                    delete_list = []
+                    
+                    # Collect versions to delete
                     for version in page.get("Versions", []):
-                        try:
-                            self.s3_client.delete_object(
-                                Bucket=bucket,
-                                Key=version["Key"],
-                                VersionId=version["VersionId"],
-                            )
-                            deleted_count += 1
-                        except ClientError as e:
-                            logger.warning(
-                                "Failed to delete version",
-                                bucket=bucket,
-                                key=version["Key"],
-                                version_id=version["VersionId"],
-                                error=str(e),
-                            )
-
-                    # Delete delete markers
+                        delete_list.append({
+                            "Key": version["Key"],
+                            "VersionId": version["VersionId"]
+                        })
+                    
+                    # Collect delete markers
                     for marker in page.get("DeleteMarkers", []):
-                        try:
-                            self.s3_client.delete_object(
-                                Bucket=bucket,
-                                Key=marker["Key"],
-                                VersionId=marker["VersionId"],
-                            )
-                            deleted_count += 1
-                        except ClientError as e:
-                            logger.warning(
-                                "Failed to delete marker",
-                                bucket=bucket,
-                                key=marker["Key"],
-                                version_id=marker["VersionId"],
-                                error=str(e),
-                            )
+                        delete_list.append({
+                            "Key": marker["Key"],
+                            "VersionId": marker["VersionId"]
+                        })
+                    
+                    # Batch delete (S3 limit is 1000 objects per request)
+                    if delete_list:
+                        # Split into chunks of 1000 if necessary
+                        for i in range(0, len(delete_list), 1000):
+                            batch = delete_list[i:i+1000]
+                            
+                            try:
+                                response = self.s3_client.delete_objects(
+                                    Bucket=bucket,
+                                    Delete={
+                                        "Objects": batch,
+                                        "Quiet": False
+                                    }
+                                )
+                                
+                                # Count successful deletions
+                                deleted_count += len(response.get("Deleted", []))
+                                
+                                # Log any errors
+                                for error in response.get("Errors", []):
+                                    logger.warning(
+                                        "Failed to delete object in batch",
+                                        bucket=bucket,
+                                        key=error.get("Key"),
+                                        version_id=error.get("VersionId"),
+                                        error=error.get("Message"),
+                                    )
+                                    
+                            except ClientError as e:
+                                logger.error(
+                                    "Batch delete operation failed",
+                                    bucket=bucket,
+                                    batch_size=len(batch),
+                                    error=str(e),
+                                )
 
             logger.info(
                 "All versions deleted",
@@ -837,28 +880,51 @@ class StorageClient:
         """
         try:
             if self.use_minio:
-                # MinIO doesn't support public access block like AWS
-                # Set a restrictive bucket policy instead
+                # MinIO: Set a policy that denies anonymous access
+                # This is more appropriate for MinIO than AWS-specific account conditions
                 policy = {
                     "Version": "2012-10-17",
                     "Statement": [
                         {
                             "Effect": "Deny",
-                            "Principal": "*",
-                            "Action": "s3:*",
+                            "Principal": {
+                                "AWS": ["*"]
+                            },
+                            "Action": [
+                                "s3:GetObject",
+                                "s3:ListBucket",
+                                "s3:GetBucketLocation",
+                                "s3:GetObjectVersion",
+                                "s3:PutObject",
+                                "s3:DeleteObject"
+                            ],
                             "Resource": [
                                 f"arn:aws:s3:::{bucket}/*",
-                                f"arn:aws:s3:::{bucket}",
+                                f"arn:aws:s3:::{bucket}"
                             ],
                             "Condition": {
-                                "StringNotEquals": {
-                                    "aws:SourceAccount": os.getenv("AWS_ACCOUNT_ID", "")
+                                "StringNotLike": {
+                                    "aws:userid": [
+                                        "AIDAI*",  # IAM users
+                                        "AIDA*",   # IAM users with MFA
+                                        "AROA*",   # IAM roles
+                                        "root"     # Root user
+                                    ]
                                 }
-                            },
+                            }
                         }
-                    ],
+                    ]
                 }
-                self.minio_client.set_bucket_policy(bucket, json.dumps(policy))
+                
+                # Validate that we have a proper policy before applying
+                if policy and policy.get("Statement"):
+                    self.minio_client.set_bucket_policy(bucket, json.dumps(policy))
+                else:
+                    logger.warning(
+                        "Invalid bucket policy structure, skipping policy application",
+                        bucket=bucket
+                    )
+                    return False
 
             else:
                 # AWS S3 public access block
