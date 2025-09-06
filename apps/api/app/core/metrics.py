@@ -319,6 +319,43 @@ freecad_validation_errors_total = Counter(
     registry=REGISTRY
 )
 
+# Task 7.12: Error taxonomy metrics
+error_count_total = Counter(
+    'error_count_total',
+    'Total number of errors by code and category',
+    ['error_code', 'category', 'http_status'],
+    registry=REGISTRY
+)
+
+http_requests_total = Counter(
+    'http_requests_total',
+    'Total number of HTTP requests',
+    ['method', 'endpoint', 'status'],
+    registry=REGISTRY
+)
+
+http_request_duration_seconds = Histogram(
+    'http_request_duration_seconds',
+    'HTTP request duration in seconds',
+    ['method', 'endpoint'],
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float('inf')),
+    registry=REGISTRY
+)
+
+freecad_error_recovery_total = Counter(
+    'freecad_error_recovery_total',
+    'Total number of FreeCAD error recovery attempts',
+    ['error_code', 'recovery_method', 'status'],
+    registry=REGISTRY
+)
+
+pii_masking_operations_total = Counter(
+    'pii_masking_operations_total',
+    'Total number of PII masking operations',
+    ['data_type', 'pattern_matched'],
+    registry=REGISTRY
+)
+
 
 class MetricsCollector:
     """
@@ -534,6 +571,12 @@ __all__ = [
     'ai_adapter_request_duration',
     'freecad_normalization_total',
     'freecad_validation_errors_total',
+    # Task 7.12: Error taxonomy metrics
+    'error_count_total',
+    'http_requests_total',
+    'http_request_duration_seconds',
+    'freecad_error_recovery_total',
+    'pii_masking_operations_total',
     'MetricsCollector',
     'metrics'
 ]
