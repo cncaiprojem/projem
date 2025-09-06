@@ -37,6 +37,7 @@ import threading
 import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from decimal import Decimal
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple, Union
@@ -566,6 +567,21 @@ class UltraEnterpriseFreeCADService:
                         path=freecad_path, error=str(e))
             return False, None
     
+    @staticmethod
+    def _json_encoder(obj):
+        """
+        Custom JSON encoder for FreeCAD parameters.
+        
+        Handles Decimal values by converting to string to preserve precision.
+        FreeCAD scripts will parse these as float when needed.
+        """
+        if isinstance(obj, Decimal):
+            # Convert Decimal to string to preserve precision
+            # When FreeCAD reads the JSON, it will parse as float
+            return str(obj)
+        # Let default encoder handle other types
+        raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+    
     def sanitize_input(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """Sanitize and validate input data."""
         correlation_id = get_correlation_id()
@@ -966,10 +982,12 @@ class UltraEnterpriseFreeCADService:
         with open(script_file, 'w', encoding='utf-8') as f:
             f.write(script_content)
         
-        # Create parameters file
+        # Create parameters file with Decimal support
         params_file = temp_dir / "parameters.json"
         with open(params_file, 'w', encoding='utf-8') as f:
-            json.dump(parameters, f, indent=2)
+            # Use custom encoder to handle Decimal values properly
+            # Convert Decimal to string to preserve precision
+            json.dump(parameters, f, indent=2, default=self._json_encoder)
         
         # Prepare command
         cmd = [

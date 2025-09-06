@@ -44,9 +44,9 @@ class TestParametricNormalization:
         
         assert result.success
         assert result.canonical_params is not None
-        assert result.canonical_params["length"] == 100.0
-        assert result.canonical_params["width"] == 50.0
-        assert result.canonical_params["height"] == 25.0
+        assert result.canonical_params["length"] == Decimal('100')
+        assert result.canonical_params["width"] == Decimal('50')
+        assert result.canonical_params["height"] == Decimal('25')
         assert result.canonical_params["units"] == "mm"
         assert result.canonical_params["material"] == "pla"
         assert result.canonical_params["machine"] == "3d_printer"
@@ -67,9 +67,9 @@ class TestParametricNormalization:
         result = engine.normalize(input_data)
         
         assert result.success
-        assert result.canonical_params["length"] == 100.0  # 10 cm = 100 mm
-        assert result.canonical_params["width"] == 50.0    # 5 cm = 50 mm
-        assert result.canonical_params["height"] == 25.0   # 2.5 cm = 25 mm
+        assert result.canonical_params["length"] == Decimal('100')  # 10 cm = 100 mm
+        assert result.canonical_params["width"] == Decimal('50')    # 5 cm = 50 mm
+        assert result.canonical_params["height"] == Decimal('25')   # 2.5 cm = 25 mm
         assert result.canonical_params["units"] == "mm"
     
     def test_unit_conversion_inch(self):
@@ -88,9 +88,9 @@ class TestParametricNormalization:
         result = engine.normalize(input_data)
         
         assert result.success
-        assert result.canonical_params["l"] == 101.6  # 4 inch = 101.6 mm
-        assert result.canonical_params["w"] == 50.8   # 2 inch = 50.8 mm
-        assert result.canonical_params["h"] == 25.4   # 1 inch = 25.4 mm
+        assert result.canonical_params["l"] == Decimal('101.6')  # 4 inch = 101.6 mm
+        assert result.canonical_params["w"] == Decimal('50.8')   # 2 inch = 50.8 mm
+        assert result.canonical_params["h"] == Decimal('25.4')   # 1 inch = 25.4 mm
         assert result.canonical_params["units"] == "mm"
     
     def test_numeric_rounding(self):
@@ -108,8 +108,8 @@ class TestParametricNormalization:
         result = engine.normalize(input_data)
         
         assert result.success
-        assert result.canonical_params["radius"] == 3.141593
-        assert result.canonical_params["thickness"] == 0.123457
+        assert result.canonical_params["radius"] == Decimal('3.141593')
+        assert result.canonical_params["thickness"] == Decimal('0.123457')
     
     def test_default_values(self):
         """Test default values for missing fields."""

@@ -272,10 +272,12 @@ def process_assembly4_task(
             )
             
             # Update job with results
+            # IMPORTANT: Use mode='json' because AssemblyResult may contain BillOfMaterials
+            # with Decimal fields (cost, total_cost) that must be serialized as strings
             job.status = "succeeded"
             job.finished_at = datetime.utcnow()
             job.result = {
-                "assembly_result": result.model_dump(exclude_none=True),
+                "assembly_result": result.model_dump(mode='json', exclude_none=True),
                 "artifacts": artifacts
             }
             job.artefacts = artifacts

@@ -45,6 +45,14 @@ from ...core.logging import get_logger
 from ...core.metrics import freecad_operation_duration_seconds
 from ...core.telemetry import create_span
 
+# Import metrics extractor for Task 7.10
+try:
+    from ..metrics_extractor import extract_model_metrics
+    from ...schemas.metrics import ModelMetricsSummary, ModelMetricsSchema
+    METRICS_AVAILABLE = True
+except ImportError:
+    METRICS_AVAILABLE = False
+
 logger = get_logger(__name__)
 
 
@@ -298,7 +306,10 @@ class UnifiedDeterministicExporter:
         base_path: Path,
         formats: Optional[List[str]] = None,
         job_id: Optional[str] = None,
-        validate: Optional[bool] = None
+        validate: Optional[bool] = None,
+        extract_metrics: bool = True,
+        material: Optional[str] = None,
+        queue_name: Optional[str] = None
     ) -> Dict[str, Dict[str, Any]]:
         """
         Export document to all requested formats with deterministic output.
@@ -309,9 +320,13 @@ class UnifiedDeterministicExporter:
             formats: List of formats to export (default: all supported)
             job_id: Optional job ID for tracking
             validate: Override validation setting
+            extract_metrics: Whether to extract metrics (Task 7.10)
+            material: Material name for density lookup
+            queue_name: Queue name for telemetry
         
         Returns:
             Dictionary mapping format to export info (path, hash, size, metadata)
+            Also includes 'metrics' key with ModelMetrics if extraction enabled
             
         Raises:
             RuntimeError: If required dependencies are missing
@@ -367,6 +382,16 @@ class UnifiedDeterministicExporter:
                         results[fmt_upper] = {"error": str(e)}
                         span.set_attribute(f"error.{fmt_upper}", str(e))
         
+        # Extract metrics if enabled (Task 7.10)
+        if extract_metrics:
+            self._extract_and_record_metrics(
+                document=document,
+                results=results,
+                job_id=job_id,
+                material=material,
+                queue_name=queue_name
+            )
+        
         # Save metadata
         metadata_path = base_path.with_suffix(".export_metadata.json")
         self.metadata.save(metadata_path)
@@ -376,6 +401,78 @@ class UnifiedDeterministicExporter:
         }
         
         return results
+    
+    def _extract_and_record_metrics(
+        self,
+        document: Any,
+        results: Dict[str, Any],
+        job_id: Optional[str],
+        material: Optional[str],
+        queue_name: Optional[str]
+    ) -> None:
+        """
+        Extract and record model metrics into the results dictionary.
+        
+        This helper method handles metrics extraction for Task 7.10, including:
+        - Extracting comprehensive model metrics from the document
+        - Creating a metrics summary for quick reference
+        - Adding metrics to export metadata
+        - Handling errors gracefully
+        
+        Args:
+            document: FreeCAD document to extract metrics from
+            results: Dictionary to add metrics to (modified in-place)
+            job_id: Optional job ID for tracking
+            material: Material name for density lookup
+            queue_name: Queue name for telemetry
+        """
+        if METRICS_AVAILABLE:
+            try:
+                # Get STL path if exported
+                stl_path = None
+                if "STL" in results and "path" in results["STL"]:
+                    stl_path = Path(results["STL"]["path"])
+                
+                # Extract comprehensive metrics
+                model_metrics = extract_model_metrics(
+                    document=document,
+                    stl_path=stl_path,
+                    job_id=job_id,
+                    material=material,
+                    queue_name=queue_name
+                )
+                
+                # Add to results using proper summary method
+                # model_metrics is already a ModelMetricsSchema (aliased as ModelMetrics in metrics_extractor)
+                summary = ModelMetricsSummary.from_full_metrics(model_metrics)
+                
+                # IMPORTANT: Use mode='json' to ensure Decimal fields are properly serialized to strings
+                # Without mode='json', Decimal objects remain in the dictionary and will cause
+                # TypeError when the API tries to serialize the response to JSON
+                results["metrics"] = {
+                    "extracted": True,
+                    "data": model_metrics.model_dump(mode='json'),
+                    "summary": summary.model_dump(mode='json', exclude_none=True)
+                }
+                
+                # Add metrics to export metadata
+                self.metadata.export_parameters["metrics_extracted"] = True
+                self.metadata.export_parameters["metrics_version"] = model_metrics.metrics_version
+                
+                logger.info(f"Metrics extraction completed for job {job_id}")
+                
+            except Exception as e:
+                logger.error(f"Metrics extraction failed: {e}")
+                results["metrics"] = {
+                    "extracted": False,
+                    "error": str(e)
+                }
+        else:
+            logger.warning("Metrics extraction requested but metrics_extractor module not available")
+            results["metrics"] = {
+                "extracted": False,
+                "error": "Metrics extractor module not available"
+            }
     
     def _export_fcstd_unified(self, document: Any, base_path: Path) -> Dict[str, Any]:
         """
@@ -1030,7 +1127,10 @@ def export_deterministic(
     document: Any,
     output_dir: Union[str, Path],
     formats: Optional[List[str]] = None,
-    job_id: Optional[str] = None
+    job_id: Optional[str] = None,
+    extract_metrics: bool = True,
+    material: Optional[str] = None,
+    queue_name: Optional[str] = None
 ) -> Dict[str, Any]:
     """
     Export document with deterministic output.
@@ -1040,9 +1140,12 @@ def export_deterministic(
         output_dir: Output directory path
         formats: List of export formats
         job_id: Optional job ID
+        extract_metrics: Whether to extract metrics (Task 7.10)
+        material: Material name for density lookup
+        queue_name: Queue name for telemetry
     
     Returns:
-        Export results dictionary
+        Export results dictionary with metrics if enabled
     """
     output_path = Path(output_dir)
     output_path.mkdir(parents=True, exist_ok=True)
@@ -1054,7 +1157,10 @@ def export_deterministic(
         document=document,
         base_path=base_path,
         formats=formats,
-        job_id=job_id
+        job_id=job_id,
+        extract_metrics=extract_metrics,
+        material=material,
+        queue_name=queue_name
     )
 
 

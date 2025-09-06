@@ -23,11 +23,11 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_EVEN
 from enum import Enum
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, field_serializer
 
 from ..core.logging import get_logger
 
@@ -76,8 +76,21 @@ class UnitConversion(BaseModel):
     from_unit: str
     to_unit: str = "mm"
     before: float
-    after: float
+    after: Union[float, Decimal]  # Decimal for precision, float for compatibility
     location: str
+    
+    model_config = ConfigDict(
+        # Use json_schema_serializer for Pydantic v2 compatibility
+        json_schema_mode='validation',
+        ser_json_inf_nan='constants'
+    )
+    
+    @field_serializer('after')
+    def serialize_decimal(self, value: Union[float, Decimal]) -> Union[float, str]:
+        """Serialize Decimal values to string to preserve precision."""
+        if isinstance(value, Decimal):
+            return str(value)
+        return value
 
 
 class ScriptMetadata(BaseModel):
@@ -1508,10 +1521,14 @@ class FreeCADRulesEngine:
             # Unknown unit, assume mm
             return value
     
-    def _round_decimal(self, value: float) -> float:
-        """Round a value to 1e-6 precision using Decimal."""
+    def _round_decimal(self, value: float) -> Decimal:
+        """Round a value to 1e-6 precision using Decimal.
+        
+        Returns Decimal to maintain precision throughout calculations.
+        Conversion to float should only happen at the FreeCAD API boundary.
+        """
         d = Decimal(str(value))
-        return float(d.quantize(self.precision, rounding=ROUND_HALF_UP))
+        return d.quantize(self.precision, rounding=ROUND_HALF_EVEN)
 
 
 # Create singleton instance
