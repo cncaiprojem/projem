@@ -427,7 +427,7 @@ class ArtefactServiceV2:
             Presigned HEAD URL
         """
         # Get artefact with access check
-        artefact = await self.get_artefact(artefact_id, user_id, check_access=True)
+        artefact = await self.get_artefact(artefact_id, user, check_access=True)
 
         # Validate expiration
         if expires_in is None:
@@ -524,7 +524,7 @@ class ArtefactServiceV2:
             # Mark for deletion
             artefact.deletion_pending = True
             artefact.set_meta("deletion_requested_at", datetime.now(timezone.utc).isoformat())
-            artefact.set_meta("deletion_requested_by", user_id)
+            artefact.set_meta("deletion_requested_by", user.id)
 
             # Schedule garbage collection task
             schedule_artefact_gc.delay(
@@ -724,7 +724,7 @@ class ArtefactServiceV2:
         """
         try:
             # Get artefact
-            artefact = await self.get_artefact(artefact_id, user_id, check_access=True)
+            artefact = await self.get_artefact(artefact_id, user, check_access=True)
 
             # Generate HEAD URL to check if object exists
             head_url = await self.generate_presigned_head_url(
