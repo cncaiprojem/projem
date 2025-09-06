@@ -188,7 +188,8 @@ class ArtefactServiceV2:
         """
         try:
             # Step 1: Verify job exists and user has access
-            job = self.db.query(Job).filter_by(id=job_id).first()
+            # Run database query in thread pool to avoid blocking
+            job = await asyncio.to_thread(self.db.query(Job).filter_by(id=job_id).first)
             if not job:
                 raise ArtefactServiceV2Error(
                     code="job.link.missing",
@@ -235,7 +236,9 @@ class ArtefactServiceV2:
                 s3_tags["exporter_version"] = exporter_version
 
             # Step 5: Upload to S3/MinIO
-            upload_result = self.storage_client.upload_file(
+            # Run blocking storage operation in thread pool
+            upload_result = await asyncio.to_thread(
+                self.storage_client.upload_file,
                 file_path=file_obj,
                 bucket=self.default_bucket,
                 key=s3_key,
@@ -281,8 +284,9 @@ class ArtefactServiceV2:
                 artefact.set_meta("compliance", "Turkish_Tax_Law")
                 artefact.set_meta("retention_mode", "COMPLIANCE")
 
-            self.db.add(artefact)
-            self.db.flush()
+            # Run database operations in thread pool
+            await asyncio.to_thread(self.db.add, artefact)
+            await asyncio.to_thread(self.db.flush)
 
             # Step 7: Create audit log
             await audit_service.create_audit_entry(
@@ -306,7 +310,7 @@ class ArtefactServiceV2:
                 },
             )
 
-            self.db.commit()
+            await asyncio.to_thread(self.db.commit)
 
             logger.info(
                 "Artefact uploaded successfully",
@@ -320,10 +324,10 @@ class ArtefactServiceV2:
             return artefact
 
         except ArtefactServiceV2Error:
-            self.db.rollback()
+            await asyncio.to_thread(self.db.rollback)
             raise
         except StorageClientError as e:
-            self.db.rollback()
+            await asyncio.to_thread(self.db.rollback)
             raise ArtefactServiceV2Error(
                 code="artefacts.upload.failed",
                 message=f"Storage upload failed: {str(e)}",
@@ -331,7 +335,7 @@ class ArtefactServiceV2:
                 status_code=500,
             )
         except Exception as e:
-            self.db.rollback()
+            await asyncio.to_thread(self.db.rollback)
             logger.error("Failed to upload artefact", error=str(e), exc_info=True)
             raise ArtefactServiceV2Error(
                 code="artefacts.upload.failed",
@@ -374,8 +378,9 @@ class ArtefactServiceV2:
             else:
                 expires_in = min(max(expires_in, 1), self.max_presign_ttl)
 
-            # Generate presigned URL
-            presigned_url = self.storage_client.generate_presigned_url(
+            # Generate presigned URL - run in thread pool
+            presigned_url = await asyncio.to_thread(
+                self.storage_client.generate_presigned_url,
                 bucket=artefact.s3_bucket,
                 key=artefact.s3_key,
                 version_id=artefact.version_id,
@@ -484,7 +489,10 @@ class ArtefactServiceV2:
         Raises:
             ArtefactServiceV2Error: If not found or unauthorized
         """
-        artefact = self.db.query(Artefact).filter_by(id=artefact_id).first()
+        # Run database query in thread pool to avoid blocking
+        artefact = await asyncio.to_thread(
+            self.db.query(Artefact).filter_by(id=artefact_id).first
+        )
 
         if not artefact:
             raise ArtefactServiceV2Error(
@@ -494,8 +502,10 @@ class ArtefactServiceV2:
             )
 
         if check_access:
-            # Check user access
-            user = self.db.query(User).filter_by(id=user_id).first()
+            # Check user access - run query in thread pool
+            user = await asyncio.to_thread(
+                self.db.query(User).filter_by(id=user_id).first
+            )
             is_admin = user and user.role == "admin"
 
             if not is_admin:

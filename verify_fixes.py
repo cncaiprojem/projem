@@ -236,7 +236,7 @@ def verify_import_at_top():
 
 def main():
     """Run all verification checks."""
-    print("Verifying PR #468 fixes...")
+    print("Verifying PR #470 fixes...")
     print("-" * 60)
     
     checks = [

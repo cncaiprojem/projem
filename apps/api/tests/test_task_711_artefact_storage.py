@@ -252,7 +252,7 @@ class TestArtefactServiceV2:
             job_id=1,
             artefact_type="model",
             filename="model.stl",
-            user_id=1,
+            user=user,  # Pass User object, not user_id
             exporter_version="1.0.0",
         )
 
@@ -284,7 +284,7 @@ class TestArtefactServiceV2:
             job_id=1,
             artefact_type="invoice",
             filename="invoice.pdf",
-            user_id=1,
+            user=user,  # Pass User object, not user_id
         )
 
         # Verify retention metadata
@@ -394,7 +394,7 @@ class TestArtefactServiceV2:
                 job_id=999,
                 artefact_type="model",
                 filename="test.stl",
-                user_id=1,
+                user=user,  # Pass User object, not user_id
             )
 
         assert exc_info.value.code == "job.link.missing"
