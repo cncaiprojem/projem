@@ -44,35 +44,31 @@ from .redis_operation_store import redis_operation_store
 logger = get_logger(__name__)
 
 # Phase mapping dictionaries for proper enum conversion
+# Maps actual enum members to Phase enum values based on schema definitions
 PHASE_MAPPINGS = {
     "assembly4": {
+        # Assembly4Phase enum members from schema
         Assembly4Phase.SOLVER_START: Phase.START,
-        Assembly4Phase.LCS_PLACEMENT_START: Phase.START,
-        Assembly4Phase.CONSTRAINT_ADD_START: Phase.START,
+        Assembly4Phase.SOLVER_PROGRESS: Phase.PROGRESS,
         Assembly4Phase.SOLVER_END: Phase.END,
+        Assembly4Phase.LCS_PLACEMENT_START: Phase.START,
+        Assembly4Phase.LCS_PLACEMENT_PROGRESS: Phase.PROGRESS,
         Assembly4Phase.LCS_PLACEMENT_END: Phase.END,
-        Assembly4Phase.CONSTRAINT_ADD_END: Phase.END,
-        Assembly4Phase.SOLVER_ITERATION: Phase.PROGRESS,
-        Assembly4Phase.CONSTRAINT_RESOLVED: Phase.PROGRESS,
     },
     "material": {
-        MaterialPhase.LIBRARY_LOAD_START: Phase.START,
-        MaterialPhase.MATERIAL_SELECT_START: Phase.START,
+        # MaterialPhase enum members from schema
+        MaterialPhase.MATERIAL_RESOLVE_LIBRARY: Phase.START,
         MaterialPhase.MATERIAL_APPLY_START: Phase.START,
-        MaterialPhase.LIBRARY_LOAD_END: Phase.END,
-        MaterialPhase.MATERIAL_SELECT_END: Phase.END,
+        MaterialPhase.MATERIAL_APPLY_PROGRESS: Phase.PROGRESS,
         MaterialPhase.MATERIAL_APPLY_END: Phase.END,
-        MaterialPhase.MATERIAL_PROPERTY_SET: Phase.PROGRESS,
-        MaterialPhase.APPEARANCE_BAKE_START: Phase.START,
-        MaterialPhase.APPEARANCE_BAKE_END: Phase.END,
+        MaterialPhase.MATERIAL_OVERRIDE_PROPERTIES: Phase.PROGRESS,
     },
     "topology": {
-        TopologyPhase.HASH_START: Phase.START,
-        TopologyPhase.HASH_END: Phase.END,
+        # TopologyPhase enum members from schema
+        TopologyPhase.TOPO_HASH_START: Phase.START,
+        TopologyPhase.TOPO_HASH_PROGRESS: Phase.PROGRESS,
+        TopologyPhase.TOPO_HASH_END: Phase.END,
         TopologyPhase.EXPORT_VALIDATION: Phase.END,
-        TopologyPhase.FACE_HASH: Phase.PROGRESS,
-        TopologyPhase.EDGE_HASH: Phase.PROGRESS,
-        TopologyPhase.VERTEX_HASH: Phase.PROGRESS,
     }
 }
 

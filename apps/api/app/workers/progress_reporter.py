@@ -365,13 +365,17 @@ class WorkerProgressReporter:
         if not job_id:
             return
         
-        # Determine phase enum using mapping or fallback to string matching
+        # Determine phase enum using mapping
         phase_enum = PHASE_MAPPINGS.get("assembly4", {}).get(phase, None)
         if phase_enum is None:
-            # Fallback to string matching for unknown phases
-            phase_enum = Phase.START if "start" in phase.value.lower() else \
-                        Phase.END if "end" in phase.value.lower() else \
-                        Phase.PROGRESS
+            # Log error for missing mapping instead of fallback to string matching
+            logger.error(
+                f"No phase mapping found for Assembly4Phase.{phase.name}. "
+                f"Please update PHASE_MAPPINGS in progress_service.py",
+                exc_info=True
+            )
+            # Use PROGRESS as safe default
+            phase_enum = Phase.PROGRESS
         
         progress = ProgressMessageV2(
             job_id=job_id,

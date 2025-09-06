@@ -39,16 +39,18 @@ def test_phase_mappings():
     assert PHASE_MAPPINGS["assembly4"][Assembly4Phase.SOLVER_END] == Phase.END
     print("  ✓ Assembly4 phase mappings correct")
     
-    # Test Material mapping
-    assert MaterialPhase.LIBRARY_LOAD_START in PHASE_MAPPINGS["material"]
-    assert PHASE_MAPPINGS["material"][MaterialPhase.LIBRARY_LOAD_START] == Phase.START
-    assert PHASE_MAPPINGS["material"][MaterialPhase.LIBRARY_LOAD_END] == Phase.END
+    # Test Material mapping - using actual enum members from schema
+    assert MaterialPhase.MATERIAL_RESOLVE_LIBRARY in PHASE_MAPPINGS["material"]
+    assert PHASE_MAPPINGS["material"][MaterialPhase.MATERIAL_RESOLVE_LIBRARY] == Phase.START
+    assert MaterialPhase.MATERIAL_APPLY_END in PHASE_MAPPINGS["material"]
+    assert PHASE_MAPPINGS["material"][MaterialPhase.MATERIAL_APPLY_END] == Phase.END
     print("  ✓ Material phase mappings correct")
     
-    # Test Topology mapping
-    assert TopologyPhase.HASH_START in PHASE_MAPPINGS["topology"]
-    assert PHASE_MAPPINGS["topology"][TopologyPhase.HASH_START] == Phase.START
-    assert PHASE_MAPPINGS["topology"][TopologyPhase.HASH_END] == Phase.END
+    # Test Topology mapping - using actual enum members from schema
+    assert TopologyPhase.TOPO_HASH_START in PHASE_MAPPINGS["topology"]
+    assert PHASE_MAPPINGS["topology"][TopologyPhase.TOPO_HASH_START] == Phase.START
+    assert TopologyPhase.TOPO_HASH_END in PHASE_MAPPINGS["topology"]
+    assert PHASE_MAPPINGS["topology"][TopologyPhase.TOPO_HASH_END] == Phase.END
     print("  ✓ Topology phase mappings correct")
 
 # Test WorkerProgressReporter has unified error handler

@@ -166,7 +166,7 @@ async def progress_event_generator(
                                 break
                         
                         except (json.JSONDecodeError, ValueError) as e:
-                            logger.warning(f"Failed to parse progress message: {e}")
+                            logger.warning(f"Failed to parse progress message: {e}", exc_info=True)
                     
                     # Send keepalive if needed
                     current_time = asyncio.get_running_loop().time()
@@ -249,7 +249,7 @@ async def stream_job_progress(
         try:
             last_id = int(last_event_id)
         except ValueError:
-            logger.warning(f"Invalid last_event_id: {last_event_id}")
+            logger.warning(f"Invalid last_event_id: {last_event_id}", exc_info=True)
     
     # Create event generator
     event_generator = progress_event_generator(

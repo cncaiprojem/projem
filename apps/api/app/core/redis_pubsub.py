@@ -253,7 +253,7 @@ class RedisProgressPubSub:
             )
             
         except Exception as e:
-            logger.warning(f"Failed to get missed events: {e}")
+            logger.warning(f"Failed to get missed events: {e}", exc_info=True)
         
         return events
     
@@ -374,7 +374,7 @@ class RedisProgressPubSub:
                 )
                 channels_reached += 1
             except Exception as e:
-                logger.warning(f"Failed to broadcast to {channel}: {e}")
+                logger.warning(f"Failed to broadcast to {channel}: {e}", exc_info=True)
         
         return channels_reached
 

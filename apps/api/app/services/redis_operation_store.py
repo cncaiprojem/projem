@@ -65,24 +65,31 @@ class RedisOperationStore:
         try:
             redis = await self._get_redis()
             
-            # Prepare context for storage
-            context_data = {
-                **context,
-                "operation_id": str(operation_id),
-                "job_id": job_id,
-                "timestamp": time.time()
-            }
-            
-            # Store context with TTL
+            # Use Hash key for atomic operations
             key = OPERATION_CONTEXT_KEY.format(
                 job_id=job_id,
                 operation_id=str(operation_id)
             )
-            await redis.setex(
-                key,
-                OPERATION_TTL,
-                json.dumps(context_data, default=str)
-            )
+            
+            # Prepare fields for Hash storage
+            # Convert all values to strings for Redis Hash compatibility
+            hash_fields = {
+                "operation_id": str(operation_id),
+                "job_id": str(job_id),
+                "timestamp": str(time.time()),
+                "last_updated": str(time.time())
+            }
+            
+            # Add context fields, converting complex types to JSON strings
+            for field_name, field_value in context.items():
+                if isinstance(field_value, (dict, list)):
+                    hash_fields[field_name] = json.dumps(field_value, default=str)
+                else:
+                    hash_fields[field_name] = str(field_value)
+            
+            # Store as Hash with atomic operation
+            await redis.hset(key, mapping=hash_fields)
+            await redis.expire(key, OPERATION_TTL)
             
             # Add to job's operation list
             list_key = OPERATION_LIST_KEY.format(job_id=job_id)
@@ -129,10 +136,36 @@ class RedisOperationStore:
                 job_id=job_id,
                 operation_id=str(operation_id)
             )
-            data = await redis.get(key)
             
-            if data:
-                context = json.loads(data)
+            # Get all fields from Hash
+            hash_data = await redis.hgetall(key)
+            
+            if hash_data:
+                # Convert bytes to strings and parse JSON fields
+                context = {}
+                for field_name, field_value in hash_data.items():
+                    # Decode bytes if necessary
+                    if isinstance(field_name, bytes):
+                        field_name = field_name.decode('utf-8')
+                    if isinstance(field_value, bytes):
+                        field_value = field_value.decode('utf-8')
+                    
+                    # Try to parse JSON for complex fields
+                    if field_value.startswith(('{', '[')):
+                        try:
+                            context[field_name] = json.loads(field_value)
+                        except json.JSONDecodeError:
+                            context[field_name] = field_value
+                    else:
+                        # Convert numeric strings back to appropriate types
+                        if field_name in ('job_id', 'timestamp', 'last_updated'):
+                            try:
+                                context[field_name] = float(field_value) if '.' in field_value else int(field_value)
+                            except ValueError:
+                                context[field_name] = field_value
+                        else:
+                            context[field_name] = field_value
+                
                 logger.debug(
                     f"Retrieved operation context for job {job_id}, "
                     f"operation {operation_id}"
@@ -168,19 +201,55 @@ class RedisOperationStore:
         Returns:
             True if updated successfully
         """
-        context = await self.get_operation_context(job_id, operation_id)
-        if not context:
-            logger.warning(
-                f"Operation {operation_id} not found for job {job_id}"
+        try:
+            redis = await self._get_redis()
+            
+            key = OPERATION_CONTEXT_KEY.format(
+                job_id=job_id,
+                operation_id=str(operation_id)
             )
+            
+            # Check if key exists
+            if not await redis.exists(key):
+                logger.warning(
+                    f"Operation {operation_id} not found for job {job_id}"
+                )
+                return False
+            
+            # Prepare updates for Hash storage
+            hash_updates = {"last_updated": str(time.time())}
+            
+            for field_name, field_value in updates.items():
+                if isinstance(field_value, (dict, list)):
+                    hash_updates[field_name] = json.dumps(field_value, default=str)
+                else:
+                    hash_updates[field_name] = str(field_value)
+            
+            # Atomic update using HSET
+            await redis.hset(key, mapping=hash_updates)
+            
+            # Refresh TTL
+            await redis.expire(key, OPERATION_TTL)
+            
+            logger.debug(
+                f"Updated operation context for job {job_id}, "
+                f"operation {operation_id}"
+            )
+            return True
+            
+        except Exception as e:
+            logger.warning(
+                f"Failed to update operation context in Redis: {e}",
+                exc_info=True
+            )
+            
+            # Fallback to in-memory update
+            if job_id in self._fallback_store:
+                if str(operation_id) in self._fallback_store[job_id]:
+                    self._fallback_store[job_id][str(operation_id)].update(updates)
+                    return True
+            
             return False
-        
-        # Update context
-        context.update(updates)
-        context["last_updated"] = time.time()
-        
-        # Store updated context
-        return await self.set_operation_context(job_id, operation_id, context)
     
     async def delete_operation_context(
         self,

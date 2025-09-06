@@ -44,6 +44,100 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
 
+# Centralized Redis listener for scalability
+class CentralizedRedisListener:
+    """
+    Centralized Redis pub/sub listener that dispatches to multiple WebSocket clients.
+    Uses a single Redis subscription per job instead of one per connection.
+    """
+    
+    def __init__(self):
+        self.job_listeners: Dict[int, asyncio.Task] = {}
+        self.lock = asyncio.Lock()
+        
+    async def start_job_listener(self, job_id: int, manager: 'ConnectionManager') -> None:
+        """Start a centralized listener for a specific job if not already running."""
+        async with self.lock:
+            if job_id in self.job_listeners:
+                # Listener already running for this job
+                return
+            
+            # Create a new listener task for this job
+            task = asyncio.create_task(self._job_listener(job_id, manager))
+            self.job_listeners[job_id] = task
+            logger.info(f"Started centralized Redis listener for job {job_id}")
+    
+    async def stop_job_listener(self, job_id: int) -> None:
+        """Stop the listener for a specific job if no more connections need it."""
+        async with self.lock:
+            if job_id in self.job_listeners:
+                task = self.job_listeners[job_id]
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+                del self.job_listeners[job_id]
+                logger.info(f"Stopped centralized Redis listener for job {job_id}")
+    
+    async def _job_listener(self, job_id: int, manager: 'ConnectionManager') -> None:
+        """Listen to Redis pub/sub for a specific job and dispatch to all subscribed connections."""
+        try:
+            async with redis_progress_pubsub.subscribe_to_job(job_id) as pubsub:
+                while True:
+                    try:
+                        message = await pubsub.get_message(
+                            ignore_subscribe_messages=True,
+                            timeout=1.0
+                        )
+                        
+                        if message and message["type"] == "message":
+                            try:
+                                # Parse progress message
+                                progress_data = json.loads(message["data"])
+                                progress = ProgressMessageV2(**progress_data)
+                                
+                                # Get all connections subscribed to this job
+                                connection_ids = manager.job_connections.get(job_id, set()).copy()
+                                
+                                if connection_ids:
+                                    # Send to all subscribed connections concurrently
+                                    await asyncio.gather(*[
+                                        manager.send_to_connection(
+                                            conn_id,
+                                            {
+                                                "type": "progress",
+                                                **progress.model_dump()
+                                            }
+                                        )
+                                        for conn_id in connection_ids
+                                    ], return_exceptions=True)
+                                
+                                # Check if job is complete
+                                if progress.status in ["completed", "failed", "cancelled"]:
+                                    logger.info(f"Job {job_id} finished with status {progress.status}")
+                                    break
+                                    
+                            except (json.JSONDecodeError, ValueError) as e:
+                                logger.warning(f"Failed to parse progress message: {e}", exc_info=True)
+                    
+                    except asyncio.CancelledError:
+                        break
+                    except Exception as e:
+                        logger.error(f"Redis listener error for job {job_id}: {e}", exc_info=True)
+                        await asyncio.sleep(1)  # Brief pause before retry
+                        
+        except Exception as e:
+            logger.error(f"Fatal error in job listener for job {job_id}: {e}", exc_info=True)
+        finally:
+            # Clean up when listener exits
+            async with self.lock:
+                if job_id in self.job_listeners:
+                    del self.job_listeners[job_id]
+
+# Singleton instance of centralized listener
+centralized_listener = CentralizedRedisListener()
+
 # WebSocket connection tracking
 class ConnectionManager:
     """Manager for WebSocket connections."""
@@ -77,23 +171,28 @@ class ConnectionManager:
         
         logger.info(f"WebSocket disconnected: {connection_id}")
     
-    def subscribe_to_job(self, connection_id: str, job_id: int) -> None:
-        """Subscribe connection to job updates."""
+    async def subscribe_to_job(self, connection_id: str, job_id: int) -> None:
+        """Subscribe connection to job updates and start centralized listener if needed."""
         if connection_id in self.connection_jobs:
             self.connection_jobs[connection_id].add(job_id)
             if job_id not in self.job_connections:
                 self.job_connections[job_id] = set()
             self.job_connections[job_id].add(connection_id)
             logger.debug(f"Connection {connection_id} subscribed to job {job_id}")
+            
+            # Start centralized listener for this job if not already running
+            await centralized_listener.start_job_listener(job_id, self)
     
-    def unsubscribe_from_job(self, connection_id: str, job_id: int) -> None:
-        """Unsubscribe connection from job updates."""
+    async def unsubscribe_from_job(self, connection_id: str, job_id: int) -> None:
+        """Unsubscribe connection from job updates and stop listener if no more connections."""
         if connection_id in self.connection_jobs:
             self.connection_jobs[connection_id].discard(job_id)
         if job_id in self.job_connections:
             self.job_connections[job_id].discard(connection_id)
             if not self.job_connections[job_id]:
                 del self.job_connections[job_id]
+                # Stop centralized listener if no more connections for this job
+                await centralized_listener.stop_job_listener(job_id)
         logger.debug(f"Connection {connection_id} unsubscribed from job {job_id}")
     
     async def send_to_connection(
@@ -108,7 +207,7 @@ class ConnectionManager:
                 await websocket.send_json(message)
                 return True
             except Exception as e:
-                logger.warning(f"Failed to send to connection {connection_id}: {e}")
+                logger.warning(f"Failed to send to connection {connection_id}: {e}", exc_info=True)
                 return False
         return False
     
@@ -244,7 +343,7 @@ async def websocket_job_progress(
         
         # Accept connection
         await manager.connect(websocket, connection_id)
-        manager.subscribe_to_job(connection_id, job_id)
+        await manager.subscribe_to_job(connection_id, job_id)  # Now async with centralized listener
         
         # Send initial connection message
         await websocket.send_json({
@@ -256,45 +355,7 @@ async def websocket_job_progress(
             "timestamp": datetime.now(timezone.utc).isoformat()
         })
         
-        # Start Redis subscription task
-        async def redis_listener():
-            """Listen to Redis pub/sub for progress updates."""
-            async with redis_progress_pubsub.subscribe_to_job(job_id) as pubsub:
-                while True:
-                    try:
-                        message = await pubsub.get_message(
-                            ignore_subscribe_messages=True,
-                            timeout=1.0
-                        )
-                        
-                        if message and message["type"] == "message":
-                            # Parse and forward progress message
-                            try:
-                                progress_data = json.loads(message["data"])
-                                progress = ProgressMessageV2(**progress_data)
-                                
-                                # Send to WebSocket
-                                await websocket.send_json({
-                                    "type": "progress",
-                                    **progress.model_dump()
-                                })
-                                
-                                # Check if job is complete
-                                if progress.status in ["completed", "failed", "cancelled"]:
-                                    logger.info(f"Job {job_id} finished with status {progress.status}")
-                                    break
-                                    
-                            except (json.JSONDecodeError, ValueError) as e:
-                                logger.warning(f"Failed to parse progress message: {e}", exc_info=True)
-                    
-                    except asyncio.CancelledError:
-                        break
-                    except Exception as e:
-                        logger.error(f"Redis listener error: {e}", exc_info=True)
-                        break
-        
-        # Start Redis listener
-        pubsub_task = asyncio.create_task(redis_listener())
+        # No need for per-connection Redis listener anymore - centralized listener handles it
         
         # Handle incoming WebSocket messages
         while True:
@@ -347,13 +408,9 @@ async def websocket_job_progress(
             pass
     
     finally:
-        # Cleanup
-        if pubsub_task and not pubsub_task.done():
-            pubsub_task.cancel()
-            try:
-                await pubsub_task
-            except asyncio.CancelledError:
-                pass
+        # Cleanup - unsubscribe from job and disconnect
+        if job_id:
+            await manager.unsubscribe_from_job(connection_id, job_id)
         
         manager.disconnect(connection_id)
         
