@@ -107,7 +107,7 @@ class TestEngineFingerprint:
         assert "occt{7.8.1}" in result
         assert "py{3.11}" in result
         assert "mesh{m1}" in result
-        assert "git{abcd123}" in result  # Should truncate to 7 chars
+        assert f"git{{{fingerprint.git_sha}}}" in result  # Security fix: full SHA for integrity
         assert "wb{Draft,Mesh,Part}" in result  # Should be sorted
         assert "flags{TopoNaming=False,localeC=True}" in result  # Should be sorted
     

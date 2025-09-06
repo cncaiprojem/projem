@@ -380,25 +380,44 @@ class InFlightCoalescer:
     
     async def coalesce(self, key: str, func: Callable[[], Awaitable[Any]]) -> Any:
         """Coalesce concurrent requests for the same key."""
+        # Check if request already exists (follower path)
         async with self._lock:
             if key in self._requests:
                 # Wait for existing request
                 future = self._requests[key]
                 logger.debug("Coalescing request", key=key)
                 metrics.mgf_cache_coalesced_total.inc()
-                # Release lock before awaiting to avoid blocking other tasks
-                try:
-                    return await future
-                except Exception:
-                    # Re-raise exception from the original request
-                    raise
-            
-            # Create new future
-            future = asyncio.Future()
+        
+        # If we found an existing future, await it outside the lock
+        if 'future' in locals():
+            try:
+                return await future
+            except Exception:
+                # Re-raise exception from the original request
+                raise
+        
+        # Leader path: create new future and execute
+        async with self._lock:
+            # Double-check pattern in case another task became leader
+            if key in self._requests:
+                future = self._requests[key]
+                logger.debug("Coalescing request (race condition)", key=key)
+                metrics.mgf_cache_coalesced_total.inc()
+        
+        # If we found a future after double-check, await it outside the lock
+        if 'future' in locals():
+            try:
+                return await future
+            except Exception:
+                raise
+        
+        # We are the leader - create future and register it
+        future = asyncio.Future()
+        async with self._lock:
             self._requests[key] = future
         
         try:
-            # Execute function
+            # Execute function (outside of lock)
             result = await func()
             future.set_result(result)
             return result
