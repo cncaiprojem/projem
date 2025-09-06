@@ -184,7 +184,7 @@ async def progress_event_generator(
                     break
                 
                 except Exception as e:
-                    logger.error(f"SSE stream error: {e}")
+                    logger.error(f"SSE stream error: {e}", exc_info=True)
                     error_event = {
                         "event": "error",
                         "data": json.dumps({"error": str(e)}),
@@ -194,7 +194,7 @@ async def progress_event_generator(
                     break
     
     except Exception as e:
-        logger.error(f"Failed to subscribe to Redis: {e}")
+        logger.error(f"Failed to subscribe to Redis: {e}", exc_info=True)
         yield {
             "event": "error",
             "data": json.dumps({"error": "Streaming service unavailable"}),
@@ -339,7 +339,7 @@ async def get_job_progress_snapshot(
             
             response["recent_events"] = recent_events
         except Exception as e:
-            logger.warning(f"Failed to get recent events: {e}")
+            logger.warning(f"Failed to get recent events: {e}", exc_info=True)
             response["recent_events"] = []
     
     return response

@@ -39,8 +39,42 @@ from ..schemas.progress import (
     ExportFormat
 )
 from .worker_progress_service import worker_progress_service
+from .redis_operation_store import redis_operation_store
 
 logger = get_logger(__name__)
+
+# Phase mapping dictionaries for proper enum conversion
+PHASE_MAPPINGS = {
+    "assembly4": {
+        Assembly4Phase.SOLVER_START: Phase.START,
+        Assembly4Phase.LCS_PLACEMENT_START: Phase.START,
+        Assembly4Phase.CONSTRAINT_ADD_START: Phase.START,
+        Assembly4Phase.SOLVER_END: Phase.END,
+        Assembly4Phase.LCS_PLACEMENT_END: Phase.END,
+        Assembly4Phase.CONSTRAINT_ADD_END: Phase.END,
+        Assembly4Phase.SOLVER_ITERATION: Phase.PROGRESS,
+        Assembly4Phase.CONSTRAINT_RESOLVED: Phase.PROGRESS,
+    },
+    "material": {
+        MaterialPhase.LIBRARY_LOAD_START: Phase.START,
+        MaterialPhase.MATERIAL_SELECT_START: Phase.START,
+        MaterialPhase.MATERIAL_APPLY_START: Phase.START,
+        MaterialPhase.LIBRARY_LOAD_END: Phase.END,
+        MaterialPhase.MATERIAL_SELECT_END: Phase.END,
+        MaterialPhase.MATERIAL_APPLY_END: Phase.END,
+        MaterialPhase.MATERIAL_PROPERTY_SET: Phase.PROGRESS,
+        MaterialPhase.APPEARANCE_BAKE_START: Phase.START,
+        MaterialPhase.APPEARANCE_BAKE_END: Phase.END,
+    },
+    "topology": {
+        TopologyPhase.HASH_START: Phase.START,
+        TopologyPhase.HASH_END: Phase.END,
+        TopologyPhase.EXPORT_VALIDATION: Phase.END,
+        TopologyPhase.FACE_HASH: Phase.PROGRESS,
+        TopologyPhase.EDGE_HASH: Phase.PROGRESS,
+        TopologyPhase.VERTEX_HASH: Phase.PROGRESS,
+    }
+}
 
 
 class ProgressService:
@@ -58,7 +92,7 @@ class ProgressService:
     def __init__(self):
         """Initialize progress service."""
         self.pubsub = redis_progress_pubsub
-        self._operation_contexts: Dict[int, Dict[str, Any]] = {}
+        self.operation_store = redis_operation_store
     
     async def publish_document_progress(
         self,
@@ -143,10 +177,8 @@ class ProgressService:
             span.set_attribute("job_id", job_id)
             span.set_attribute("phase", phase.value)
             
-            # Determine phase enum
-            phase_enum = Phase.START if "start" in phase.value.lower() else \
-                        Phase.END if "end" in phase.value.lower() else \
-                        Phase.PROGRESS
+            # Determine phase enum using mapping
+            phase_enum = PHASE_MAPPINGS["assembly4"].get(phase, Phase.PROGRESS)
             
             progress = ProgressMessageV2(
                 job_id=job_id,
@@ -214,10 +246,8 @@ class ProgressService:
             span.set_attribute("job_id", job_id)
             span.set_attribute("phase", phase.value)
             
-            # Determine phase enum
-            phase_enum = Phase.START if "start" in phase.value.lower() else \
-                        Phase.END if "end" in phase.value.lower() else \
-                        Phase.PROGRESS
+            # Determine phase enum using mapping
+            phase_enum = PHASE_MAPPINGS["material"].get(phase, Phase.PROGRESS)
             
             progress = ProgressMessageV2(
                 job_id=job_id,
@@ -359,10 +389,8 @@ class ProgressService:
             span.set_attribute("job_id", job_id)
             span.set_attribute("phase", phase.value)
             
-            # Determine phase enum
-            phase_enum = Phase.START if "start" in phase.value.lower() else \
-                        Phase.END if "end" in phase.value.lower() else \
-                        Phase.PROGRESS
+            # Determine phase enum using mapping
+            phase_enum = PHASE_MAPPINGS["topology"].get(phase, Phase.PROGRESS)
             
             progress = ProgressMessageV2(
                 job_id=job_id,
@@ -533,17 +561,18 @@ class ProgressService:
         """
         operation_id = uuid4()
         
-        # Store operation context
-        if job_id not in self._operation_contexts:
-            self._operation_contexts[job_id] = {}
-        
-        self._operation_contexts[job_id][str(operation_id)] = {
+        # Store operation context in Redis
+        context = {
             "name": operation_name,
-            "group": operation_group,
+            "group": operation_group.value if hasattr(operation_group, 'value') else operation_group,
             "total_steps": total_steps,
             "start_time": time.time(),
             "current_step": 0
         }
+        
+        await self.operation_store.set_operation_context(
+            job_id, operation_id, context
+        )
         
         # Publish start event
         await self.pubsub.publish_progress(
@@ -582,13 +611,17 @@ class ProgressService:
         Returns:
             True if updated successfully
         """
-        # Get operation context
-        context = self._operation_contexts.get(job_id, {}).get(str(operation_id))
+        # Get operation context from Redis
+        context = await self.operation_store.get_operation_context(job_id, operation_id)
         if not context:
             logger.warning(f"Operation {operation_id} not found for job {job_id}")
             return False
         
-        context["current_step"] = current_step
+        # Update context in Redis
+        await self.operation_store.update_operation_context(
+            job_id, operation_id, {"current_step": current_step}
+        )
+        
         elapsed_ms = int((time.time() - context["start_time"]) * 1000)
         
         # Calculate ETA
@@ -635,8 +668,8 @@ class ProgressService:
         Returns:
             True if ended successfully
         """
-        # Get operation context
-        context = self._operation_contexts.get(job_id, {}).get(str(operation_id))
+        # Get operation context from Redis
+        context = await self.operation_store.get_operation_context(job_id, operation_id)
         if not context:
             logger.warning(f"Operation {operation_id} not found for job {job_id}")
             return False
@@ -661,10 +694,8 @@ class ProgressService:
             )
         )
         
-        # Clean up context
-        del self._operation_contexts[job_id][str(operation_id)]
-        if not self._operation_contexts[job_id]:
-            del self._operation_contexts[job_id]
+        # Clean up context from Redis
+        await self.operation_store.delete_operation_context(job_id, operation_id)
         
         return result
 

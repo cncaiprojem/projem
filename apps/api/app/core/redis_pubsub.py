@@ -173,7 +173,7 @@ class RedisProgressPubSub:
             return True
             
         except Exception as e:
-            logger.error(f"Failed to publish progress for job {job_id}: {e}")
+            logger.error(f"Failed to publish progress for job {job_id}: {e}", exc_info=True)
             return False
     
     @asynccontextmanager

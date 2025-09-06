@@ -285,12 +285,12 @@ async def websocket_job_progress(
                                     break
                                     
                             except (json.JSONDecodeError, ValueError) as e:
-                                logger.warning(f"Failed to parse progress message: {e}")
+                                logger.warning(f"Failed to parse progress message: {e}", exc_info=True)
                     
                     except asyncio.CancelledError:
                         break
                     except Exception as e:
-                        logger.error(f"Redis listener error: {e}")
+                        logger.error(f"Redis listener error: {e}", exc_info=True)
                         break
         
         # Start Redis listener
@@ -330,7 +330,7 @@ async def websocket_job_progress(
                     "message": "Invalid JSON format"
                 })
             except Exception as e:
-                logger.error(f"WebSocket error: {e}")
+                logger.error(f"WebSocket error: {e}", exc_info=True)
                 break
     
     except WebSocketException:

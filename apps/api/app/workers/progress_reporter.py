@@ -36,6 +36,7 @@ from ..schemas.progress import (
     TopologyPhase,
     ExportFormat
 )
+from ..services.progress_service import PHASE_MAPPINGS
 
 logger = get_logger(__name__)
 
@@ -63,6 +64,18 @@ class WorkerProgressReporter:
         self._event_counter = 0
         self._last_publish_time = 0
         self._throttle_interval = 0.5  # 500ms
+    
+    def _handle_task_completion(self, future):
+        """
+        Handle async task completion and log errors.
+        
+        Args:
+            future: Asyncio future/task
+        """
+        try:
+            future.result()
+        except Exception as e:
+            logger.warning(f"Failed to publish progress: {e}", exc_info=True)
     
     def _get_job_id(self) -> Optional[int]:
         """Get job ID from task context."""
@@ -168,19 +181,14 @@ class WorkerProgressReporter:
                     redis_progress_pubsub.publish_progress(job_id, progress)
                 )
                 # Add error callback to log failures
-                def handle_publish_error(future):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.warning(f"Failed to publish progress to Redis: {e}")
-                task.add_done_callback(handle_publish_error)
+                task.add_done_callback(self._handle_task_completion)
             except RuntimeError:
                 # No running loop, use asyncio.run()
                 asyncio.run(
                     redis_progress_pubsub.publish_progress(job_id, progress)
                 )
         except Exception as e:
-            logger.warning(f"Failed to publish progress to Redis: {e}")
+            logger.warning(f"Failed to publish progress to Redis: {e}", exc_info=True)
     
     @contextmanager
     def operation(
@@ -307,19 +315,14 @@ class WorkerProgressReporter:
                     redis_progress_pubsub.publish_progress(job_id, progress, force=kwargs.get("milestone", False))
                 )
                 # Add error callback to log failures
-                def handle_phase_error(future):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.warning(f"Failed to publish operation phase: {e}")
-                task.add_done_callback(handle_phase_error)
+                task.add_done_callback(self._handle_task_completion)
             except RuntimeError:
                 # No running loop, use asyncio.run()
                 asyncio.run(
                     redis_progress_pubsub.publish_progress(job_id, progress, force=kwargs.get("milestone", False))
                 )
         except Exception as e:
-            logger.warning(f"Failed to publish operation phase: {e}")
+            logger.warning(f"Failed to publish operation phase: {e}", exc_info=True)
     
     def report_freecad_document(
         self,
@@ -362,10 +365,13 @@ class WorkerProgressReporter:
         if not job_id:
             return
         
-        # Determine phase enum
-        phase_enum = Phase.START if "start" in phase.value.lower() else \
-                    Phase.END if "end" in phase.value.lower() else \
-                    Phase.PROGRESS
+        # Determine phase enum using mapping or fallback to string matching
+        phase_enum = PHASE_MAPPINGS.get("assembly4", {}).get(phase, None)
+        if phase_enum is None:
+            # Fallback to string matching for unknown phases
+            phase_enum = Phase.START if "start" in phase.value.lower() else \
+                        Phase.END if "end" in phase.value.lower() else \
+                        Phase.PROGRESS
         
         progress = ProgressMessageV2(
             job_id=job_id,
@@ -476,12 +482,7 @@ class WorkerProgressReporter:
                     )
                 )
                 # Add error callback to log failures
-                def handle_async_error(future):
-                    try:
-                        future.result()
-                    except Exception as e:
-                        logger.warning(f"Failed to publish progress: {e}")
-                task.add_done_callback(handle_async_error)
+                task.add_done_callback(self._handle_task_completion)
             except RuntimeError:
                 # No running loop, use asyncio.run()
                 asyncio.run(
@@ -492,7 +493,7 @@ class WorkerProgressReporter:
                     )
                 )
         except Exception as e:
-            logger.warning(f"Failed to publish progress: {e}")
+            logger.warning(f"Failed to publish progress: {e}", exc_info=True)
 
 
 class OperationContext:
