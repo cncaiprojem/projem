@@ -38,12 +38,14 @@ import uuid
 import zipfile
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_EVEN
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 from ...core.logging import get_logger
 from ...core.metrics import freecad_operation_duration_seconds
 from ...core.telemetry import create_span
+from ...schemas.metrics import JobMetrics, ExportMetrics
 
 logger = get_logger(__name__)
 
@@ -298,7 +300,9 @@ class UnifiedDeterministicExporter:
         base_path: Path,
         formats: Optional[List[str]] = None,
         job_id: Optional[str] = None,
-        validate: Optional[bool] = None
+        validate: Optional[bool] = None,
+        material: Optional[str] = None,
+        queue_name: Optional[str] = None
     ) -> Dict[str, Dict[str, Any]]:
         """
         Export document to all requested formats with deterministic output.
@@ -309,6 +313,8 @@ class UnifiedDeterministicExporter:
             formats: List of formats to export (default: all supported)
             job_id: Optional job ID for tracking
             validate: Override validation setting
+            material: Optional material type for metrics
+            queue_name: Optional queue name for metrics tracking
         
         Returns:
             Dictionary mapping format to export info (path, hash, size, metadata)
@@ -324,11 +330,13 @@ class UnifiedDeterministicExporter:
         do_validate = validate if validate is not None else self.enable_validation
         
         results = {}
+        export_start_time = time.time()
         
         with create_span("unified_export") as span:
-            if job_id:
+            if span and job_id:
                 span.set_attribute("job_id", job_id)
-            span.set_attribute("formats", ",".join(formats))
+            if span:
+                span.set_attribute("formats", ",".join(formats))
             
             # Enter deterministic environment
             with DeterministicEnvironment():
@@ -365,17 +373,196 @@ class UnifiedDeterministicExporter:
                     except Exception as e:
                         logger.error(f"Failed to export {fmt}: {e}")
                         results[fmt_upper] = {"error": str(e)}
-                        span.set_attribute(f"error.{fmt_upper}", str(e))
+                        if span:
+                            span.set_attribute(f"error.{fmt_upper}", str(e))
+        
+        # Extract and record metrics (refactored to helper method)
+        metrics = self._extract_and_record_metrics(
+            document, 
+            results, 
+            job_id, 
+            material, 
+            queue_name,
+            export_start_time,
+            formats
+        )
         
         # Save metadata
         metadata_path = base_path.with_suffix(".export_metadata.json")
         self.metadata.save(metadata_path)
         results["metadata"] = {
             "path": str(metadata_path),
-            "content": self.metadata.to_dict()
+            "content": self.metadata.to_dict(),
+            "metrics": metrics.model_dump(mode='json') if metrics else None
         }
         
         return results
+    
+    def _extract_and_record_metrics(
+        self,
+        document: Any,
+        results: Dict[str, Any],
+        job_id: Optional[str],
+        material: Optional[str],
+        queue_name: Optional[str],
+        export_start_time: float,
+        formats: List[str]
+    ) -> Optional[JobMetrics]:
+        """
+        Extract metrics from FreeCAD document and record to Prometheus.
+        
+        This method encapsulates the metrics extraction logic to maintain
+        separation of concerns and improve readability of the main export flow.
+        
+        Args:
+            document: FreeCAD document to extract metrics from
+            results: Export results dictionary
+            job_id: Optional job ID for tracking
+            material: Optional material type
+            queue_name: Optional queue name for processing
+            export_start_time: Timestamp when export started
+            formats: List of export formats
+            
+        Returns:
+            JobMetrics object with extracted metrics, or None if extraction fails
+        """
+        try:
+            import FreeCAD
+            
+            # Initialize metrics collectors
+            object_count = 0
+            face_count = 0
+            edge_count = 0
+            vertex_count = 0
+            total_volume = Decimal('0')
+            total_area = Decimal('0')
+            
+            # Extract metrics from document objects
+            if hasattr(document, 'Objects'):
+                for obj in document.Objects:
+                    object_count += 1
+                    
+                    # Extract shape metrics if available
+                    if hasattr(obj, 'Shape') and obj.Shape:
+                        shape = obj.Shape
+                        
+                        # Count topology elements
+                        if hasattr(shape, 'Faces'):
+                            face_count += len(shape.Faces)
+                        if hasattr(shape, 'Edges'):
+                            edge_count += len(shape.Edges)
+                        if hasattr(shape, 'Vertexes'):
+                            vertex_count += len(shape.Vertexes)
+                        
+                        # Calculate geometric properties
+                        try:
+                            if hasattr(shape, 'Volume'):
+                                volume = Decimal(str(shape.Volume))
+                                total_volume += volume.quantize(
+                                    Decimal('0.000001'), 
+                                    rounding=ROUND_HALF_EVEN
+                                )
+                            if hasattr(shape, 'Area'):
+                                area = Decimal(str(shape.Area))
+                                total_area += area.quantize(
+                                    Decimal('0.000001'),
+                                    rounding=ROUND_HALF_EVEN
+                                )
+                        except (ValueError, TypeError) as e:
+                            logger.warning(f"Error calculating shape properties: {e}")
+            
+            # Calculate bounding box volume
+            bbox_volume = Decimal('0')
+            try:
+                if hasattr(document, 'Objects') and document.Objects:
+                    # Get overall bounding box
+                    bbox = None
+                    for obj in document.Objects:
+                        if hasattr(obj, 'Shape') and obj.Shape and hasattr(obj.Shape, 'BoundBox'):
+                            if bbox is None:
+                                bbox = obj.Shape.BoundBox
+                            else:
+                                bbox.add(obj.Shape.BoundBox)
+                    
+                    if bbox:
+                        bbox_volume = Decimal(str(bbox.XLength)) * \
+                                    Decimal(str(bbox.YLength)) * \
+                                    Decimal(str(bbox.ZLength))
+                        bbox_volume = bbox_volume.quantize(
+                            Decimal('0.000001'),
+                            rounding=ROUND_HALF_EVEN
+                        )
+            except Exception as e:
+                logger.warning(f"Error calculating bounding box: {e}")
+            
+            # Calculate estimated mass if material is provided
+            estimated_mass = None
+            material_density = None
+            if material:
+                # Material density mapping (g/cm³)
+                material_densities = {
+                    'steel': Decimal('7.85'),
+                    'aluminum': Decimal('2.70'),
+                    'titanium': Decimal('4.50'),
+                    'copper': Decimal('8.96'),
+                    'brass': Decimal('8.40'),
+                    'plastic': Decimal('1.20'),
+                    'wood': Decimal('0.70'),
+                    'carbon_fiber': Decimal('1.60')
+                }
+                
+                material_lower = material.lower()
+                if material_lower in material_densities:
+                    material_density = material_densities[material_lower]
+                    # Convert volume from mm³ to cm³ (divide by 1000)
+                    volume_cm3 = total_volume / Decimal('1000')
+                    estimated_mass = (volume_cm3 * material_density).quantize(
+                        Decimal('0.01'),
+                        rounding=ROUND_HALF_EVEN
+                    )
+            
+            # Calculate export duration
+            export_duration_ms = int((time.time() - export_start_time) * 1000)
+            
+            # Create metrics object
+            metrics = JobMetrics(
+                object_count=object_count,
+                face_count=face_count,
+                edge_count=edge_count,
+                vertex_count=vertex_count,
+                volume=total_volume,
+                surface_area=total_area,
+                bounding_box_volume=bbox_volume,
+                material_type=material,
+                material_density=material_density,
+                estimated_mass=estimated_mass,
+                export_formats=formats,
+                export_timestamp=datetime.now(timezone.utc),
+                export_duration_ms=export_duration_ms,
+                job_id=job_id,
+                queue_name=queue_name
+            )
+            
+            # Record to Prometheus metrics
+            if queue_name:
+                freecad_operation_duration_seconds.labels(
+                    operation_type="export_with_metrics",
+                    license_tier="standard",
+                    status="success"
+                ).observe(export_duration_ms / 1000)
+            
+            # Log formatted metrics
+            formatted = metrics.format_large_numbers()
+            logger.info(
+                f"Extracted metrics - Objects: {formatted['object_count']}, "
+                f"Faces: {formatted['face_count']}, Volume: {formatted['volume']} mm³"
+            )
+            
+            return metrics
+            
+        except Exception as e:
+            logger.error(f"Failed to extract metrics: {e}")
+            return None
     
     def _export_fcstd_unified(self, document: Any, base_path: Path) -> Dict[str, Any]:
         """

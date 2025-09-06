@@ -290,7 +290,7 @@ class TestUnifiedDeterministicExporter:
             files = zf.namelist()
             assert "Document.xml" in files
             assert "GuiDocument.xml" not in files  # Should be excluded
-            assert "thumbnails/" not in any(f for f in files)  # Should be excluded
+            assert not any("thumbnails/" in f for f in files)  # Should be excluded
     
     def test_export_step(self, unified_exporter, test_document, tmp_path):
         """Test STEP export with canonicalization."""
@@ -722,6 +722,72 @@ class TestPublicAPI:
             result = verify_determinism(test_document, iterations=3)
             assert result == True
             assert mock_export.call_count == 3
+    
+    def test_metrics_extraction(self, mock_freecad, test_document, tmp_path):
+        """Test metrics extraction functionality."""
+        from apps.api.app.services.freecad.deterministic_exporter import UnifiedDeterministicExporter
+        
+        exporter = UnifiedDeterministicExporter()
+        base_path = tmp_path / "test"
+        
+        # Test with material and queue parameters
+        results = exporter.export_unified(
+            test_document,
+            base_path,
+            formats=["STEP"],
+            job_id="test-job-123",
+            material="aluminum",
+            queue_name="model"
+        )
+        
+        # Check that metrics were extracted
+        assert "metadata" in results
+        assert results["metadata"]["metrics"] is not None
+        
+        metrics = results["metadata"]["metrics"]
+        assert "object_count" in metrics
+        assert "face_count" in metrics
+        assert "edge_count" in metrics
+        assert "vertex_count" in metrics
+        assert "volume" in metrics
+        assert "surface_area" in metrics
+        assert "material_type" in metrics
+        assert metrics["material_type"] == "aluminum"
+        assert metrics["queue_name"] == "model"
+        assert metrics["job_id"] == "test-job-123"
+    
+    def test_metrics_formatting(self):
+        """Test thousands separator formatting in metrics."""
+        from apps.api.app.schemas.metrics import JobMetrics
+        from decimal import Decimal
+        from datetime import datetime, timezone
+        
+        metrics = JobMetrics(
+            object_count=1234567,
+            face_count=987654,
+            edge_count=2468024,
+            vertex_count=1357913,
+            volume=Decimal('1234567.890123'),
+            surface_area=Decimal('98765.4321'),
+            bounding_box_volume=Decimal('5000000.0'),
+            export_formats=["STEP", "STL"],
+            export_timestamp=datetime.now(timezone.utc),
+            export_duration_ms=12345
+        )
+        
+        formatted = metrics.format_large_numbers()
+        
+        # Test integer formatting with commas
+        assert formatted['object_count'] == '1,234,567'
+        assert formatted['face_count'] == '987,654'
+        assert formatted['edge_count'] == '2,468,024'
+        assert formatted['vertex_count'] == '1,357,913'
+        
+        # Test decimal formatting with commas
+        assert formatted['volume'] == '1,234,567.890123'
+        assert formatted['surface_area'] == '98,765.4321'
+        assert formatted['bounding_box_volume'] == '5,000,000.0'
+        assert formatted['export_duration_ms'] == '12,345'
 
 
 if __name__ == "__main__":
