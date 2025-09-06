@@ -19,7 +19,6 @@ import traceback
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple, Union
-from decimal import Decimal
 
 from pydantic import BaseModel, Field
 from fastapi import HTTPException, status
@@ -765,14 +764,20 @@ class ValidationException(EnterpriseException):
     ):
         # Allow explicit error_code to be passed, otherwise determine from message
         if error_code is None:
-            if "missing" in message.lower():
-                error_code = ErrorCode.VALIDATION_MISSING_FIELD
-            elif "range" in message.lower():
-                error_code = ErrorCode.VALIDATION_RANGE_VIOLATION
-            elif "conflict" in message.lower():
-                error_code = ErrorCode.VALIDATION_CONFLICT
-            else:
-                error_code = ErrorCode.VALIDATION_CONSTRAINT_VIOLATION
+            # Dictionary-based lookup for cleaner code
+            error_map = {
+                "missing": ErrorCode.VALIDATION_MISSING_FIELD,
+                "range": ErrorCode.VALIDATION_RANGE_VIOLATION,
+                "conflict": ErrorCode.VALIDATION_CONFLICT,
+            }
+            
+            message_lower = message.lower()
+            error_code = ErrorCode.VALIDATION_CONSTRAINT_VIOLATION  # Default
+            
+            for keyword, code in error_map.items():
+                if keyword in message_lower:
+                    error_code = code
+                    break
         
         details = kwargs.pop("details", {})  # Remove details from kwargs
         if field:
@@ -798,14 +803,31 @@ class StorageException(EnterpriseException):
     ):
         # Allow explicit error_code to be passed, otherwise determine from message/operation
         if error_code is None:
-            if "quota" in message.lower():
-                error_code = ErrorCode.STORAGE_QUOTA_EXCEEDED
-            elif "write" in operation.lower():
-                error_code = ErrorCode.STORAGE_WRITE_FAILED
-            elif "read" in operation.lower():
-                error_code = ErrorCode.STORAGE_READ_FAILED
+            # Dictionary-based lookup for cleaner code
+            message_map = {
+                "quota": ErrorCode.STORAGE_QUOTA_EXCEEDED,
+            }
+            
+            operation_map = {
+                "write": ErrorCode.STORAGE_WRITE_FAILED,
+                "read": ErrorCode.STORAGE_READ_FAILED,
+            }
+            
+            message_lower = message.lower()
+            operation_lower = operation.lower()
+            error_code = ErrorCode.STORAGE_CORRUPT_FILE  # Default
+            
+            # Check message first
+            for keyword, code in message_map.items():
+                if keyword in message_lower:
+                    error_code = code
+                    break
             else:
-                error_code = ErrorCode.STORAGE_CORRUPT_FILE
+                # Check operation if no message match
+                for keyword, code in operation_map.items():
+                    if keyword in operation_lower:
+                        error_code = code
+                        break
         
         super().__init__(
             error_code=error_code,
@@ -825,14 +847,21 @@ class AIException(EnterpriseException):
     ):
         # Allow explicit error_code to be passed, otherwise determine from message
         if error_code is None:
-            if "ambiguous" in message.lower():
-                error_code = ErrorCode.AI_AMBIGUOUS
-            elif "hint" in message.lower() or "additional" in message.lower():
-                error_code = ErrorCode.AI_HINT_REQUIRED
-            elif "complex" in message.lower():
-                error_code = ErrorCode.AI_PROMPT_TOO_COMPLEX
-            else:
-                error_code = ErrorCode.AI_UNSUPPORTED_OPERATION
+            # Dictionary-based lookup for cleaner code
+            error_map = {
+                "ambiguous": ErrorCode.AI_AMBIGUOUS,
+                "hint": ErrorCode.AI_HINT_REQUIRED,
+                "additional": ErrorCode.AI_HINT_REQUIRED,
+                "complex": ErrorCode.AI_PROMPT_TOO_COMPLEX,
+            }
+            
+            message_lower = message.lower()
+            error_code = ErrorCode.AI_UNSUPPORTED_OPERATION  # Default
+            
+            for keyword, code in error_map.items():
+                if keyword in message_lower:
+                    error_code = code
+                    break
         
         super().__init__(
             error_code=error_code,

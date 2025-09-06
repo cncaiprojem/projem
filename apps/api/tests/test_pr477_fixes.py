@@ -192,7 +192,7 @@ class TestErrorCategoryDictionaryLookup:
     def test_ai_category(self):
         """Test AI error category detection."""
         assert self.middleware._get_error_category(ErrorCode.AI_AMBIGUOUS) == "ai"
-        assert self.middleware._get_error_category(ErrorCode.AI_GENERATION_FAILED) == "ai"
+        assert self.middleware._get_error_category(ErrorCode.AI_HINT_REQUIRED) == "ai"
         
     def test_validation_category(self):
         """Test validation error category detection."""
@@ -202,7 +202,7 @@ class TestErrorCategoryDictionaryLookup:
     def test_freecad_category(self):
         """Test FreeCAD error category detection."""
         assert self.middleware._get_error_category(ErrorCode.FC_RECOMPUTE_FAILED) == "freecad"
-        assert self.middleware._get_error_category(ErrorCode.FC_GEOMETRY_ERROR) == "freecad"
+        assert self.middleware._get_error_category(ErrorCode.FC_GEOM_INVALID_SHAPE) == "freecad"
         
     def test_storage_category(self):
         """Test storage error category detection."""
@@ -211,7 +211,7 @@ class TestErrorCategoryDictionaryLookup:
         
     def test_auth_category(self):
         """Test auth error category detection."""
-        assert self.middleware._get_error_category(ErrorCode.AUTH_INVALID_CREDENTIALS) == "auth"
+        assert self.middleware._get_error_category(ErrorCode.AUTH_UNAUTHORIZED) == "auth"
         assert self.middleware._get_error_category(ErrorCode.AUTH_TOKEN_EXPIRED) == "auth"
         
     def test_special_cases(self):
@@ -282,9 +282,9 @@ class TestExceptionErrorCodeParameter:
         """Test FreeCADException with explicit error_code."""
         exc = FreeCADException(
             "FreeCAD error",
-            error_code=ErrorCode.FC_GEOMETRY_ERROR
+            error_code=ErrorCode.FC_GEOM_INVALID_SHAPE
         )
-        assert exc.error_code == ErrorCode.FC_GEOMETRY_ERROR
+        assert exc.error_code == ErrorCode.FC_GEOM_INVALID_SHAPE
         
     def test_backward_compatibility(self):
         """Test that old usage without error_code still works."""
@@ -352,14 +352,14 @@ class TestIntegration:
             ValidationException("Error", error_code=ErrorCode.VALIDATION_RANGE_VIOLATION),
             StorageException("Error", error_code=ErrorCode.STORAGE_CORRUPT_FILE),
             AIException("Error", error_code=ErrorCode.AI_HINT_REQUIRED),
-            FreeCADException("Error", error_code=ErrorCode.FC_SKETCH_CONSTRAINT_ERROR),
+            FreeCADException("Error", error_code=ErrorCode.FC_SKETCH_OVERCONSTRAINED),
         ]
         
         expected_codes = [
             ErrorCode.VALIDATION_RANGE_VIOLATION,
             ErrorCode.STORAGE_CORRUPT_FILE,
             ErrorCode.AI_HINT_REQUIRED,
-            ErrorCode.FC_SKETCH_CONSTRAINT_ERROR,
+            ErrorCode.FC_SKETCH_OVERCONSTRAINED,
         ]
         
         for exc, expected_code in zip(exceptions, expected_codes):

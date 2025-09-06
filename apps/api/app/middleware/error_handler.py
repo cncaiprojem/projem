@@ -12,6 +12,7 @@ This middleware provides:
 
 from __future__ import annotations
 
+import re
 import time
 from typing import Any, Callable, Dict, Optional
 
@@ -264,7 +265,6 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
             /jobs/abc-def-123 -> /jobs/{id}
             /queues/my_queue/pause -> /queues/{name}/pause
         """
-        import re
         
         # Common patterns for dynamic segments
         patterns = [
@@ -322,141 +322,85 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         return "unknown"
 
 
+def create_exception_handler_factory(
+    log_message: str,
+    component: Optional[str] = None
+) -> Callable:
+    """
+    Factory function to create exception handlers with reduced duplication.
+    
+    Args:
+        log_message: Message to log when the exception occurs
+        component: Optional component name for the error context
+    
+    Returns:
+        An async exception handler function
+    """
+    async def exception_handler(request: Request, exc: EnterpriseException):
+        """Generic exception handler created by factory."""
+        
+        error_response = exc.to_error_response()
+        
+        # Build log kwargs
+        log_kwargs = {
+            "exception": exc,
+            "path": str(request.url.path),
+            "method": request.method,
+            "error_code": error_response.code.value,
+        }
+        
+        if component:
+            log_kwargs["component"] = component
+        
+        # Log error
+        log_error_with_masking(logger, log_message, **log_kwargs)
+        
+        # Build response headers
+        headers = {
+            "X-Request-ID": error_response.request_id or "",
+            "X-Error-Code": error_response.code.value,
+        }
+        
+        if component:
+            headers["X-Component"] = component
+        
+        return JSONResponse(
+            status_code=error_response.http_status,
+            content=error_response.dict(),
+            headers=headers
+        )
+    
+    return exception_handler
+
+
 def create_error_handlers(app: FastAPI) -> None:
     """Create FastAPI exception handlers for specific exception types."""
     
-    @app.exception_handler(EnterpriseException)
-    async def enterprise_exception_handler(request: Request, exc: EnterpriseException):
-        """Handle EnterpriseException."""
-        
-        error_response = exc.to_error_response()
-        
-        # Log error
-        log_error_with_masking(
-            logger,
-            "Handled enterprise exception",
-            exception=exc,
-            path=str(request.url.path),
-            method=request.method,
-            error_code=error_response.code.value
-        )
-        
-        return JSONResponse(
-            status_code=error_response.http_status,
-            content=error_response.dict(),
-            headers={
-                "X-Request-ID": error_response.request_id or "",
-                "X-Error-Code": error_response.code.value,
-            }
-        )
+    # Use factory to create handlers with minimal duplication
+    app.add_exception_handler(
+        EnterpriseException,
+        create_exception_handler_factory("Handled enterprise exception")
+    )
     
-    @app.exception_handler(FreeCADException)
-    async def freecad_exception_handler(request: Request, exc: FreeCADException):
-        """Handle FreeCADException."""
-        
-        error_response = exc.to_error_response()
-        
-        # Log error with FreeCAD context
-        log_error_with_masking(
-            logger,
-            "FreeCAD operation failed",
-            exception=exc,
-            path=str(request.url.path),
-            method=request.method,
-            error_code=error_response.code.value,
-            component="freecad"
-        )
-        
-        return JSONResponse(
-            status_code=error_response.http_status,
-            content=error_response.dict(),
-            headers={
-                "X-Request-ID": error_response.request_id or "",
-                "X-Error-Code": error_response.code.value,
-                "X-Component": "freecad",
-            }
-        )
+    app.add_exception_handler(
+        FreeCADException,
+        create_exception_handler_factory("FreeCAD operation failed", "freecad")
+    )
     
-    @app.exception_handler(ValidationException)
-    async def validation_exception_handler(request: Request, exc: ValidationException):
-        """Handle ValidationException."""
-        
-        error_response = exc.to_error_response()
-        
-        # Log validation error
-        log_error_with_masking(
-            logger,
-            "Validation failed",
-            exception=exc,
-            path=str(request.url.path),
-            method=request.method,
-            error_code=error_response.code.value,
-            component="validation"
-        )
-        
-        return JSONResponse(
-            status_code=error_response.http_status,
-            content=error_response.dict(),
-            headers={
-                "X-Request-ID": error_response.request_id or "",
-                "X-Error-Code": error_response.code.value,
-                "X-Component": "validation",
-            }
-        )
+    app.add_exception_handler(
+        ValidationException,
+        create_exception_handler_factory("Validation failed", "validation")
+    )
     
-    @app.exception_handler(StorageException)
-    async def storage_exception_handler(request: Request, exc: StorageException):
-        """Handle StorageException."""
-        
-        error_response = exc.to_error_response()
-        
-        # Log storage error
-        log_error_with_masking(
-            logger,
-            "Storage operation failed",
-            exception=exc,
-            path=str(request.url.path),
-            method=request.method,
-            error_code=error_response.code.value,
-            component="storage"
-        )
-        
-        return JSONResponse(
-            status_code=error_response.http_status,
-            content=error_response.dict(),
-            headers={
-                "X-Request-ID": error_response.request_id or "",
-                "X-Error-Code": error_response.code.value,
-                "X-Component": "storage",
-            }
-        )
+    app.add_exception_handler(
+        StorageException,
+        create_exception_handler_factory("Storage operation failed", "storage")
+    )
     
-    @app.exception_handler(AIException)
-    async def ai_exception_handler(request: Request, exc: AIException):
-        """Handle AIException."""
-        
-        error_response = exc.to_error_response()
-        
-        # Log AI error
-        log_error_with_masking(
-            logger,
-            "AI processing failed",
-            exception=exc,
-            path=str(request.url.path),
-            method=request.method,
-            error_code=error_response.code.value,
-            component="ai"
-        )
-        
-        return JSONResponse(
-            status_code=error_response.http_status,
-            content=error_response.dict(),
-            headers={
-                "X-Request-ID": error_response.request_id or "",
-                "X-Error-Code": error_response.code.value,
-                "X-Component": "ai",
-            }
-        )
+    app.add_exception_handler(
+        AIException,
+        create_exception_handler_factory("AI processing failed", "ai")
+    )
     
     @app.exception_handler(ValueError)
     async def value_error_handler(request: Request, exc: ValueError):
@@ -467,7 +411,9 @@ def create_error_handlers(app: FastAPI) -> None:
             details={"original_exception": "ValueError"}
         )
         
-        return await validation_exception_handler(request, validation_exc)
+        # Use the factory-created handler
+        handler = create_exception_handler_factory("Validation failed", "validation")
+        return await handler(request, validation_exc)
     
     @app.exception_handler(TimeoutError)
     async def timeout_error_handler(request: Request, exc: TimeoutError):
