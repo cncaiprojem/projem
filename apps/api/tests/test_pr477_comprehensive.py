@@ -266,9 +266,15 @@ class TestPathNormalization:
         
     def test_normalize_numeric_ids(self):
         """Test normalization of numeric IDs."""
-        assert self.middleware._normalize_path("/users/123") == "/users/{id}"
-        assert self.middleware._normalize_path("/jobs/456789") == "/jobs/{id}"
+        # Test with trailing slash (original tests)
+        assert self.middleware._normalize_path("/users/123/") == "/users/{username}/"
+        assert self.middleware._normalize_path("/jobs/456789/") == "/jobs/{id}/"
         assert self.middleware._normalize_path("/items/1/details") == "/items/{id}/details"
+        
+        # Test without trailing slash (new requirement)
+        assert self.middleware._normalize_path("/users/123") == "/users/{username}"
+        assert self.middleware._normalize_path("/jobs/456789") == "/jobs/{id}"
+        assert self.middleware._normalize_path("/artefacts/1234") == "/artefacts/{id}"
         
     def test_normalize_uuid(self):
         """Test normalization of UUIDs."""
@@ -282,17 +288,32 @@ class TestPathNormalization:
         
     def test_normalize_queue_names(self):
         """Test normalization of queue names."""
+        # Test with action after queue name  
         assert self.middleware._normalize_path("/queues/my_queue/pause") == "/queues/{name}/pause"
         assert self.middleware._normalize_path("/queues/test-queue/resume") == "/queues/{name}/resume"
         
+        # Test without trailing slash (important edge case)
+        assert self.middleware._normalize_path("/queues/my-queue") == "/queues/{name}"
+        assert self.middleware._normalize_path("/queues/default") == "/queues/{name}"
+        
     def test_normalize_user_paths(self):
         """Test normalization of user paths."""
+        # Test with actions after username
         assert self.middleware._normalize_path("/users/john.doe/profile") == "/users/{username}/profile"
         assert self.middleware._normalize_path("/users/user123/settings") == "/users/{username}/settings"
         
+        # Test without trailing slash
+        assert self.middleware._normalize_path("/users/john") == "/users/{username}"
+        assert self.middleware._normalize_path("/users/admin") == "/users/{username}"
+        
     def test_normalize_project_paths(self):
         """Test normalization of project paths."""
+        # Test with action after project name
         assert self.middleware._normalize_path("/projects/my-project/files") == "/projects/{name}/files"
+        
+        # Test without trailing slash
+        assert self.middleware._normalize_path("/projects/my-project") == "/projects/{name}"
+        assert self.middleware._normalize_path("/projects/test") == "/projects/{name}"
         
     def test_preserve_static_paths(self):
         """Test that static paths are preserved."""
@@ -311,6 +332,23 @@ class TestPathNormalization:
         
         # These should match generic patterns
         assert self.middleware._normalize_path("/random/abc123def456") == "/random/{id}"
+    
+    def test_edge_cases_without_trailing_slash(self):
+        """Test edge cases for paths without trailing slash."""
+        # Test all specific patterns without trailing slash
+        assert self.middleware._normalize_path("/queues/my-queue") == "/queues/{name}"
+        assert self.middleware._normalize_path("/users/john123") == "/users/{username}"
+        assert self.middleware._normalize_path("/projects/proj-1") == "/projects/{name}"
+        assert self.middleware._normalize_path("/artefacts/art123") == "/artefacts/{id}"
+        assert self.middleware._normalize_path("/jobs/job-abc-123") == "/jobs/{id}"
+        
+        # Test that paths with trailing slash still work
+        assert self.middleware._normalize_path("/queues/my-queue/") == "/queues/{name}/"
+        assert self.middleware._normalize_path("/users/john123/") == "/users/{username}/"
+        
+        # Test mixed paths (some with slash, some without)
+        assert self.middleware._normalize_path("/users/123/jobs/456") == "/users/{username}/jobs/{id}"
+        assert self.middleware._normalize_path("/projects/proj1/artefacts/123/download") == "/projects/{name}/artefacts/{id}/download"
 
 
 class TestErrorCategoryDictionaryLookup:

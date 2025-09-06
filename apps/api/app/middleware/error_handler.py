@@ -30,8 +30,8 @@ from ..core.exceptions import (
     AIException,
     map_exception_to_error_response,
     log_error_with_masking,
-    PIIMasker,
 )
+from ..core.pii import PIIMasker
 from ..core.logging import get_logger
 from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
@@ -270,11 +270,12 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         # IMPORTANT: Order matters! Specific patterns must come before generic ones
         patterns = [
             # Specific path patterns (must come first)
-            (r'/queues/([^/]+)/', '/queues/{name}/'),
-            (r'/users/([^/]+)/', '/users/{username}/'),
-            (r'/projects/([^/]+)/', '/projects/{name}/'),
-            (r'/artefacts/([^/]+)/', '/artefacts/{id}/'),
-            (r'/jobs/([^/]+)/', '/jobs/{id}/'),
+            # Use capture groups properly to handle paths with or without trailing slash
+            (r'(/queues/)[^/]+', r'\1{name}'),
+            (r'(/users/)[^/]+', r'\1{username}'),
+            (r'(/projects/)[^/]+', r'\1{name}'),
+            (r'(/artefacts/)[^/]+', r'\1{id}'),
+            (r'(/jobs/)[^/]+', r'\1{id}'),
             # UUIDs (more specific than alphanumeric)
             (r'/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?=/|$)', '/{id}'),
             # Numeric IDs (more specific than alphanumeric)
