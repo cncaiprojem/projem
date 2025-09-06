@@ -378,7 +378,7 @@ class InFlightCoalescer:
         self._requests: Dict[str, asyncio.Future] = {}
         self._lock = threading.Lock()
     
-    async def coalesce(self, key: str, func: Callable) -> Any:
+    async def coalesce(self, key: str, func: Callable[[], Awaitable[Any]]) -> Any:
         """Coalesce concurrent requests for the same key."""
         with self._lock:
             if key in self._requests:

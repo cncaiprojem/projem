@@ -420,8 +420,20 @@ class OptimizedFreeCADTask(Task):
                 'key': idempotency_key
             })
             
-            loop = asyncio.new_event_loop()
+            # Use asyncio.run for better event loop management (Python 3.7+)
             try:
+                asyncio.run(
+                    self.cache_manager.set(
+                        CacheFlowType.PARAMS,
+                        canonical,
+                        retval,
+                        "idempotency",
+                        ttl=86400  # 24h for idempotency
+                    )
+                )
+            except RuntimeError:
+                # Fallback if already in an event loop
+                loop = asyncio.get_event_loop()
                 loop.run_until_complete(
                     self.cache_manager.set(
                         CacheFlowType.PARAMS,
@@ -431,8 +443,6 @@ class OptimizedFreeCADTask(Task):
                         ttl=86400  # 24h for idempotency
                     )
                 )
-            finally:
-                loop.close()
     
     def on_failure(self, exc, task_id, args, kwargs, einfo):
         """Called when task fails."""

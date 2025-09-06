@@ -261,11 +261,11 @@ class TestCacheKeyGenerator:
         
         # Check key format
         assert key.startswith("mgf:v2:")
-        assert ":flow:geom:" in key
-        assert ":brep:" in key
-        # Hash should be at the end
+        assert ":f:geom:" in key  # Abbreviated format uses 'f:' for flow
+        assert ":a:brep:" in key  # Abbreviated format uses 'a:' for artifact
+        # Hash should be at the end - full base64 SHA256 is ~43 chars
         parts = key.split(":")
-        assert len(parts[-1]) == 16  # Truncated hash
+        assert len(parts[-1]) > 40  # Full base64 SHA256 hash (256 bits = ~43 chars in base64)
     
     def test_deterministic_keys(self):
         """Test that same inputs produce same keys."""
