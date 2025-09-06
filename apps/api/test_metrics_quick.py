@@ -68,7 +68,7 @@ def test_summary_creation():
     )
     
     # Convert to schema
-    data = metrics.model_dump()
+    data = metrics.model_dump(mode='json')
     schema = ModelMetricsSchema.model_validate(data)
     
     # Create summary

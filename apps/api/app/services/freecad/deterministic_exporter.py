@@ -403,10 +403,13 @@ class UnifiedDeterministicExporter:
                 # model_metrics is already a ModelMetricsSchema (aliased as ModelMetrics in metrics_extractor)
                 summary = ModelMetricsSummary.from_full_metrics(model_metrics)
                 
+                # IMPORTANT: Use mode='json' to ensure Decimal fields are properly serialized to strings
+                # Without mode='json', Decimal objects remain in the dictionary and will cause
+                # TypeError when the API tries to serialize the response to JSON
                 results["metrics"] = {
                     "extracted": True,
-                    "data": model_metrics.model_dump(),
-                    "summary": summary.model_dump(exclude_none=True)
+                    "data": model_metrics.model_dump(mode='json'),
+                    "summary": summary.model_dump(mode='json', exclude_none=True)
                 }
                 
                 # Add metrics to export metadata
