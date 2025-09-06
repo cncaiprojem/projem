@@ -760,14 +760,18 @@ class StorageClient:
                         )
                         
                         # Process any errors
+                        error_count = 0
                         for error in errors:
+                            error_count += 1
                             logger.warning(
                                 "Failed to delete object in batch",
                                 bucket=bucket,
                                 key=error.object_name,
                                 error=error.error_message,
                             )
-                        else:
+                        
+                        # Only count as deleted if there were no errors
+                        if error_count == 0:
                             deleted_count += len(objects_to_delete)
                         
                         objects_to_delete = []
@@ -779,14 +783,18 @@ class StorageClient:
                         delete_object_list=objects_to_delete,
                     )
                     
+                    error_count = 0
                     for error in errors:
+                        error_count += 1
                         logger.warning(
                             "Failed to delete object in batch",
                             bucket=bucket,
                             key=error.object_name,
                             error=error.error_message,
                         )
-                    else:
+                    
+                    # Only count as deleted if there were no errors
+                    if error_count == 0:
                         deleted_count += len(objects_to_delete)
 
             else:
@@ -880,16 +888,14 @@ class StorageClient:
         """
         try:
             if self.use_minio:
-                # MinIO: Set a policy that denies anonymous access
-                # This is more appropriate for MinIO than AWS-specific account conditions
+                # MinIO: Set a simple policy that denies all anonymous access
+                # MinIO doesn't support AWS-specific IAM conditions like aws:userid
                 policy = {
                     "Version": "2012-10-17",
                     "Statement": [
                         {
                             "Effect": "Deny",
-                            "Principal": {
-                                "AWS": ["*"]
-                            },
+                            "Principal": "*",
                             "Action": [
                                 "s3:GetObject",
                                 "s3:ListBucket",
@@ -901,17 +907,7 @@ class StorageClient:
                             "Resource": [
                                 f"arn:aws:s3:::{bucket}/*",
                                 f"arn:aws:s3:::{bucket}"
-                            ],
-                            "Condition": {
-                                "StringNotLike": {
-                                    "aws:userid": [
-                                        "AIDAI*",  # IAM users
-                                        "AIDA*",   # IAM users with MFA
-                                        "AROA*",   # IAM roles
-                                        "root"     # Root user
-                                    ]
-                                }
-                            }
+                            ]
                         }
                     ]
                 }

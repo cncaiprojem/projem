@@ -8,7 +8,7 @@ with retry logic and error handling.
 from __future__ import annotations
 
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import structlog
@@ -311,7 +311,6 @@ def periodic_gc_retry() -> dict:
             # Check if it's been too long (e.g., > 7 days)
             deletion_requested = artefact.get_meta("deletion_requested_at")
             if deletion_requested:
-                from datetime import datetime, timedelta
                 requested_time = datetime.fromisoformat(deletion_requested.replace("Z", "+00:00"))
                 if datetime.now(timezone.utc) - requested_time > timedelta(days=7):
                     logger.warning(

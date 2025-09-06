@@ -16,6 +16,7 @@ import asyncio
 import hashlib
 import io
 import json
+import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, BinaryIO, Dict, List, Optional, Tuple, Union
@@ -25,8 +26,7 @@ from sqlalchemy import and_, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.core.i18n import get_translator
-from app.core.logging import get_logger
+from app.core.logging_config import get_logger
 from app.models.artefact import Artefact
 from app.models.audit_log import AuditLog
 from app.models.job import Job
@@ -206,10 +206,12 @@ class ArtefactServiceV2:
                     status_code=403,
                 )
 
-            # Step 2: Generate S3 key using path scheme
-            s3_key = f"jobs/{job_id}/{filename}"
+            # Step 2: Generate S3 key using path scheme with UUID to prevent collisions
+            unique_id = str(uuid.uuid4())
+            # Include UUID before the filename to ensure uniqueness
+            s3_key = f"jobs/{job_id}/{unique_id}/{filename}"
             if artefact_type in ["preview", "temp"]:
-                s3_key = f"transient/jobs/{job_id}/{filename}"
+                s3_key = f"transient/jobs/{job_id}/{unique_id}/{filename}"
 
             # Step 3: Detect content type and disposition
             content_type, content_disposition = self.storage_client.detect_content_type(
