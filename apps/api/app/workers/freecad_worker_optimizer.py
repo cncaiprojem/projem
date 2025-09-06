@@ -293,7 +293,8 @@ def shutdown_worker_process(sender=None, **kwargs):
     if _document_template and _freecad_app:
         try:
             _freecad_app.closeDocument(_document_template.Name)
-        except:
+        except (AttributeError, RuntimeError, Exception) as e:
+            logger.debug(f"Failed to close document template: {e}")
             pass
     
     # Clear global references
@@ -320,7 +321,12 @@ class OptimizedFreeCADTask(Task):
     soft_time_limit = 90
     time_limit = 120
     
-    # Memory limit (MB)
+    # Memory limit (MB) - Set to 700MB to accommodate:
+    # - FreeCAD base memory footprint (~200MB)
+    # - Complex geometry operations (~300MB)
+    # - Mesh generation overhead (~100MB)
+    # - Buffer for temporary allocations (~100MB)
+    # This limit prevents OOM kills while allowing complex operations
     max_memory_mb = 700
     
     def __init__(self):
@@ -347,9 +353,8 @@ class OptimizedFreeCADTask(Task):
             
             # Try to get cached result
             import asyncio
-            loop = asyncio.new_event_loop()
             try:
-                cached = loop.run_until_complete(
+                cached = asyncio.run(
                     self.cache_manager.get(
                         CacheFlowType.PARAMS,
                         canonical,
@@ -364,8 +369,18 @@ class OptimizedFreeCADTask(Task):
                     )
                     # Return cached result (will be handled by task)
                     kwargs['_cached_result'] = cached
-            finally:
-                loop.close()
+            except RuntimeError:
+                # If we're already in an event loop, use different approach
+                loop = asyncio.get_event_loop()
+                cached = loop.run_until_complete(
+                    self.cache_manager.get(
+                        CacheFlowType.PARAMS,
+                        canonical,
+                        "idempotency"
+                    )
+                )
+                if cached:
+                    kwargs['_cached_result'] = cached
         
         # Record start time
         kwargs['_start_time'] = time.time()
@@ -577,7 +592,8 @@ def freecad_document_context(name: str = None):
         if doc:
             try:
                 _freecad_app.closeDocument(doc.Name)
-            except:
+            except (AttributeError, RuntimeError, Exception) as e:
+                logger.debug(f"Failed to close document: {e}")
                 pass
             
             # Force garbage collection

@@ -37,7 +37,7 @@ from contextlib import asynccontextmanager, contextmanager
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
-from functools import lru_cache, wraps
+from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Set, Tuple, Union
 
 import redis.asyncio as redis_async
@@ -347,12 +347,14 @@ class CacheKeyGenerator:
         # Combine engine fingerprint with canonical data
         combined = f"{self.engine_str}|{canonical_data}"
         
-        # Generate SHA256 hash and encode as base32 (for URL safety)
+        # Generate SHA256 hash and encode as base64 (for URL safety)
         hash_bytes = hashlib.sha256(combined.encode('utf-8')).digest()
-        hash_b32 = hashlib.sha256(hash_bytes).hexdigest()[:16]  # Use first 16 chars for brevity
+        # Use base64 URL-safe encoding, trim to 16 chars for brevity
+        import base64
+        hash_b64 = base64.urlsafe_b64encode(hash_bytes).decode('ascii')[:16]
         
         # Build key
-        key = f"mgf:v2:{self.engine_str[:20]}:flow:{flow_type.value}:{artifact_type}:{hash_b32}"
+        key = f"mgf:v2:{self.engine_str[:20]}:flow:{flow_type.value}:{artifact_type}:{hash_b64}"
         
         return key
     
@@ -432,7 +434,8 @@ class L1Cache:
             # Estimate size
             try:
                 size_bytes = len(json.dumps(value, default=str))
-            except:
+            except (TypeError, OverflowError, ValueError) as e:
+                logger.debug(f"Failed to estimate size for L1 cache: {e}")
                 size_bytes = 1000  # Default estimate
         
         with self._lock:
@@ -704,20 +707,29 @@ class RedisCache:
         """Invalidate all cache keys in a tag."""
         try:
             async with redis_async.Redis(connection_pool=self.async_pool) as client:
-                # Get all keys in tag
-                keys = await client.smembers(tag_key)
-                if not keys:
-                    return 0
-                
-                # Delete in batches
+                # Use sscan_iter for non-blocking iteration of large sets
                 deleted = 0
-                keys_list = list(keys)
-                for i in range(0, len(keys_list), self.config.pipeline_batch_size):
-                    batch = keys_list[i:i + self.config.pipeline_batch_size]
+                batch = []
+                
+                async for key in client.sscan_iter(tag_key):
+                    batch.append(key)
+                    
+                    # Process batch when it reaches the configured size
+                    if len(batch) >= self.config.pipeline_batch_size:
+                        pipe = client.pipeline()
+                        for batch_key in batch:
+                            pipe.delete(batch_key)
+                            pipe.delete(f"{batch_key}:meta")
+                        results = await pipe.execute()
+                        deleted += sum(1 for r in results[::2] if r > 0)
+                        batch = []
+                
+                # Process remaining items in batch
+                if batch:
                     pipe = client.pipeline()
-                    for key in batch:
-                        pipe.delete(key)
-                        pipe.delete(f"{key}:meta")
+                    for batch_key in batch:
+                        pipe.delete(batch_key)
+                        pipe.delete(f"{batch_key}:meta")
                     results = await pipe.execute()
                     deleted += sum(1 for r in results[::2] if r > 0)
                 
@@ -780,7 +792,8 @@ class CacheManager:
                     )
                     if result.returncode == 0:
                         git_sha = result.stdout.strip()
-                except:
+                except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
+                    logger.debug(f"Failed to get git SHA: {e}")
                     pass
             
             self._engine_fingerprint = EngineFingerprint(

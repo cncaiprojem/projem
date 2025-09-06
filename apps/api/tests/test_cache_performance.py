@@ -22,7 +22,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 import redis.asyncio as redis_async
-from freezegun import freeze_time
+
+# Optional: freezegun for time-based tests
+try:
+    from freezegun import freeze_time
+except ImportError:
+    freeze_time = None
 
 from apps.api.app.core.cache import (
     CacheConfig,
@@ -36,6 +41,48 @@ from apps.api.app.core.cache import (
     InFlightCoalescer,
     get_cache_manager
 )
+
+
+@pytest.fixture
+async def redis_test_client():
+    """Provide isolated Redis client for testing."""
+    import redis
+    import random
+    
+    # Use a random database number for test isolation
+    test_db = random.randint(10, 15)
+    
+    try:
+        # Test connection
+        sync_client = redis.Redis(host='localhost', port=6379, db=test_db)
+        sync_client.ping()
+        
+        # Create async client
+        async_client = redis_async.Redis(host='localhost', port=6379, db=test_db)
+        
+        # Clear database before test
+        await async_client.flushdb()
+        
+        yield async_client
+        
+        # Cleanup after test
+        await async_client.flushdb()
+        await async_client.close()
+        
+    except (redis.ConnectionError, redis.RedisError, ImportError) as e:
+        pytest.skip(f"Redis not available for testing: {e}")
+
+
+@pytest.fixture
+def cache_config(redis_test_client):
+    """Provide test cache configuration."""
+    return CacheConfig(
+        redis_url=f"redis://localhost:6379/{redis_test_client.connection_pool.connection_kwargs['db']}",
+        l1_max_size=10,
+        l1_memory_limit_mb=10,
+        compression_enabled=True,
+        compression_threshold_bytes=100
+    )
 
 
 class TestEngineFingerprint:
@@ -602,23 +649,9 @@ class TestPerformanceBenchmarks:
 class TestCacheIntegration:
     """Integration tests with real Redis."""
     
-    async def test_full_cache_flow(self):
+    async def test_full_cache_flow(self, redis_test_client, cache_config):
         """Test complete cache flow with real Redis."""
-        # Skip if Redis not available
-        try:
-            import redis
-            r = redis.Redis(host='localhost', port=6379, db=15)
-            r.ping()
-        except:
-            pytest.skip("Redis not available")
-        
-        config = CacheConfig(
-            redis_url="redis://localhost:6379/15",
-            l1_max_size=10,
-            compression_enabled=True
-        )
-        
-        manager = CacheManager(config)
+        manager = CacheManager(cache_config)
         
         try:
             # Clear any existing data
@@ -677,22 +710,10 @@ class TestCacheIntegration:
         finally:
             await manager.l2_cache.close()
     
-    async def test_cache_hit_rates(self):
+    async def test_cache_hit_rates(self, redis_test_client, cache_config):
         """Test cache hit rates meet acceptance criteria (>92%)."""
-        # Skip if Redis not available
-        try:
-            import redis
-            r = redis.Redis(host='localhost', port=6379, db=15)
-            r.ping()
-        except:
-            pytest.skip("Redis not available")
-        
-        config = CacheConfig(
-            redis_url="redis://localhost:6379/15",
-            l1_max_size=100
-        )
-        
-        manager = CacheManager(config)
+        cache_config.l1_max_size = 100  # Increase for this test
+        manager = CacheManager(cache_config)
         
         try:
             # Clear cache
