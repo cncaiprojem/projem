@@ -325,6 +325,23 @@ class PIIMasker:
         return masked
     
     @classmethod
+    def _mask_recursive(cls, obj: Any) -> Any:
+        """Helper to recursively mask any data structure."""
+        if isinstance(obj, str):
+            return cls.mask_text(obj)
+        elif isinstance(obj, dict):
+            return cls.mask_dict(obj)
+        elif isinstance(obj, list):
+            return [cls._mask_recursive(item) for item in obj]
+        elif isinstance(obj, tuple):
+            return tuple(cls._mask_recursive(item) for item in obj)
+        elif isinstance(obj, set):
+            return {cls._mask_recursive(item) for item in obj}
+        else:
+            # For other types (int, float, bool, None, etc.), return as-is
+            return obj
+    
+    @classmethod
     def mask_dict(cls, data: Dict[str, Any]) -> Dict[str, Any]:
         """Recursively mask PII in dictionary."""
         if not data:
@@ -335,14 +352,9 @@ class PIIMasker:
             # Mask sensitive keys entirely
             if any(sensitive in key.lower() for sensitive in ['password', 'secret', 'token', 'key', 'auth']):
                 masked[key] = '[redacted]'
-            elif isinstance(value, str):
-                masked[key] = cls.mask_text(value)
-            elif isinstance(value, dict):
-                masked[key] = cls.mask_dict(value)
-            elif isinstance(value, list):
-                masked[key] = [cls.mask_text(item) if isinstance(item, str) else item for item in value]
             else:
-                masked[key] = value
+                # Use recursive helper for all value types
+                masked[key] = cls._mask_recursive(value)
         
         return masked
 

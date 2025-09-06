@@ -267,19 +267,22 @@ class ErrorHandlerMiddleware(BaseHTTPMiddleware):
         """
         
         # Common patterns for dynamic segments
+        # IMPORTANT: Order matters! Specific patterns must come before generic ones
         patterns = [
-            # UUIDs
-            (r'/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})', '/{id}'),
-            # Numeric IDs
-            (r'/(\d+)(?=/|$)', '/{id}'),
-            # Alphanumeric IDs (at least 8 chars, common for job IDs)
-            (r'/([a-zA-Z0-9_-]{8,})(?=/|$)', '/{id}'),
-            # Queue names or resource names between slashes
+            # Specific path patterns (must come first)
             (r'/queues/([^/]+)/', '/queues/{name}/'),
             (r'/users/([^/]+)/', '/users/{username}/'),
             (r'/projects/([^/]+)/', '/projects/{name}/'),
             (r'/artefacts/([^/]+)/', '/artefacts/{id}/'),
             (r'/jobs/([^/]+)/', '/jobs/{id}/'),
+            # UUIDs (more specific than alphanumeric)
+            (r'/([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})(?=/|$)', '/{id}'),
+            # Numeric IDs (more specific than alphanumeric)
+            (r'/(\d+)(?=/|$)', '/{id}'),
+            # Generic alphanumeric IDs (must come last as it's the most generic)
+            # Match IDs that are at least 12 chars (typical for job IDs, file IDs, etc.)
+            # This avoids matching common action names like 'download', 'upload', 'status', etc.
+            (r'/([a-zA-Z0-9_-]{12,})(?=/|$)', '/{id}'),
         ]
         
         normalized = path

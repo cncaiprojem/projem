@@ -1,12 +1,18 @@
 """
-Test suite for PR #477 review feedback fixes.
+Comprehensive test suite for PR #477 fixes.
+
+This file consolidates all tests from:
+- test_pr477_fixes.py
+- test_pr477_exception_fixes.py
+- test_pr477_validation_fixes.py
 
 Tests cover:
-1. Turkish TC Kimlik No validation with checksum
+1. Turkish TC Kimlik No validation with checksum algorithm
 2. Credit card validation with Luhn algorithm
 3. Path normalization for metrics
 4. ErrorCode passing to exception constructors
 5. Error category dictionary lookup
+6. Recursive PII masking for nested data structures
 """
 
 import pytest
@@ -38,6 +44,7 @@ class TestTurkishTCKimlikNoValidation:
         valid_numbers = [
             "10000000146",  # Test number that passes checksum
             "38246312712",  # Another valid test number
+            "12345678950",  # Another valid test number with proper checksum
         ]
         
         for number in valid_numbers:
@@ -103,8 +110,9 @@ class TestCreditCardLuhnValidation:
     def test_invalid_credit_cards(self):
         """Test that invalid credit card numbers fail Luhn check."""
         invalid_cards = [
-            "4532015112830367",  # Invalid checksum
+            "4532015112830367",  # Invalid checksum (last digit should be 6, not 7)
             "1234567890123456",  # Random 16 digits
+            "1111111111111111",  # All ones (invalid checksum)
             "0000000000000000",  # All zeros
         ]
         
@@ -133,6 +141,120 @@ class TestCreditCardLuhnValidation:
         masked = PIIMasker.mask_text(text_with_invalid)
         assert "1234567890123456" in masked  # Should remain unmasked
         assert "[card redacted]" not in masked
+
+
+class TestRecursivePIIMasking:
+    """Test recursive PII masking for nested data structures."""
+    
+    def test_mask_nested_dict(self):
+        """Test masking of nested dictionaries."""
+        data = {
+            "user": {
+                "email": "test@example.com",
+                "profile": {
+                    "tc_no": "10000000146",  # Valid TC, should be masked
+                    "phone": "+90 555 123 4567"
+                }
+            },
+            "payment": {
+                "card": "4532015112830366"  # Valid card, should be masked
+            }
+        }
+        
+        masked = PIIMasker.mask_dict(data)
+        
+        # Check nested email is masked
+        assert "[email redacted]" in masked["user"]["email"]
+        assert "test@example.com" not in str(masked)
+        
+        # Check nested TC is masked
+        assert "[tc_no redacted]" in masked["user"]["profile"]["tc_no"]
+        assert "10000000146" not in str(masked)
+        
+        # Check nested card is masked
+        assert "[card redacted]" in masked["payment"]["card"]
+        assert "4532015112830366" not in str(masked)
+        
+    def test_mask_list_with_dicts(self):
+        """Test masking of lists containing dictionaries."""
+        data = {
+            "users": [
+                {"email": "user1@example.com", "tc": "10000000146"},
+                {"email": "user2@example.com", "tc": "12345678901"},  # Invalid TC
+            ],
+            "cards": ["4532015112830366", "1234567890123456"]  # One valid, one invalid
+        }
+        
+        masked = PIIMasker.mask_dict(data)
+        
+        # First user's email should be masked
+        assert "[email redacted]" in masked["users"][0]["email"]
+        assert "user1@example.com" not in str(masked)
+        
+        # First user's valid TC should be masked
+        assert "[tc_no redacted]" in masked["users"][0]["tc"]
+        
+        # Second user's invalid TC should NOT be masked
+        assert "12345678901" in masked["users"][1]["tc"]
+        
+        # Valid card should be masked
+        assert "[card redacted]" in masked["cards"][0]
+        
+        # Invalid card should NOT be masked
+        assert "1234567890123456" in masked["cards"][1]
+        
+    def test_mask_deeply_nested_structures(self):
+        """Test masking of deeply nested mixed structures."""
+        data = {
+            "level1": {
+                "level2": [
+                    {
+                        "level3": {
+                            "emails": ["test@example.com", "user@domain.org"],
+                            "data": [
+                                {"card": "4532015112830366"},
+                                {"password": "secret123"}
+                            ]
+                        }
+                    }
+                ]
+            }
+        }
+        
+        masked = PIIMasker.mask_dict(data)
+        
+        # Check deeply nested emails are masked
+        emails = masked["level1"]["level2"][0]["level3"]["emails"]
+        assert all("[email redacted]" in email for email in emails)
+        
+        # Check nested card is masked
+        assert "[card redacted]" in masked["level1"]["level2"][0]["level3"]["data"][0]["card"]
+        
+        # Check password field is completely redacted
+        assert masked["level1"]["level2"][0]["level3"]["data"][1]["password"] == "[redacted]"
+        
+    def test_mask_sensitive_keys(self):
+        """Test that sensitive keys are always redacted regardless of value."""
+        data = {
+            "password": "just_a_number_12345",
+            "secret_key": "not_really_secret",
+            "auth_token": "bearer_abc123",
+            "api_key": "key_12345",
+            "nested": {
+                "db_password": "postgres123",
+                "jwt_secret": "my_jwt_secret"
+            }
+        }
+        
+        masked = PIIMasker.mask_dict(data)
+        
+        # All sensitive keys should be redacted
+        assert masked["password"] == "[redacted]"
+        assert masked["secret_key"] == "[redacted]"
+        assert masked["auth_token"] == "[redacted]"
+        assert masked["api_key"] == "[redacted]"
+        assert masked["nested"]["db_password"] == "[redacted]"
+        assert masked["nested"]["jwt_secret"] == "[redacted]"
 
 
 class TestPathNormalization:
@@ -180,6 +302,15 @@ class TestPathNormalization:
     def test_complex_paths(self):
         """Test normalization of complex paths."""
         assert self.middleware._normalize_path("/users/123/jobs/456/artefacts/789") == "/users/{id}/jobs/{id}/artefacts/{id}"
+        
+    def test_pattern_ordering(self):
+        """Test that specific patterns are matched before generic ones."""
+        # These should match specific patterns, not generic alphanumeric
+        assert self.middleware._normalize_path("/queues/my-special-queue/status") == "/queues/{name}/status"
+        assert self.middleware._normalize_path("/users/john-doe-123/profile") == "/users/{username}/profile"
+        
+        # These should match generic patterns
+        assert self.middleware._normalize_path("/random/abc123def456") == "/random/{id}"
 
 
 class TestErrorCategoryDictionaryLookup:
@@ -193,21 +324,29 @@ class TestErrorCategoryDictionaryLookup:
         """Test AI error category detection."""
         assert self.middleware._get_error_category(ErrorCode.AI_AMBIGUOUS) == "ai"
         assert self.middleware._get_error_category(ErrorCode.AI_HINT_REQUIRED) == "ai"
+        assert self.middleware._get_error_category(ErrorCode.AI_PROMPT_TOO_COMPLEX) == "ai"
+        assert self.middleware._get_error_category(ErrorCode.AI_UNSUPPORTED_OPERATION) == "ai"
         
     def test_validation_category(self):
         """Test validation error category detection."""
         assert self.middleware._get_error_category(ErrorCode.VALIDATION_MISSING_FIELD) == "validation"
         assert self.middleware._get_error_category(ErrorCode.VALIDATION_CONFLICT) == "validation"
+        assert self.middleware._get_error_category(ErrorCode.VALIDATION_RANGE_VIOLATION) == "validation"
+        assert self.middleware._get_error_category(ErrorCode.VALIDATION_CONSTRAINT_VIOLATION) == "validation"
         
     def test_freecad_category(self):
         """Test FreeCAD error category detection."""
         assert self.middleware._get_error_category(ErrorCode.FC_RECOMPUTE_FAILED) == "freecad"
         assert self.middleware._get_error_category(ErrorCode.FC_GEOM_INVALID_SHAPE) == "freecad"
+        assert self.middleware._get_error_category(ErrorCode.FC_BOOLEAN_FAILED) == "freecad"
+        assert self.middleware._get_error_category(ErrorCode.FC_SKETCH_OVERCONSTRAINED) == "freecad"
         
     def test_storage_category(self):
         """Test storage error category detection."""
         assert self.middleware._get_error_category(ErrorCode.STORAGE_QUOTA_EXCEEDED) == "storage"
         assert self.middleware._get_error_category(ErrorCode.STORAGE_WRITE_FAILED) == "storage"
+        assert self.middleware._get_error_category(ErrorCode.STORAGE_READ_FAILED) == "storage"
+        assert self.middleware._get_error_category(ErrorCode.STORAGE_CORRUPT_FILE) == "storage"
         
     def test_auth_category(self):
         """Test auth error category detection."""
@@ -282,27 +421,100 @@ class TestExceptionErrorCodeParameter:
         """Test FreeCADException with explicit error_code."""
         exc = FreeCADException(
             "FreeCAD error",
+            error_code=ErrorCode.FC_BOOLEAN_FAILED
+        )
+        assert exc.error_code == ErrorCode.FC_BOOLEAN_FAILED
+        
+        exc = FreeCADException(
+            "FreeCAD error",
             error_code=ErrorCode.FC_GEOM_INVALID_SHAPE
         )
         assert exc.error_code == ErrorCode.FC_GEOM_INVALID_SHAPE
         
-    def test_backward_compatibility(self):
-        """Test that old usage without error_code still works."""
-        # ValidationException
+    def test_backward_compatibility_validation(self):
+        """Test ValidationException backward compatibility."""
+        # Test message-based detection still works
         exc = ValidationException("Field is missing")
         assert exc.error_code == ErrorCode.VALIDATION_MISSING_FIELD
         
-        # StorageException
+        exc = ValidationException("Value out of range")
+        assert exc.error_code == ErrorCode.VALIDATION_RANGE_VIOLATION
+        
+        exc = ValidationException("Conflict detected")
+        assert exc.error_code == ErrorCode.VALIDATION_CONFLICT
+        
+        exc = ValidationException("Some other error")
+        assert exc.error_code == ErrorCode.VALIDATION_CONSTRAINT_VIOLATION
+        
+    def test_backward_compatibility_storage(self):
+        """Test StorageException backward compatibility."""
+        # Test operation-based detection still works
         exc = StorageException("Error", operation="write")
         assert exc.error_code == ErrorCode.STORAGE_WRITE_FAILED
         
-        # AIException
+        exc = StorageException("Error", operation="read")
+        assert exc.error_code == ErrorCode.STORAGE_READ_FAILED
+        
+        exc = StorageException("Quota exceeded")
+        assert exc.error_code == ErrorCode.STORAGE_QUOTA_EXCEEDED
+        
+        exc = StorageException("Some error", operation="unknown")
+        assert exc.error_code == ErrorCode.STORAGE_CORRUPT_FILE
+        
+    def test_backward_compatibility_ai(self):
+        """Test AIException backward compatibility."""
+        # Test message-based detection still works
+        exc = AIException("Request is ambiguous")
+        assert exc.error_code == ErrorCode.AI_AMBIGUOUS
+        
+        exc = AIException("Need additional hint")
+        assert exc.error_code == ErrorCode.AI_HINT_REQUIRED
+        
         exc = AIException("Too complex to process")
         assert exc.error_code == ErrorCode.AI_PROMPT_TOO_COMPLEX
         
-        # FreeCADException (uses pattern matcher or default)
+        exc = AIException("Some other error")
+        assert exc.error_code == ErrorCode.AI_UNSUPPORTED_OPERATION
+        
+    def test_backward_compatibility_freecad(self):
+        """Test FreeCADException backward compatibility."""
+        # Without explicit error_code, it should use pattern matching or default
         exc = FreeCADException("Some FreeCAD error")
-        assert exc.error_code == ErrorCode.FC_RECOMPUTE_FAILED  # Default
+        # Should default to FC_RECOMPUTE_FAILED if no pattern matches
+        assert exc.error_code == ErrorCode.FC_RECOMPUTE_FAILED
+        
+    def test_field_parameter_validation_exception(self):
+        """Test that field parameter still works with ValidationException."""
+        exc = ValidationException(
+            "Field required",
+            field="username",
+            error_code=ErrorCode.VALIDATION_MISSING_FIELD
+        )
+        assert exc.error_code == ErrorCode.VALIDATION_MISSING_FIELD
+        assert exc.details.get("field") == "username"
+        
+    def test_mixed_parameters(self):
+        """Test that all exceptions work with mixed parameters."""
+        # ValidationException with all parameters
+        exc = ValidationException(
+            "Error message",
+            field="email",
+            error_code=ErrorCode.VALIDATION_CONFLICT,
+            details={"extra": "info"}
+        )
+        assert exc.error_code == ErrorCode.VALIDATION_CONFLICT
+        assert exc.details["field"] == "email"
+        assert exc.details["extra"] == "info"
+        
+        # StorageException with all parameters
+        exc = StorageException(
+            "Storage failed",
+            operation="delete",
+            error_code=ErrorCode.STORAGE_QUOTA_EXCEEDED,
+            details={"bucket": "test"}
+        )
+        assert exc.error_code == ErrorCode.STORAGE_QUOTA_EXCEEDED
+        assert exc.details["bucket"] == "test"
 
 
 class TestIntegration:
