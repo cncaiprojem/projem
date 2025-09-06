@@ -23,7 +23,7 @@ from __future__ import annotations
 import ast
 import hashlib
 import re
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_EVEN
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set, Tuple
 
@@ -1511,7 +1511,7 @@ class FreeCADRulesEngine:
     def _round_decimal(self, value: float) -> float:
         """Round a value to 1e-6 precision using Decimal."""
         d = Decimal(str(value))
-        return float(d.quantize(self.precision, rounding=ROUND_HALF_UP))
+        return float(d.quantize(self.precision, rounding=ROUND_HALF_EVEN))
 
 
 # Create singleton instance

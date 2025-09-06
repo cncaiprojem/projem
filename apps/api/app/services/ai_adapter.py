@@ -23,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_EVEN
 
 from pydantic import BaseModel, Field, field_validator, PrivateAttr
 
@@ -594,7 +594,7 @@ doc.recompute()""",
                         
                         # Convert to cents and round properly
                         total_cost_cents_decimal = (total_cost_dollars * Decimal('100')).quantize(
-                            Decimal('1'), rounding=ROUND_HALF_UP
+                            Decimal('1'), rounding=ROUND_HALF_EVEN
                         )
                         ai_suggestion.total_cost_cents = int(total_cost_cents_decimal)
                     

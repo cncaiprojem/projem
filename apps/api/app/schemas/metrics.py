@@ -11,7 +11,7 @@ Comprehensive Pydantic schemas for model metrics including:
 """
 
 import locale as system_locale
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal, ROUND_HALF_EVEN
 from typing import Any, Dict, List, Optional, Union
 
 from pydantic import BaseModel, Field, ConfigDict
@@ -324,7 +324,7 @@ def _format_number_locale_independent(
         # Quantize the Decimal to the specified decimal places
         # Use string formatting to create the precision specifier
         precision = Decimal(f'1e-{decimals}')
-        value = value.quantize(precision, rounding=ROUND_HALF_UP)
+        value = value.quantize(precision, rounding=ROUND_HALF_EVEN)
         # Use str() to preserve exact Decimal value without float conversion
         formatted = str(value)
     else:

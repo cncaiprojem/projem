@@ -11,7 +11,7 @@ These schemas implement Gemini Code Assist feedback fixes:
 from __future__ import annotations
 
 from datetime import datetime
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 from typing import Any, Dict, List, Optional
 from uuid import UUID
 
@@ -142,7 +142,7 @@ class TaxCalculation(BaseModel):
         # Validate tax calculation precision using Decimal arithmetic
         expected_tax = int(
             (Decimal(str(self.subtotal_cents)) * self.tax_rate_percent / Decimal('100'))
-            .quantize(Decimal('1'), rounding='ROUND_HALF_UP')
+            .quantize(Decimal('1'), rounding=ROUND_HALF_UP)
         )
         
         # Allow maximum 1 cent difference due to rounding
@@ -254,7 +254,7 @@ class InvoiceLineItem(BaseModel):
         # Critical tax calculation validation using Decimal precision
         expected_tax = int(
             (Decimal(str(self.subtotal_cents)) * self.tax_rate_percent / Decimal('100'))
-            .quantize(Decimal('1'), rounding='ROUND_HALF_UP')
+            .quantize(Decimal('1'), rounding=ROUND_HALF_UP)
         )
         tax_difference = abs(self.tax_cents - expected_tax)
         if tax_difference > 1:  # Ultra-strict: maximum 1 cent rounding tolerance
