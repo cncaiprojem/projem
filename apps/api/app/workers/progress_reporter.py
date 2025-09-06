@@ -160,15 +160,20 @@ class WorkerProgressReporter:
         
         # Publish to Redis (sync wrapper for async)
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                redis_progress_pubsub.publish_progress(job_id, progress)
-            )
+            # Try to get existing event loop first
+            try:
+                loop = asyncio.get_running_loop()
+                # If we have a running loop, schedule the coroutine
+                asyncio.ensure_future(
+                    redis_progress_pubsub.publish_progress(job_id, progress)
+                )
+            except RuntimeError:
+                # No running loop, use asyncio.run()
+                asyncio.run(
+                    redis_progress_pubsub.publish_progress(job_id, progress)
+                )
         except Exception as e:
             logger.warning(f"Failed to publish progress to Redis: {e}")
-        finally:
-            loop.close()
     
     @contextmanager
     def operation(
@@ -287,15 +292,20 @@ class WorkerProgressReporter:
         
         # Publish to Redis
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                redis_progress_pubsub.publish_progress(job_id, progress, force=kwargs.get("milestone", False))
-            )
+            # Try to get existing event loop first
+            try:
+                loop = asyncio.get_running_loop()
+                # If we have a running loop, schedule the coroutine
+                asyncio.ensure_future(
+                    redis_progress_pubsub.publish_progress(job_id, progress, force=kwargs.get("milestone", False))
+                )
+            except RuntimeError:
+                # No running loop, use asyncio.run()
+                asyncio.run(
+                    redis_progress_pubsub.publish_progress(job_id, progress, force=kwargs.get("milestone", False))
+                )
         except Exception as e:
             logger.warning(f"Failed to publish operation phase: {e}")
-        finally:
-            loop.close()
     
     def report_freecad_document(
         self,
@@ -440,19 +450,28 @@ class WorkerProgressReporter:
     def _publish_async(self, job_id: int, progress: ProgressMessageV2) -> None:
         """Publish progress asynchronously."""
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(
-                redis_progress_pubsub.publish_progress(
-                    job_id,
-                    progress,
-                    force=progress.milestone
+            # Try to get existing event loop first
+            try:
+                loop = asyncio.get_running_loop()
+                # If we have a running loop, schedule the coroutine
+                asyncio.ensure_future(
+                    redis_progress_pubsub.publish_progress(
+                        job_id,
+                        progress,
+                        force=progress.milestone
+                    )
                 )
-            )
+            except RuntimeError:
+                # No running loop, use asyncio.run()
+                asyncio.run(
+                    redis_progress_pubsub.publish_progress(
+                        job_id,
+                        progress,
+                        force=progress.milestone
+                    )
+                )
         except Exception as e:
             logger.warning(f"Failed to publish progress: {e}")
-        finally:
-            loop.close()
 
 
 class OperationContext:

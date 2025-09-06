@@ -201,6 +201,7 @@ async def get_current_user_from_ws(
 async def websocket_job_progress(
     websocket: WebSocket,
     job_id: int,
+    token: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_async_db)
 ):
     """
@@ -224,7 +225,7 @@ async def websocket_job_progress(
     
     try:
         # Authenticate user
-        user = await get_current_user_from_ws(websocket, db=db)
+        user = await get_current_user_from_ws(websocket, token=token, db=db)
         
         # Check job access
         result = await db.execute(

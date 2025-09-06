@@ -101,11 +101,11 @@ def freecad_execute_with_progress_task(
             
             # Simulate FreeCAD operations based on operation_type
             if "assembly" in operation_type.lower():
-                await _report_assembly_progress(reporter, job_id)
+                _report_assembly_progress(reporter, job_id)
             elif "boolean" in operation_type.lower():
-                await _report_occt_progress(reporter, job_id)
+                _report_occt_progress(reporter, job_id)
             elif "material" in operation_type.lower():
-                await _report_material_progress(reporter, job_id)
+                _report_material_progress(reporter, job_id)
             
             # Step 3: Execute actual operation
             op.update(3, "İşlem yürütülüyor / Processing operation")
@@ -141,7 +141,7 @@ def freecad_execute_with_progress_task(
             
             # Step 5: Export results
             op.update(5, "Sonuçlar dışa aktarılıyor / Exporting results")
-            await _report_export_progress(reporter, job_id, output_formats)
+            _report_export_progress(reporter, job_id, output_formats)
         
         # Report completion
         reporter.report_progress(
@@ -180,7 +180,7 @@ def freecad_execute_with_progress_task(
             db.close()
 
 
-async def _report_assembly_progress(reporter: WorkerProgressReporter, job_id: int):
+def _report_assembly_progress(reporter: WorkerProgressReporter, job_id: int):
     """Report Assembly4-specific progress."""
     # Solver start
     reporter.report_assembly4(
@@ -226,7 +226,7 @@ async def _report_assembly_progress(reporter: WorkerProgressReporter, job_id: in
     )
 
 
-async def _report_occt_progress(reporter: WorkerProgressReporter, job_id: int):
+def _report_occt_progress(reporter: WorkerProgressReporter, job_id: int):
     """Report OCCT operation progress."""
     # Boolean operation
     reporter.report_occt(
@@ -278,7 +278,7 @@ async def _report_occt_progress(reporter: WorkerProgressReporter, job_id: int):
     )
 
 
-async def _report_material_progress(reporter: WorkerProgressReporter, job_id: int):
+def _report_material_progress(reporter: WorkerProgressReporter, job_id: int):
     """Report Material Framework progress."""
     # Resolve material library
     reporter.report_progress(
@@ -303,7 +303,7 @@ async def _report_material_progress(reporter: WorkerProgressReporter, job_id: in
         )
 
 
-async def _report_export_progress(
+def _report_export_progress(
     reporter: WorkerProgressReporter,
     job_id: int,
     output_formats: List[str]

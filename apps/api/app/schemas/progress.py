@@ -11,7 +11,7 @@ This module defines the progress message schema with:
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union

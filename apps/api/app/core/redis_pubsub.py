@@ -16,7 +16,7 @@ import json
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import Any, AsyncGenerator, Dict, Optional, Set
+from typing import Any, AsyncGenerator, Dict, List, Optional, Set
 from uuid import UUID
 
 import redis.asyncio as redis_async
@@ -219,22 +219,24 @@ class RedisProgressPubSub:
             self._pubsub_clients.pop(job_id, None)
             logger.info(f"Unsubscribed from progress channel: {channel}")
     
-    async def _send_missed_events(
+    async def get_missed_events(
         self,
-        pubsub: PubSub,
         job_id: int,
         last_event_id: int
-    ) -> None:
+    ) -> List[str]:
         """
-        Send missed events from cache for SSE resumption.
+        Get missed events from cache for SSE resumption.
         
         Args:
-            pubsub: PubSub client
             job_id: Job ID
             last_event_id: Last received event ID
+            
+        Returns:
+            List of missed event JSON strings
         """
         # Get cached events from Redis sorted set
         cache_key = f"job:progress:cache:{job_id}"
+        events = []
         
         try:
             # Get events with ID > last_event_id
@@ -245,24 +247,35 @@ class RedisProgressPubSub:
                 withscores=False
             )
             
-            # Send each missed event
-            for event_json in events:
-                message = {
-                    "type": "message",
-                    "pattern": None,
-                    "channel": self._get_channel_name(job_id),
-                    "data": event_json
-                }
-                await pubsub.get_message(timeout=0)  # Clear any pending
-                pubsub.on_message(message)  # Inject historical message
-                
             logger.info(
-                f"Sent {len(events)} missed events for job {job_id} "
+                f"Retrieved {len(events)} missed events for job {job_id} "
                 f"(after event_id={last_event_id})"
             )
             
         except Exception as e:
-            logger.warning(f"Failed to send missed events: {e}")
+            logger.warning(f"Failed to get missed events: {e}")
+        
+        return events
+    
+    async def _send_missed_events(
+        self,
+        pubsub: PubSub,
+        job_id: int,
+        last_event_id: int
+    ) -> List[str]:
+        """
+        DEPRECATED: Use get_missed_events() instead.
+        Kept for backward compatibility - returns missed events.
+        
+        Args:
+            pubsub: PubSub client (unused)
+            job_id: Job ID
+            last_event_id: Last received event ID
+            
+        Returns:
+            List of missed event JSON strings
+        """
+        return await self.get_missed_events(job_id, last_event_id)
     
     async def cache_progress_event(
         self,
@@ -302,6 +315,40 @@ class RedisProgressPubSub:
     async def get_active_subscriptions(self) -> Set[int]:
         """Get set of job IDs with active subscriptions."""
         return set(self._pubsub_clients.keys())
+    
+    async def get_recent_events_from_cache(
+        self,
+        job_id: int,
+        count: int = 10
+    ) -> List[str]:
+        """
+        Get recent events from cache.
+        
+        Args:
+            job_id: Job ID
+            count: Number of recent events to retrieve
+            
+        Returns:
+            List of recent event JSON strings in reverse order (newest first)
+        """
+        if not self._redis_client:
+            await self.connect()
+        
+        cache_key = f"job:progress:cache:{job_id}"
+        events = []
+        
+        try:
+            # Get most recent events (reverse order)
+            events = await self._redis_client.zrevrange(
+                cache_key,
+                0,
+                count - 1,
+                withscores=False
+            )
+        except Exception as e:
+            logger.warning(f"Failed to get recent events from cache: {e}")
+        
+        return events
     
     async def broadcast_system_message(self, message: Dict[str, Any]) -> int:
         """

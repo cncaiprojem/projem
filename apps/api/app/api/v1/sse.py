@@ -123,12 +123,9 @@ async def progress_event_generator(
             
             while True:
                 try:
-                    # Check for progress message with timeout
-                    message = await asyncio.wait_for(
-                        pubsub.get_message(
-                            ignore_subscribe_messages=True,
-                            timeout=1.0
-                        ),
+                    # Check for progress message (no need for nested wait_for)
+                    message = await pubsub.get_message(
+                        ignore_subscribe_messages=True,
                         timeout=1.0
                     )
                     
@@ -178,18 +175,6 @@ async def progress_event_generator(
                             "event": "keepalive",
                             "data": json.dumps({"timestamp": datetime.now(timezone.utc).isoformat()}),
                             "retry": 1000  # Retry after 1 second
-                        }
-                        yield keepalive_event
-                        last_keepalive = current_time
-                
-                except asyncio.TimeoutError:
-                    # Timeout is normal, check for keepalive
-                    current_time = asyncio.get_event_loop().time()
-                    if current_time - last_keepalive > keepalive_interval:
-                        keepalive_event = {
-                            "event": "keepalive",
-                            "data": json.dumps({"timestamp": datetime.now(timezone.utc).isoformat()}),
-                            "retry": 1000
                         }
                         yield keepalive_event
                         last_keepalive = current_time
@@ -338,26 +323,21 @@ async def get_job_progress_snapshot(
     # Include recent events if requested
     if include_recent:
         try:
-            # Get recent events from Redis cache
-            cache_key = f"job:progress:cache:{job_id}"
+            # Get recent events from Redis cache using public method
+            events = await redis_progress_pubsub.get_recent_events_from_cache(
+                job_id,
+                count=10
+            )
             
-            if redis_progress_pubsub._redis_client:
-                events = await redis_progress_pubsub._redis_client.zrevrange(
-                    cache_key,
-                    0,
-                    9,  # Last 10 events
-                    withscores=False
-                )
-                
-                recent_events = []
-                for event_json in events:
-                    try:
-                        event_data = json.loads(event_json)
-                        recent_events.append(event_data)
-                    except:
-                        pass
-                
-                response["recent_events"] = recent_events
+            recent_events = []
+            for event_json in events:
+                try:
+                    event_data = json.loads(event_json)
+                    recent_events.append(event_data)
+                except json.JSONDecodeError:
+                    logger.debug(f"Failed to parse event JSON: {event_json[:100]}...")
+            
+            response["recent_events"] = recent_events
         except Exception as e:
             logger.warning(f"Failed to get recent events: {e}")
             response["recent_events"] = []
