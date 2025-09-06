@@ -174,7 +174,13 @@ class ProgressService:
             span.set_attribute("phase", phase.value)
             
             # Determine phase enum using mapping
-            phase_enum = PHASE_MAPPINGS["assembly4"].get(phase, Phase.PROGRESS)
+            phase_enum = PHASE_MAPPINGS.get("assembly4", {}).get(phase, None)
+            if phase_enum is None:
+                logger.error(
+                    f"No phase mapping found for Assembly4Phase.{phase.name}. "
+                    f"Please update PHASE_MAPPINGS in progress_service.py"
+                )
+                phase_enum = Phase.PROGRESS
             
             progress = ProgressMessageV2(
                 job_id=job_id,
@@ -243,7 +249,13 @@ class ProgressService:
             span.set_attribute("phase", phase.value)
             
             # Determine phase enum using mapping
-            phase_enum = PHASE_MAPPINGS["material"].get(phase, Phase.PROGRESS)
+            phase_enum = PHASE_MAPPINGS.get("material", {}).get(phase, None)
+            if phase_enum is None:
+                logger.error(
+                    f"No phase mapping found for MaterialPhase.{phase.name}. "
+                    f"Please update PHASE_MAPPINGS in progress_service.py"
+                )
+                phase_enum = Phase.PROGRESS
             
             progress = ProgressMessageV2(
                 job_id=job_id,
@@ -386,7 +398,13 @@ class ProgressService:
             span.set_attribute("phase", phase.value)
             
             # Determine phase enum using mapping
-            phase_enum = PHASE_MAPPINGS["topology"].get(phase, Phase.PROGRESS)
+            phase_enum = PHASE_MAPPINGS.get("topology", {}).get(phase, None)
+            if phase_enum is None:
+                logger.error(
+                    f"No phase mapping found for TopologyPhase.{phase.name}. "
+                    f"Please update PHASE_MAPPINGS in progress_service.py"
+                )
+                phase_enum = Phase.PROGRESS
             
             progress = ProgressMessageV2(
                 job_id=job_id,

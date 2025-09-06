@@ -36,11 +36,20 @@ from ...core.logging import get_logger
 from ...core.redis_pubsub import redis_progress_pubsub, RedisProgressPubSub
 from ...models.job import Job
 from ...models.user import User
+from ...models.enums import JobStatus
 from ...schemas.progress import ProgressMessageV2, ProgressSubscription
 from ...services.auth_service import verify_token
 from ...middleware.correlation_middleware import get_correlation_id
 
 logger = get_logger(__name__)
+
+# Terminal job statuses - jobs in these states will not receive further updates
+TERMINAL_STATUSES = {
+    JobStatus.COMPLETED.value,
+    JobStatus.FAILED.value,
+    JobStatus.CANCELLED.value,
+    JobStatus.TIMEOUT.value
+}
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
 
@@ -114,7 +123,7 @@ class CentralizedRedisListener:
                                     ], return_exceptions=True)
                                 
                                 # Check if job is complete
-                                if progress.status in ["completed", "failed", "cancelled"]:
+                                if progress.status in TERMINAL_STATUSES:
                                     logger.info(f"Job {job_id} finished with status {progress.status}")
                                     break
                                     

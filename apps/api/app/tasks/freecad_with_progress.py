@@ -309,11 +309,26 @@ def _report_export_progress(
     output_formats: List[str]
 ):
     """Report export progress."""
+    # Format mapping dictionary for cleaner code
+    FORMAT_MAP = {
+        "step": ExportFormat.STEP,
+        "stp": ExportFormat.STEP,
+        "stl": ExportFormat.STL,
+        "fcstd": ExportFormat.FCSTD,
+        "fcstd1": ExportFormat.FCSTD,
+    }
+    
     for format_str in output_formats:
-        # Map string to enum
-        format_enum = ExportFormat.STEP if "step" in format_str.lower() else \
-                     ExportFormat.STL if "stl" in format_str.lower() else \
-                     ExportFormat.FCSTD
+        # Map string to enum using dictionary lookup
+        format_lower = format_str.lower()
+        format_enum = FORMAT_MAP.get(format_lower, ExportFormat.FCSTD)
+        
+        # Check for partial matches if exact match not found
+        if format_enum == ExportFormat.FCSTD and format_lower not in FORMAT_MAP:
+            for key, value in FORMAT_MAP.items():
+                if key in format_lower:
+                    format_enum = value
+                    break
         
         reporter.report_export(
             format=format_enum,

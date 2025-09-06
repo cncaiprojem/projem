@@ -35,11 +35,20 @@ from ...core.logging import get_logger
 from ...core.redis_pubsub import redis_progress_pubsub
 from ...models.job import Job
 from ...models.user import User
+from ...models.enums import JobStatus
 from ...schemas.progress import ProgressMessageV2, EventType
 from ...services.auth_service import get_current_user
 from ...middleware.correlation_middleware import get_correlation_id
 
 logger = get_logger(__name__)
+
+# Terminal job statuses - jobs in these states will not receive further updates
+TERMINAL_STATUSES = {
+    JobStatus.COMPLETED.value,
+    JobStatus.FAILED.value,
+    JobStatus.CANCELLED.value,
+    JobStatus.TIMEOUT.value
+}
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["sse", "progress"])
 
@@ -187,7 +196,7 @@ async def progress_event_generator(
                             yield sse_event
                             
                             # Check if job is complete
-                            if progress.status in ["completed", "failed", "cancelled"]:
+                            if progress.status in TERMINAL_STATUSES:
                                 # Send final event
                                 final_event = {
                                     "event": "complete",
