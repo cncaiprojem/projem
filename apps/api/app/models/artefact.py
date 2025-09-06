@@ -130,6 +130,62 @@ class Artefact(Base, TimestampMixin):
         index=True
     )
     
+    # Task 7.11: Enhanced storage fields
+    region: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="AWS region or MinIO region"
+    )
+    
+    etag: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+        comment="S3 ETag for integrity (note: may differ from SHA256 for multipart)"
+    )
+    
+    storage_class: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        default="STANDARD",
+        comment="S3 storage class: STANDARD, STANDARD_IA, GLACIER, etc."
+    )
+    
+    content_type: Mapped[Optional[str]] = mapped_column(
+        String(100),
+        nullable=True,
+        comment="Actual content-type from S3 (may differ from mime_type)"
+    )
+    
+    content_disposition: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="Content-Disposition header for download behavior"
+    )
+    
+    exporter_version: Mapped[Optional[str]] = mapped_column(
+        String(50),
+        nullable=True,
+        comment="Version of the exporter/converter used"
+    )
+    
+    request_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+        comment="S3 request ID for audit trail"
+    )
+    
+    deletion_pending: Mapped[bool] = mapped_column(
+        default=False,
+        comment="Flag for pending deletion from storage"
+    )
+    
+    last_error: Mapped[Optional[str]] = mapped_column(
+        String(1024),
+        nullable=True,
+        comment="Last error message if deletion/operation failed"
+    )
+    
     # Additional metadata (Task 5.7 for extension)
     meta: Mapped[Optional[dict]] = mapped_column(
         JSONB,
@@ -168,12 +224,12 @@ class Artefact(Base, TimestampMixin):
         cascade="all, delete-orphan"
     )
     
-    # Enterprise-grade indexing strategy with Task 5.7 requirements
+    # Enterprise-grade indexing strategy with Task 5.7 and Task 7.11 requirements
     __table_args__ = (
-        # Unique constraint on bucket + key per Task 5.7
+        # Unique constraint on bucket + key + version per Task 7.11
         UniqueConstraint(
-            's3_bucket', 's3_key',
-            name='uq_artefacts_s3_location'
+            's3_bucket', 's3_key', 'version_id',
+            name='uq_artefacts_s3_location_version'
         ),
         # Composite indexes for common queries
         Index(
