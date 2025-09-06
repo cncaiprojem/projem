@@ -738,7 +738,7 @@ class StorageClient:
             batch_size: Number of objects in the batch
             
         Returns:
-            Number of objects successfully deleted (0 if any errors occurred)
+            Number of objects successfully deleted (actual count, not 0 on partial errors)
         """
         error_count = 0
         for error in errors:
@@ -750,8 +750,20 @@ class StorageClient:
                 error=error.error_message,
             )
         
-        # Only count as deleted if there were no errors
-        return batch_size if error_count == 0 else 0
+        # Return actual number of successful deletions (like boto3 behavior)
+        # If 999 out of 1000 succeeded, return 999, not 0
+        successful_deletions = batch_size - error_count
+        
+        if error_count > 0:
+            logger.info(
+                "Batch delete completed with errors",
+                bucket=bucket,
+                batch_size=batch_size,
+                errors=error_count,
+                successful=successful_deletions,
+            )
+        
+        return successful_deletions
 
     def delete_all_versions(self, bucket: str, prefix: str) -> int:
         """
