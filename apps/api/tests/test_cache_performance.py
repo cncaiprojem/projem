@@ -29,7 +29,7 @@ try:
 except ImportError:
     freeze_time = None
 
-from apps.api.app.core.cache import (
+from app.core.cache import (
     CacheConfig,
     CacheManager,
     CacheFlowType,

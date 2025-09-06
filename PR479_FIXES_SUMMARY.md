@@ -96,15 +96,15 @@ cd apps/api && python -m pytest tests/test_pr477_comprehensive.py -v
 
 ## Files Modified
 
-1. **C:\Users\kafge\projem\apps\api\app\core\exceptions.py**
+1. **apps/api/app/core/exceptions.py**
    - Added `_mask_recursive` helper method (lines 328-342)
    - Updated `mask_dict` to use recursive helper (lines 344-359)
 
-2. **C:\Users\kafge\projem\apps\api\app\middleware\error_handler.py**
+2. **apps/api/app/middleware/error_handler.py**
    - Reordered regex patterns for proper precedence (lines 271-285)
    - Increased minimum length for generic pattern to 12 chars
 
-3. **C:\Users\kafge\projem\apps\api\tests\test_pr477_comprehensive.py**
+3. **apps/api/tests/test_pr477_comprehensive.py**
    - New consolidated test file with all tests
    - Added recursive PII masking tests
 

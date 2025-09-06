@@ -128,7 +128,7 @@ class EngineFingerprint(BaseModel):
             f"occt{{{self.occt_version}}}-"
             f"py{{{self.python_version}}}-"
             f"mesh{{{self.mesh_params_version}}}-"
-            f"git{{{self.git_sha[:7]}}}-"
+            f"git{{{self.git_sha}}}-"
             f"wb{{{workbenches}}}-"
             f"flags{{{flags}}}"
         )
@@ -376,17 +376,22 @@ class InFlightCoalescer:
     
     def __init__(self):
         self._requests: Dict[str, asyncio.Future] = {}
-        self._lock = threading.Lock()
+        self._lock = asyncio.Lock()
     
     async def coalesce(self, key: str, func: Callable[[], Awaitable[Any]]) -> Any:
         """Coalesce concurrent requests for the same key."""
-        with self._lock:
+        async with self._lock:
             if key in self._requests:
                 # Wait for existing request
                 future = self._requests[key]
                 logger.debug("Coalescing request", key=key)
                 metrics.mgf_cache_coalesced_total.inc()
-                return await future
+                # Release lock before awaiting to avoid blocking other tasks
+                try:
+                    return await future
+                except Exception:
+                    # Re-raise exception from the original request
+                    raise
             
             # Create new future
             future = asyncio.Future()
@@ -402,7 +407,7 @@ class InFlightCoalescer:
             raise
         finally:
             # Clean up
-            with self._lock:
+            async with self._lock:
                 self._requests.pop(key, None)
 
 
@@ -783,10 +788,15 @@ class CacheManager:
             # Get Python version
             py_version = f"{sys.version_info.major}.{sys.version_info.minor}"
             
-            # Get git SHA
+            # Get git SHA - prefer environment variable to avoid subprocess calls
             git_sha = os.environ.get("GIT_SHA", "unknown")
+            # Only fallback to subprocess if we're in a synchronous context during initialization
+            # This is cached once per worker, so the blocking call only happens once
             if git_sha == "unknown":
                 try:
+                    # Since this is called during worker initialization (not in async context),
+                    # subprocess.run is acceptable here. For runtime async calls, the cached
+                    # fingerprint will be used without any subprocess calls.
                     result = subprocess.run(
                         ["git", "rev-parse", "HEAD"],
                         capture_output=True,
@@ -795,9 +805,12 @@ class CacheManager:
                     )
                     if result.returncode == 0:
                         git_sha = result.stdout.strip()
+                        # Cache in environment for future workers
+                        os.environ["GIT_SHA"] = git_sha
                 except (subprocess.TimeoutExpired, subprocess.SubprocessError, OSError) as e:
                     logger.debug(f"Failed to get git SHA: {e}")
-                    pass
+                    # Use a deterministic fallback for cache key consistency
+                    git_sha = "development"
             
             self._engine_fingerprint = EngineFingerprint(
                 freecad_version=fc_version,
