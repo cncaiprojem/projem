@@ -7,6 +7,7 @@ integrating metrics, tracing, and logging for FreeCAD 1.1.0/OCCT 7.8.x operation
 
 from __future__ import annotations
 
+import os
 import time
 from contextlib import contextmanager
 from typing import Any, Dict, Optional, Union
@@ -44,6 +45,72 @@ class ModelGenerationObservability:
     
     FREECAD_VERSION = "1.1.0"
     OCCT_VERSION = "7.8.1"
+    
+    # Thresholds as class constants for clarity (PR #503 feedback)
+    # 1.5 GiB = 1610612736 bytes (1.5 * 1024^3)
+    OCCT_HIGH_MEMORY_THRESHOLD_BYTES = int(os.getenv(
+        "OCCT_HIGH_MEMORY_THRESHOLD_BYTES", 
+        "1610612736"  # Default: 1.5 GiB
+    ))
+    ASSEMBLY4_SOLVER_SLOW_THRESHOLD_S = 15
+    ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD = 200
+    
+    @staticmethod
+    def _get_solids_range(solids_count: int) -> str:
+        """Determine solids range for metric labels.
+        
+        Args:
+            solids_count: Number of solids
+            
+        Returns:
+            Range string for metric label
+        """
+        if solids_count <= 10:
+            return "1-10"
+        elif solids_count <= 50:
+            return "11-50"
+        elif solids_count <= 100:
+            return "51-100"
+        else:
+            return "100+"
+    
+    @staticmethod
+    def _get_lcs_range(lcs_count: int) -> str:
+        """Determine LCS count range for metric labels.
+        
+        Args:
+            lcs_count: Number of LCS elements
+            
+        Returns:
+            Range string for metric label
+        """
+        if lcs_count <= 10:
+            return "1-10"
+        elif lcs_count <= 50:
+            return "11-50"
+        elif lcs_count <= 100:
+            return "51-100"
+        else:
+            return "100+"
+    
+    @staticmethod
+    def _get_file_size_range(file_size: int) -> str:
+        """Determine file size range for metric labels.
+        
+        Args:
+            file_size: File size in bytes
+            
+        Returns:
+            Range string for metric label
+        """
+        if file_size < 1024 * 1024:  # < 1MB
+            return "small"
+        elif file_size < 10 * 1024 * 1024:  # < 10MB
+            return "medium"
+        elif file_size < 100 * 1024 * 1024:  # < 100MB
+            return "large"
+        else:
+            return "xlarge"
     
     @contextmanager
     def observe_model_generation(
@@ -151,21 +218,19 @@ class ModelGenerationObservability:
                 
                 # Record stage duration
                 duration = time.time() - start_time
-                metrics.model_generation_stage_duration_seconds.labels(
-                    flow_type=flow_type,
-                    stage=stage,
-                    freecad_version=self.FREECAD_VERSION
-                ).observe(duration)
                 
             except Exception:
                 # Duration recorded even on failure
                 duration = time.time() - start_time
+                raise
+            finally:
+                # Record metrics in finally block to avoid duplication (PR #503 feedback)
                 metrics.model_generation_stage_duration_seconds.labels(
                     flow_type=flow_type,
                     stage=stage,
-                    freecad_version=self.FREECAD_VERSION
+                    freecad_version=self.FREECAD_VERSION,
+                    occt_version=self.OCCT_VERSION  # Added for consistency
                 ).observe(duration)
-                raise
     
     def record_ai_provider_latency(
         self,
@@ -266,7 +331,7 @@ class ModelGenerationObservability:
         """
         for _ in range(count):
             metrics.freecad_object_created_total.labels(
-                class=object_class,
+                **{"class": object_class},  # Use dict unpacking to avoid keyword conflict
                 workbench=workbench or "unknown"
             ).inc()
     
@@ -287,19 +352,13 @@ class ModelGenerationObservability:
         """
         start_time = time.time()
         
-        # Determine solids range
-        if solids_count <= 10:
-            solids_range = "1-10"
-        elif solids_count <= 50:
-            solids_range = "11-50"
-        elif solids_count <= 100:
-            solids_range = "51-100"
-        else:
-            solids_range = "100+"
+        # Determine solids range using utility method (PR #503 feedback)
+        solids_range = self._get_solids_range(solids_count)
         
         with trace_occt_operation(
             operation_type=f"boolean_{operation}",
             solids_count=solids_count,
+            occt_version=self.OCCT_VERSION,  # Pass version as parameter
             **attributes
         ) as span:
             try:
@@ -338,6 +397,7 @@ class ModelGenerationObservability:
             operation_type=feature,
             edges_count=edges_count,
             faces_count=faces_count,
+            occt_version=self.OCCT_VERSION,  # Pass version as parameter
             **attributes
         ) as span:
             try:
@@ -368,8 +428,8 @@ class ModelGenerationObservability:
             operation=operation
         ).set(memory_bytes)
         
-        # Alert if memory usage is high
-        if memory_bytes > 1610612736:  # 1.5 GiB
+        # Alert if memory usage is high (PR #503 feedback: use class constant)
+        if memory_bytes > self.OCCT_HIGH_MEMORY_THRESHOLD_BYTES:
             logger.warning(
                 "occt_high_memory_usage",
                 operation=operation,
@@ -421,8 +481,8 @@ class ModelGenerationObservability:
                         solver=solver_type
                     ).observe(iterations)
                 
-                # Alert if solver is slow or requires many iterations
-                if duration > 15:
+                # Alert if solver is slow or requires many iterations (PR #503 feedback: use class constants)
+                if duration > self.ASSEMBLY4_SOLVER_SLOW_THRESHOLD_S:
                     logger.warning(
                         "assembly4_solver_slow",
                         solver=solver_type,
@@ -430,7 +490,7 @@ class ModelGenerationObservability:
                         constraints_count=constraints_count
                     )
                 
-                if iterations > 200:
+                if iterations > self.ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD:
                     logger.warning(
                         "assembly4_excessive_iterations",
                         solver=solver_type,
@@ -453,15 +513,8 @@ class ModelGenerationObservability:
             lcs_count: Number of LCS elements
             duration_seconds: Resolution duration
         """
-        # Determine LCS count range
-        if lcs_count <= 10:
-            lcs_range = "1-10"
-        elif lcs_count <= 50:
-            lcs_range = "11-50"
-        elif lcs_count <= 100:
-            lcs_range = "51-100"
-        else:
-            lcs_range = "100+"
+        # Determine LCS count range using utility method (PR #503 feedback)
+        lcs_range = self._get_lcs_range(lcs_count)
         
         metrics.a4_lcs_resolution_duration_seconds.labels(
             lcs_count_range=lcs_range
@@ -605,15 +658,8 @@ class ModelGenerationObservability:
         """
         start_time = time.time()
         
-        # Determine file size range
-        if file_size < 1024 * 1024:  # < 1MB
-            size_range = "small"
-        elif file_size < 10 * 1024 * 1024:  # < 10MB
-            size_range = "medium"
-        elif file_size < 100 * 1024 * 1024:  # < 100MB
-            size_range = "large"
-        else:
-            size_range = "xlarge"
+        # Determine file size range using utility method (PR #503 feedback)
+        size_range = self._get_file_size_range(file_size)
         
         with trace_export_validation(
             format=format,

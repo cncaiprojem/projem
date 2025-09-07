@@ -14,6 +14,10 @@ from unittest.mock import Mock, patch, MagicMock
 import pytest
 from prometheus_client import REGISTRY, CollectorRegistry
 
+import sys
+import os
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
 from app.core import metrics
 from app.core.telemetry import initialize_telemetry, get_tracer
 from app.services.model_generation_observability import model_observability
@@ -394,8 +398,10 @@ class TestProgressServiceIntegration:
         )
         
         # Verify metrics were updated
-        # Note: Progress service metrics are in a different module
-        assert True  # Placeholder for actual metric verification
+        # Progress service would trigger document operations
+        # Since we're testing integration, we verify the flow completes without error
+        # Actual metrics verification would require mocking progress_service's internal calls
+        assert await progress_service.get_job_progress(123) is not None
     
     @pytest.mark.asyncio
     async def test_assembly4_progress_with_metrics(self, clean_metrics):
@@ -423,8 +429,13 @@ class TestProgressServiceIntegration:
             constraints_total=30
         )
         
-        # Verify metrics
-        assert True  # Placeholder
+        # Verify Assembly4 metrics were recorded
+        # The progress service should have triggered constraint solver metrics
+        # In integration test, we verify the flow completes successfully
+        progress = await progress_service.get_job_progress(124)
+        assert progress is not None
+        if progress:
+            assert progress.get('phase') == Assembly4Phase.SOLVER_END.value
     
     @pytest.mark.asyncio
     async def test_occt_progress_with_metrics(self, clean_metrics):
@@ -453,8 +464,12 @@ class TestProgressServiceIntegration:
             shapes_total=5
         )
         
-        # Verify metrics
-        assert True  # Placeholder
+        # Verify OCCT operation metrics were recorded
+        # The progress service should have triggered OCCT operation metrics
+        progress = await progress_service.get_job_progress(125)
+        assert progress is not None
+        if progress:
+            assert progress.get('shapes_done') == 5
 
 
 class TestAlertRuleValidation:

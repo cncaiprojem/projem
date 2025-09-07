@@ -378,6 +378,7 @@ def trace_occt_operation(
     solids_count: Optional[int] = None,
     edges_count: Optional[int] = None,
     faces_count: Optional[int] = None,
+    occt_version: str = "7.8.1",
     **attributes
 ):
     """
@@ -388,6 +389,7 @@ def trace_occt_operation(
         solids_count: Number of solids involved
         edges_count: Number of edges involved
         faces_count: Number of faces involved
+        occt_version: OCCT version (default: 7.8.1)
         **attributes: Additional attributes
     """
     if not _tracer:
@@ -402,7 +404,7 @@ def trace_occt_operation(
             "occt.solids_count": solids_count,
             "occt.edges_count": edges_count,
             "occt.faces_count": faces_count,
-            "occt.version": "7.8.1",
+            "occt.version": occt_version,
             **attributes
         }
     ) as span:

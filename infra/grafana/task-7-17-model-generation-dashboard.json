@@ -114,7 +114,7 @@
         },
         "targets": [
           {
-            "expr": "sum(model_generation_started_total - model_generation_completed_total) by (flow_type)",
+            "expr": "sum(increase(model_generation_started_total[5m]) - increase(model_generation_completed_total[5m])) by (flow_type)",
             "legendFormat": "{{flow_type}}",
             "refId": "A"
           }

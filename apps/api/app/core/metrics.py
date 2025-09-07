@@ -565,7 +565,8 @@ occt_boolean_duration_seconds = Histogram(
     'occt_boolean_duration_seconds',
     'Duration of OCCT boolean operations',
     ['operation', 'solids_range'],  # operation: union|cut|common
-    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')),
+    # Added more granular buckets in 0.1-1.0 range per PR #503 feedback
+    buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')),
     registry=REGISTRY
 )
 
@@ -682,7 +683,7 @@ model_generation_completed_total = Counter(
 model_generation_stage_duration_seconds = Histogram(
     'model_generation_stage_duration_seconds',
     'Duration of each model generation stage',
-    ['flow_type', 'stage', 'freecad_version'],  # stage: validation|normalization|execution|export
+    ['flow_type', 'stage', 'freecad_version', 'occt_version'],  # stage: validation|normalization|execution|export
     buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, float('inf')),
     registry=REGISTRY
 )

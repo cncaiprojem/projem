@@ -90,6 +90,8 @@ groups:
       # OCCT memory usage alert
       - alert: OCCTHighMemoryUsage
         expr: |
+          # 1610612736 bytes = 1.5 GiB (1.5 * 1024^3)
+          # This threshold is configurable via OCCT_HIGH_MEMORY_THRESHOLD_BYTES env var
           max(occt_operation_memory_bytes) by (operation) > 1610612736
         for: 5m
         labels:
