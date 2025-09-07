@@ -52,25 +52,8 @@ class ModelGenerationObservability:
     FREECAD_VERSION = "1.1.0"
     OCCT_VERSION = "7.8.1"
     
-    # Use constants from core.constants with error handling (COPILOT feedback - fixed magic number)
-    @classmethod
-    def _get_memory_threshold(cls) -> int:
-        """Get OCCT memory threshold with error handling for invalid values."""
-        try:
-            threshold = OCCT_HIGH_MEMORY_THRESHOLD_BYTES
-            if threshold <= 0:
-                logger.warning(
-                    "Invalid OCCT_HIGH_MEMORY_THRESHOLD_BYTES value, using default",
-                    extra={"configured_value": threshold}
-                )
-                return DEFAULT_OCCT_MEMORY_THRESHOLD  # Use constant instead of magic number
-            return threshold
-        except (ValueError, TypeError) as e:
-            logger.error(
-                "Error parsing OCCT_HIGH_MEMORY_THRESHOLD_BYTES, using default",
-                extra={"error": str(e)}
-            )
-            return DEFAULT_OCCT_MEMORY_THRESHOLD  # Use constant instead of magic number
+    # OCCT memory threshold is now handled by safe_parse_int in constants.py
+    # No additional error handling needed as safe_parse_int ensures valid positive values
     
     @staticmethod
     def _get_solids_range(solids_count: int) -> str:
@@ -443,8 +426,8 @@ class ModelGenerationObservability:
             operation=operation
         ).set(memory_bytes)
         
-        # Alert if memory usage is high (use method with error handling)
-        if memory_bytes > self._get_memory_threshold():
+        # Alert if memory usage is high (directly use constant as it's validated by safe_parse_int)
+        if memory_bytes > OCCT_HIGH_MEMORY_THRESHOLD_BYTES:
             logger.warning(
                 "occt_high_memory_usage",
                 extra={

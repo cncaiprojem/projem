@@ -7,9 +7,57 @@ Constants can be overridden via environment variables where appropriate.
 
 from typing import Final
 from .env_utils import safe_parse_int, safe_parse_float
+from ..models.enums import JobStatus
+from ..schemas.progress import ExportFormat
 
+# ==============================================================================
+# EXISTING CONSTANTS - Used by multiple services (WebSocket, SSE, Redis PubSub)
+# ==============================================================================
+
+# Terminal job statuses - jobs in these states will not receive further updates
+TERMINAL_STATUSES = {
+    JobStatus.COMPLETED.value,
+    JobStatus.FAILED.value,
+    JobStatus.CANCELLED.value,
+    JobStatus.TIMEOUT.value
+}
+
+# Export format mapping for file conversions
+# Maps file extensions to ExportFormat enum values
+FORMAT_MAP = {
+    "step": ExportFormat.STEP,
+    "stp": ExportFormat.STEP,
+    "stl": ExportFormat.STL,
+    "fcstd": ExportFormat.FCSTD,
+    "fcstd1": ExportFormat.FCSTD,
+    "iges": ExportFormat.IGES,
+    "igs": ExportFormat.IGES,
+    "obj": ExportFormat.OBJ,
+    "glb": ExportFormat.GLB,
+    "brep": ExportFormat.BREP,
+}
+
+# WebSocket and SSE configuration
+PROGRESS_CHANNEL_PREFIX = "job:progress:"
+PROGRESS_ALL_CHANNEL = "job:progress:*"
+PROGRESS_CACHE_TTL = 3600  # 1 hour in seconds
+PROGRESS_CACHE_MAX_EVENTS = 1000  # Maximum events to cache per job
+
+# Throttling configuration for progress updates
+THROTTLE_INTERVAL_MS = 500  # Max 1 update per 500ms per job
+MILESTONE_BYPASS_THROTTLE = True  # Milestone events bypass throttling
+
+# SSE keepalive configuration
+SSE_KEEPALIVE_INTERVAL = 30.0  # Send keepalive every 30 seconds
+
+# WebSocket retry configuration
+WS_RETRY_AFTER_ERROR = 5000  # Retry after 5 seconds on error
+WS_RETRY_AFTER_DISCONNECT = 1000  # Retry after 1 second on disconnect
+
+# ==============================================================================
 # Model Generation Constants (Task 7.17)
 # These thresholds are used for alerting and monitoring
+# ==============================================================================
 
 # Default memory threshold: 1.5 GiB (1610612736 bytes = 1.5 * 1024^3)
 DEFAULT_OCCT_MEMORY_THRESHOLD = 1610612736
@@ -109,15 +157,28 @@ WORKBENCH_INCOMPATIBILITY_THRESHOLD: Final[float] = safe_parse_float(
 )
 
 __all__ = [
+    # Existing constants (restored)
+    "TERMINAL_STATUSES",
+    "FORMAT_MAP",
+    "PROGRESS_CHANNEL_PREFIX",
+    "PROGRESS_ALL_CHANNEL",
+    "PROGRESS_CACHE_TTL",
+    "PROGRESS_CACHE_MAX_EVENTS",
+    "THROTTLE_INTERVAL_MS",
+    "MILESTONE_BYPASS_THROTTLE",
+    "SSE_KEEPALIVE_INTERVAL",
+    "WS_RETRY_AFTER_ERROR",
+    "WS_RETRY_AFTER_DISCONNECT",
+    # Task 7.17 Model Generation Observability constants
     "DEFAULT_OCCT_MEMORY_THRESHOLD",
     "OCCT_HIGH_MEMORY_THRESHOLD_BYTES",
     "MODEL_GENERATION_STAGE_TIMEOUT_SECONDS",
     "ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS",
     "ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD",
-    "EXPORT_VALIDATION_FAILURE_THRESHOLD",  # Removed _PERCENT suffix
+    "EXPORT_VALIDATION_FAILURE_THRESHOLD",
     "AI_PROVIDER_LATENCY_THRESHOLD_SECONDS",
-    "AI_PROVIDER_ERROR_THRESHOLD",  # Removed _PERCENT suffix
+    "AI_PROVIDER_ERROR_THRESHOLD",
     "FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND",
-    "MATERIAL_LIBRARY_ERROR_THRESHOLD",  # Removed _PERCENT suffix
-    "WORKBENCH_INCOMPATIBILITY_THRESHOLD",  # Removed _PERCENT suffix
+    "MATERIAL_LIBRARY_ERROR_THRESHOLD",
+    "WORKBENCH_INCOMPATIBILITY_THRESHOLD",
 ]
