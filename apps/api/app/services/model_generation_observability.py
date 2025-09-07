@@ -61,14 +61,14 @@ class ModelGenerationObservability:
             if threshold <= 0:
                 logger.warning(
                     "Invalid OCCT_HIGH_MEMORY_THRESHOLD_BYTES value, using default",
-                    configured_value=threshold
+                    extra={"configured_value": threshold}
                 )
                 return DEFAULT_OCCT_MEMORY_THRESHOLD  # Use constant instead of magic number
             return threshold
         except (ValueError, TypeError) as e:
             logger.error(
                 "Error parsing OCCT_HIGH_MEMORY_THRESHOLD_BYTES, using default",
-                error=str(e)
+                extra={"error": str(e)}
             )
             return DEFAULT_OCCT_MEMORY_THRESHOLD  # Use constant instead of magic number
     
@@ -447,9 +447,11 @@ class ModelGenerationObservability:
         if memory_bytes > self._get_memory_threshold():
             logger.warning(
                 "occt_high_memory_usage",
-                operation=operation,
-                memory_bytes=memory_bytes,
-                memory_gb=memory_bytes / (1024**3)
+                extra={
+                    "operation": operation,
+                    "memory_bytes": memory_bytes,
+                    "memory_gb": memory_bytes / (1024**3)
+                }
             )
     
     @contextmanager
@@ -483,10 +485,13 @@ class ModelGenerationObservability:
                 context = {"iterations": 0}
                 yield context
                 
+            except Exception:
+                raise
+            finally:
+                # Record metrics in finally block to ensure they're always recorded (GEMINI HIGH SEVERITY fix)
                 iterations = context.get("iterations", 0)
-                
-                # Record solver metrics
                 duration = time.time() - start_time
+                
                 metrics.a4_constraint_solve_duration_seconds.labels(
                     solver=solver_type
                 ).observe(duration)
@@ -500,21 +505,22 @@ class ModelGenerationObservability:
                 if duration > ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS:
                     logger.warning(
                         "assembly4_solver_slow",
-                        solver=solver_type,
-                        duration_seconds=duration,
-                        constraints_count=constraints_count
+                        extra={
+                            "solver": solver_type,
+                            "duration_seconds": duration,
+                            "constraints_count": constraints_count
+                        }
                     )
                 
                 if iterations > ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD:
                     logger.warning(
                         "assembly4_excessive_iterations",
-                        solver=solver_type,
-                        iterations=iterations,
-                        constraints_count=constraints_count
+                        extra={
+                            "solver": solver_type,
+                            "iterations": iterations,
+                            "constraints_count": constraints_count
+                        }
                     )
-                
-            except Exception:
-                raise
     
     def record_lcs_resolution(
         self,
@@ -556,7 +562,7 @@ class ModelGenerationObservability:
         if result == "error":
             logger.warning(
                 "material_library_error",
-                library=library
+                extra={"library": library}
             )
     
     @contextmanager
@@ -654,8 +660,10 @@ class ModelGenerationObservability:
         if result == "fail":
             logger.warning(
                 "export_validation_failed",
-                format=format,
-                file_size=file_size
+                extra={
+                    "format": format,
+                    "file_size": file_size
+                }
             )
     
     @contextmanager
@@ -722,8 +730,10 @@ class ModelGenerationObservability:
         if not compatible:
             logger.warning(
                 "workbench_compatibility_issue",
-                workbench=workbench,
-                freecad_version=self.FREECAD_VERSION
+                extra={
+                    "workbench": workbench,
+                    "freecad_version": self.FREECAD_VERSION
+                }
             )
     
     def record_worker_operation(
