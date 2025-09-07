@@ -33,22 +33,15 @@ from sse_starlette.sse import EventSourceResponse
 from ...core.database import get_async_db
 from ...core.logging import get_logger
 from ...core.redis_pubsub import redis_progress_pubsub
+from ...core.constants import TERMINAL_STATUSES, SSE_KEEPALIVE_INTERVAL
 from ...models.job import Job
 from ...models.user import User
 from ...models.enums import JobStatus
 from ...schemas.progress import ProgressMessageV2, EventType
-from ...services.auth_service import get_current_user
+from ...middleware.jwt_middleware import get_current_user
 from ...middleware.correlation_middleware import get_correlation_id
 
 logger = get_logger(__name__)
-
-# Terminal job statuses - jobs in these states will not receive further updates
-TERMINAL_STATUSES = {
-    JobStatus.COMPLETED.value,
-    JobStatus.FAILED.value,
-    JobStatus.CANCELLED.value,
-    JobStatus.TIMEOUT.value
-}
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["sse", "progress"])
 
@@ -81,7 +74,7 @@ async def progress_event_generator(
         try:
             event_filter = [EventType(t.strip()) for t in filter_types.split(",")]
         except ValueError as e:
-            logger.warning(f"Invalid filter types: {e}")
+            logger.warning(f"Invalid filter types: {e}", exc_info=True)
     
     # Check job access
     result = await db.execute(
@@ -153,7 +146,7 @@ async def progress_event_generator(
                         current_event_id = max(current_event_id, progress.event_id + 1)
                     
                 except (json.JSONDecodeError, ValueError) as e:
-                    logger.warning(f"Failed to parse missed event: {e}")
+                    logger.warning(f"Failed to parse missed event: {e}", exc_info=True)
                     
         except Exception as e:
             logger.warning(f"Failed to fetch missed events: {e}", exc_info=True)
@@ -162,9 +155,9 @@ async def progress_event_generator(
     try:
         async with redis_progress_pubsub.subscribe_to_job(job_id) as pubsub:
             
-            # Send keepalive every 30 seconds
+            # Send keepalive at configured interval
             last_keepalive = asyncio.get_running_loop().time()
-            keepalive_interval = 30.0
+            keepalive_interval = SSE_KEEPALIVE_INTERVAL
             
             while True:
                 try:

@@ -48,7 +48,7 @@ class RedisProgressPubSub:
         Args:
             redis_url: Redis connection URL (defaults to settings)
         """
-        self.redis_url = redis_url or settings.redis_url
+        self.redis_url = redis_url or settings.REDIS_URL
         self._redis_client: Optional[redis_async.Redis] = None
         self._pubsub_clients: Dict[int, PubSub] = {}
         self._last_publish_times: Dict[int, float] = {}
@@ -285,7 +285,7 @@ class RedisProgressPubSub:
             await self._redis_client.zremrangebyrank(cache_key, 0, -1001)
             
         except Exception as e:
-            logger.warning(f"Failed to cache progress event: {e}")
+            logger.warning(f"Failed to cache progress event: {e}", exc_info=True)
     
     async def get_active_subscriptions(self) -> Set[int]:
         """Get set of job IDs with active subscriptions."""
@@ -321,7 +321,7 @@ class RedisProgressPubSub:
                 withscores=False
             )
         except Exception as e:
-            logger.warning(f"Failed to get recent events from cache: {e}")
+            logger.warning(f"Failed to get recent events from cache: {e}", exc_info=True)
         
         return events
     

@@ -34,22 +34,16 @@ from sqlalchemy import select
 from ...core.database import get_async_db
 from ...core.logging import get_logger
 from ...core.redis_pubsub import redis_progress_pubsub, RedisProgressPubSub
+from ...core.constants import TERMINAL_STATUSES
 from ...models.job import Job
 from ...models.user import User
 from ...models.enums import JobStatus
 from ...schemas.progress import ProgressMessageV2, ProgressSubscription
-from ...services.auth_service import verify_token
+from ...middleware.jwt_middleware import get_current_user
+from ...services.jwt_service import jwt_service
 from ...middleware.correlation_middleware import get_correlation_id
 
 logger = get_logger(__name__)
-
-# Terminal job statuses - jobs in these states will not receive further updates
-TERMINAL_STATUSES = {
-    JobStatus.COMPLETED.value,
-    JobStatus.FAILED.value,
-    JobStatus.CANCELLED.value,
-    JobStatus.TIMEOUT.value
-}
 
 router = APIRouter(prefix="/ws", tags=["websocket"])
 
@@ -277,9 +271,9 @@ async def get_current_user_from_ws(
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="No token provided")
     
     try:
-        # Verify token
-        payload = verify_token(token)
-        user_id = payload.get("sub")
+        # Verify token using jwt_service
+        claims = jwt_service.verify_access_token(token, db)
+        user_id = claims.user_id
         
         if not user_id:
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
@@ -298,7 +292,7 @@ async def get_current_user_from_ws(
         return user
         
     except Exception as e:
-        logger.warning(f"WebSocket authentication failed: {e}")
+        logger.warning(f"WebSocket authentication failed: {e}", exc_info=True)
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         raise WebSocketException(code=status.WS_1008_POLICY_VIOLATION, reason="Authentication failed")
 
@@ -427,7 +421,7 @@ async def websocket_job_progress(
 
 @router.get("/connections/stats")
 async def get_connection_stats(
-    current_user: User = Depends(verify_token)
+    current_user: User = Depends(get_current_user)
 ):
     """
     Get WebSocket connection statistics (admin only).

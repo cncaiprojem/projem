@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from ..core.database import SessionLocal
 from ..core.logging import get_logger
+from ..core.constants import FORMAT_MAP
 from ..services.freecad_service import freecad_service
 from ..workers.progress_reporter import WorkerProgressReporter, with_progress
 from ..schemas.progress import (
@@ -309,15 +310,6 @@ def _report_export_progress(
     output_formats: List[str]
 ):
     """Report export progress."""
-    # Format mapping dictionary for cleaner code
-    FORMAT_MAP = {
-        "step": ExportFormat.STEP,
-        "stp": ExportFormat.STEP,
-        "stl": ExportFormat.STL,
-        "fcstd": ExportFormat.FCSTD,
-        "fcstd1": ExportFormat.FCSTD,
-    }
-    
     for format_str in output_formats:
         # Map string to enum using dictionary lookup
         format_lower = format_str.lower()
