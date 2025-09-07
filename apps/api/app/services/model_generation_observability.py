@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 
 from ..core.logging import get_logger
 from ..core.constants import (
+    DEFAULT_OCCT_MEMORY_THRESHOLD,
     OCCT_HIGH_MEMORY_THRESHOLD_BYTES,
     ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS,
     ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD,
@@ -51,7 +52,7 @@ class ModelGenerationObservability:
     FREECAD_VERSION = "1.1.0"
     OCCT_VERSION = "7.8.1"
     
-    # Use constants from core.constants with error handling (COPILOT feedback)
+    # Use constants from core.constants with error handling (COPILOT feedback - fixed magic number)
     @classmethod
     def _get_memory_threshold(cls) -> int:
         """Get OCCT memory threshold with error handling for invalid values."""
@@ -62,14 +63,14 @@ class ModelGenerationObservability:
                     "Invalid OCCT_HIGH_MEMORY_THRESHOLD_BYTES value, using default",
                     configured_value=threshold
                 )
-                return 1610612736  # Default: 1.5 GiB
+                return DEFAULT_OCCT_MEMORY_THRESHOLD  # Use constant instead of magic number
             return threshold
         except (ValueError, TypeError) as e:
             logger.error(
                 "Error parsing OCCT_HIGH_MEMORY_THRESHOLD_BYTES, using default",
                 error=str(e)
             )
-            return 1610612736  # Default: 1.5 GiB
+            return DEFAULT_OCCT_MEMORY_THRESHOLD  # Use constant instead of magic number
     
     @staticmethod
     def _get_solids_range(solids_count: int) -> str:

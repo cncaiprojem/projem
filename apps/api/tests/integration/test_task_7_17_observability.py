@@ -14,12 +14,13 @@ from unittest.mock import Mock, patch, MagicMock
 import pytest
 from prometheus_client import REGISTRY, CollectorRegistry
 
-import sys
-import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+# GEMINI MEDIUM SEVERITY: Fixed sys.path manipulation anti-pattern
+# Mock modules before importing to avoid circular dependencies
 
-# Mock the progress service imports to avoid circular dependencies
+import sys
 from unittest.mock import MagicMock
+
+# Create mock for progress service
 mock_progress_service = MagicMock()
 # Configure mock to return sensible values for tests
 mock_progress_service.get_job_progress = MagicMock(side_effect=lambda job_id: {
@@ -30,6 +31,8 @@ mock_progress_service.get_job_progress = MagicMock(side_effect=lambda job_id: {
 mock_progress_service.publish_document_progress = MagicMock(return_value=None)
 mock_progress_service.publish_assembly4_progress = MagicMock(return_value=None)
 mock_progress_service.publish_occt_progress = MagicMock(return_value=None)
+
+# Mock the modules to avoid import errors
 sys.modules['app.services.progress_service'] = MagicMock(progress_service=mock_progress_service)
 sys.modules['app.schemas.progress'] = MagicMock(
     DocumentPhase=MagicMock(),
@@ -355,13 +358,20 @@ class TestModelGenerationMetrics:
 class TestOpenTelemetryTracing:
     """Test OpenTelemetry tracing integration."""
     
-    def test_model_generation_flow_tracing(self, mock_tracer):
+    @patch('app.core.telemetry.trace_model_generation_flow')
+    @patch('app.core.telemetry.create_span')
+    def test_model_generation_flow_tracing(self, mock_create_span, mock_trace_flow, mock_tracer):
         """Test tracing for model generation flow."""
+        # GEMINI MEDIUM SEVERITY: Strengthened test assertions with proper span verification
+        
         # Create mock span context
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=None)
-        mock_tracer.start_as_current_span = MagicMock(return_value=mock_span)
+        mock_span.set_attribute = MagicMock()
+        mock_span.add_event = MagicMock()
+        mock_trace_flow.return_value = mock_span
+        mock_create_span.return_value = mock_span
         
         with model_observability.observe_model_generation(
             flow_type="parametric",
@@ -376,18 +386,37 @@ class TestOpenTelemetryTracing:
         
         # Stronger assertions for span creation (GEMINI MEDIUM SEVERITY fix)
         assert mock_tracer is not None, "Tracer should be initialized"
-        # Verify spans were created with correct names
-        # Note: The actual tracer creation is handled by telemetry module
-        # which would call start_as_current_span for each span context
+        
+        # Verify model generation flow span was created
+        mock_trace_flow.assert_called_once_with(
+            flow_type="parametric",
+            job_id="job-456",
+            freecad_version="1.1.0",
+            occt_version="7.8.1",
+            user_id="2"
+        )
+        
+        # Verify stage spans were created
+        assert mock_create_span.call_count >= 2, "Should create at least 2 stage spans"
+        
+        # Verify span names
+        stage_calls = mock_create_span.call_args_list
+        stage_names = [call[1]['name'] for call in stage_calls if 'name' in call[1]]
+        assert "model_generation.parametric.validation" in stage_names, "Should create validation stage span"
+        assert "model_generation.parametric.execution" in stage_names, "Should create execution stage span"
     
-    def test_freecad_document_tracing(self, mock_tracer):
+    @patch('app.core.telemetry.trace_freecad_document')
+    def test_freecad_document_tracing(self, mock_trace_doc, mock_tracer):
         """Test tracing for FreeCAD document operations."""
+        # GEMINI MEDIUM SEVERITY: Strengthened test assertions with proper span verification
+        
         # Create mock span context
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=None)
         mock_span.set_attribute = MagicMock()
-        mock_tracer.start_as_current_span = MagicMock(return_value=mock_span)
+        mock_span.record_exception = MagicMock()
+        mock_trace_doc.return_value = mock_span
         
         with model_observability.observe_document_operation(
             document_id="doc-789",
@@ -398,16 +427,32 @@ class TestOpenTelemetryTracing:
         
         # Stronger assertions for document tracing (GEMINI MEDIUM SEVERITY fix)
         assert mock_tracer is not None, "Tracer should be initialized for document operations"
-        # Verify span attributes would include document_id, operation, workbench
+        
+        # Verify document operation span was created with correct attributes
+        mock_trace_doc.assert_called_once_with(
+            document_id="doc-789",
+            operation="load",
+            workbench="Sketcher",
+            freecad_version="1.1.0",
+            occt_version="7.8.1"
+        )
+        
+        # Verify span context was properly entered and exited
+        mock_span.__enter__.assert_called_once()
+        mock_span.__exit__.assert_called_once()
     
-    def test_occt_operation_tracing(self, mock_tracer):
+    @patch('app.core.telemetry.trace_occt_operation')
+    def test_occt_operation_tracing(self, mock_trace_occt, mock_tracer):
         """Test tracing for OCCT operations."""
+        # GEMINI MEDIUM SEVERITY: Strengthened test assertions with proper span verification
+        
         # Create mock span context
         mock_span = MagicMock()
         mock_span.__enter__ = MagicMock(return_value=mock_span)
         mock_span.__exit__ = MagicMock(return_value=None)
         mock_span.set_attribute = MagicMock()
-        mock_tracer.start_as_current_span = MagicMock(return_value=mock_span)
+        mock_span.add_event = MagicMock()
+        mock_trace_occt.return_value = mock_span
         
         with model_observability.observe_occt_boolean(
             operation="cut",
@@ -423,8 +468,21 @@ class TestOpenTelemetryTracing:
         
         # Stronger assertions for OCCT tracing (GEMINI MEDIUM SEVERITY fix)
         assert mock_tracer is not None, "Tracer should be initialized for OCCT operations"
-        # Verify both boolean and feature operations would create spans
-        # with appropriate attributes (operation type, counts)
+        
+        # Verify both boolean and feature operations created spans
+        assert mock_trace_occt.call_count == 2, "Should create 2 OCCT operation spans"
+        
+        # Verify boolean operation span
+        boolean_call = mock_trace_occt.call_args_list[0]
+        assert boolean_call[1]['operation_type'] == "boolean_cut", "Should trace boolean cut operation"
+        assert boolean_call[1]['solids_count'] == 3, "Should include solids count"
+        assert boolean_call[1]['occt_version'] == "7.8.1", "Should include OCCT version"
+        
+        # Verify feature operation span
+        feature_call = mock_trace_occt.call_args_list[1]
+        assert feature_call[1]['operation_type'] == "chamfer", "Should trace chamfer feature"
+        assert feature_call[1]['edges_count'] == 8, "Should include edges count"
+        assert feature_call[1]['occt_version'] == "7.8.1", "Should include OCCT version"
 
 
 class TestProgressServiceIntegration:

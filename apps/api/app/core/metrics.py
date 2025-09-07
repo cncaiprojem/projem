@@ -14,7 +14,44 @@ Implements the required metrics:
 from __future__ import annotations
 
 from prometheus_client import Counter, Gauge, Histogram, CollectorRegistry, REGISTRY
-from typing import Optional
+from typing import Optional, Tuple
+
+# COPILOT feedback: Define commonly used bucket patterns as module-level constants
+# These buckets are optimized for different types of operations
+
+# Fast operation buckets (milliseconds to seconds)
+FAST_OPERATION_BUCKETS: Tuple[float, ...] = (
+    0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float('inf')
+)
+
+# Medium operation buckets (seconds to minutes)
+MEDIUM_OPERATION_BUCKETS: Tuple[float, ...] = (
+    0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, float('inf')
+)
+
+# Long operation buckets (minutes to hours)
+LONG_OPERATION_BUCKETS: Tuple[float, ...] = (
+    1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, float('inf')
+)
+
+# Very long operation buckets (hours)
+VERY_LONG_OPERATION_BUCKETS: Tuple[float, ...] = (
+    60.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, 7200.0, 14400.0, float('inf')
+)
+
+# Count buckets (for element counts, iterations, etc.)
+SMALL_COUNT_BUCKETS: Tuple[float, ...] = (
+    1, 5, 10, 20, 50, 100, 200, 500, float('inf')
+)
+
+LARGE_COUNT_BUCKETS: Tuple[float, ...] = (
+    1000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, float('inf')
+)
+
+# Balanced operation buckets for OCCT operations (COPILOT feedback)
+OCCT_OPERATION_BUCKETS: Tuple[float, ...] = (
+    0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')
+)
 
 # Job creation metrics
 job_create_total = Counter(
@@ -37,7 +74,7 @@ job_duration_seconds = Histogram(
     'job_duration_seconds',
     'Time taken to complete jobs from creation to finish',
     ['type', 'status', 'queue'],
-    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, float('inf')),
+    buckets=MEDIUM_OPERATION_BUCKETS,  # Use defined constant
     registry=REGISTRY
 )
 
@@ -125,7 +162,7 @@ request_duration_seconds = Histogram(
     'request_duration_seconds',
     'Time taken to process requests',
     ['endpoint', 'method', 'status_code'],
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float('inf')),
+    buckets=FAST_OPERATION_BUCKETS,  # Use defined constant
     registry=REGISTRY
 )
 
@@ -149,7 +186,7 @@ freecad_operation_duration_seconds = Histogram(
     'freecad_operation_duration_seconds',
     'Time taken to complete FreeCAD operations',
     ['operation_type', 'license_tier', 'status'],
-    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, float('inf')),
+    buckets=LONG_OPERATION_BUCKETS,  # Use defined constant
     registry=REGISTRY
 )
 
@@ -239,7 +276,7 @@ license_assignment_duration_seconds = Histogram(
     'license_assignment_duration_seconds',
     'Time taken to assign licenses',
     ['license_type', 'status'],
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, float('inf')),
+    buckets=FAST_OPERATION_BUCKETS,  # Use defined constant
     registry=REGISTRY
 )
 
@@ -262,7 +299,7 @@ freecad_model_generation_duration = Histogram(
     'freecad_model_generation_duration',
     'Time taken to generate FreeCAD models',
     ['type'],  # type: ai_prompt, parametric, upload_normalization, assembly4
-    buckets=(5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, float('inf')),
+    buckets=LONG_OPERATION_BUCKETS[1:],  # Skip 1.0s, start from 5.0s
     registry=REGISTRY
 )
 
@@ -277,7 +314,7 @@ fem_simulation_duration = Histogram(
     'fem_simulation_duration',
     'Time taken to complete FEM simulations',
     ['analysis_type'],
-    buckets=(60.0, 300.0, 600.0, 1200.0, 1800.0, 3600.0, 7200.0, 14400.0, float('inf')),
+    buckets=VERY_LONG_OPERATION_BUCKETS,  # Use defined constant
     registry=REGISTRY
 )
 
@@ -285,7 +322,7 @@ fem_mesh_elements_total = Histogram(
     'fem_mesh_elements_total',
     'Number of mesh elements in FEM simulations',
     ['analysis_type'],
-    buckets=(1000, 5000, 10000, 25000, 50000, 100000, 250000, 500000, float('inf')),
+    buckets=LARGE_COUNT_BUCKETS,  # Use defined constant
     registry=REGISTRY
 )
 
@@ -300,7 +337,7 @@ ai_adapter_request_duration = Histogram(
     'ai_adapter_request_duration',
     'Time taken for AI adapter requests',
     ['provider'],
-    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, float('inf')),
+    buckets=(0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, float('inf')),  # Custom for AI adapters
     registry=REGISTRY
 )
 
@@ -338,7 +375,7 @@ http_request_duration_seconds = Histogram(
     'http_request_duration_seconds',
     'HTTP request duration in seconds',
     ['method', 'endpoint'],
-    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float('inf')),
+    buckets=FAST_OPERATION_BUCKETS,  # Use defined constant
     registry=REGISTRY
 )
 
@@ -541,7 +578,7 @@ freecad_document_load_seconds = Histogram(
     'freecad_document_load_seconds',
     'Time taken to load FreeCAD documents',
     ['source', 'workbench', 'freecad_version', 'occt_version'],
-    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, float('inf')),
+    buckets=MEDIUM_OPERATION_BUCKETS[1:],  # Skip 0.1s for document loads
     registry=REGISTRY
 )
 
@@ -549,7 +586,7 @@ freecad_recompute_duration_seconds = Histogram(
     'freecad_recompute_duration_seconds',
     'Time taken for document recomputation',
     ['workbench', 'doc_complexity'],
-    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')),
+    buckets=MEDIUM_OPERATION_BUCKETS[:9],  # Up to 120s for recompute
     registry=REGISTRY
 )
 
@@ -565,8 +602,7 @@ occt_boolean_duration_seconds = Histogram(
     'occt_boolean_duration_seconds',
     'Duration of OCCT boolean operations',
     ['operation', 'solids_range'],  # operation: union|cut|common
-    # Balanced buckets for better performance (COPILOT feedback)
-    buckets=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')),
+    buckets=OCCT_OPERATION_BUCKETS,  # Use balanced buckets (COPILOT feedback)
     registry=REGISTRY
 )
 
@@ -574,7 +610,7 @@ occt_feature_duration_seconds = Histogram(
     'occt_feature_duration_seconds',
     'Duration of OCCT feature operations',
     ['feature'],  # feature: fillet|chamfer
-    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, float('inf')),
+    buckets=MEDIUM_OPERATION_BUCKETS[1:8],  # 0.5s to 60s range
     registry=REGISTRY
 )
 
@@ -590,7 +626,7 @@ a4_constraint_solve_duration_seconds = Histogram(
     'a4_constraint_solve_duration_seconds',
     'Time taken to solve Assembly4 constraints',
     ['solver'],
-    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 15.0, 30.0, 60.0, float('inf')),
+    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 15.0, 30.0, 60.0, float('inf')),  # Custom buckets for solver
     registry=REGISTRY
 )
 
@@ -598,7 +634,7 @@ a4_lcs_resolution_duration_seconds = Histogram(
     'a4_lcs_resolution_duration_seconds',
     'Time taken to resolve LCS placements',
     ['lcs_count_range'],  # e.g., "1-10", "11-50", "51-100", "100+"
-    buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, float('inf')),
+    buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, float('inf')),  # Fast operation buckets
     registry=REGISTRY
 )
 
@@ -606,7 +642,7 @@ a4_solver_iterations_total = Histogram(
     'a4_solver_iterations_total',
     'Number of solver iterations',
     ['solver'],
-    buckets=(1, 5, 10, 20, 50, 100, 200, 500, float('inf')),
+    buckets=SMALL_COUNT_BUCKETS,  # Use count buckets
     registry=REGISTRY
 )
 
@@ -622,7 +658,7 @@ material_property_apply_duration_seconds = Histogram(
     'material_property_apply_duration_seconds',
     'Time to apply material properties',
     ['property'],
-    buckets=(0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, float('inf')),
+    buckets=FAST_OPERATION_BUCKETS[:8],  # Very fast ops, up to 1s
     registry=REGISTRY
 )
 
@@ -630,7 +666,7 @@ material_appearance_apply_duration_seconds = Histogram(
     'material_appearance_apply_duration_seconds',
     'Time to apply material appearance',
     ['appearance_type'],
-    buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, float('inf')),
+    buckets=FAST_OPERATION_BUCKETS[2:],  # Skip very fast buckets
     registry=REGISTRY
 )
 
@@ -639,7 +675,7 @@ topology_hash_compute_duration_seconds = Histogram(
     'topology_hash_compute_duration_seconds',
     'Time to compute topology hash',
     ['scope'],  # scope: part|assembly
-    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, float('inf')),
+    buckets=MEDIUM_OPERATION_BUCKETS[1:8],  # 0.5s to 60s
     registry=REGISTRY
 )
 
@@ -684,7 +720,7 @@ model_generation_stage_duration_seconds = Histogram(
     'model_generation_stage_duration_seconds',
     'Duration of each model generation stage',
     ['flow_type', 'stage', 'freecad_version', 'occt_version'],  # stage: validation|normalization|execution|export
-    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, float('inf')),
+    buckets=MEDIUM_OPERATION_BUCKETS,  # Use standard medium buckets
     registry=REGISTRY
 )
 
@@ -692,7 +728,7 @@ ai_provider_latency_seconds = Histogram(
     'ai_provider_latency_seconds',
     'AI provider response latency',
     ['provider', 'model', 'operation'],  # operation: prompt_to_script|parameter_generation
-    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, float('inf')),
+    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, float('inf')),  # Custom for AI providers
     registry=REGISTRY
 )
 
@@ -700,7 +736,7 @@ freecad_worker_duration_seconds = Histogram(
     'freecad_worker_duration_seconds',
     'FreeCAD worker operation duration',
     ['operation', 'workbench', 'freecad_version'],
-    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, float('inf')),
+    buckets=LONG_OPERATION_BUCKETS[:10],  # Up to 1200s
     registry=REGISTRY
 )
 
@@ -708,7 +744,7 @@ export_duration_seconds = Histogram(
     'export_duration_seconds',
     'File export duration',
     ['format', 'file_size_range', 'freecad_version'],  # file_size_range: small|medium|large|xlarge
-    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')),
+    buckets=MEDIUM_OPERATION_BUCKETS[:9],  # Up to 120s for exports
     registry=REGISTRY
 )
 

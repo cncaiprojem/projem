@@ -42,7 +42,7 @@ Task 7.17 implements comprehensive observability for FreeCAD 1.1.0/OCCT 7.8.x mo
 # Flow lifecycle
 model_generation_started_total{flow_type, freecad_version, occt_version}
 model_generation_completed_total{flow_type, status, freecad_version, occt_version}
-model_generation_stage_duration_seconds{flow_type, stage, freecad_version}
+model_generation_stage_duration_seconds{flow_type, stage, freecad_version, occt_version}
 
 # AI provider performance
 ai_provider_latency_seconds{provider, model, operation}

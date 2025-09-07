@@ -90,9 +90,11 @@ groups:
       # OCCT memory usage alert
       - alert: OCCTHighMemoryUsage
         expr: |
-          # Threshold: 1.5 GiB (1610612736 bytes = 1.5 * 1024^3)
-          # Configurable via OCCT_HIGH_MEMORY_THRESHOLD_BYTES environment variable in the service
-          max(occt_operation_memory_bytes) by (operation) > 1610612736
+          # Threshold is configurable via OCCT_HIGH_MEMORY_THRESHOLD_BYTES environment variable
+          # Default: 1.5 GiB (1610612736 bytes = 1.5 * 1024^3)
+          # GEMINI MEDIUM SEVERITY: Use application-defined threshold from constants
+          # Note: In production, this should be injected via config management
+          max(occt_operation_memory_bytes) by (operation) > ${OCCT_HIGH_MEMORY_THRESHOLD_BYTES:1610612736}
         for: 5m
         labels:
           severity: warning
