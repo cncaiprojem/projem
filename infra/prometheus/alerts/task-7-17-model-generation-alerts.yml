@@ -9,7 +9,7 @@ groups:
             sum(rate(model_generation_completed_total{status="error"}[5m])) 
             / 
             sum(rate(model_generation_completed_total[5m]))
-          ) > 0.1
+          ) > ${MODEL_GENERATION_FAILURE_THRESHOLD:0.1}
         for: 5m
         labels:
           severity: critical
@@ -25,7 +25,7 @@ groups:
         expr: |
           histogram_quantile(0.95, 
             sum(rate(model_generation_stage_duration_seconds_bucket[5m])) by (flow_type, stage, le)
-          ) > 300
+          ) > ${MODEL_GENERATION_STAGE_TIMEOUT_SECONDS:300}
         for: 10m
         labels:
           severity: warning
@@ -39,7 +39,7 @@ groups:
       # Worker timeout/OOM alert
       - alert: FreeCADWorkerFailure
         expr: |
-          rate(freecad_error_recovery_total{recovery_method="worker_restart"}[5m]) > 0.1
+          rate(freecad_error_recovery_total{recovery_method="worker_restart"}[5m]) > ${FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND:0.1}
         for: 5m
         labels:
           severity: critical
@@ -60,7 +60,7 @@ groups:
             sum(rate(deterministic_export_validation_total{result="fail"}[5m])) by (format)
             / 
             sum(rate(deterministic_export_validation_total[5m])) by (format)
-          ) > 0.02
+          ) > ${EXPORT_VALIDATION_FAILURE_THRESHOLD:0.02}
         for: 5m
         labels:
           severity: warning
@@ -76,7 +76,7 @@ groups:
         expr: |
           histogram_quantile(0.95, 
             sum(rate(occt_boolean_duration_seconds_bucket[5m])) by (operation, le)
-          ) > 30
+          ) > ${OCCT_BOOLEAN_OPERATION_TIMEOUT_SECONDS:30}
         for: 5m
         labels:
           severity: warning
@@ -90,11 +90,11 @@ groups:
       # OCCT memory usage alert
       - alert: OCCTHighMemoryUsage
         expr: |
-          # Threshold is configurable via OCCT_MEMORY_ALERT_THRESHOLD_BYTES environment variable
+          # Threshold is configurable via OCCT_HIGH_MEMORY_THRESHOLD_BYTES environment variable
           # Default: 1.5 GiB (1610612736 bytes = 1.5 * 1024^3)
-          # COPILOT FEEDBACK: Use correct template variable name
+          # GEMINI HIGH SEVERITY: Fixed variable name to match app/core/constants.py
           # Note: In production, this should be injected via config management
-          max(occt_operation_memory_bytes) by (operation) > ${OCCT_MEMORY_ALERT_THRESHOLD_BYTES:1610612736}
+          max(occt_operation_memory_bytes) by (operation) > ${OCCT_HIGH_MEMORY_THRESHOLD_BYTES:1610612736}
         for: 5m
         labels:
           severity: warning
@@ -113,7 +113,7 @@ groups:
         expr: |
           histogram_quantile(0.95, 
             sum(rate(a4_constraint_solve_duration_seconds_bucket[5m])) by (solver, le)
-          ) > 15
+          ) > ${ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS:15}
         for: 5m
         labels:
           severity: warning
@@ -129,7 +129,7 @@ groups:
         expr: |
           histogram_quantile(0.95, 
             sum(rate(a4_solver_iterations_total_bucket[5m])) by (solver, le)
-          ) > 200
+          ) > ${ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD:200}
         for: 5m
         labels:
           severity: warning
@@ -150,7 +150,7 @@ groups:
             sum(rate(material_library_access_total{result="error"}[10m])) by (library)
             / 
             sum(rate(material_library_access_total[10m])) by (library)
-          ) > 0.05
+          ) > ${MATERIAL_LIBRARY_ERROR_THRESHOLD:0.05}
         for: 10m
         labels:
           severity: warning
@@ -169,7 +169,7 @@ groups:
         expr: |
           histogram_quantile(0.95, 
             sum(rate(ai_provider_latency_seconds_bucket[5m])) by (provider, le)
-          ) > 30
+          ) > ${AI_PROVIDER_LATENCY_THRESHOLD_SECONDS:30}
         for: 10m
         labels:
           severity: warning
@@ -187,7 +187,7 @@ groups:
             sum(rate(ai_adapter_requests_total{status="error"}[5m])) by (provider)
             / 
             sum(rate(ai_adapter_requests_total[5m])) by (provider)
-          ) > 0.1
+          ) > ${AI_PROVIDER_ERROR_THRESHOLD:0.1}
         for: 5m
         labels:
           severity: critical
@@ -208,7 +208,7 @@ groups:
             sum(rate(freecad_workbench_compatibility_total{compatible="false"}[1h])) by (workbench)
             / 
             sum(rate(freecad_workbench_compatibility_total[1h])) by (workbench)
-          ) > 0.05
+          ) > ${WORKBENCH_INCOMPATIBILITY_THRESHOLD:0.05}
         for: 30m
         labels:
           severity: warning
