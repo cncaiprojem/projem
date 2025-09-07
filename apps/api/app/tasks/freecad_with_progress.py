@@ -10,28 +10,21 @@ This module shows how to integrate progress reporting into Celery tasks:
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Dict, List, Optional
-
 from celery import shared_task
-from sqlalchemy.orm import Session
 
+from ..core.constants import FORMAT_MAP
 from ..core.database import SessionLocal
 from ..core.logging import get_logger
-from ..core.constants import FORMAT_MAP
+from ..schemas.progress import (
+    Assembly4Phase,
+    DocumentPhase,
+    ExportFormat,
+    OCCTOperation,
+    OperationGroup,
+    Phase,
+)
 from ..services.freecad_service import freecad_service
 from ..workers.progress_reporter import WorkerProgressReporter, with_progress
-from ..schemas.progress import (
-    EventType,
-    Phase,
-    OperationGroup,
-    DocumentPhase,
-    Assembly4Phase,
-    MaterialPhase,
-    OCCTOperation,
-    TopologyPhase,
-    ExportFormat
-)
 
 logger = get_logger(__name__)
 
@@ -66,7 +59,7 @@ def freecad_execute_with_progress_task(
     """
     # Initialize progress reporter
     reporter = WorkerProgressReporter(self)
-    
+
     db = None
     try:
         # Report task start
@@ -78,17 +71,17 @@ def freecad_execute_with_progress_task(
             freecad_version="1.1.0",
             operation_type=operation_type
         )
-        
+
         # Create database session
         db = SessionLocal()
-        
+
         # Use operation context for structured tracking
         with reporter.operation(
             "FreeCAD Operation",
             OperationGroup.GENERAL,
             total_steps=5
         ) as op:
-            
+
             # Step 1: Document creation
             op.update(1, "FreeCAD belgesi oluşturuluyor / Creating FreeCAD document")
             reporter.report_freecad_document(
@@ -96,10 +89,10 @@ def freecad_execute_with_progress_task(
                 document_id=f"job_{job_id}",
                 document_label=f"Job {job_id} Document"
             )
-            
+
             # Step 2: Execute script
             op.update(2, "Script çalıştırılıyor / Executing script")
-            
+
             # Simulate FreeCAD operations based on operation_type
             if "assembly" in operation_type.lower():
                 _report_assembly_progress(reporter, job_id)
@@ -107,7 +100,7 @@ def freecad_execute_with_progress_task(
                 _report_occt_progress(reporter, job_id)
             elif "material" in operation_type.lower():
                 _report_material_progress(reporter, job_id)
-            
+
             # Step 3: Execute actual operation
             op.update(3, "İşlem yürütülüyor / Processing operation")
             result = freecad_service.execute_freecad_operation(
@@ -120,30 +113,30 @@ def freecad_execute_with_progress_task(
                 job_id=str(job_id),
                 correlation_id=correlation_id or self.request.id
             )
-            
+
             # Step 4: Recompute document
             op.update(4, "Belge yeniden hesaplanıyor / Recomputing document")
             reporter.report_freecad_document(
                 phase=DocumentPhase.RECOMPUTE_START,
                 document_id=f"job_{job_id}"
             )
-            
+
             # Simulate recompute progress
             reporter.report_progress(
                 progress_pct=80,
                 message="Recompute işlemi devam ediyor / Recompute in progress",
                 current_step="Document recompute"
             )
-            
+
             reporter.report_freecad_document(
                 phase=DocumentPhase.RECOMPUTE_END,
                 document_id=f"job_{job_id}"
             )
-            
+
             # Step 5: Export results
             op.update(5, "Sonuçlar dışa aktarılıyor / Exporting results")
             _report_export_progress(reporter, job_id, output_formats)
-        
+
         # Report completion
         reporter.report_progress(
             progress_pct=100,
@@ -152,9 +145,9 @@ def freecad_execute_with_progress_task(
             milestone=True,
             status="completed"
         )
-        
+
         return result.serialize_for_celery()
-        
+
     except Exception as e:
         # Report error
         reporter.report_progress(
@@ -165,7 +158,7 @@ def freecad_execute_with_progress_task(
             status="failed",
             error_code=type(e).__name__
         )
-        
+
         logger.error(
             "FreeCAD task with progress failed",
             task_id=self.request.id,
@@ -173,9 +166,9 @@ def freecad_execute_with_progress_task(
             error=str(e),
             exc_info=True
         )
-        
+
         raise self.retry(exc=e, countdown=60, max_retries=3)
-    
+
     finally:
         if db:
             db.close()
@@ -188,7 +181,7 @@ def _report_assembly_progress(reporter: WorkerProgressReporter, job_id: int):
         phase=Assembly4Phase.SOLVER_START,
         constraints_total=10
     )
-    
+
     # Solver progress
     for i in range(1, 11):
         reporter.report_assembly4(
@@ -198,20 +191,20 @@ def _report_assembly_progress(reporter: WorkerProgressReporter, job_id: int):
             iteration=i,
             residual=1.0 / (i + 1)
         )
-    
+
     # Solver end
     reporter.report_assembly4(
         phase=Assembly4Phase.SOLVER_END,
         constraints_resolved=10,
         constraints_total=10
     )
-    
+
     # LCS placement
     reporter.report_assembly4(
         phase=Assembly4Phase.LCS_PLACEMENT_START,
         placements_total=5
     )
-    
+
     for i in range(1, 6):
         reporter.report_assembly4(
             phase=Assembly4Phase.LCS_PLACEMENT_PROGRESS,
@@ -219,7 +212,7 @@ def _report_assembly_progress(reporter: WorkerProgressReporter, job_id: int):
             placements_done=i,
             placements_total=5
         )
-    
+
     reporter.report_assembly4(
         phase=Assembly4Phase.LCS_PLACEMENT_END,
         placements_done=5,
@@ -235,7 +228,7 @@ def _report_occt_progress(reporter: WorkerProgressReporter, job_id: int):
         phase=Phase.START,
         shapes_total=3
     )
-    
+
     for i in range(1, 4):
         reporter.report_occt(
             operation=OCCTOperation.BOOLEAN_FUSE,
@@ -245,7 +238,7 @@ def _report_occt_progress(reporter: WorkerProgressReporter, job_id: int):
             solids_in=i * 2,
             solids_out=1
         )
-    
+
     reporter.report_occt(
         operation=OCCTOperation.BOOLEAN_FUSE,
         phase=Phase.END,
@@ -253,7 +246,7 @@ def _report_occt_progress(reporter: WorkerProgressReporter, job_id: int):
         shapes_total=3,
         solids_out=1
     )
-    
+
     # Fillet operation
     reporter.report_occt(
         operation=OCCTOperation.FILLET,
@@ -261,7 +254,7 @@ def _report_occt_progress(reporter: WorkerProgressReporter, job_id: int):
         edges_total=12,
         default_radius=2.0
     )
-    
+
     for i in range(1, 13):
         reporter.report_occt(
             operation=OCCTOperation.FILLET,
@@ -270,7 +263,7 @@ def _report_occt_progress(reporter: WorkerProgressReporter, job_id: int):
             edges_total=12,
             default_radius=2.0
         )
-    
+
     reporter.report_occt(
         operation=OCCTOperation.FILLET,
         phase=Phase.END,
@@ -289,7 +282,7 @@ def _report_material_progress(reporter: WorkerProgressReporter, job_id: int):
         library_name="StandardMaterials",
         material_key="Steel_1045"
     )
-    
+
     # Apply materials
     total_objects = 5
     for i in range(1, total_objects + 1):
@@ -307,33 +300,33 @@ def _report_material_progress(reporter: WorkerProgressReporter, job_id: int):
 def _report_export_progress(
     reporter: WorkerProgressReporter,
     job_id: int,
-    output_formats: List[str]
+    output_formats: list[str]
 ):
     """Report export progress."""
     for format_str in output_formats:
         # Clean approach: exact match → partial match → default
         format_lower = format_str.lower()
-        
+
         # Step 1: Try exact match
         format_enum = FORMAT_MAP.get(format_lower)
-        
+
         # Step 2: If no exact match, try partial match
         if format_enum is None:
             for key, value in FORMAT_MAP.items():
                 if key in format_lower or format_lower in key:
                     format_enum = value
                     break
-        
+
         # Step 3: Default to FCSTD if no match found
         if format_enum is None:
             format_enum = ExportFormat.FCSTD
-        
+
         reporter.report_export(
             format=format_enum,
             phase=Phase.START,
             bytes_total=1000000  # 1MB estimate
         )
-        
+
         # Simulate export progress
         for i in range(1, 11):
             reporter.report_export(
@@ -342,7 +335,7 @@ def _report_export_progress(
                 bytes_written=i * 100000,
                 bytes_total=1000000
             )
-        
+
         reporter.report_export(
             format=format_enum,
             phase=Phase.END,
@@ -361,25 +354,25 @@ def simple_freecad_task(self, job_id: int, **kwargs):
     """
     # Get the injected operation context
     op = kwargs.get("_progress_op")
-    
+
     if op:
         # Update progress through the operation context
         op.update(1, "Starting simple operation")
-        
+
         # Do some work...
         import time
         time.sleep(1)
-        
+
         op.update(2, "Processing...")
         time.sleep(1)
-        
+
         op.update(3, "Finalizing...")
         time.sleep(1)
-        
+
         # Add metadata
         op.add_metadata(
             result="success",
             items_processed=10
         )
-    
+
     return {"status": "completed", "job_id": job_id}
