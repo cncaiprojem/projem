@@ -1,0 +1,988 @@
+{
+  "dashboard": {
+    "id": null,
+    "title": "Task 7.17 - Model Generation Observability",
+    "description": "FreeCAD 1.1.0/OCCT 7.8.x model generation flows monitoring",
+    "tags": ["freecad", "model-generation", "task-7.17", "occt", "assembly4"],
+    "timezone": "browser",
+    "schemaVersion": 30,
+    "version": 1,
+    "refresh": "5s",
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "panels": [
+      {
+        "id": 1,
+        "title": "Model Generation Success Rate",
+        "description": "Success rate of model generation flows by type",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "yellow", "value": 0.8},
+                {"color": "green", "value": 0.9}
+              ]
+            },
+            "unit": "percentunit",
+            "decimals": 2
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(model_generation_completed_total{status=\"success\"}[5m])) / sum(rate(model_generation_completed_total[5m]))",
+            "legendFormat": "Overall Success Rate",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "orientation": "auto",
+          "text": {},
+          "textMode": "auto"
+        }
+      },
+      {
+        "id": 2,
+        "title": "P95 Latencies by Flow Type",
+        "description": "95th percentile latencies for each model generation flow",
+        "type": "bargauge",
+        "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 60},
+                {"color": "orange", "value": 180},
+                {"color": "red", "value": 300}
+              ]
+            },
+            "unit": "s",
+            "decimals": 1
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(model_generation_stage_duration_seconds_bucket[5m])) by (flow_type, le))",
+            "legendFormat": "{{flow_type}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true
+        }
+      },
+      {
+        "id": 3,
+        "title": "Active Model Generation Flows",
+        "description": "Currently active model generation flows by type",
+        "type": "gauge",
+        "gridPos": {"h": 4, "w": 6, "x": 12, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "orange", "value": 20},
+                {"color": "red", "value": 30}
+              ]
+            },
+            "unit": "short",
+            "min": 0,
+            "max": 50
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(model_generation_started_total - model_generation_completed_total) by (flow_type)",
+            "legendFormat": "{{flow_type}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "orientation": "auto",
+          "showThresholdLabels": false,
+          "showThresholdMarkers": true
+        }
+      },
+      {
+        "id": 4,
+        "title": "AI Provider Performance",
+        "description": "AI provider latency distribution",
+        "type": "heatmap",
+        "gridPos": {"h": 8, "w": 6, "x": 18, "y": 0},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "hideFrom": {
+                "tooltip": false,
+                "viz": false,
+                "legend": false
+              },
+              "scaleDistribution": {
+                "type": "linear"
+              }
+            }
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(ai_provider_latency_seconds_bucket[5m])) by (provider, le)",
+            "legendFormat": "{{provider}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "calculate": false,
+          "yAxis": {
+            "axisPlacement": "left",
+            "reverse": false,
+            "unit": "s"
+          },
+          "rowsFrame": {
+            "layout": "auto"
+          },
+          "color": {
+            "mode": "scheme",
+            "scheme": "Spectral",
+            "steps": 128
+          },
+          "exemplars": {
+            "color": "rgba(255,0,255,0.7)"
+          },
+          "filterValues": {
+            "le": 1e-9
+          },
+          "tooltip": {
+            "show": true,
+            "yHistogram": false
+          },
+          "legend": {
+            "show": true
+          }
+        }
+      },
+      {
+        "id": 5,
+        "title": "Document Operations Timeline",
+        "description": "FreeCAD document load and recompute times",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 4},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "tooltip": false,
+                "viz": false,
+                "legend": false
+              },
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null}
+              ]
+            },
+            "unit": "s"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(freecad_document_load_seconds_bucket[5m])) by (workbench, le))",
+            "legendFormat": "Load P95 - {{workbench}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(freecad_recompute_duration_seconds_bucket[5m])) by (workbench, le))",
+            "legendFormat": "Recompute P95 - {{workbench}}",
+            "refId": "B"
+          }
+        ],
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "none"
+          },
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom",
+            "calcs": []
+          }
+        }
+      },
+      {
+        "id": 6,
+        "title": "OCCT Operations Performance",
+        "description": "Boolean and feature operations duration",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 4},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "Duration",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "bars",
+              "fillOpacity": 50,
+              "gradientMode": "none",
+              "hideFrom": {
+                "tooltip": false,
+                "viz": false,
+                "legend": false
+              },
+              "lineInterpolation": "linear",
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "normal"
+              },
+              "thresholdsStyle": {
+                "mode": "line"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "red", "value": 30}
+              ]
+            },
+            "unit": "s"
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(occt_boolean_duration_seconds_bucket[5m])) by (operation, le))",
+            "legendFormat": "Boolean {{operation}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(occt_feature_duration_seconds_bucket[5m])) by (feature, le))",
+            "legendFormat": "Feature {{feature}}",
+            "refId": "B"
+          }
+        ],
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "none"
+          },
+          "legend": {
+            "displayMode": "list",
+            "placement": "right",
+            "calcs": ["mean", "max"]
+          }
+        }
+      },
+      {
+        "id": 7,
+        "title": "OCCT Memory Usage",
+        "description": "Memory consumption by OCCT operations",
+        "type": "stat",
+        "gridPos": {"h": 4, "w": 6, "x": 0, "y": 12},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 536870912},
+                {"color": "orange", "value": 1073741824},
+                {"color": "red", "value": 1610612736}
+              ]
+            },
+            "unit": "bytes",
+            "decimals": 2
+          }
+        },
+        "targets": [
+          {
+            "expr": "max(occt_operation_memory_bytes)",
+            "legendFormat": "Peak Memory",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          },
+          "orientation": "auto",
+          "text": {},
+          "textMode": "auto"
+        }
+      },
+      {
+        "id": 8,
+        "title": "Assembly4 Solver Performance",
+        "description": "Constraint solver time and iterations",
+        "type": "graph",
+        "gridPos": {"h": 8, "w": 12, "x": 6, "y": 12},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"}
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(a4_constraint_solve_duration_seconds_bucket[5m])) by (solver, le))",
+            "legendFormat": "Solve Time P95 - {{solver}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(a4_solver_iterations_total_bucket[5m])) by (solver, le))",
+            "legendFormat": "Iterations P95 - {{solver}}",
+            "refId": "B",
+            "yaxis": 2
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "s",
+            "label": "Solve Time",
+            "show": true
+          },
+          {
+            "format": "short",
+            "label": "Iterations",
+            "show": true
+          }
+        ],
+        "xaxis": {
+          "mode": "time",
+          "show": true
+        },
+        "legend": {
+          "show": true,
+          "values": true,
+          "min": true,
+          "max": true,
+          "current": true,
+          "avg": true
+        },
+        "thresholds": [
+          {
+            "value": 15,
+            "color": "rgba(245, 54, 54, 0.9)",
+            "fill": false,
+            "line": true,
+            "op": "gt"
+          }
+        ],
+        "tooltip": {
+          "shared": true,
+          "sort": 0,
+          "value_type": "individual"
+        }
+      },
+      {
+        "id": 9,
+        "title": "LCS Resolution Performance",
+        "description": "LCS placement resolution time by count range",
+        "type": "bargauge",
+        "gridPos": {"h": 4, "w": 6, "x": 18, "y": 12},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 1},
+                {"color": "orange", "value": 5},
+                {"color": "red", "value": 10}
+              ]
+            },
+            "unit": "s",
+            "decimals": 2
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(a4_lcs_resolution_duration_seconds_bucket[5m])) by (lcs_count_range, le))",
+            "legendFormat": "{{lcs_count_range}} LCS",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true
+        }
+      },
+      {
+        "id": 10,
+        "title": "Material Library Performance",
+        "description": "Material library access patterns and hit rates",
+        "type": "piechart",
+        "gridPos": {"h": 6, "w": 6, "x": 0, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "mappings": [],
+            "unit": "short"
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(material_library_access_total[5m])) by (result)",
+            "legendFormat": "{{result}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "pieType": "donut",
+          "tooltip": {
+            "displayMode": "single"
+          },
+          "displayLabels": ["name", "percent"],
+          "legend": {
+            "displayMode": "list",
+            "placement": "right",
+            "values": true
+          },
+          "reduceOptions": {
+            "values": false,
+            "calcs": ["lastNotNull"]
+          }
+        }
+      },
+      {
+        "id": 11,
+        "title": "Material Application Time",
+        "description": "Time to apply material properties and appearance",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 12, "x": 6, "y": 20},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 20,
+              "gradientMode": "opacity",
+              "hideFrom": {
+                "tooltip": false,
+                "viz": false,
+                "legend": false
+              },
+              "lineInterpolation": "smooth",
+              "lineWidth": 2,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "off"
+              }
+            },
+            "mappings": [],
+            "unit": "s",
+            "decimals": 3
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(material_property_apply_duration_seconds_bucket[5m])) by (property, le))",
+            "legendFormat": "Property - {{property}}",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(material_appearance_apply_duration_seconds_bucket[5m])) by (appearance_type, le))",
+            "legendFormat": "Appearance - {{appearance_type}}",
+            "refId": "B"
+          }
+        ],
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "none"
+          },
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom",
+            "calcs": ["mean", "max"]
+          }
+        }
+      },
+      {
+        "id": 12,
+        "title": "Topology Hash Computation",
+        "description": "Time to compute topology hashes for parts and assemblies",
+        "type": "gauge",
+        "gridPos": {"h": 6, "w": 6, "x": 18, "y": 16},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "yellow", "value": 10},
+                {"color": "orange", "value": 30},
+                {"color": "red", "value": 60}
+              ]
+            },
+            "unit": "s",
+            "min": 0,
+            "max": 120
+          }
+        },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(topology_hash_compute_duration_seconds_bucket[5m])) by (scope, le))",
+            "legendFormat": "{{scope}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "orientation": "auto",
+          "showThresholdLabels": true,
+          "showThresholdMarkers": true
+        }
+      },
+      {
+        "id": 13,
+        "title": "Export Validation Success Rate",
+        "description": "Deterministic export validation pass rate by format",
+        "type": "bargauge",
+        "gridPos": {"h": 4, "w": 12, "x": 0, "y": 22},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "mappings": [],
+            "thresholds": {
+              "mode": "percentage",
+              "steps": [
+                {"color": "red", "value": null},
+                {"color": "orange", "value": 95},
+                {"color": "yellow", "value": 98},
+                {"color": "green", "value": 99}
+              ]
+            },
+            "unit": "percentunit",
+            "min": 0,
+            "max": 1
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(deterministic_export_validation_total{result=\"pass\"}[5m])) by (format) / sum(rate(deterministic_export_validation_total[5m])) by (format)",
+            "legendFormat": "{{format}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "orientation": "horizontal",
+          "displayMode": "gradient",
+          "showUnfilled": true
+        }
+      },
+      {
+        "id": 14,
+        "title": "Export Duration by Format",
+        "description": "Time taken to export files by format and size",
+        "type": "heatmap",
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 22},
+        "fieldConfig": {
+          "defaults": {
+            "custom": {
+              "hideFrom": {
+                "tooltip": false,
+                "viz": false,
+                "legend": false
+              },
+              "scaleDistribution": {
+                "type": "linear"
+              }
+            }
+          }
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(export_duration_seconds_bucket[5m])) by (format, file_size_range, le)",
+            "legendFormat": "{{format}} - {{file_size_range}}",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "calculate": false,
+          "yAxis": {
+            "axisPlacement": "left",
+            "reverse": false,
+            "unit": "s"
+          },
+          "rowsFrame": {
+            "layout": "auto"
+          },
+          "color": {
+            "mode": "scheme",
+            "scheme": "Turbo",
+            "steps": 128
+          },
+          "exemplars": {
+            "color": "rgba(255,0,255,0.7)"
+          },
+          "filterValues": {
+            "le": 1e-9
+          },
+          "tooltip": {
+            "show": true,
+            "yHistogram": false
+          },
+          "legend": {
+            "show": true
+          }
+        }
+      },
+      {
+        "id": 15,
+        "title": "Workbench Usage",
+        "description": "FreeCAD workbench invocations and compatibility",
+        "type": "table",
+        "gridPos": {"h": 6, "w": 12, "x": 0, "y": 26},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "thresholds"},
+            "custom": {
+              "align": "auto",
+              "displayMode": "auto",
+              "inspect": false
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null}
+              ]
+            }
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byName", "options": "Invocations"},
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "short"
+                },
+                {
+                  "id": "custom.displayMode",
+                  "value": "gradient-gauge"
+                },
+                {
+                  "id": "max",
+                  "value": 1000
+                }
+              ]
+            },
+            {
+              "matcher": {"id": "byName", "options": "Compatibility Rate"},
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "percentunit"
+                },
+                {
+                  "id": "custom.displayMode",
+                  "value": "gradient-gauge"
+                },
+                {
+                  "id": "thresholds",
+                  "value": {
+                    "mode": "absolute",
+                    "steps": [
+                      {"color": "red", "value": null},
+                      {"color": "yellow", "value": 0.95},
+                      {"color": "green", "value": 0.99}
+                    ]
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        "targets": [
+          {
+            "expr": "sum(rate(freecad_workbench_invocations_total[5m])) by (workbench)",
+            "format": "table",
+            "instant": true,
+            "legendFormat": "",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(freecad_workbench_compatibility_total{compatible=\"true\"}[5m])) by (workbench) / sum(rate(freecad_workbench_compatibility_total[5m])) by (workbench)",
+            "format": "table",
+            "instant": true,
+            "legendFormat": "",
+            "refId": "B"
+          }
+        ],
+        "transformations": [
+          {
+            "id": "merge",
+            "options": {}
+          },
+          {
+            "id": "organize",
+            "options": {
+              "excludeByName": {
+                "Time": true
+              },
+              "indexByName": {},
+              "renameByName": {
+                "workbench": "Workbench",
+                "Value #A": "Invocations",
+                "Value #B": "Compatibility Rate"
+              }
+            }
+          }
+        ],
+        "options": {
+          "showHeader": true,
+          "sortBy": [
+            {
+              "desc": true,
+              "displayName": "Invocations"
+            }
+          ]
+        }
+      },
+      {
+        "id": 16,
+        "title": "Worker Resource Usage",
+        "description": "FreeCAD worker memory and CPU usage",
+        "type": "timeseries",
+        "gridPos": {"h": 6, "w": 12, "x": 12, "y": 28},
+        "fieldConfig": {
+          "defaults": {
+            "color": {"mode": "palette-classic"},
+            "custom": {
+              "axisLabel": "",
+              "axisPlacement": "auto",
+              "barAlignment": 0,
+              "drawStyle": "line",
+              "fillOpacity": 10,
+              "gradientMode": "none",
+              "hideFrom": {
+                "tooltip": false,
+                "viz": false,
+                "legend": false
+              },
+              "lineInterpolation": "linear",
+              "lineStyle": {
+                "fill": "solid"
+              },
+              "lineWidth": 1,
+              "pointSize": 5,
+              "scaleDistribution": {
+                "type": "linear"
+              },
+              "showPoints": "never",
+              "spanNulls": false,
+              "stacking": {
+                "group": "A",
+                "mode": "none"
+              },
+              "thresholdsStyle": {
+                "mode": "area"
+              }
+            },
+            "mappings": [],
+            "thresholds": {
+              "mode": "absolute",
+              "steps": [
+                {"color": "green", "value": null},
+                {"color": "orange", "value": 80}
+              ]
+            },
+            "unit": "percent"
+          },
+          "overrides": [
+            {
+              "matcher": {"id": "byRegexp", "options": "/Memory/"},
+              "properties": [
+                {
+                  "id": "unit",
+                  "value": "decmbytes"
+                },
+                {
+                  "id": "custom.axisLabel",
+                  "value": "Memory (MB)"
+                },
+                {
+                  "id": "custom.drawStyle",
+                  "value": "bars"
+                }
+              ]
+            }
+          ]
+        },
+        "targets": [
+          {
+            "expr": "avg(freecad_cpu_average_percent) by (operation_type)",
+            "legendFormat": "CPU - {{operation_type}}",
+            "refId": "A"
+          },
+          {
+            "expr": "max(freecad_memory_peak_mb) by (operation_type)",
+            "legendFormat": "Memory - {{operation_type}}",
+            "refId": "B"
+          }
+        ],
+        "options": {
+          "tooltip": {
+            "mode": "multi",
+            "sort": "none"
+          },
+          "legend": {
+            "displayMode": "list",
+            "placement": "bottom",
+            "calcs": ["mean", "max"]
+          }
+        },
+        "yaxes": [
+          {
+            "format": "percent",
+            "label": "CPU %",
+            "show": true
+          },
+          {
+            "format": "decmbytes",
+            "label": "Memory MB",
+            "show": true
+          }
+        ]
+      }
+    ],
+    "templating": {
+      "list": [
+        {
+          "name": "freecad_version",
+          "type": "query",
+          "datasource": "Prometheus",
+          "query": "label_values(model_generation_started_total, freecad_version)",
+          "refresh": 1,
+          "regex": "",
+          "sort": 1,
+          "label": "FreeCAD Version",
+          "multi": false,
+          "includeAll": true,
+          "current": {
+            "text": "1.1.0",
+            "value": "1.1.0"
+          }
+        },
+        {
+          "name": "occt_version",
+          "type": "query",
+          "datasource": "Prometheus",
+          "query": "label_values(model_generation_started_total, occt_version)",
+          "refresh": 1,
+          "regex": "",
+          "sort": 1,
+          "label": "OCCT Version",
+          "multi": false,
+          "includeAll": true,
+          "current": {
+            "text": "7.8.1",
+            "value": "7.8.1"
+          }
+        },
+        {
+          "name": "flow_type",
+          "type": "query",
+          "datasource": "Prometheus",
+          "query": "label_values(model_generation_started_total, flow_type)",
+          "refresh": 1,
+          "regex": "",
+          "sort": 1,
+          "label": "Flow Type",
+          "multi": true,
+          "includeAll": true,
+          "current": {
+            "text": "All",
+            "value": "$__all"
+          }
+        }
+      ]
+    },
+    "annotations": {
+      "list": [
+        {
+          "datasource": "Prometheus",
+          "enable": true,
+          "expr": "ALERTS{alertname=~\".*ModelGeneration.*|.*FreeCAD.*|.*OCCT.*\"}",
+          "iconColor": "red",
+          "name": "Model Generation Alerts",
+          "step": "10s",
+          "tagKeys": "alertname,severity",
+          "titleFormat": "{{alertname}}",
+          "textFormat": "{{description}}"
+        }
+      ]
+    }
+  }
+}

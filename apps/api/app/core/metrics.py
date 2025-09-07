@@ -535,6 +535,182 @@ class MetricsCollector:
 # Export collector instance for easy use
 metrics = MetricsCollector()
 
+# Task 7.17: FreeCAD 1.1.0/OCCT 7.8.x Extended Metrics
+# Document lifecycle metrics with version and workbench labels
+freecad_document_load_seconds = Histogram(
+    'freecad_document_load_seconds',
+    'Time taken to load FreeCAD documents',
+    ['source', 'workbench', 'freecad_version', 'occt_version'],
+    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, float('inf')),
+    registry=REGISTRY
+)
+
+freecad_recompute_duration_seconds = Histogram(
+    'freecad_recompute_duration_seconds',
+    'Time taken for document recomputation',
+    ['workbench', 'doc_complexity'],
+    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')),
+    registry=REGISTRY
+)
+
+freecad_object_created_total = Counter(
+    'freecad_object_created_total',
+    'Total FreeCAD objects created',
+    ['class', 'workbench'],
+    registry=REGISTRY
+)
+
+# OCCT Boolean and Feature Operations
+occt_boolean_duration_seconds = Histogram(
+    'occt_boolean_duration_seconds',
+    'Duration of OCCT boolean operations',
+    ['operation', 'solids_range'],  # operation: union|cut|common
+    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')),
+    registry=REGISTRY
+)
+
+occt_feature_duration_seconds = Histogram(
+    'occt_feature_duration_seconds',
+    'Duration of OCCT feature operations',
+    ['feature'],  # feature: fillet|chamfer
+    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, float('inf')),
+    registry=REGISTRY
+)
+
+occt_operation_memory_bytes = Gauge(
+    'occt_operation_memory_bytes',
+    'Memory used by OCCT operations',
+    ['operation'],
+    registry=REGISTRY
+)
+
+# Assembly4 Constraint Solver Metrics
+a4_constraint_solve_duration_seconds = Histogram(
+    'a4_constraint_solve_duration_seconds',
+    'Time taken to solve Assembly4 constraints',
+    ['solver'],
+    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 15.0, 30.0, 60.0, float('inf')),
+    registry=REGISTRY
+)
+
+a4_lcs_resolution_duration_seconds = Histogram(
+    'a4_lcs_resolution_duration_seconds',
+    'Time taken to resolve LCS placements',
+    ['lcs_count_range'],  # e.g., "1-10", "11-50", "51-100", "100+"
+    buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, float('inf')),
+    registry=REGISTRY
+)
+
+a4_solver_iterations_total = Histogram(
+    'a4_solver_iterations_total',
+    'Number of solver iterations',
+    ['solver'],
+    buckets=(1, 5, 10, 20, 50, 100, 200, 500, float('inf')),
+    registry=REGISTRY
+)
+
+# Material Library Metrics
+material_library_access_total = Counter(
+    'material_library_access_total',
+    'Material library access attempts',
+    ['library', 'result'],  # result: hit|miss|error
+    registry=REGISTRY
+)
+
+material_property_apply_duration_seconds = Histogram(
+    'material_property_apply_duration_seconds',
+    'Time to apply material properties',
+    ['property'],
+    buckets=(0.001, 0.01, 0.05, 0.1, 0.5, 1.0, 5.0, float('inf')),
+    registry=REGISTRY
+)
+
+material_appearance_apply_duration_seconds = Histogram(
+    'material_appearance_apply_duration_seconds',
+    'Time to apply material appearance',
+    ['appearance_type'],
+    buckets=(0.01, 0.05, 0.1, 0.5, 1.0, 5.0, 10.0, float('inf')),
+    registry=REGISTRY
+)
+
+# Topology and Export Metrics
+topology_hash_compute_duration_seconds = Histogram(
+    'topology_hash_compute_duration_seconds',
+    'Time to compute topology hash',
+    ['scope'],  # scope: part|assembly
+    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, float('inf')),
+    registry=REGISTRY
+)
+
+deterministic_export_validation_total = Counter(
+    'deterministic_export_validation_total',
+    'Deterministic export validation results',
+    ['format', 'result'],  # format: STEP|STL|GLB, result: pass|fail
+    registry=REGISTRY
+)
+
+# Workbench Usage Metrics
+freecad_workbench_invocations_total = Counter(
+    'freecad_workbench_invocations_total',
+    'Total workbench invocations',
+    ['workbench'],
+    registry=REGISTRY
+)
+
+freecad_workbench_compatibility_total = Counter(
+    'freecad_workbench_compatibility_total',
+    'Workbench compatibility checks',
+    ['workbench', 'compatible'],  # compatible: true|false
+    registry=REGISTRY
+)
+
+# Model Generation Flow Metrics (Task 7.17 specific)
+model_generation_started_total = Counter(
+    'model_generation_started_total',
+    'Total model generation flows started',
+    ['flow_type', 'freecad_version', 'occt_version'],  # flow_type: ai_prompt|parametric|upload|assembly4
+    registry=REGISTRY
+)
+
+model_generation_completed_total = Counter(
+    'model_generation_completed_total',
+    'Total model generation flows completed',
+    ['flow_type', 'status', 'freecad_version', 'occt_version'],
+    registry=REGISTRY
+)
+
+model_generation_stage_duration_seconds = Histogram(
+    'model_generation_stage_duration_seconds',
+    'Duration of each model generation stage',
+    ['flow_type', 'stage', 'freecad_version'],  # stage: validation|normalization|execution|export
+    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, float('inf')),
+    registry=REGISTRY
+)
+
+ai_provider_latency_seconds = Histogram(
+    'ai_provider_latency_seconds',
+    'AI provider response latency',
+    ['provider', 'model', 'operation'],  # operation: prompt_to_script|parameter_generation
+    buckets=(0.1, 0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 30.0, 60.0, float('inf')),
+    registry=REGISTRY
+)
+
+freecad_worker_duration_seconds = Histogram(
+    'freecad_worker_duration_seconds',
+    'FreeCAD worker operation duration',
+    ['operation', 'workbench', 'freecad_version'],
+    buckets=(1.0, 5.0, 10.0, 30.0, 60.0, 120.0, 300.0, 600.0, 1200.0, float('inf')),
+    registry=REGISTRY
+)
+
+export_duration_seconds = Histogram(
+    'export_duration_seconds',
+    'File export duration',
+    ['format', 'file_size_range', 'freecad_version'],  # file_size_range: small|medium|large|xlarge
+    buckets=(0.1, 0.5, 1.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')),
+    registry=REGISTRY
+)
+
 # Export all metrics for direct access if needed
 __all__ = [
     'job_create_total',
@@ -577,6 +753,29 @@ __all__ = [
     'http_request_duration_seconds',
     'freecad_error_recovery_total',
     'pii_masking_operations_total',
+    # Task 7.17: FreeCAD 1.1.0/OCCT 7.8.x metrics
+    'freecad_document_load_seconds',
+    'freecad_recompute_duration_seconds',
+    'freecad_object_created_total',
+    'occt_boolean_duration_seconds',
+    'occt_feature_duration_seconds',
+    'occt_operation_memory_bytes',
+    'a4_constraint_solve_duration_seconds',
+    'a4_lcs_resolution_duration_seconds',
+    'a4_solver_iterations_total',
+    'material_library_access_total',
+    'material_property_apply_duration_seconds',
+    'material_appearance_apply_duration_seconds',
+    'topology_hash_compute_duration_seconds',
+    'deterministic_export_validation_total',
+    'freecad_workbench_invocations_total',
+    'freecad_workbench_compatibility_total',
+    'model_generation_started_total',
+    'model_generation_completed_total',
+    'model_generation_stage_duration_seconds',
+    'ai_provider_latency_seconds',
+    'freecad_worker_duration_seconds',
+    'export_duration_seconds',
     'MetricsCollector',
     'metrics'
 ]

@@ -332,6 +332,246 @@ def trace_job_lifecycle(job_id: str, status: str, **attributes) -> None:
         )
 
 
+# Task 7.17: FreeCAD 1.1.0/OCCT 7.8.x specific spans
+@contextmanager
+def trace_freecad_document(
+    document_id: str,
+    operation: str,
+    workbench: Optional[str] = None,
+    freecad_version: str = "1.1.0",
+    occt_version: str = "7.8.1",
+    **attributes
+):
+    """
+    Create a span for FreeCAD document operations.
+    
+    Args:
+        document_id: Document identifier
+        operation: Operation type (load, recompute, save, etc.)
+        workbench: FreeCAD workbench being used
+        freecad_version: FreeCAD version
+        occt_version: OCCT version
+        **attributes: Additional attributes
+    """
+    if not _tracer:
+        yield None
+        return
+    
+    with create_span(
+        name=f"freecad.document_{operation}",
+        operation_type="freecad_document",
+        attributes={
+            "document.id": document_id,
+            "document.operation": operation,
+            "freecad.version": freecad_version,
+            "occt.version": occt_version,
+            "workbench": workbench or "unknown",
+            **attributes
+        }
+    ) as span:
+        yield span
+
+
+@contextmanager
+def trace_occt_operation(
+    operation_type: str,
+    solids_count: Optional[int] = None,
+    edges_count: Optional[int] = None,
+    faces_count: Optional[int] = None,
+    **attributes
+):
+    """
+    Create a span for OCCT operations.
+    
+    Args:
+        operation_type: Type of OCCT operation (boolean, fillet, chamfer, etc.)
+        solids_count: Number of solids involved
+        edges_count: Number of edges involved
+        faces_count: Number of faces involved
+        **attributes: Additional attributes
+    """
+    if not _tracer:
+        yield None
+        return
+    
+    with create_span(
+        name=f"occt.{operation_type}",
+        operation_type="occt_operation",
+        attributes={
+            "occt.operation": operation_type,
+            "occt.solids_count": solids_count,
+            "occt.edges_count": edges_count,
+            "occt.faces_count": faces_count,
+            "occt.version": "7.8.1",
+            **attributes
+        }
+    ) as span:
+        yield span
+
+
+@contextmanager
+def trace_assembly4_solver(
+    solver_type: str,
+    constraints_count: int,
+    lcs_count: Optional[int] = None,
+    **attributes
+):
+    """
+    Create a span for Assembly4 constraint solving.
+    
+    Args:
+        solver_type: Type of solver being used
+        constraints_count: Number of constraints to solve
+        lcs_count: Number of LCS elements
+        **attributes: Additional attributes
+    """
+    if not _tracer:
+        yield None
+        return
+    
+    with create_span(
+        name=f"a4.solve_constraints",
+        operation_type="assembly4_solver",
+        attributes={
+            "a4.solver": solver_type,
+            "a4.constraints_count": constraints_count,
+            "a4.lcs_count": lcs_count,
+            "workbench": "Assembly4",
+            **attributes
+        }
+    ) as span:
+        yield span
+
+
+@contextmanager
+def trace_material_operation(
+    operation: str,
+    library_name: str,
+    material_count: int,
+    **attributes
+):
+    """
+    Create a span for Material Framework operations.
+    
+    Args:
+        operation: Operation type (library_access, apply_properties, apply_appearance)
+        library_name: Material library being accessed
+        material_count: Number of materials being processed
+        **attributes: Additional attributes
+    """
+    if not _tracer:
+        yield None
+        return
+    
+    with create_span(
+        name=f"material.{operation}",
+        operation_type="material_operation",
+        attributes={
+            "material.operation": operation,
+            "material.library": library_name,
+            "material.count": material_count,
+            **attributes
+        }
+    ) as span:
+        yield span
+
+
+@contextmanager
+def trace_topology_hash(
+    scope: str,
+    entity_count: int,
+    **attributes
+):
+    """
+    Create a span for topology hash computation.
+    
+    Args:
+        scope: Scope of hash computation (part, assembly)
+        entity_count: Number of entities being hashed
+        **attributes: Additional attributes
+    """
+    if not _tracer:
+        yield None
+        return
+    
+    with create_span(
+        name="topology.hash_compute",
+        operation_type="topology_hash",
+        attributes={
+            "topology.scope": scope,
+            "topology.entity_count": entity_count,
+            **attributes
+        }
+    ) as span:
+        yield span
+
+
+@contextmanager
+def trace_export_validation(
+    format: str,
+    file_size: int,
+    **attributes
+):
+    """
+    Create a span for deterministic export validation.
+    
+    Args:
+        format: Export format (STEP, STL, GLB)
+        file_size: Size of exported file
+        **attributes: Additional attributes
+    """
+    if not _tracer:
+        yield None
+        return
+    
+    with create_span(
+        name="export.validate_deterministic",
+        operation_type="export_validation",
+        attributes={
+            "export.format": format,
+            "export.file_size": file_size,
+            **attributes
+        }
+    ) as span:
+        yield span
+
+
+@contextmanager
+def trace_model_generation_flow(
+    flow_type: str,
+    job_id: str,
+    freecad_version: str = "1.1.0",
+    occt_version: str = "7.8.1",
+    **attributes
+):
+    """
+    Create a root span for model generation flows.
+    
+    Args:
+        flow_type: Type of flow (ai_prompt, parametric, upload, assembly4)
+        job_id: Job identifier
+        freecad_version: FreeCAD version
+        occt_version: OCCT version
+        **attributes: Additional attributes
+    """
+    if not _tracer:
+        yield None
+        return
+    
+    with create_span(
+        name=f"model_generation.{flow_type}",
+        operation_type="model_generation",
+        job_id=job_id,
+        attributes={
+            "flow.type": flow_type,
+            "freecad.version": freecad_version,
+            "occt.version": occt_version,
+            **attributes
+        }
+    ) as span:
+        yield span
+
+
 # Export main functions
 __all__ = [
     'initialize_telemetry',
@@ -341,5 +581,13 @@ __all__ = [
     'inject_trace_context',
     'extract_trace_context',
     'CeleryTracingMixin',
-    'trace_job_lifecycle'
+    'trace_job_lifecycle',
+    # Task 7.17: New tracing functions
+    'trace_freecad_document',
+    'trace_occt_operation',
+    'trace_assembly4_solver',
+    'trace_material_operation',
+    'trace_topology_hash',
+    'trace_export_validation',
+    'trace_model_generation_flow'
 ]
