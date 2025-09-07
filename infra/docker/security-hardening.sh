@@ -527,8 +527,9 @@ def restricted_import(name, *args, **kwargs):
 # Replace import
 builtins.__import__ = restricted_import
 
-# Remove dangerous builtins
-for dangerous in ['eval', 'exec', 'compile', '__import__']:
+# Remove dangerous builtins (but NOT __import__ as it's already replaced)
+# __import__ is needed for Python's import statement to work
+for dangerous in ['eval', 'exec', 'compile']:
     if hasattr(builtins, dangerous):
         delattr(builtins, dangerous)
 

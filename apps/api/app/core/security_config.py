@@ -191,14 +191,31 @@ if hasattr(builtins, 'exec'):
 if hasattr(builtins, 'compile'):
     del builtins.compile
 if hasattr(builtins, 'open'):
+    # Store original open before defining the function
+    _original_open = builtins.open
+    
     # Replace open with restricted version
     def restricted_open(file, mode='r', *args, **kwargs):
+        import os
+        
+        # Check if write mode is requested
         if 'w' in mode or 'a' in mode or 'x' in mode or '+' in mode:
             raise PermissionError("Write access is not allowed")
-        if not str(file).startswith('{sandbox_path}/'):
-            raise PermissionError(f"Access to '{{file}}' is not allowed")
+        
+        # Use os.path.realpath for secure path checking
+        try:
+            real_path = os.path.realpath(str(file))
+            sandbox_real = os.path.realpath('{sandbox_path}')
+            
+            # Ensure the path is within sandbox using proper comparison
+            # Add trailing separator to prevent /tmp/sandbox-evil matching /tmp/sandbox
+            if not real_path.startswith(os.path.join(sandbox_real, '')):
+                raise PermissionError(f"Access to '{{file}}' is not allowed")
+        except (OSError, ValueError) as e:
+            raise PermissionError(f"Invalid file path: {{e}}")
+        
         return _original_open(file, mode, *args, **kwargs)
-    _original_open = builtins.open
+    
     builtins.open = restricted_open
 '''
         return hook_code
@@ -537,39 +554,45 @@ profile freecad_sandbox_{self.security_level.value} {{
         return issues
 
 
-# Global security configuration instance
-_security_config: Optional[SecurityConfig] = None
+from functools import lru_cache
 
 
+@lru_cache(maxsize=1)
 def get_security_config() -> SecurityConfig:
-    """Get global security configuration instance."""
-    global _security_config
-    if _security_config is None:
-        # Determine security level from environment
-        env_level = os.getenv("SECURITY_LEVEL", "production").lower()
-        
-        try:
-            security_level = SecurityLevel(env_level)
-        except ValueError:
-            logger.warning(
-                f"Invalid security level '{env_level}', using production",
-                env_level=env_level
-            )
-            security_level = SecurityLevel.PRODUCTION
-        
-        _security_config = SecurityConfig(security_level=security_level)
-        
-        logger.info(
-            "Initialized security configuration",
-            level=security_level.value,
-            freecad_version=_security_config.freecad_version,
-            occt_version=_security_config.occt_version
-        )
+    """Get global security configuration instance.
     
-    return _security_config
+    Uses @lru_cache for singleton pattern consistency with feature_flags.py.
+    This ensures thread-safe lazy initialization and consistent access patterns.
+    """
+    # Determine security level from environment
+    env_level = os.getenv("SECURITY_LEVEL", "production").lower()
+    
+    try:
+        security_level = SecurityLevel(env_level)
+    except ValueError:
+        logger.warning(
+            f"Invalid security level '{env_level}', using production",
+            env_level=env_level
+        )
+        security_level = SecurityLevel.PRODUCTION
+    
+    config = SecurityConfig(security_level=security_level)
+    
+    logger.info(
+        "Initialized security configuration",
+        level=security_level.value,
+        freecad_version=config.freecad_version,
+        occt_version=config.occt_version
+    )
+    
+    return config
 
 
 def set_security_config(config: SecurityConfig) -> None:
-    """Set global security configuration (for testing)."""
-    global _security_config
-    _security_config = config
+    """Set global security configuration (for testing).
+    
+    Note: This clears the lru_cache to force reconfiguration.
+    """
+    get_security_config.cache_clear()
+    # Pre-populate the cache with the new config
+    get_security_config.__wrapped__ = lambda: config

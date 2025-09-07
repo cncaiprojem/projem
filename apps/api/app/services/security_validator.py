@@ -96,7 +96,12 @@ class PathValidator:
             try:
                 # Resolve and check if path is within sandbox
                 resolved = path_obj.resolve()
-                if not str(resolved).startswith(str(sandbox_dir)):
+                sandbox_dir_resolved = str(sandbox_dir.resolve())
+                
+                # Add trailing separator to prevent path traversal attacks
+                # This prevents /tmp/sandbox-evil from matching /tmp/sandbox
+                import os
+                if not str(resolved).startswith(os.path.join(sandbox_dir_resolved, '')):
                     result.add_error(f"Path outside sandbox: {resolved}")
             except (OSError, RuntimeError) as e:
                 result.add_error(f"Invalid path: {e}")
