@@ -304,21 +304,36 @@ def _report_export_progress(
 ):
     """Report export progress."""
     for format_str in output_formats:
-        # Clean approach: exact match → partial match → default
-        format_lower = format_str.lower()
+        # Clean approach: exact match → starts with match → default
+        format_lower = format_str.lower().strip()
 
         # Step 1: Try exact match
         format_enum = FORMAT_MAP.get(format_lower)
 
-        # Step 2: If no exact match, try partial match
+        # Step 2: If no exact match, try prefix matching
+        # This handles cases like "step_file" → "step" or "stl_binary" → "stl"
         if format_enum is None:
             for key, value in FORMAT_MAP.items():
-                if key in format_lower or format_lower in key:
+                # Only match if the format starts with a known key
+                # This prevents false matches like "s" matching "step"
+                if format_lower.startswith(key):
                     format_enum = value
                     break
 
-        # Step 3: Default to FCSTD if no match found
+        # Step 3: If still no match, try to extract extension from filename
+        # This handles cases like "model.step" → "step"
+        if format_enum is None and '.' in format_lower:
+            # Extract extension from potential filename
+            extension = format_lower.rsplit('.', 1)[-1]
+            format_enum = FORMAT_MAP.get(extension)
+
+        # Step 4: Default to FCSTD if no match found
         if format_enum is None:
+            logger.warning(
+                f"Unknown export format '{format_str}', defaulting to FCSTD",
+                job_id=job_id,
+                format_requested=format_str
+            )
             format_enum = ExportFormat.FCSTD
 
         reporter.report_export(
