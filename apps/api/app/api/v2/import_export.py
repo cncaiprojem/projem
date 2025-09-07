@@ -15,6 +15,7 @@ import asyncio
 import hashlib
 import tempfile
 import uuid
+from io import BytesIO
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -336,7 +337,6 @@ async def export_document(
                     lambda: output_path.read_bytes()
                 )
                 # Upload to S3 asynchronously
-                from io import BytesIO
                 file_obj = BytesIO(file_content)
                 await asyncio.to_thread(storage_client.upload_file, file_obj, "artefacts", s3_key)
                 
@@ -435,8 +435,15 @@ async def convert_format(
             if result.success:
                 # Upload to S3
                 s3_key = f"conversions/{Path(file.filename).stem}_to_{target_format}.{target_format}"
-                with open(output_path, "rb") as f:
-                    storage_client.upload_file(f, "artefacts", s3_key)
+                # Read file asynchronously
+                file_content = await asyncio.to_thread(output_path.read_bytes)
+                # Upload asynchronously
+                await asyncio.to_thread(
+                    storage_client.upload_file, 
+                    BytesIO(file_content), 
+                    "artefacts", 
+                    s3_key
+                )
                 
                 # Create artefact record
                 artefact_service = ArtefactService(db)
@@ -523,10 +530,12 @@ async def batch_import(
                     
                     response.raise_for_status()
                     
-                    # Save to temporary file
+                    # Save to temporary file with streaming for large files
                     suffix = Path(url).suffix or ".tmp"
                     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-                        tmp.write(response.content)
+                        # Stream the content for large files
+                        async for chunk in response.aiter_bytes():
+                            tmp.write(chunk)
                         temp_path = Path(tmp.name)
                         temp_files.append(temp_path)
                         file_paths.append(str(temp_path))
@@ -610,8 +619,15 @@ async def batch_export(
                     if export_result.success:
                         file_path = Path(export_result.file_path)
                         s3_key = f"batch_exports/{file_path.name}"
-                        with open(file_path, "rb") as f:
-                            storage_client.upload_file(f, "artefacts", s3_key)
+                        # Read file asynchronously
+                        file_content = await asyncio.to_thread(file_path.read_bytes)
+                        # Upload asynchronously
+                        await asyncio.to_thread(
+                            storage_client.upload_file, 
+                            BytesIO(file_content), 
+                            "artefacts", 
+                            s3_key
+                        )
             
             return result
             

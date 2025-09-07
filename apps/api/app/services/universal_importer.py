@@ -646,12 +646,14 @@ class UniversalImporter:
         
         try:
             import importIFC
-            importIFC.insert(str(file_path), document.Name)
+            # Wrap blocking FreeCAD operation in asyncio.to_thread
+            await asyncio.to_thread(importIFC.insert, str(file_path), document.Name)
         except Exception as e:
             warnings.append(f"IFC içe aktarma uyarısı: {e}")
             # Try alternative import
             import Arch
-            Arch.importIFC(str(file_path))
+            # Wrap blocking FreeCAD operation in asyncio.to_thread
+            await asyncio.to_thread(Arch.importIFC, str(file_path))
         
         document.recompute()
         
@@ -661,10 +663,12 @@ class UniversalImporter:
         """Import COLLADA format."""
         try:
             import importDAE
-            importDAE.insert(str(file_path), document.Name)
+            # Wrap blocking FreeCAD operation in asyncio.to_thread
+            await asyncio.to_thread(importDAE.insert, str(file_path), document.Name)
         except Exception:
             import Mesh
-            mesh = Mesh.Mesh(str(file_path))
+            # Wrap blocking FreeCAD operation in asyncio.to_thread
+            mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
             mesh_obj = document.addObject("Mesh::Feature", "ImportedCOLLADA")
             mesh_obj.Mesh = mesh
         
@@ -679,7 +683,8 @@ class UniversalImporter:
         # Try to use trimesh for GLTF import
         try:
             import trimesh
-            scene = trimesh.load(str(file_path))
+            # Wrap blocking trimesh operation in asyncio.to_thread
+            scene = await asyncio.to_thread(trimesh.load, str(file_path))
             
             import Mesh as FreeCADMesh
             for name, geom in scene.geometry.items():

@@ -872,7 +872,8 @@ class EnhancedExporter:
     
     async def _modify_step_schema(self, file_path: Path, schema: StepSchema) -> None:
         """Modify STEP file schema in header."""
-        content = file_path.read_text()
+        # Use asyncio.to_thread for blocking file I/O
+        content = await asyncio.to_thread(file_path.read_text)
         
         # Replace schema in FILE_SCHEMA line
         schema_map = {
@@ -884,7 +885,8 @@ class EnhancedExporter:
         new_schema = schema_map.get(schema, "AUTOMOTIVE_DESIGN")
         content = content.replace("AUTOMOTIVE_DESIGN", new_schema)
         
-        file_path.write_text(content)
+        # Use asyncio.to_thread for blocking file I/O
+        await asyncio.to_thread(file_path.write_text, content)
     
     async def _embed_metadata(
         self,
@@ -924,7 +926,8 @@ class EnhancedExporter:
     
     async def _embed_step_metadata(self, file_path: Path, metadata: Dict) -> None:
         """Embed metadata in STEP file header."""
-        content = file_path.read_text()
+        # Use asyncio.to_thread for blocking file I/O
+        content = await asyncio.to_thread(file_path.read_text)
         
         # Add metadata as comments
         meta_str = json.dumps(metadata, ensure_ascii=False)
@@ -937,11 +940,13 @@ class EnhancedExporter:
                 lines.insert(i + 1, comment)
                 break
         
-        file_path.write_text("\n".join(lines))
+        # Use asyncio.to_thread for blocking file I/O
+        await asyncio.to_thread(file_path.write_text, "\n".join(lines))
     
     async def _embed_ascii_metadata(self, file_path: Path, metadata: Dict) -> None:
         """Embed metadata as comments in ASCII formats."""
-        content = file_path.read_text()
+        # Use asyncio.to_thread for blocking file I/O
+        content = await asyncio.to_thread(file_path.read_text)
         
         # Add metadata as comments at the beginning
         meta_lines = []
@@ -949,7 +954,8 @@ class EnhancedExporter:
             meta_lines.append(f"# {key}: {value}")
         
         meta_str = "\n".join(meta_lines) + "\n"
-        file_path.write_text(meta_str + content)
+        # Use asyncio.to_thread for blocking file I/O
+        await asyncio.to_thread(file_path.write_text, meta_str + content)
     
     async def _verify_export(self, file_path: Path, format: ExportFormat, options: ExportOptions) -> Dict:
         """Verify exported file."""
