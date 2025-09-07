@@ -128,8 +128,22 @@ class SecureFreeCADDocumentManager(FreeCADDocumentManager):
         
         # Inject import restrictions
         if self.feature_flags.enable_script_sandboxing:
+            # Get document metadata to extract job_id
+            metadata = self.documents.get(document_id)
+            if not metadata:
+                raise DocumentException(
+                    f"Document not found: {document_id}",
+                    DocumentErrorCode.DOCUMENT_NOT_FOUND,
+                    "Belge bulunamadı"
+                )
+            
+            # Get job-specific sandbox path
+            sandbox_path = self.security_config.get_sandbox_path(metadata.job_id)
+            
+            # Generate import hook with job-specific sandbox
             import_hook = self.security_config.python_policy.generate_import_hook(
-                self.security_config.security_level
+                self.security_config.security_level,
+                sandbox_dir=sandbox_path
             )
             script_content = import_hook + "\n\n" + script_content
         

@@ -241,12 +241,13 @@ class SBOMGenerator:
     def collect_python_dependencies(self) -> None:
         """Collect Python dependencies with hashes."""
         try:
-            # Use pip to get installed packages
+            # Use pip to get installed packages (with timeout for security)
             result = subprocess.run(
                 [sys.executable, "-m", "pip", "list", "--format=json"],
                 capture_output=True,
                 text=True,
-                check=True
+                check=True,
+                timeout=60  # 60 second timeout for pip list
             )
             
             packages = json.loads(result.stdout)
@@ -273,6 +274,8 @@ class SBOMGenerator:
             
             logger.info(f"Collected {len(packages)} Python dependencies")
             
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"Timeout while collecting Python dependencies: {e}")
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to collect Python dependencies: {e}")
         except json.JSONDecodeError as e:
@@ -295,7 +298,8 @@ class SBOMGenerator:
                     ["ldd", freecad_binary],
                     capture_output=True,
                     text=True,
-                    check=True
+                    check=True,
+                    timeout=30  # 30 second timeout for ldd
                 )
                 
                 for line in result.stdout.splitlines():
@@ -316,6 +320,8 @@ class SBOMGenerator:
                 
                 logger.info("Collected system libraries")
                 
+        except subprocess.TimeoutExpired as e:
+            logger.warning(f"Timeout while collecting system libraries: {e}")
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             logger.warning(f"Failed to collect system libraries: {e}")
     

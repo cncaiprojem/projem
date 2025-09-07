@@ -3,6 +3,7 @@ Tests for Task 7.18: Security Configuration and Hardening
 """
 
 import pytest
+import platform
 from unittest.mock import Mock, patch, MagicMock
 from pathlib import Path
 import tempfile
@@ -32,6 +33,7 @@ class TestResourceLimits:
         assert limits.max_open_files == 256
         assert limits.max_processes == 1
     
+    @pytest.mark.skipif(platform.system() == "Windows", reason="resource module not available on Windows")
     def test_to_rlimit_dict(self):
         """Test conversion to resource.setrlimit format."""
         limits = ResourceLimits(

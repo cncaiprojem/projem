@@ -139,16 +139,17 @@ class PythonModulePolicy(BaseModel):
             return False
         return module_name in self.get_allowed_modules(security_level)
     
-    def generate_import_hook(self, security_level: SecurityLevel, sandbox_dir: Optional[Path] = None) -> str:
+    def generate_import_hook(self, security_level: SecurityLevel, sandbox_dir: Path) -> str:
         """Generate Python code for import restrictions.
         
         Args:
             security_level: Security level for module restrictions
-            sandbox_dir: Optional sandbox directory path for file operations
+            sandbox_dir: Required sandbox directory path for file operations (job-specific)
         """
         allowed = self.get_allowed_modules(security_level)
         blocked = self.blocked_modules
-        sandbox_path = str(sandbox_dir) if sandbox_dir else "/tmp/freecad_sandbox"
+        # sandbox_dir is now required - no fallback to shared path
+        sandbox_path = str(sandbox_dir)
         
         hook_code = f'''
 import builtins

@@ -393,43 +393,39 @@ class FeatureFlags(BaseSettings):
         return issues
 
 
-# Global feature flags instance (singleton)
-_feature_flags: Optional[FeatureFlags] = None
-
-
 @lru_cache(maxsize=1)
 def get_feature_flags() -> FeatureFlags:
-    """Get global feature flags instance (cached singleton)."""
-    global _feature_flags
-    if _feature_flags is None:
-        _feature_flags = FeatureFlags()
-        
-        # Validate configuration
-        issues = _feature_flags.validate_configuration()
-        if issues:
-            for issue in issues:
-                logger.warning(f"Feature flag configuration issue: {issue}")
-        
-        # Apply environment-based profile if set
-        env_profile = os.getenv("FEATURE_PROFILE")
-        if env_profile:
-            _feature_flags.apply_profile(env_profile)
-        
-        # Log enabled features
-        enabled = _feature_flags.get_enabled_features()
-        logger.info(
-            "Feature flags initialized",
-            enabled_count=sum(1 for v in enabled.values() if v),
-            total_count=len(enabled)
-        )
+    """Get global feature flags instance (cached singleton).
     
-    return _feature_flags
+    This uses only @lru_cache for singleton pattern, which is simpler
+    and more reliable than combining with global variables.
+    """
+    feature_flags = FeatureFlags()
+    
+    # Validate configuration
+    issues = feature_flags.validate_configuration()
+    if issues:
+        for issue in issues:
+            logger.warning(f"Feature flag configuration issue: {issue}")
+    
+    # Apply environment-based profile if set
+    env_profile = os.getenv("FEATURE_PROFILE")
+    if env_profile:
+        feature_flags.apply_profile(env_profile)
+    
+    # Log enabled features
+    enabled = feature_flags.get_enabled_features()
+    logger.info(
+        "Feature flags initialized",
+        enabled_count=sum(1 for v in enabled.values() if v),
+        total_count=len(enabled)
+    )
+    
+    return feature_flags
 
 
 def reset_feature_flags() -> None:
     """Reset feature flags (mainly for testing)."""
-    global _feature_flags
-    _feature_flags = None
     get_feature_flags.cache_clear()
 
 

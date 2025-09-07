@@ -608,7 +608,20 @@ run_secure_container() {
     SECURITY_OPTS+=("--tmpfs" "${SANDBOX_DIR}:rw,noexec,nosuid,size=500m")
     
     # User namespace remapping
-    SECURITY_OPTS+=("--userns=host")
+    # Note: --userns=host disables user namespace isolation
+    # For better security, we should use proper user namespace remapping
+    # Comment out for now as it reduces security isolation
+    # SECURITY_OPTS+=("--userns=host")
+    
+    # Use proper user namespace remapping instead (if available)
+    # This provides better isolation than --userns=host
+    if docker info 2>/dev/null | grep -q "userns"; then
+        log_info "Using user namespace remapping for better isolation"
+        # Let Docker use its configured user namespace remapping
+        # Do not specify --userns flag to use default remapping
+    else
+        log_warn "User namespace remapping not available - running with reduced isolation"
+    fi
     
     # Remove environment variables
     SECURITY_OPTS+=("--env-file=/dev/null")
