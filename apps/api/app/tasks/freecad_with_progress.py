@@ -311,16 +311,22 @@ def _report_export_progress(
 ):
     """Report export progress."""
     for format_str in output_formats:
-        # Map string to enum using dictionary lookup
+        # Clean approach: exact match → partial match → default
         format_lower = format_str.lower()
-        format_enum = FORMAT_MAP.get(format_lower, ExportFormat.FCSTD)
         
-        # Check for partial matches if exact match not found
-        if format_enum == ExportFormat.FCSTD and format_lower not in FORMAT_MAP:
+        # Step 1: Try exact match
+        format_enum = FORMAT_MAP.get(format_lower)
+        
+        # Step 2: If no exact match, try partial match
+        if format_enum is None:
             for key, value in FORMAT_MAP.items():
-                if key in format_lower:
+                if key in format_lower or format_lower in key:
                     format_enum = value
                     break
+        
+        # Step 3: Default to FCSTD if no match found
+        if format_enum is None:
+            format_enum = ExportFormat.FCSTD
         
         reporter.report_export(
             format=format_enum,

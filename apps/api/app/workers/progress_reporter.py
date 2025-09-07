@@ -340,8 +340,7 @@ class WorkerProgressReporter:
             # Log error for missing mapping instead of fallback to string matching
             logger.error(
                 f"No phase mapping found for Assembly4Phase.{phase.name}. "
-                f"Please update PHASE_MAPPINGS in progress_service.py",
-                exc_info=True
+                f"Please update PHASE_MAPPINGS in progress_service.py"
             )
             # Use PROGRESS as safe default
             phase_enum = Phase.PROGRESS

@@ -23,7 +23,8 @@ OPERATION_LIST_KEY = "operation:list:{job_id}"
 OPERATION_TTL = 3600  # 1 hour TTL for operation contexts
 
 # Numeric fields that need type conversion when retrieving from Redis
-NUMERIC_FIELDS = (
+# Using set for O(1) membership testing performance
+NUMERIC_FIELDS = {
     'job_id', 'timestamp', 'last_updated',
     'total_steps', 'current_step', 'start_time',
     'step_index', 'step_total', 'elapsed_ms', 'eta_ms',
@@ -31,7 +32,7 @@ NUMERIC_FIELDS = (
     'bytes_written', 'bytes_total', 'constraints_resolved',
     'constraints_total', 'items_done', 'items_total',
     'lcs_resolved', 'lcs_total', 'solids_in', 'solids_out'
-)
+}
 
 
 class RedisOperationStore:
