@@ -434,10 +434,17 @@ class UniversalImporter:
         
         # Apply unit conversion if needed
         if options.unit_system == UnitSystem.IMPERIAL:
-            # Convert from mm to inch
-            import FreeCAD
-            shape.scale(1/25.4)
-            warnings.append("Birimler inch'e dönüştürüldü")
+            # Convert from mm to inch with error handling
+            try:
+                import FreeCAD
+                # Create backup before modification
+                original_shape = shape.copy()
+                shape.scale(1/25.4)
+                warnings.append("Birimler inch'e dönüştürüldü")
+            except Exception as e:
+                logger.warning(f"Unit conversion failed: {e}")
+                shape = original_shape if 'original_shape' in locals() else shape
+                warnings.append(f"Birim dönüşümü başarısız: {e}")
         
         # Add to document
         part = document.addObject("Part::Feature", "ImportedSTEP")

@@ -12,10 +12,13 @@ Provides comprehensive REST API for:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import tempfile
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import httpx
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -70,13 +73,41 @@ logger = get_logger(__name__)
 
 router = APIRouter(prefix="/import-export", tags=["import-export"])
 
-# Service instances (could be dependency injected)
-importer = UniversalImporter()
-exporter = EnhancedExporter()
-converter = FormatConverter()
-batch_processor = BatchProcessor()
-document_manager = FreeCADDocumentManager()
-storage_client = StorageClient()
+# Constants
+MEMORY_ESTIMATION_MULTIPLIER = 3
+DEFAULT_EXPIRATION_SECONDS = 3600
+HTTP_TIMEOUT_SECONDS = 30
+
+
+# Dependency injection for services
+def get_importer() -> UniversalImporter:
+    """Get Universal Importer instance."""
+    return UniversalImporter()
+
+
+def get_exporter() -> EnhancedExporter:
+    """Get Enhanced Exporter instance."""
+    return EnhancedExporter()
+
+
+def get_converter() -> FormatConverter:
+    """Get Format Converter instance."""
+    return FormatConverter()
+
+
+def get_batch_processor() -> BatchProcessor:
+    """Get Batch Processor instance."""
+    return BatchProcessor()
+
+
+def get_document_manager() -> FreeCADDocumentManager:
+    """Get FreeCAD Document Manager instance."""
+    return FreeCADDocumentManager()
+
+
+def get_storage_client() -> StorageClient:
+    """Get Storage Client instance."""
+    return StorageClient()
 
 
 class ImportRequest(BaseModel):
@@ -181,6 +212,7 @@ async def import_file(
     unit_system: str = Form("metric", description="Birim sistemi"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    importer: UniversalImporter = Depends(get_importer),
 ) -> ImportResult:
     """
     Import a file with universal format support.
@@ -195,8 +227,9 @@ async def import_file(
         span.set_attribute("filename", file.filename)
         span.set_attribute("job_id", job_id)
         
+        tmp_path = None
         try:
-            # Save uploaded file temporarily
+            # Save uploaded file temporarily with proper cleanup
             with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
                 content = await file.read()
                 tmp.write(content)
@@ -237,9 +270,6 @@ async def import_file(
                     job_id
                 )
             
-            # Clean up temp file
-            tmp_path.unlink(missing_ok=True)
-            
             return result
             
         except Exception as e:
@@ -248,6 +278,13 @@ async def import_file(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"İçe aktarma başarısız: {str(e)}"
             )
+        finally:
+            # Ensure temp file is cleaned up
+            if tmp_path and tmp_path.exists():
+                try:
+                    tmp_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Geçici dosya silinemedi: {e}")
 
 
 @router.post("/export", response_model=ExportResult, summary="Dışa Aktar")
@@ -255,6 +292,9 @@ async def export_document(
     request: ExportRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    exporter: EnhancedExporter = Depends(get_exporter),
+    document_manager: FreeCADDocumentManager = Depends(get_document_manager),
+    storage_client: StorageClient = Depends(get_storage_client),
 ) -> ExportResult:
     """
     Export a document with validation and optimization.
@@ -269,13 +309,16 @@ async def export_document(
         span.set_attribute("document_id", request.document_id)
         span.set_attribute("format", request.format.value)
         
+        output_path = None
         try:
             # Get document
             doc_data = await document_manager.get_document(request.document_id)
             document = doc_data["document"]
             
-            # Create temp output file
-            output_path = Path(tempfile.mktemp(suffix=f".{request.format.value}"))
+            # Create temp output file with proper cleanup
+            suffix = f".{request.format.value}"
+            with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                output_path = Path(tmp.name)
             
             # Export with validation
             result = await exporter.export_with_validation(
@@ -312,9 +355,6 @@ async def export_document(
                     None
                 )
             
-            # Clean up temp file
-            output_path.unlink(missing_ok=True)
-            
             return result
             
         except Exception as e:
@@ -323,6 +363,13 @@ async def export_document(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Dışa aktarma başarısız: {str(e)}"
             )
+        finally:
+            # Ensure temp file is cleaned up
+            if output_path and output_path.exists():
+                try:
+                    output_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Geçici dosya silinemedi: {e}")
 
 
 @router.post("/convert", response_model=ConversionResult, summary="Dönüştür")
@@ -333,6 +380,8 @@ async def convert_format(
     preserve_topology: bool = Form(True, description="Topolojiyi koru"),
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    converter: FormatConverter = Depends(get_converter),
+    storage_client: StorageClient = Depends(get_storage_client),
 ) -> ConversionResult:
     """
     Convert file between formats.
@@ -347,6 +396,8 @@ async def convert_format(
         span.set_attribute("filename", file.filename)
         span.set_attribute("target_format", target_format)
         
+        input_path = None
+        output_path = None
         try:
             # Save uploaded file
             with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
@@ -354,8 +405,9 @@ async def convert_format(
                 tmp.write(content)
                 input_path = Path(tmp.name)
             
-            # Create output path
-            output_path = Path(tempfile.mktemp(suffix=f".{target_format}"))
+            # Create output path with proper cleanup
+            with tempfile.NamedTemporaryFile(delete=False, suffix=f".{target_format}") as tmp:
+                output_path = Path(tmp.name)
             
             # Create conversion options
             conversion_options = ConversionOptions(
@@ -363,12 +415,15 @@ async def convert_format(
                 preserve_topology=preserve_topology
             )
             
+            # Generate proper job ID using UUID
+            job_id = str(uuid.uuid4())
+            
             # Convert
             result = await converter.convert(
                 input_path,
                 output_path,
                 options=conversion_options,
-                job_id=hash(file.filename)
+                job_id=job_id
             )
             
             if result.success:
@@ -399,10 +454,6 @@ async def convert_format(
                     None
                 )
             
-            # Clean up temp files
-            input_path.unlink(missing_ok=True)
-            output_path.unlink(missing_ok=True)
-            
             return result
             
         except Exception as e:
@@ -411,6 +462,18 @@ async def convert_format(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Dönüştürme başarısız: {str(e)}"
             )
+        finally:
+            # Clean up temp files
+            if input_path and input_path.exists():
+                try:
+                    input_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Geçici giriş dosyası silinemedi: {e}")
+            if output_path and output_path.exists():
+                try:
+                    output_path.unlink()
+                except Exception as e:
+                    logger.warning(f"Geçici çıkış dosyası silinemedi: {e}")
 
 
 @router.post("/batch-import", response_model=BatchResult, summary="Toplu İçe Aktarma")
@@ -419,6 +482,8 @@ async def batch_import(
     background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    batch_processor: BatchProcessor = Depends(get_batch_processor),
+    storage_client: StorageClient = Depends(get_storage_client),
 ) -> BatchResult:
     """
     Batch import multiple files.
@@ -432,15 +497,35 @@ async def batch_import(
     with create_span("api_batch_import") as span:
         span.set_attribute("file_count", len(request.file_urls))
         
+        temp_files = []
         try:
-            # Download files from URLs
+            # Download files from URLs to temporary files
             file_paths = []
-            for url in request.file_urls:
-                # Download from S3 or external URL
-                # This is simplified - real implementation would handle various URL types
-                file_paths.append(url)
+            async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+                for url in request.file_urls:
+                    # Download file content
+                    if url.startswith("s3://"):
+                        # Handle S3 URLs
+                        bucket, key = url[5:].split("/", 1)
+                        presigned_url = storage_client.generate_presigned_url(
+                            bucket, key, expiration=DEFAULT_EXPIRATION_SECONDS
+                        )
+                        response = await client.get(presigned_url)
+                    else:
+                        # Handle regular HTTP URLs
+                        response = await client.get(url)
+                    
+                    response.raise_for_status()
+                    
+                    # Save to temporary file
+                    suffix = Path(url).suffix or ".tmp"
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+                        tmp.write(response.content)
+                        temp_path = Path(tmp.name)
+                        temp_files.append(temp_path)
+                        file_paths.append(str(temp_path))
             
-            # Start batch import
+            # Start batch import with local files
             result = await batch_processor.batch_import(
                 file_paths,
                 request.options,
@@ -450,12 +535,26 @@ async def batch_import(
             
             return result
             
+        except httpx.HTTPError as e:
+            logger.error(f"Dosya indirme hatası: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Dosya indirilemedi: {str(e)}"
+            )
         except Exception as e:
             logger.error(f"Toplu içe aktarma hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Toplu içe aktarma başarısız: {str(e)}"
             )
+        finally:
+            # Clean up temporary files
+            for temp_file in temp_files:
+                try:
+                    if temp_file.exists():
+                        temp_file.unlink()
+                except Exception as e:
+                    logger.warning(f"Geçici dosya silinemedi: {e}")
 
 
 @router.post("/batch-export", response_model=BatchResult, summary="Toplu Dışa Aktarma")
@@ -463,6 +562,9 @@ async def batch_export(
     request: BatchExportRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    batch_processor: BatchProcessor = Depends(get_batch_processor),
+    document_manager: FreeCADDocumentManager = Depends(get_document_manager),
+    storage_client: StorageClient = Depends(get_storage_client),
 ) -> BatchResult:
     """
     Batch export multiple documents.
@@ -476,6 +578,7 @@ async def batch_export(
         span.set_attribute("document_count", len(request.document_ids))
         span.set_attribute("format_count", len(request.formats))
         
+        output_dir = None
         try:
             # Get documents
             documents = []
@@ -483,8 +586,8 @@ async def batch_export(
                 doc_data = await document_manager.get_document(doc_id)
                 documents.append(doc_data["document"])
             
-            # Create output directory
-            output_dir = Path(tempfile.mkdtemp())
+            # Create output directory with proper cleanup
+            output_dir = Path(tempfile.mkdtemp(prefix="batch_export_"))
             
             # Start batch export
             result = await batch_processor.batch_export(
@@ -512,6 +615,14 @@ async def batch_export(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Toplu dışa aktarma başarısız: {str(e)}"
             )
+        finally:
+            # Clean up temporary output directory
+            if output_dir and output_dir.exists():
+                import shutil
+                try:
+                    shutil.rmtree(output_dir)
+                except Exception as e:
+                    logger.warning(f"Geçici klasör silinemedi: {e}")
 
 
 @router.post("/batch-convert", response_model=BatchResult, summary="Toplu Dönüştürme")
@@ -519,6 +630,7 @@ async def batch_convert(
     request: BatchConversionRequest,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    batch_processor: BatchProcessor = Depends(get_batch_processor),
 ) -> BatchResult:
     """
     Batch convert multiple files.
@@ -723,8 +835,10 @@ async def get_batch_progress(
 @router.get("/download/{artefact_id}", summary="İndir")
 async def download_converted_file(
     artefact_id: int,
+    background_tasks: BackgroundTasks,
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_async_db),
+    storage_client: StorageClient = Depends(get_storage_client),
 ) -> FileResponse:
     """
     Download a converted/exported file.
@@ -746,23 +860,42 @@ async def download_converted_file(
         url = storage_client.generate_presigned_url(
             "artefacts",
             artefact.s3_key,
-            expiration=3600
+            expiration=DEFAULT_EXPIRATION_SECONDS
         )
         
-        # Download file
-        import requests
-        response = requests.get(url)
+        # Download file using async HTTP client
+        async with httpx.AsyncClient(timeout=HTTP_TIMEOUT_SECONDS) as client:
+            response = await client.get(url)
+            response.raise_for_status()
         
-        # Save to temp file
-        temp_file = Path(tempfile.mktemp(suffix=Path(artefact.name).suffix))
-        temp_file.write_bytes(response.content)
+        # Save to temp file with proper cleanup
+        suffix = Path(artefact.name).suffix or ".tmp"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            tmp.write(response.content)
+            temp_path = Path(tmp.name)
+        
+        # Add background task to clean up temp file after response is sent
+        def cleanup_temp_file():
+            try:
+                if temp_path.exists():
+                    temp_path.unlink()
+            except Exception as e:
+                logger.warning(f"Geçici dosya silinemedi: {e}")
+        
+        background_tasks.add_task(cleanup_temp_file)
         
         return FileResponse(
-            path=str(temp_file),
+            path=str(temp_path),
             filename=artefact.name,
             media_type=artefact.mime_type
         )
         
+    except httpx.HTTPError as e:
+        logger.error(f"Dosya indirme hatası: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Dosya indirilemedi: {str(e)}"
+        )
     except Exception as e:
         logger.error(f"İndirme hatası: {e}")
         raise HTTPException(

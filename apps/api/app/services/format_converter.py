@@ -859,8 +859,12 @@ class FormatConverter:
                 current_file = temp_file
             
             result.success = True
-            if output_file.exists():
+            # Fix race condition by using try-except
+            try:
                 result.file_size_after = output_file.stat().st_size
+            except FileNotFoundError:
+                logger.warning(f"Output file not found after conversion: {output_file}")
+                result.file_size_after = 0
             
             result.quality_metrics["conversion_steps"] = len(path) - 1
             result.quality_metrics["conversion_path"] = " -> ".join(path)
