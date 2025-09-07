@@ -317,7 +317,7 @@ class ModelGenerationObservability:
                         source=source or "unknown",
                         workbench=workbench or "unknown",
                         freecad_version=FREECAD_VERSION,
-                        occt_version=self.OCCT_VERSION
+                        occt_version=OCCT_VERSION
                     ).observe(duration)
                 
                 elif operation == "recompute":

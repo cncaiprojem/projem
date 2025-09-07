@@ -219,7 +219,7 @@ class TestModelGenerationMetrics:
             lcs_count=10
         ) as context:
             # Simulate iterations
-            context["iterations"] = 25
+            context.iterations = 25
             time.sleep(0.01)
         
         # Test LCS resolution
@@ -801,7 +801,7 @@ class TestEndToEndObservability:
                     )
                     time.sleep(0.01)
                 
-                context["iterations"] = 25
+                context.iterations = 25
             
             # Complete
             await progress_service.publish_assembly4_progress(
