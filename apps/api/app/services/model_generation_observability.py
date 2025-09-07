@@ -14,6 +14,11 @@ from typing import Any, Dict, Optional, Union
 from datetime import datetime, timezone
 
 from ..core.logging import get_logger
+from ..core.constants import (
+    OCCT_HIGH_MEMORY_THRESHOLD_BYTES,
+    ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS,
+    ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD,
+)
 from ..core.telemetry import (
     create_span,
     trace_freecad_document,
@@ -46,14 +51,25 @@ class ModelGenerationObservability:
     FREECAD_VERSION = "1.1.0"
     OCCT_VERSION = "7.8.1"
     
-    # Thresholds as class constants for clarity (PR #503 feedback)
-    # 1.5 GiB = 1610612736 bytes (1.5 * 1024^3)
-    OCCT_HIGH_MEMORY_THRESHOLD_BYTES = int(os.getenv(
-        "OCCT_HIGH_MEMORY_THRESHOLD_BYTES", 
-        "1610612736"  # Default: 1.5 GiB
-    ))
-    ASSEMBLY4_SOLVER_SLOW_THRESHOLD_S = 15
-    ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD = 200
+    # Use constants from core.constants with error handling (COPILOT feedback)
+    @classmethod
+    def _get_memory_threshold(cls) -> int:
+        """Get OCCT memory threshold with error handling for invalid values."""
+        try:
+            threshold = OCCT_HIGH_MEMORY_THRESHOLD_BYTES
+            if threshold <= 0:
+                logger.warning(
+                    "Invalid OCCT_HIGH_MEMORY_THRESHOLD_BYTES value, using default",
+                    configured_value=threshold
+                )
+                return 1610612736  # Default: 1.5 GiB
+            return threshold
+        except (ValueError, TypeError) as e:
+            logger.error(
+                "Error parsing OCCT_HIGH_MEMORY_THRESHOLD_BYTES, using default",
+                error=str(e)
+            )
+            return 1610612736  # Default: 1.5 GiB
     
     @staticmethod
     def _get_solids_range(solids_count: int) -> str:
@@ -216,15 +232,11 @@ class ModelGenerationObservability:
             try:
                 yield span
                 
-                # Record stage duration
-                duration = time.time() - start_time
-                
             except Exception:
-                # Duration recorded even on failure
-                duration = time.time() - start_time
                 raise
             finally:
-                # Record metrics in finally block to avoid duplication (PR #503 feedback)
+                # Record duration metrics in finally block (GEMINI HIGH SEVERITY fix)
+                duration = time.time() - start_time
                 metrics.model_generation_stage_duration_seconds.labels(
                     flow_type=flow_type,
                     stage=stage,
@@ -294,9 +306,12 @@ class ModelGenerationObservability:
             try:
                 yield span
                 
-                # Record operation metrics
-                duration = time.time() - start_time
                 
+            except Exception:
+                raise
+            finally:
+                # Record duration in finally block (GEMINI HIGH SEVERITY fix)
+                duration = time.time() - start_time
                 if operation == "load":
                     metrics.freecad_document_load_seconds.labels(
                         source=source or "unknown",
@@ -311,9 +326,6 @@ class ModelGenerationObservability:
                         workbench=workbench or "unknown",
                         doc_complexity=doc_complexity
                     ).observe(duration)
-                
-            except Exception:
-                raise
     
     def record_object_creation(
         self,
@@ -329,11 +341,11 @@ class ModelGenerationObservability:
             workbench: Workbench used
             count: Number of objects created
         """
-        for _ in range(count):
-            metrics.freecad_object_created_total.labels(
-                **{"class": object_class},  # Use dict unpacking to avoid keyword conflict
-                workbench=workbench or "unknown"
-            ).inc()
+        # Use inc(count) instead of loop (GEMINI MEDIUM SEVERITY fix)
+        metrics.freecad_object_created_total.labels(
+            **{"class": object_class},  # Use dict unpacking to avoid keyword conflict
+            workbench=workbench or "unknown"
+        ).inc(count)
     
     @contextmanager
     def observe_occt_boolean(
@@ -364,15 +376,16 @@ class ModelGenerationObservability:
             try:
                 yield span
                 
-                # Record operation duration
+                
+            except Exception:
+                raise
+            finally:
+                # Record duration in finally block (GEMINI HIGH SEVERITY fix)
                 duration = time.time() - start_time
                 metrics.occt_boolean_duration_seconds.labels(
                     operation=operation,
                     solids_range=solids_range
                 ).observe(duration)
-                
-            except Exception:
-                raise
     
     @contextmanager
     def observe_occt_feature(
@@ -403,14 +416,15 @@ class ModelGenerationObservability:
             try:
                 yield span
                 
-                # Record operation duration
+                
+            except Exception:
+                raise
+            finally:
+                # Record duration in finally block (GEMINI HIGH SEVERITY fix)
                 duration = time.time() - start_time
                 metrics.occt_feature_duration_seconds.labels(
                     feature=feature
                 ).observe(duration)
-                
-            except Exception:
-                raise
     
     def record_occt_memory(
         self,
@@ -428,8 +442,8 @@ class ModelGenerationObservability:
             operation=operation
         ).set(memory_bytes)
         
-        # Alert if memory usage is high (PR #503 feedback: use class constant)
-        if memory_bytes > self.OCCT_HIGH_MEMORY_THRESHOLD_BYTES:
+        # Alert if memory usage is high (use method with error handling)
+        if memory_bytes > self._get_memory_threshold():
             logger.warning(
                 "occt_high_memory_usage",
                 operation=operation,
@@ -481,8 +495,8 @@ class ModelGenerationObservability:
                         solver=solver_type
                     ).observe(iterations)
                 
-                # Alert if solver is slow or requires many iterations (PR #503 feedback: use class constants)
-                if duration > self.ASSEMBLY4_SOLVER_SLOW_THRESHOLD_S:
+                # Alert if solver is slow or requires many iterations (use imported constants)
+                if duration > ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS:
                     logger.warning(
                         "assembly4_solver_slow",
                         solver=solver_type,
@@ -490,7 +504,7 @@ class ModelGenerationObservability:
                         constraints_count=constraints_count
                     )
                 
-                if iterations > self.ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD:
+                if iterations > ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD:
                     logger.warning(
                         "assembly4_excessive_iterations",
                         solver=solver_type,
@@ -571,14 +585,15 @@ class ModelGenerationObservability:
             try:
                 yield span
                 
-                # Record duration
+                
+            except Exception:
+                raise
+            finally:
+                # Record duration in finally block (GEMINI HIGH SEVERITY fix)
                 duration = time.time() - start_time
                 metrics.material_property_apply_duration_seconds.labels(
                     property=property_type
                 ).observe(duration)
-                
-            except Exception:
-                raise
     
     @contextmanager
     def observe_topology_hash(
@@ -605,14 +620,15 @@ class ModelGenerationObservability:
             try:
                 yield span
                 
-                # Record duration
+                
+            except Exception:
+                raise
+            finally:
+                # Record duration in finally block (GEMINI HIGH SEVERITY fix)
                 duration = time.time() - start_time
                 metrics.topology_hash_compute_duration_seconds.labels(
                     scope=scope
                 ).observe(duration)
-                
-            except Exception:
-                raise
     
     def record_export_validation(
         self,
@@ -669,16 +685,17 @@ class ModelGenerationObservability:
             try:
                 yield span
                 
-                # Record duration
+                
+            except Exception:
+                raise
+            finally:
+                # Record duration in finally block (GEMINI HIGH SEVERITY fix)
                 duration = time.time() - start_time
                 metrics.export_duration_seconds.labels(
                     format=format,
                     file_size_range=size_range,
                     freecad_version=self.FREECAD_VERSION
                 ).observe(duration)
-                
-            except Exception:
-                raise
     
     def record_workbench_invocation(
         self,

@@ -1,49 +1,75 @@
 """
-Shared constants for API modules.
+Core constants for the API application.
 
-This module centralizes commonly used constants to follow DRY principles
-and improve maintainability across the codebase.
+This module defines application-wide constants that are used across various services.
+Constants can be overridden via environment variables where appropriate.
 """
 
-from ..models.enums import JobStatus
-from ..schemas.progress import ExportFormat
+import os
+from typing import Final
 
-# Terminal job statuses - jobs in these states will not receive further updates
-TERMINAL_STATUSES = {
-    JobStatus.COMPLETED.value,
-    JobStatus.FAILED.value,
-    JobStatus.CANCELLED.value,
-    JobStatus.TIMEOUT.value
-}
+# Model Generation Constants (Task 7.17)
+# These thresholds are used for alerting and monitoring
 
-# Export format mapping for file conversions
-# Maps file extensions to ExportFormat enum values
-FORMAT_MAP = {
-    "step": ExportFormat.STEP,
-    "stp": ExportFormat.STEP,
-    "stl": ExportFormat.STL,
-    "fcstd": ExportFormat.FCSTD,
-    "fcstd1": ExportFormat.FCSTD,
-    "iges": ExportFormat.IGES,
-    "igs": ExportFormat.IGES,
-    "obj": ExportFormat.OBJ,
-    "glb": ExportFormat.GLB,
-    "brep": ExportFormat.BREP,
-}
+# OCCT memory threshold: 1.5 GiB default (1.5 * 1024^3 bytes)
+# Can be overridden via OCCT_HIGH_MEMORY_THRESHOLD_BYTES environment variable
+OCCT_HIGH_MEMORY_THRESHOLD_BYTES: Final[int] = int(
+    os.getenv("OCCT_HIGH_MEMORY_THRESHOLD_BYTES", "1610612736")
+)
 
-# WebSocket and SSE configuration
-PROGRESS_CHANNEL_PREFIX = "job:progress:"
-PROGRESS_ALL_CHANNEL = "job:progress:*"
-PROGRESS_CACHE_TTL = 3600  # 1 hour in seconds
-PROGRESS_CACHE_MAX_EVENTS = 1000  # Maximum events to cache per job
+# Model generation stage timeout: 5 minutes (300 seconds)
+# Used in Prometheus alerts for slow stage detection
+MODEL_GENERATION_STAGE_TIMEOUT_SECONDS: Final[int] = int(
+    os.getenv("MODEL_GENERATION_STAGE_TIMEOUT_SECONDS", "300")
+)
 
-# Throttling configuration for progress updates
-THROTTLE_INTERVAL_MS = 500  # Max 1 update per 500ms per job
-MILESTONE_BYPASS_THROTTLE = True  # Milestone events bypass throttling
+# Assembly4 solver thresholds
+ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS: Final[int] = int(
+    os.getenv("ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS", "15")
+)
 
-# SSE keepalive configuration
-SSE_KEEPALIVE_INTERVAL = 30.0  # Send keepalive every 30 seconds
+ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD: Final[int] = int(
+    os.getenv("ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD", "200")
+)
 
-# WebSocket retry configuration
-WS_RETRY_AFTER_ERROR = 5000  # Retry after 5 seconds on error
-WS_RETRY_AFTER_DISCONNECT = 1000  # Retry after 1 second on disconnect
+# Export validation thresholds
+EXPORT_VALIDATION_FAILURE_THRESHOLD_PERCENT: Final[float] = float(
+    os.getenv("EXPORT_VALIDATION_FAILURE_THRESHOLD_PERCENT", "2.0")
+)
+
+# AI provider thresholds
+AI_PROVIDER_LATENCY_THRESHOLD_SECONDS: Final[int] = int(
+    os.getenv("AI_PROVIDER_LATENCY_THRESHOLD_SECONDS", "30")
+)
+
+AI_PROVIDER_ERROR_THRESHOLD_PERCENT: Final[float] = float(
+    os.getenv("AI_PROVIDER_ERROR_THRESHOLD_PERCENT", "10.0")
+)
+
+# Worker operation thresholds
+FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND: Final[float] = float(
+    os.getenv("FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND", "0.1")
+)
+
+# Material library thresholds
+MATERIAL_LIBRARY_ERROR_THRESHOLD_PERCENT: Final[float] = float(
+    os.getenv("MATERIAL_LIBRARY_ERROR_THRESHOLD_PERCENT", "5.0")
+)
+
+# Workbench compatibility thresholds
+WORKBENCH_INCOMPATIBILITY_THRESHOLD_PERCENT: Final[float] = float(
+    os.getenv("WORKBENCH_INCOMPATIBILITY_THRESHOLD_PERCENT", "5.0")
+)
+
+__all__ = [
+    "OCCT_HIGH_MEMORY_THRESHOLD_BYTES",
+    "MODEL_GENERATION_STAGE_TIMEOUT_SECONDS",
+    "ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS",
+    "ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD",
+    "EXPORT_VALIDATION_FAILURE_THRESHOLD_PERCENT",
+    "AI_PROVIDER_LATENCY_THRESHOLD_SECONDS",
+    "AI_PROVIDER_ERROR_THRESHOLD_PERCENT",
+    "FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND",
+    "MATERIAL_LIBRARY_ERROR_THRESHOLD_PERCENT",
+    "WORKBENCH_INCOMPATIBILITY_THRESHOLD_PERCENT",
+]

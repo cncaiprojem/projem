@@ -20,11 +20,11 @@ groups:
           description: "Model generation failure rate is {{ $value | humanizePercentage }} over the last 5 minutes (threshold: 10%)"
           runbook_url: "https://wiki.example.com/runbooks/model-generation-failures"
 
-      # Slow generation alert
-      - alert: ModelGenerationSlow
+      # Slow generation alert - measures stage latency not overall flow (Gemini HIGH SEVERITY fix)
+      - alert: ModelGenerationStageSlow
         expr: |
           histogram_quantile(0.95, 
-            sum(rate(model_generation_stage_duration_seconds_bucket[5m])) by (flow_type, le)
+            sum(rate(model_generation_stage_duration_seconds_bucket[5m])) by (flow_type, stage, le)
           ) > 300
         for: 10m
         labels:
@@ -32,8 +32,8 @@ groups:
           component: model_generation
           task: "7.17"
         annotations:
-          summary: "Slow model generation detected for {{ $labels.flow_type }}"
-          description: "P95 latency for {{ $labels.flow_type }} is {{ $value | humanizeDuration }} (threshold: 5 minutes)"
+          summary: "Slow model generation stage detected for {{ $labels.flow_type }} - {{ $labels.stage }}"
+          description: "P95 latency for {{ $labels.flow_type }} stage {{ $labels.stage }} is {{ $value | humanizeDuration }} (threshold: 5 minutes)"
           runbook_url: "https://wiki.example.com/runbooks/slow-model-generation"
 
       # Worker timeout/OOM alert
@@ -90,8 +90,8 @@ groups:
       # OCCT memory usage alert
       - alert: OCCTHighMemoryUsage
         expr: |
-          # 1610612736 bytes = 1.5 GiB (1.5 * 1024^3)
-          # This threshold is configurable via OCCT_HIGH_MEMORY_THRESHOLD_BYTES env var
+          # Threshold: 1.5 GiB (1610612736 bytes = 1.5 * 1024^3)
+          # Configurable via OCCT_HIGH_MEMORY_THRESHOLD_BYTES environment variable in the service
           max(occt_operation_memory_bytes) by (operation) > 1610612736
         for: 5m
         labels:

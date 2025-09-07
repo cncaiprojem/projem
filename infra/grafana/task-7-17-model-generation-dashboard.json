@@ -54,7 +54,7 @@
       },
       {
         "id": 2,
-        "title": "P95 Latencies by Flow Type",
+        "title": "P95 Stage Latencies by Flow Type",
         "description": "95th percentile latencies for each model generation flow",
         "type": "bargauge",
         "gridPos": {"h": 4, "w": 6, "x": 6, "y": 0},

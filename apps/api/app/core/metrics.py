@@ -565,8 +565,8 @@ occt_boolean_duration_seconds = Histogram(
     'occt_boolean_duration_seconds',
     'Duration of OCCT boolean operations',
     ['operation', 'solids_range'],  # operation: union|cut|common
-    # Added more granular buckets in 0.1-1.0 range per PR #503 feedback
-    buckets=(0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')),
+    # Balanced buckets for better performance (COPILOT feedback)
+    buckets=(0.1, 0.25, 0.5, 1.0, 2.0, 5.0, 10.0, 30.0, 60.0, 120.0, float('inf')),
     registry=REGISTRY
 )
 
