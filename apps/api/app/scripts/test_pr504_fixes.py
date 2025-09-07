@@ -41,10 +41,10 @@ def test_memory_threshold_error_handling():
     """Test error handling for invalid memory threshold."""
     print("\nTesting memory threshold error handling...")
     
-    # Test the _get_memory_threshold method
-    threshold = model_observability._get_memory_threshold()
+    # Test that the constant is properly set
+    threshold = constants.OCCT_HIGH_MEMORY_THRESHOLD_BYTES
     assert threshold > 0, "Memory threshold should be positive"
-    print(f"  [OK] Memory threshold with error handling: {threshold} bytes")
+    print(f"  [OK] Memory threshold from constants: {threshold} bytes")
     
     # Test with invalid environment variable (would be caught by error handling)
     original_val = os.environ.get("OCCT_HIGH_MEMORY_THRESHOLD_BYTES")
@@ -55,9 +55,9 @@ def test_memory_threshold_error_handling():
         import importlib
         importlib.reload(constants)
         
-        # Check that error handling works
-        threshold = model_observability._get_memory_threshold()
-        assert threshold == 1610612736, "Should use default for invalid value"
+        # Check that error handling works - safe_parse_int should use default
+        threshold = constants.OCCT_HIGH_MEMORY_THRESHOLD_BYTES
+        assert threshold == constants.DEFAULT_OCCT_MEMORY_THRESHOLD, "Should use default for invalid value"
         print("  [OK] Error handling for invalid threshold works correctly")
     finally:
         # Restore original value
@@ -65,6 +65,9 @@ def test_memory_threshold_error_handling():
             os.environ["OCCT_HIGH_MEMORY_THRESHOLD_BYTES"] = original_val
         else:
             os.environ.pop("OCCT_HIGH_MEMORY_THRESHOLD_BYTES", None)
+        # Reload constants module to restore original state
+        import importlib
+        importlib.reload(constants)
 
 
 def test_metrics_finally_blocks():
@@ -131,7 +134,7 @@ def test_alert_configuration():
         assert "P95 Stage Latencies" in content or "stage" in content.lower(), "Alert should be for stages"
         
         # Check that OCCT memory threshold comment is clear
-        assert "Configurable via OCCT_HIGH_MEMORY_THRESHOLD_BYTES environment variable" in content, "Should mention env var"
+        assert "configurable via OCCT_HIGH_MEMORY_THRESHOLD_BYTES environment variable" in content, "Should mention env var"
         
         print("  [OK] Alert configuration properly updated")
     else:

@@ -10,6 +10,7 @@ from __future__ import annotations
 import os
 import time
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any, Dict, Optional, Union
 from datetime import datetime, timezone
 
@@ -19,6 +20,8 @@ from ..core.constants import (
     OCCT_HIGH_MEMORY_THRESHOLD_BYTES,
     ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS,
     ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD,
+    FREECAD_VERSION,
+    OCCT_VERSION,
 )
 from ..core.telemetry import (
     create_span,
@@ -35,6 +38,21 @@ from ..core import metrics
 logger = get_logger(__name__)
 
 
+@dataclass
+class Assembly4SolverContext:
+    """
+    Context for Assembly4 solver observation.
+    
+    GEMINI MEDIUM SEVERITY: Using dataclass for type safety
+    instead of plain dict for solver context.
+    """
+    iterations: int = 0
+    convergence_error: Optional[float] = None
+    solver_status: str = "pending"
+    constraints_satisfied: int = 0
+    lcs_processed: int = 0
+
+
 class ModelGenerationObservability:
     """
     Observability helper for model generation flows.
@@ -49,9 +67,7 @@ class ModelGenerationObservability:
     - Export validation
     """
     
-    FREECAD_VERSION = "1.1.0"
-    OCCT_VERSION = "7.8.1"
-    
+    # GEMINI MEDIUM SEVERITY: Version constants now imported from constants.py
     # OCCT memory threshold is now handled by safe_parse_int in constants.py
     # No additional error handling needed as safe_parse_int ensures valid positive values
     
@@ -134,16 +150,16 @@ class ModelGenerationObservability:
         # Record flow start
         metrics.model_generation_started_total.labels(
             flow_type=flow_type,
-            freecad_version=self.FREECAD_VERSION,
-            occt_version=self.OCCT_VERSION
+            freecad_version=FREECAD_VERSION,
+            occt_version=OCCT_VERSION
         ).inc()
         
         # Start root span for the flow
         with trace_model_generation_flow(
             flow_type=flow_type,
             job_id=job_id,
-            freecad_version=self.FREECAD_VERSION,
-            occt_version=self.OCCT_VERSION,
+            freecad_version=FREECAD_VERSION,
+            occt_version=OCCT_VERSION,
             user_id=str(user_id) if user_id else None,
             **attributes
         ) as span:
@@ -155,8 +171,8 @@ class ModelGenerationObservability:
                 metrics.model_generation_completed_total.labels(
                     flow_type=flow_type,
                     status="success",
-                    freecad_version=self.FREECAD_VERSION,
-                    occt_version=self.OCCT_VERSION
+                    freecad_version=FREECAD_VERSION,
+                    occt_version=OCCT_VERSION
                 ).inc()
                 
                 logger.info(
@@ -173,8 +189,8 @@ class ModelGenerationObservability:
                 metrics.model_generation_completed_total.labels(
                     flow_type=flow_type,
                     status="error",
-                    freecad_version=self.FREECAD_VERSION,
-                    occt_version=self.OCCT_VERSION
+                    freecad_version=FREECAD_VERSION,
+                    occt_version=OCCT_VERSION
                 ).inc()
                 
                 logger.error(
@@ -224,8 +240,8 @@ class ModelGenerationObservability:
                 metrics.model_generation_stage_duration_seconds.labels(
                     flow_type=flow_type,
                     stage=stage,
-                    freecad_version=self.FREECAD_VERSION,
-                    occt_version=self.OCCT_VERSION  # Added for consistency
+                    freecad_version=FREECAD_VERSION,
+                    occt_version=OCCT_VERSION  # Added for consistency
                 ).observe(duration)
     
     def record_ai_provider_latency(
@@ -283,8 +299,8 @@ class ModelGenerationObservability:
             document_id=document_id,
             operation=operation,
             workbench=workbench,
-            freecad_version=self.FREECAD_VERSION,
-            occt_version=self.OCCT_VERSION,
+            freecad_version=FREECAD_VERSION,
+            occt_version=OCCT_VERSION,
             **attributes
         ) as span:
             try:
@@ -300,7 +316,7 @@ class ModelGenerationObservability:
                     metrics.freecad_document_load_seconds.labels(
                         source=source or "unknown",
                         workbench=workbench or "unknown",
-                        freecad_version=self.FREECAD_VERSION,
+                        freecad_version=FREECAD_VERSION,
                         occt_version=self.OCCT_VERSION
                     ).observe(duration)
                 
@@ -354,7 +370,7 @@ class ModelGenerationObservability:
         with trace_occt_operation(
             operation_type=f"boolean_{operation}",
             solids_count=solids_count,
-            occt_version=self.OCCT_VERSION,  # Pass version as parameter
+            occt_version=OCCT_VERSION,  # Pass version as parameter
             **attributes
         ) as span:
             try:
@@ -394,7 +410,7 @@ class ModelGenerationObservability:
             operation_type=feature,
             edges_count=edges_count,
             faces_count=faces_count,
-            occt_version=self.OCCT_VERSION,  # Pass version as parameter
+            occt_version=OCCT_VERSION,  # Pass version as parameter
             **attributes
         ) as span:
             try:
@@ -464,15 +480,15 @@ class ModelGenerationObservability:
             **attributes
         ) as span:
             try:
-                # Create context for recording iterations
-                context = {"iterations": 0}
+                # GEMINI MEDIUM SEVERITY: Use dataclass instead of plain dict
+                context = Assembly4SolverContext()
                 yield context
                 
             except Exception:
                 raise
             finally:
                 # Record metrics in finally block to ensure they're always recorded (GEMINI HIGH SEVERITY fix)
-                iterations = context.get("iterations", 0)
+                iterations = context.iterations
                 duration = time.time() - start_time
                 
                 metrics.a4_constraint_solve_duration_seconds.labels(
@@ -686,7 +702,7 @@ class ModelGenerationObservability:
                 metrics.export_duration_seconds.labels(
                     format=format,
                     file_size_range=size_range,
-                    freecad_version=self.FREECAD_VERSION
+                    freecad_version=FREECAD_VERSION
                 ).observe(duration)
     
     def record_workbench_invocation(
@@ -715,7 +731,7 @@ class ModelGenerationObservability:
                 "workbench_compatibility_issue",
                 extra={
                     "workbench": workbench,
-                    "freecad_version": self.FREECAD_VERSION
+                    "freecad_version": FREECAD_VERSION
                 }
             )
     
@@ -737,7 +753,7 @@ class ModelGenerationObservability:
             metrics.freecad_worker_duration_seconds.labels(
                 operation=operation,
                 workbench=workbench or "unknown",
-                freecad_version=self.FREECAD_VERSION
+                freecad_version=FREECAD_VERSION
             ).observe(duration_seconds)
 
 

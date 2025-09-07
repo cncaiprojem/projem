@@ -127,6 +127,11 @@ AI_PROVIDER_ERROR_THRESHOLD: Final[float] = safe_parse_float(
     error_message="AI provider error threshold must be between 0.0 and 1.0"
 )
 
+# FreeCAD and OCCT versions (Task 7.17)
+# GEMINI MEDIUM SEVERITY: Centralized version constants
+FREECAD_VERSION: Final[str] = "1.1.0"
+OCCT_VERSION: Final[str] = "7.8.1"
+
 # Worker operation thresholds
 FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND: Final[float] = safe_parse_float(
     env_var="FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND",
@@ -178,6 +183,8 @@ __all__ = [
     "EXPORT_VALIDATION_FAILURE_THRESHOLD",
     "AI_PROVIDER_LATENCY_THRESHOLD_SECONDS",
     "AI_PROVIDER_ERROR_THRESHOLD",
+    "FREECAD_VERSION",
+    "OCCT_VERSION",
     "FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND",
     "MATERIAL_LIBRARY_ERROR_THRESHOLD",
     "WORKBENCH_INCOMPATIBILITY_THRESHOLD",
