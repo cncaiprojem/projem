@@ -112,9 +112,30 @@ scene = trimesh.load(str(file_path))
 scene = await asyncio.to_thread(trimesh.load, str(file_path))
 ```
 
+### 8. Additional Mesh.Mesh Operations (Second commit)
+**Issue**: Found 7 more `Mesh.Mesh()` blocking operations in various import methods  
+**Fix**: Wrapped all in `asyncio.to_thread()`
+
+```python
+# Before (in multiple methods)
+mesh = Mesh.Mesh(str(file_path))
+
+# After
+mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
+```
+
+**Fixed in methods**:
+- `_import_stl()`
+- `_import_obj()`
+- `_import_ply()`
+- `_import_off()`
+- `_import_3mf()`
+- `_import_amf()`
+- `_import_vrml()`
+
 ## MEDIUM Severity Issues Fixed
 
-### 8. BytesIO Import Location
+### 9. BytesIO Import Location
 **Issue**: `from io import BytesIO` inside functions  
 **Fix**: Moved to top of file with other imports
 
@@ -123,7 +144,7 @@ scene = await asyncio.to_thread(trimesh.load, str(file_path))
 from io import BytesIO
 ```
 
-### 9. Documentation locals() Anti-pattern
+### 10. Documentation locals() Anti-pattern
 **Issue**: Documentation showed `locals()` anti-pattern in error handling  
 **Fix**: Updated documentation to show proper pattern
 
