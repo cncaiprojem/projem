@@ -430,9 +430,10 @@ class UniversalImporter:
         
         # Read STEP with options
         shape = Part.Shape()
-        shape.read(str(file_path))
+        await asyncio.to_thread(shape.read, str(file_path))
         
         # Apply unit conversion if needed
+        original_shape = None  # Initialize before try block
         if options.unit_system == UnitSystem.IMPERIAL:
             # Convert from mm to inch with error handling
             try:
@@ -443,7 +444,7 @@ class UniversalImporter:
                 warnings.append("Birimler inch'e dönüştürüldü")
             except Exception as e:
                 logger.warning(f"Unit conversion failed: {e}")
-                shape = original_shape if 'original_shape' in locals() else shape
+                shape = original_shape if original_shape is not None else shape
                 warnings.append(f"Birim dönüşümü başarısız: {e}")
         
         # Add to document
@@ -467,7 +468,7 @@ class UniversalImporter:
         import Part
         
         shape = Part.Shape()
-        shape.read(str(file_path))
+        await asyncio.to_thread(shape.read, str(file_path))
         
         part = document.addObject("Part::Feature", "ImportedIGES")
         part.Shape = shape
@@ -481,7 +482,7 @@ class UniversalImporter:
         import Part
         
         shape = Part.Shape()
-        shape.read(str(file_path))
+        await asyncio.to_thread(shape.read, str(file_path))
         
         part = document.addObject("Part::Feature", "ImportedBREP")
         part.Shape = shape

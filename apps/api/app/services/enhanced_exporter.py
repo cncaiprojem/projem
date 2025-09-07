@@ -450,12 +450,14 @@ class EnhancedExporter:
                     stat = output_path.stat()
                     result.file_size = stat.st_size
                     
-                    # Calculate SHA256
-                    sha256 = hashlib.sha256()
-                    with open(output_path, "rb") as f:
-                        for chunk in iter(lambda: f.read(8192), b""):
-                            sha256.update(chunk)
-                    result.sha256 = sha256.hexdigest()
+                    # Calculate SHA256 asynchronously
+                    async def calculate_sha256():
+                        sha256 = hashlib.sha256()
+                        file_content = await asyncio.to_thread(output_path.read_bytes)
+                        sha256.update(file_content)
+                        return sha256.hexdigest()
+                    
+                    result.sha256 = await calculate_sha256()
                 
                 # Collect statistics
                 result.statistics = await self._collect_export_statistics(document, format)

@@ -329,10 +329,16 @@ async def export_document(
             )
             
             if result.success:
-                # Upload to S3
+                # Upload to S3 using async I/O
                 s3_key = f"exports/{request.document_id}/{output_path.name}"
-                with open(output_path, "rb") as f:
-                    storage_client.upload_file(f, "artefacts", s3_key)
+                # Read file content asynchronously
+                file_content = await asyncio.to_thread(
+                    lambda: output_path.read_bytes()
+                )
+                # Upload to S3 asynchronously
+                from io import BytesIO
+                file_obj = BytesIO(file_content)
+                await asyncio.to_thread(storage_client.upload_file, file_obj, "artefacts", s3_key)
                 
                 # Create artefact record
                 artefact_service = ArtefactService(db)
@@ -620,7 +626,7 @@ async def batch_export(
             if output_dir and output_dir.exists():
                 import shutil
                 try:
-                    shutil.rmtree(output_dir)
+                    await asyncio.to_thread(shutil.rmtree, output_dir)
                 except Exception as e:
                     logger.warning(f"Geçici klasör silinemedi: {e}")
 
@@ -798,7 +804,9 @@ async def get_supported_formats(
 
 
 @router.get("/conversion-matrix", summary="Dönüşüm Matrisi")
-async def get_conversion_matrix() -> Dict[str, List[str]]:
+async def get_conversion_matrix(
+    converter: FormatConverter = Depends(get_converter),
+) -> Dict[str, List[str]]:
     """
     Get supported conversion paths between formats.
     
@@ -812,6 +820,7 @@ async def get_conversion_matrix() -> Dict[str, List[str]]:
 async def get_batch_progress(
     batch_id: str,
     current_user: User = Depends(get_current_user),
+    batch_processor: BatchProcessor = Depends(get_batch_processor),
 ) -> BatchProgress:
     """
     Get progress of a batch operation.

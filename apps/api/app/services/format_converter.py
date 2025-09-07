@@ -328,7 +328,7 @@ class FormatConverter:
             try:
                 # Get file sizes
                 if input_file.exists():
-                    result.file_size_before = input_file.stat().st_size
+                    result.file_size_before = await asyncio.to_thread(lambda: input_file.stat().st_size)
                 
                 # Detect formats
                 if not source_format:
@@ -421,7 +421,7 @@ class FormatConverter:
                 
                 # Get output file size
                 if output_file.exists():
-                    result.file_size_after = output_file.stat().st_size
+                    result.file_size_after = await asyncio.to_thread(lambda: output_file.stat().st_size)
                     result.success = True
                 
                 # Assess quality
@@ -492,7 +492,7 @@ class FormatConverter:
             conversion_method=ConversionMethod.DIRECT,
             input_file=str(input_file),
             output_file=str(output_file),
-            file_size_before=input_file.stat().st_size if input_file.exists() else 0,
+            file_size_before=await asyncio.to_thread(lambda: input_file.stat().st_size if input_file.exists() else 0),
             file_size_after=0,
             conversion_time_ms=0
         )
@@ -603,7 +603,7 @@ class FormatConverter:
             conversion_method=ConversionMethod.REVERSE_ENGINEERING,
             input_file=str(input_file),
             output_file=str(output_file),
-            file_size_before=input_file.stat().st_size,
+            file_size_before=await asyncio.to_thread(lambda: input_file.stat().st_size),
             file_size_after=0,
             conversion_time_ms=0
         )
@@ -822,7 +822,7 @@ class FormatConverter:
             conversion_method=ConversionMethod.DIRECT,
             input_file=str(input_file),
             output_file=str(output_file),
-            file_size_before=input_file.stat().st_size,
+            file_size_before=await asyncio.to_thread(lambda: input_file.stat().st_size),
             file_size_after=0,
             conversion_time_ms=0
         )
@@ -861,7 +861,7 @@ class FormatConverter:
             result.success = True
             # Fix race condition by using try-except
             try:
-                result.file_size_after = output_file.stat().st_size
+                result.file_size_after = await asyncio.to_thread(lambda: output_file.stat().st_size)
             except FileNotFoundError:
                 logger.warning(f"Output file not found after conversion: {output_file}")
                 result.file_size_after = 0
@@ -883,8 +883,10 @@ class FormatConverter:
         target_format: str
     ) -> Dict[str, Any]:
         """Assess conversion quality metrics."""
+        input_size = await asyncio.to_thread(lambda: input_file.stat().st_size if input_file.exists() else 0)
+        output_size = await asyncio.to_thread(lambda: output_file.stat().st_size if output_file.exists() else 0)
         metrics = {
-            "size_ratio": output_file.stat().st_size / input_file.stat().st_size if input_file.stat().st_size > 0 else 0,
+            "size_ratio": output_size / input_size if input_size > 0 else 0,
             "format_compatibility": "high",
             "data_loss": "minimal"
         }

@@ -233,8 +233,12 @@ class BatchProcessor:
             try:
                 # Determine processing strategy
                 if options.strategy == BatchStrategy.ADAPTIVE:
-                    # Calculate average file size
-                    total_size = sum(Path(fp).stat().st_size for fp in file_paths if Path(fp).exists())
+                    # Calculate average file size asynchronously
+                    file_sizes = await asyncio.gather(*[
+                        asyncio.to_thread(lambda p: p.stat().st_size if p.exists() else 0, Path(fp))
+                        for fp in file_paths
+                    ])
+                    total_size = sum(file_sizes)
                     avg_size_mb = (total_size / len(file_paths) / (1024 * 1024)) if file_paths else 1
                     max_parallel = ResourceMonitor.calculate_optimal_parallel(
                         len(file_paths), avg_size_mb
@@ -545,8 +549,10 @@ class BatchProcessor:
                 file_path = Path(file_path)
                 self._progress.current_file = file_path.name
                 
-                # Generate job ID
-                job_id = f"{job_id_prefix}_{file_path.stem}_{hash(str(file_path))}"
+                # Generate job ID as int using stable hash
+                import hashlib
+                job_id_hash = hashlib.sha256(f"{job_id_prefix}_{file_path.stem}_{file_path}".encode()).hexdigest()
+                job_id = int(job_id_hash[:16], 16)
                 
                 # Import with timeout
                 result = await asyncio.wait_for(
@@ -636,7 +642,7 @@ class BatchProcessor:
                         spec.get("source_format"),
                         spec.get("target_format"),
                         conversion_options,
-                        job_id=hash(str(input_file))
+                        job_id=int(hashlib.sha256(str(input_file).encode()).hexdigest()[:16], 16)
                     ),
                     timeout=batch_options.timeout_per_file
                 )

@@ -21,6 +21,7 @@ Features:
 
 from __future__ import annotations
 
+import asyncio
 import gc
 import hashlib
 import json
