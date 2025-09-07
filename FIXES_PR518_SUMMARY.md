@@ -116,7 +116,7 @@ except FileNotFoundError:
 # First copy the shape before any modification
 original_shape = shape.copy()
 try:
-    shape.scale(1/25.4)
+    shape.scale(MM_TO_INCH)  # Using constant instead of magic number
 except Exception as e:
     # Proper error handling - original_shape is always defined here
     shape = original_shape

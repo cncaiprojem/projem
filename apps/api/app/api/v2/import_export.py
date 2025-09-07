@@ -12,7 +12,7 @@ Provides comprehensive REST API for:
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import shutil
 import tempfile
 import uuid
 from io import BytesIO
@@ -334,7 +334,7 @@ async def export_document(
                 s3_key = f"exports/{request.document_id}/{output_path.name}"
                 # Read file content asynchronously
                 file_content = await asyncio.to_thread(
-                    lambda: output_path.read_bytes()
+                    output_path.read_bytes
                 )
                 # Upload to S3 asynchronously
                 file_obj = BytesIO(file_content)
@@ -640,7 +640,6 @@ async def batch_export(
         finally:
             # Clean up temporary output directory
             if output_dir and output_dir.exists():
-                import shutil
                 try:
                     await asyncio.to_thread(shutil.rmtree, output_dir)
                 except Exception as e:

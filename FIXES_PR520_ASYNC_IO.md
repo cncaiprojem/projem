@@ -152,7 +152,7 @@ from io import BytesIO
 # Documentation now shows proper pattern without locals()
 original_shape = shape.copy()
 try:
-    shape.scale(1/25.4)
+    shape.scale(MM_TO_INCH)  # Using constant instead of magic number
 except Exception as e:
     # original_shape is always defined here
     shape = original_shape

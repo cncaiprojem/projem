@@ -27,6 +27,10 @@ from .freecad_document_manager import FreeCADDocumentManager, DocumentMetadata
 
 logger = get_logger(__name__)
 
+# Unit conversion constants
+INCH_TO_MM = 25.4
+MM_TO_INCH = 1 / 25.4
+
 
 class ImportFormat(str, Enum):
     """Supported import formats."""
@@ -440,7 +444,7 @@ class UniversalImporter:
                 import FreeCAD
                 # Create backup before modification
                 original_shape = shape.copy()
-                shape.scale(1/25.4)
+                shape.scale(MM_TO_INCH)
                 warnings.append("Birimler inch'e dönüştürüldü")
             except Exception as e:
                 logger.warning(f"Unit conversion failed: {e}")
@@ -589,12 +593,12 @@ class UniversalImporter:
         
         try:
             import importDXF
-            importDXF.insert(str(file_path), document.Name)
+            await asyncio.to_thread(importDXF.insert, str(file_path), document.Name)
         except Exception as e:
             warnings.append(f"DXF içe aktarma uyarısı: {e}")
             # Fallback to basic import
             import Draft
-            Draft.import_dxf(str(file_path))
+            await asyncio.to_thread(Draft.import_dxf, str(file_path))
         
         document.recompute()
         
@@ -628,7 +632,7 @@ class UniversalImporter:
         # Read point cloud and create points object
         import Points
         points = Points.Points()
-        points.read(str(file_path))
+        await asyncio.to_thread(points.read, str(file_path))
         
         points_obj = document.addObject("Points::Feature", "ImportedPointCloud")
         points_obj.Points = points
@@ -732,8 +736,7 @@ class UniversalImporter:
         warnings = ["Makro içe aktarma güvenlik riski oluşturabilir"]
         
         # Read macro content
-        with open(file_path, "r", encoding="utf-8") as f:
-            macro_content = f.read()
+        macro_content = await asyncio.to_thread(file_path.read_text, encoding="utf-8")
         
         # Store in document metadata instead of executing
         document.Meta["ImportedMacro"] = macro_content
@@ -745,7 +748,7 @@ class UniversalImporter:
         import Material
         
         mat = Material.Material()
-        mat.read(str(file_path))
+        await asyncio.to_thread(mat.read, str(file_path))
         
         # Store material in document
         document.Meta["ImportedMaterial"] = str(mat.Material)
