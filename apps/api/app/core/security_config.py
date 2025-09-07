@@ -12,9 +12,21 @@ This module implements comprehensive security controls for FreeCAD subprocess ex
 from __future__ import annotations
 
 import os
-import resource
 import subprocess
 import tempfile
+import platform
+
+# resource module is Unix-only
+if platform.system() != 'Windows':
+    import resource
+else:
+    # Mock resource module for Windows development
+    class resource:
+        RLIMIT_CPU = 0
+        RLIMIT_AS = 1
+        RLIMIT_FSIZE = 2
+        RLIMIT_NOFILE = 3
+        RLIMIT_NPROC = 4
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -55,7 +67,11 @@ class ResourceLimits:
     max_processes: int = 1        # Single process only
     
     def to_rlimit_dict(self) -> Dict[int, tuple]:
-        """Convert to resource.setrlimit format."""
+        """Convert to resource.setrlimit format (Unix only)."""
+        if platform.system() == 'Windows':
+            # Return empty dict on Windows (resource limits not supported)
+            return {}
+        
         return {
             resource.RLIMIT_CPU: (self.cpu_time_seconds, self.cpu_time_seconds),
             resource.RLIMIT_AS: (self.memory_mb * 1024 * 1024, self.memory_mb * 1024 * 1024),
@@ -123,10 +139,16 @@ class PythonModulePolicy(BaseModel):
             return False
         return module_name in self.get_allowed_modules(security_level)
     
-    def generate_import_hook(self, security_level: SecurityLevel) -> str:
-        """Generate Python code for import restrictions."""
+    def generate_import_hook(self, security_level: SecurityLevel, sandbox_dir: Optional[Path] = None) -> str:
+        """Generate Python code for import restrictions.
+        
+        Args:
+            security_level: Security level for module restrictions
+            sandbox_dir: Optional sandbox directory path for file operations
+        """
         allowed = self.get_allowed_modules(security_level)
         blocked = self.blocked_modules
+        sandbox_path = str(sandbox_dir) if sandbox_dir else "/tmp/freecad_sandbox"
         
         hook_code = f'''
 import builtins
@@ -172,7 +194,7 @@ if hasattr(builtins, 'open'):
     def restricted_open(file, mode='r', *args, **kwargs):
         if 'w' in mode or 'a' in mode or 'x' in mode or '+' in mode:
             raise PermissionError("Write access is not allowed")
-        if not str(file).startswith('/tmp/freecad_sandbox/'):
+        if not str(file).startswith('{sandbox_path}/'):
             raise PermissionError(f"Access to '{{file}}' is not allowed")
         return _original_open(file, mode, *args, **kwargs)
     _original_open = builtins.open

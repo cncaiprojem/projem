@@ -36,6 +36,13 @@ class FeatureFlags(BaseSettings):
         extra="ignore"
     )
     
+    # Environment configuration
+    ENVIRONMENT: str = Field(
+        default="development",
+        description="Current environment (development, staging, production)",
+        env="ENVIRONMENT"
+    )
+    
     # Core model generation flows
     enable_ai_prompt_flow: bool = Field(
         default=True,
@@ -377,7 +384,7 @@ class FeatureFlags(BaseSettings):
             )
         
         # Check for experimental features in production
-        if os.getenv("ENVIRONMENT") == "production":
+        if self.ENVIRONMENT == "production":
             if self.enable_alpha_features or self.enable_beta_features:
                 issues.append(
                     "Experimental features are enabled in production environment."
