@@ -495,7 +495,8 @@ class UniversalImporter:
         """Import STL format."""
         import Mesh
         
-        mesh = Mesh.Mesh(str(file_path))
+        # Wrap blocking FreeCAD operation in asyncio.to_thread
+        mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         
         # Add to document
         mesh_obj = document.addObject("Mesh::Feature", "ImportedSTL")
@@ -517,7 +518,8 @@ class UniversalImporter:
         """Import OBJ format."""
         import Mesh
         
-        mesh = Mesh.Mesh(str(file_path))
+        # Wrap blocking FreeCAD operation in asyncio.to_thread
+        mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         mesh_obj = document.addObject("Mesh::Feature", "ImportedOBJ")
         mesh_obj.Mesh = mesh
         
@@ -529,7 +531,8 @@ class UniversalImporter:
         """Import PLY format."""
         import Mesh
         
-        mesh = Mesh.Mesh(str(file_path))
+        # Wrap blocking FreeCAD operation in asyncio.to_thread
+        mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         mesh_obj = document.addObject("Mesh::Feature", "ImportedPLY")
         mesh_obj.Mesh = mesh
         
@@ -541,7 +544,8 @@ class UniversalImporter:
         """Import OFF format."""
         import Mesh
         
-        mesh = Mesh.Mesh(str(file_path))
+        # Wrap blocking FreeCAD operation in asyncio.to_thread
+        mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         mesh_obj = document.addObject("Mesh::Feature", "ImportedOFF")
         mesh_obj.Mesh = mesh
         
@@ -555,7 +559,8 @@ class UniversalImporter:
         
         try:
             import Mesh
-            mesh = Mesh.Mesh(str(file_path))
+            # Wrap blocking FreeCAD operation in asyncio.to_thread
+            mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
             mesh_obj = document.addObject("Mesh::Feature", "Imported3MF")
             mesh_obj.Mesh = mesh
         except Exception as e:
@@ -569,7 +574,8 @@ class UniversalImporter:
         """Import AMF format."""
         import Mesh
         
-        mesh = Mesh.Mesh(str(file_path))
+        # Wrap blocking FreeCAD operation in asyncio.to_thread
+        mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         mesh_obj = document.addObject("Mesh::Feature", "ImportedAMF")
         mesh_obj.Mesh = mesh
         
@@ -712,7 +718,8 @@ class UniversalImporter:
         """Import VRML/WRL format."""
         import Mesh
         
-        mesh = Mesh.Mesh(str(file_path))
+        # Wrap blocking FreeCAD operation in asyncio.to_thread
+        mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         mesh_obj = document.addObject("Mesh::Feature", "ImportedVRML")
         mesh_obj.Mesh = mesh
         
