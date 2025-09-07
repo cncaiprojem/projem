@@ -52,12 +52,13 @@ ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD: Final[int] = safe_parse_int(
 )
 
 # Export validation thresholds
-EXPORT_VALIDATION_FAILURE_THRESHOLD_PERCENT: Final[float] = safe_parse_float(
-    env_var="EXPORT_VALIDATION_FAILURE_THRESHOLD_PERCENT",
-    default=2.0,
+# GEMINI CRITICAL: Changed from percentage (0-100) to ratio (0-1) for Prometheus consistency
+EXPORT_VALIDATION_FAILURE_THRESHOLD: Final[float] = safe_parse_float(
+    env_var="EXPORT_VALIDATION_FAILURE_THRESHOLD",
+    default=0.02,  # 2% as ratio
     min_value=0.0,
-    max_value=100.0,
-    error_message="Export validation failure threshold must be between 0 and 100 percent"
+    max_value=1.0,
+    error_message="Export validation failure threshold must be between 0.0 and 1.0"
 )
 
 # AI provider thresholds
@@ -69,12 +70,13 @@ AI_PROVIDER_LATENCY_THRESHOLD_SECONDS: Final[int] = safe_parse_int(
     error_message="AI provider latency threshold must be between 1 and 300 seconds"
 )
 
-AI_PROVIDER_ERROR_THRESHOLD_PERCENT: Final[float] = safe_parse_float(
-    env_var="AI_PROVIDER_ERROR_THRESHOLD_PERCENT",
-    default=10.0,
+# GEMINI CRITICAL: Changed from percentage (0-100) to ratio (0-1) for Prometheus consistency
+AI_PROVIDER_ERROR_THRESHOLD: Final[float] = safe_parse_float(
+    env_var="AI_PROVIDER_ERROR_THRESHOLD",
+    default=0.1,  # 10% as ratio
     min_value=0.0,
-    max_value=100.0,
-    error_message="AI provider error threshold must be between 0 and 100 percent"
+    max_value=1.0,
+    error_message="AI provider error threshold must be between 0.0 and 1.0"
 )
 
 # Worker operation thresholds
@@ -87,21 +89,23 @@ FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND: Final[float] = safe_parse_float(
 )
 
 # Material library thresholds
-MATERIAL_LIBRARY_ERROR_THRESHOLD_PERCENT: Final[float] = safe_parse_float(
-    env_var="MATERIAL_LIBRARY_ERROR_THRESHOLD_PERCENT",
-    default=5.0,
+# GEMINI CRITICAL: Changed from percentage (0-100) to ratio (0-1) for Prometheus consistency
+MATERIAL_LIBRARY_ERROR_THRESHOLD: Final[float] = safe_parse_float(
+    env_var="MATERIAL_LIBRARY_ERROR_THRESHOLD",
+    default=0.05,  # 5% as ratio
     min_value=0.0,
-    max_value=100.0,
-    error_message="Material library error threshold must be between 0 and 100 percent"
+    max_value=1.0,
+    error_message="Material library error threshold must be between 0.0 and 1.0"
 )
 
 # Workbench compatibility thresholds
-WORKBENCH_INCOMPATIBILITY_THRESHOLD_PERCENT: Final[float] = safe_parse_float(
-    env_var="WORKBENCH_INCOMPATIBILITY_THRESHOLD_PERCENT",
-    default=5.0,
+# GEMINI CRITICAL: Changed from percentage (0-100) to ratio (0-1) for Prometheus consistency
+WORKBENCH_INCOMPATIBILITY_THRESHOLD: Final[float] = safe_parse_float(
+    env_var="WORKBENCH_INCOMPATIBILITY_THRESHOLD",
+    default=0.05,  # 5% as ratio
     min_value=0.0,
-    max_value=100.0,
-    error_message="Workbench incompatibility threshold must be between 0 and 100 percent"
+    max_value=1.0,
+    error_message="Workbench incompatibility threshold must be between 0.0 and 1.0"
 )
 
 __all__ = [
@@ -110,10 +114,10 @@ __all__ = [
     "MODEL_GENERATION_STAGE_TIMEOUT_SECONDS",
     "ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS",
     "ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD",
-    "EXPORT_VALIDATION_FAILURE_THRESHOLD_PERCENT",
+    "EXPORT_VALIDATION_FAILURE_THRESHOLD",  # Removed _PERCENT suffix
     "AI_PROVIDER_LATENCY_THRESHOLD_SECONDS",
-    "AI_PROVIDER_ERROR_THRESHOLD_PERCENT",
+    "AI_PROVIDER_ERROR_THRESHOLD",  # Removed _PERCENT suffix
     "FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND",
-    "MATERIAL_LIBRARY_ERROR_THRESHOLD_PERCENT",
-    "WORKBENCH_INCOMPATIBILITY_THRESHOLD_PERCENT",
+    "MATERIAL_LIBRARY_ERROR_THRESHOLD",  # Removed _PERCENT suffix
+    "WORKBENCH_INCOMPATIBILITY_THRESHOLD",  # Removed _PERCENT suffix
 ]
