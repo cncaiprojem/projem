@@ -1,0 +1,220 @@
+groups:
+  - name: model_generation_alerts
+    interval: 30s
+    rules:
+      # High failure rate alert
+      - alert: ModelGenerationHighFailureRate
+        expr: |
+          (
+            sum(rate(model_generation_completed_total{status="error"}[5m])) 
+            / 
+            sum(rate(model_generation_completed_total[5m]))
+          ) > ${MODEL_GENERATION_FAILURE_THRESHOLD:0.1}
+        for: 5m
+        labels:
+          severity: critical
+          component: model_generation
+          task: "7.17"
+        annotations:
+          summary: "High model generation failure rate detected"
+          description: "Model generation failure rate is {{ $value | humanizePercentage }} over the last 5 minutes (threshold: 10%)"
+          runbook_url: "https://wiki.example.com/runbooks/model-generation-failures"
+
+      # Slow generation alert - measures stage latency not overall flow (Gemini HIGH SEVERITY fix)
+      - alert: ModelGenerationStageSlow
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(model_generation_stage_duration_seconds_bucket[5m])) by (flow_type, stage, le)
+          ) > ${MODEL_GENERATION_STAGE_SLOW_THRESHOLD_SECONDS:300}
+        for: 10m
+        labels:
+          severity: warning
+          component: model_generation
+          task: "7.17"
+        annotations:
+          summary: "Slow model generation stage detected for {{ $labels.flow_type }} - {{ $labels.stage }}"
+          description: "P95 latency for {{ $labels.flow_type }} stage {{ $labels.stage }} is {{ $value | humanizeDuration }} (threshold: 5 minutes)"
+          runbook_url: "https://wiki.example.com/runbooks/slow-model-generation"
+
+      # Worker timeout/OOM alert
+      - alert: FreeCADWorkerFailure
+        expr: |
+          rate(freecad_error_recovery_total{recovery_method="worker_restart"}[5m]) > ${FREECAD_WORKER_RESTART_THRESHOLD_PER_SECOND:0.1}
+        for: 5m
+        labels:
+          severity: critical
+          component: freecad_worker
+          task: "7.17"
+        annotations:
+          summary: "FreeCAD worker failures detected"
+          description: "Worker restart rate is {{ $value | humanize }} per second, indicating OOM or timeout issues"
+          runbook_url: "https://wiki.example.com/runbooks/freecad-worker-issues"
+
+  - name: freecad_specific_alerts
+    interval: 30s
+    rules:
+      # Deterministic export failure alert
+      - alert: DeterministicExportFailureHigh
+        expr: |
+          (
+            sum(rate(deterministic_export_validation_total{result="fail"}[5m])) by (format)
+            / 
+            sum(rate(deterministic_export_validation_total[5m])) by (format)
+          ) > ${EXPORT_VALIDATION_FAILURE_THRESHOLD:0.02}
+        for: 5m
+        labels:
+          severity: warning
+          component: export_validation
+          task: "7.17"
+        annotations:
+          summary: "High deterministic export failure rate for {{ $labels.format }}"
+          description: "Export validation failure rate for {{ $labels.format }} is {{ $value | humanizePercentage }} (threshold: 2%)"
+          runbook_url: "https://wiki.example.com/runbooks/export-validation-failures"
+
+      # OCCT Boolean operation slow alert
+      - alert: OCCTBooleanOperationSlow
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(occt_boolean_duration_seconds_bucket[5m])) by (operation, le)
+          ) > ${OCCT_BOOLEAN_OPERATION_SLOW_THRESHOLD_SECONDS:30}
+        for: 5m
+        labels:
+          severity: warning
+          component: occt
+          task: "7.17"
+        annotations:
+          summary: "OCCT Boolean {{ $labels.operation }} operation slow"
+          description: "P95 duration for {{ $labels.operation }} is {{ $value | humanizeDuration }} (threshold: 30s)"
+          runbook_url: "https://wiki.example.com/runbooks/occt-performance"
+
+      # OCCT memory usage alert
+      - alert: OCCTHighMemoryUsage
+        expr: |
+          # Threshold is configurable via OCCT_HIGH_MEMORY_THRESHOLD_BYTES environment variable
+          # Default: 1.5 GiB (1610612736 bytes = 1.5 * 1024^3)
+          # GEMINI HIGH SEVERITY: Fixed variable name to match app/core/constants.py
+          # Note: In production, this should be injected via config management
+          max(occt_operation_memory_bytes) by (operation) > ${OCCT_HIGH_MEMORY_THRESHOLD_BYTES:1610612736}
+        for: 5m
+        labels:
+          severity: warning
+          component: occt
+          task: "7.17"
+        annotations:
+          summary: "OCCT {{ $labels.operation }} using excessive memory"
+          description: "Memory usage is {{ $value | humanize1024 }}B (threshold: 1.5GiB)"
+          runbook_url: "https://wiki.example.com/runbooks/occt-memory"
+
+  - name: assembly4_alerts
+    interval: 30s
+    rules:
+      # Assembly4 solver slow alert
+      - alert: Assembly4SolverSlow
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(a4_constraint_solve_duration_seconds_bucket[5m])) by (solver, le)
+          ) > ${ASSEMBLY4_SOLVER_SLOW_THRESHOLD_SECONDS:15}
+        for: 5m
+        labels:
+          severity: warning
+          component: assembly4
+          task: "7.17"
+        annotations:
+          summary: "Assembly4 {{ $labels.solver }} solver slow"
+          description: "P95 solve time is {{ $value | humanizeDuration }} (threshold: 15s)"
+          runbook_url: "https://wiki.example.com/runbooks/assembly4-solver"
+
+      # Assembly4 excessive iterations alert
+      - alert: Assembly4ExcessiveIterations
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(a4_solver_iterations_total_bucket[5m])) by (solver, le)
+          ) > ${ASSEMBLY4_EXCESSIVE_ITERATIONS_THRESHOLD:200}
+        for: 5m
+        labels:
+          severity: warning
+          component: assembly4
+          task: "7.17"
+        annotations:
+          summary: "Assembly4 {{ $labels.solver }} requiring excessive iterations"
+          description: "P95 iteration count is {{ $value | humanize }} (threshold: 200)"
+          runbook_url: "https://wiki.example.com/runbooks/assembly4-convergence"
+
+  - name: material_alerts
+    interval: 30s
+    rules:
+      # Material library error rate alert
+      - alert: MaterialLibraryHighErrorRate
+        expr: |
+          (
+            sum(rate(material_library_access_total{result="error"}[10m])) by (library)
+            / 
+            sum(rate(material_library_access_total[10m])) by (library)
+          ) > ${MATERIAL_LIBRARY_ERROR_THRESHOLD:0.05}
+        for: 10m
+        labels:
+          severity: warning
+          component: material_framework
+          task: "7.17"
+        annotations:
+          summary: "High error rate accessing {{ $labels.library }} material library"
+          description: "Error rate is {{ $value | humanizePercentage }} over 10 minutes (threshold: 5%)"
+          runbook_url: "https://wiki.example.com/runbooks/material-library-errors"
+
+  - name: ai_provider_alerts
+    interval: 30s
+    rules:
+      # AI provider latency alert
+      - alert: AIProviderHighLatency
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(ai_provider_latency_seconds_bucket[5m])) by (provider, le)
+          ) > ${AI_PROVIDER_LATENCY_THRESHOLD_SECONDS:30}
+        for: 10m
+        labels:
+          severity: warning
+          component: ai_adapter
+          task: "7.17"
+        annotations:
+          summary: "High latency from AI provider {{ $labels.provider }}"
+          description: "P95 latency is {{ $value | humanizeDuration }} (threshold: 30s)"
+          runbook_url: "https://wiki.example.com/runbooks/ai-provider-latency"
+
+      # AI provider error rate alert
+      - alert: AIProviderHighErrorRate
+        expr: |
+          (
+            sum(rate(ai_adapter_requests_total{status="error"}[5m])) by (provider)
+            / 
+            sum(rate(ai_adapter_requests_total[5m])) by (provider)
+          ) > ${AI_PROVIDER_ERROR_THRESHOLD:0.1}
+        for: 5m
+        labels:
+          severity: critical
+          component: ai_adapter
+          task: "7.17"
+        annotations:
+          summary: "High error rate from AI provider {{ $labels.provider }}"
+          description: "Error rate is {{ $value | humanizePercentage }} (threshold: 10%)"
+          runbook_url: "https://wiki.example.com/runbooks/ai-provider-errors"
+
+  - name: workbench_alerts
+    interval: 30s
+    rules:
+      # Workbench compatibility alert
+      - alert: WorkbenchCompatibilityIssues
+        expr: |
+          (
+            sum(rate(freecad_workbench_compatibility_total{compatible="false"}[1h])) by (workbench)
+            / 
+            sum(rate(freecad_workbench_compatibility_total[1h])) by (workbench)
+          ) > ${WORKBENCH_INCOMPATIBILITY_THRESHOLD:0.05}
+        for: 30m
+        labels:
+          severity: warning
+          component: freecad_workbench
+          task: "7.17"
+        annotations:
+          summary: "Compatibility issues with {{ $labels.workbench }} workbench"
+          description: "Incompatibility rate is {{ $value | humanizePercentage }} over the last hour (threshold: 5%)"
+          runbook_url: "https://wiki.example.com/runbooks/workbench-compatibility"
