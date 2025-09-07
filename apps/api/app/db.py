@@ -1,9 +1,10 @@
 from contextlib import contextmanager
-from typing import Generator, Optional, Any
+from typing import AsyncGenerator, Generator, Optional, Any
 import redis.asyncio as redis
 from fastapi import Request
 
 from sqlalchemy import create_engine, text
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import scoped_session, sessionmaker
 
 from .config import settings
@@ -14,6 +15,12 @@ logger = get_logger(__name__)
 
 engine = create_engine(settings.database_url, pool_pre_ping=True, future=True)
 SessionLocal = scoped_session(sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True))
+
+# Async engine and session for WebSocket/SSE support
+async_database_url = settings.database_url.replace('postgresql://', 'postgresql+asyncpg://')
+async_database_url = async_database_url.replace('postgresql+psycopg2://', 'postgresql+asyncpg://')
+async_engine = create_async_engine(async_database_url, echo=False, future=True)
+AsyncSessionLocal = async_sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
 
 
 @contextmanager
@@ -32,6 +39,15 @@ def get_db() -> Generator:
         yield db
     finally:
         db.close()
+
+
+async def get_async_db() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency for async database session."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
 
 def check_db() -> bool:

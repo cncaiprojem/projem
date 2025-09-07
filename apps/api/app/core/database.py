@@ -8,7 +8,9 @@ from ..db import (
     SessionLocal,
     db_session,
     get_db,
-    check_db
+    get_async_db,
+    check_db,
+    AsyncSessionLocal
 )
 
 __all__ = [
@@ -16,5 +18,7 @@ __all__ = [
     'SessionLocal',
     'db_session',
     'get_db',
-    'check_db'
+    'get_async_db',
+    'check_db',
+    'AsyncSessionLocal'
 ]
