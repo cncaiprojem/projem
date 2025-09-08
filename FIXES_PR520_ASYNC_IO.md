@@ -149,16 +149,19 @@ from io import BytesIO
 **Fix**: Updated documentation to show proper pattern
 
 ```python
-# Documentation now shows proper pattern without locals()
+# Documentation now shows secure error handling pattern
 original_shape = None
 try:
     original_shape = shape.copy()
     shape.scale(MM_TO_INCH)  # Using constant instead of magic number
 except Exception as e:
+    # Log detailed error for debugging
+    logger.error(f"Unit conversion failed: {e}")
     # Check if original_shape exists before using it
     if original_shape:
         shape = original_shape
-    warnings.append(f"Birim dönüşümü başarısız: {e}")
+    # Show generic message to user (no exception details)
+    warnings.append("Birim dönüşümü başarısız")
 ```
 
 ## Summary

@@ -154,15 +154,18 @@ await asyncio.to_thread(final_mesh.write, str(output_path), "VRML")
 
 ### 11. File Header Reading (enhanced_exporter.py)
 **Issue**: Synchronous file reading with `open()` for format verification  
-**Fix**: Use `asyncio.to_thread()` with `Path.read_bytes()`
+**Fix**: Use `asyncio.to_thread()` with efficient reading pattern that only reads needed bytes
 
 ```python
 # Before
 with open(file_path, "rb") as f:
     header = f.read(1024)
 
-# After
-header = await asyncio.to_thread(lambda: file_path.read_bytes()[:1024])
+# After - Efficient pattern that only reads 1024 bytes
+def read_header():
+    with open(file_path, 'rb') as f:
+        return f.read(1024)
+header = await asyncio.to_thread(read_header)
 ```
 
 ## MEDIUM Severity Issues Fixed

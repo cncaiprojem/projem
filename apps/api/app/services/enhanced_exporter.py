@@ -1029,8 +1029,11 @@ class EnhancedExporter:
         
         # Try to read file header to verify format
         try:
-            # Read file header asynchronously
-            header = await asyncio.to_thread(lambda: file_path.read_bytes()[:1024])
+            # Read file header efficiently - only read the bytes we need
+            def read_header():
+                with open(file_path, 'rb') as f:
+                    return f.read(1024)
+            header = await asyncio.to_thread(read_header)
             
             if format == ExportFormat.STEP:
                 verification["format_valid"] = b"ISO-10303-21" in header
