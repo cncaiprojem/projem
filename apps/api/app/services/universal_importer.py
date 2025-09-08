@@ -166,7 +166,7 @@ class FormatValidator:
     }
     
     @classmethod
-    def validate_format(cls, file_path: Path) -> Optional[ImportFormat]:
+    async def validate_format(cls, file_path: Path) -> Optional[ImportFormat]:
         """
         Validate and detect file format.
         
@@ -186,17 +186,21 @@ class FormatValidator:
         # Then check by magic bytes
         format_by_magic = None
         try:
-            with open(file_path, "rb") as f:
-                header = f.read(1024)  # Read first 1KB
-                
-                for magic, formats in cls.MAGIC_BYTES.items():
-                    if magic in header:
-                        # Try to match with extension first
-                        if extension in formats:
-                            format_by_magic = ImportFormat(extension)
-                        else:
-                            format_by_magic = ImportFormat(formats[0])
-                        break
+            # Wrap blocking file I/O in asyncio.to_thread
+            def read_header():
+                with open(file_path, "rb") as f:
+                    return f.read(1024)  # Read first 1KB
+            
+            header = await asyncio.to_thread(read_header)
+            
+            for magic, formats in cls.MAGIC_BYTES.items():
+                if magic in header:
+                    # Try to match with extension first
+                    if extension in formats:
+                        format_by_magic = ImportFormat(extension)
+                    else:
+                        format_by_magic = ImportFormat(formats[0])
+                    break
         except Exception as e:
             logger.warning(f"Format detection by magic bytes failed: {e}")
             # Don't expose exception details to users
@@ -205,21 +209,26 @@ class FormatValidator:
         return format_by_magic or format_by_ext
     
     @classmethod
-    def get_file_info(cls, file_path: Path) -> Dict[str, Any]:
+    async def get_file_info(cls, file_path: Path) -> Dict[str, Any]:
         """Get file information."""
-        stat = file_path.stat()
+        # Wrap blocking stat call in asyncio.to_thread
+        stat = await asyncio.to_thread(file_path.stat)
         
-        # Calculate SHA256
-        sha256 = hashlib.sha256()
-        with open(file_path, "rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                sha256.update(chunk)
+        # Calculate SHA256 with async I/O
+        def calculate_sha256():
+            sha256 = hashlib.sha256()
+            with open(file_path, "rb") as f:
+                for chunk in iter(lambda: f.read(8192), b""):
+                    sha256.update(chunk)
+            return sha256.hexdigest()
+        
+        sha256_hash = await asyncio.to_thread(calculate_sha256)
         
         return {
             "size": stat.st_size,
             "created": datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
             "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
-            "sha256": sha256.hexdigest(),
+            "sha256": sha256_hash,
             "extension": file_path.suffix.lower(),
             "name": file_path.name
         }
@@ -336,12 +345,12 @@ class UniversalImporter:
                     raise FileNotFoundError(f"Dosya bulunamadı: {file_path}")
                 
                 # Get file info
-                file_info = FormatValidator.get_file_info(file_path)
+                file_info = await FormatValidator.get_file_info(file_path)
                 result.file_size = file_info["size"]
                 result.sha256 = file_info["sha256"]
                 
                 # Detect format
-                detected_format = FormatValidator.validate_format(file_path)
+                detected_format = await FormatValidator.validate_format(file_path)
                 if not detected_format:
                     raise ValueError(f"Desteklenmeyen format: {file_path.suffix}")
                 
@@ -444,7 +453,7 @@ class UniversalImporter:
             try:
                 import FreeCAD
                 # Create backup before modification
-                original_shape = shape.copy()
+                original_shape = await asyncio.to_thread(shape.copy)
                 # Wrap CPU-intensive scale operation in asyncio.to_thread
                 await asyncio.to_thread(shape.scale, MM_TO_INCH)
                 warnings.append("Birimler inch'e dönüştürüldü")

@@ -748,6 +748,59 @@ export_duration_seconds = Histogram(
     registry=REGISTRY
 )
 
+# Task 7.20: Universal Import/Export Metrics
+import_counter = Counter(
+    'import_counter',
+    'Total number of import operations',
+    ['format', 'status'],
+    registry=REGISTRY
+)
+
+import_duration_histogram = Histogram(
+    'import_duration_histogram',
+    'Import operation duration in milliseconds',
+    ['format'],
+    buckets=(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, float('inf')),
+    registry=REGISTRY
+)
+
+export_counter = Counter(
+    'export_counter',
+    'Total number of export operations',
+    ['format', 'status'],
+    registry=REGISTRY
+)
+
+export_duration_histogram = Histogram(
+    'export_duration_histogram',
+    'Export operation duration in milliseconds',
+    ['format'],
+    buckets=(10, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, float('inf')),
+    registry=REGISTRY
+)
+
+batch_counter = Counter(
+    'batch_counter',
+    'Total number of batch operations',
+    ['operation', 'status'],
+    registry=REGISTRY
+)
+
+batch_duration_histogram = Histogram(
+    'batch_duration_histogram',
+    'Batch operation duration in milliseconds',
+    ['operation'],
+    buckets=(100, 500, 1000, 5000, 10000, 30000, 60000, 120000, 300000, float('inf')),
+    registry=REGISTRY
+)
+
+batch_file_counter = Counter(
+    'batch_file_counter',
+    'Total number of files processed in batch operations',
+    ['operation', 'status'],
+    registry=REGISTRY
+)
+
 # Export all metrics for direct access if needed
 __all__ = [
     'job_create_total',
@@ -813,6 +866,14 @@ __all__ = [
     'ai_provider_latency_seconds',
     'freecad_worker_duration_seconds',
     'export_duration_seconds',
+    # Task 7.20: Universal Import/Export metrics
+    'import_counter',
+    'import_duration_histogram',
+    'export_counter',
+    'export_duration_histogram',
+    'batch_counter',
+    'batch_duration_histogram',
+    'batch_file_counter',
     'MetricsCollector',
     'metrics'
 ]

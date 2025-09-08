@@ -238,10 +238,22 @@ class BatchProcessor:
             try:
                 # Determine processing strategy
                 if options.strategy == BatchStrategy.ADAPTIVE:
-                    # Calculate average file size asynchronously
+                    # Calculate average file size asynchronously with race condition protection
+                    async def get_file_size_safe(fp):
+                        """Get file size safely, handling potential deletion."""
+                        try:
+                            path = Path(fp)
+                            stat = await asyncio.to_thread(path.stat)
+                            return stat.st_size
+                        except FileNotFoundError:
+                            # File was deleted between exists() check and stat() call
+                            return 0
+                        except Exception:
+                            # Other errors (permissions, etc.)
+                            return 0
+                    
                     file_sizes = await asyncio.gather(*[
-                        asyncio.to_thread(lambda p: p.stat().st_size if p.exists() else 0, Path(fp))
-                        for fp in file_paths
+                        get_file_size_safe(fp) for fp in file_paths
                     ])
                     total_size = sum(file_sizes)
                     avg_size_mb = (total_size / len(file_paths) / (1024 * 1024)) if file_paths else 1
