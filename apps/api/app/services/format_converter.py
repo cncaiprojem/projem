@@ -280,6 +280,25 @@ class FormatConverter:
             logger.error("FreeCAD gerekli ancak yüklü değil")
             return False
 
+    async def _get_file_size_safe(self, file_path: Path) -> int:
+        """
+        Get file size safely without blocking exists() check.
+        
+        Args:
+            file_path: Path to file
+            
+        Returns:
+            File size in bytes or 0 if file doesn't exist
+        """
+        try:
+            stat = await asyncio.to_thread(file_path.stat)
+            return stat.st_size
+        except FileNotFoundError:
+            return 0
+        except Exception as e:
+            logger.warning(f"Could not get file size for {file_path}: {e}")
+            return 0
+
     async def convert(
         self,
         input_file: str | Path,
@@ -326,9 +345,11 @@ class FormatConverter:
             )
 
             try:
-                # Get file sizes
-                if input_file.exists():
+                # Get file sizes using try/except to avoid blocking exists() check
+                try:
                     result.file_size_before = (await asyncio.to_thread(input_file.stat)).st_size
+                except FileNotFoundError:
+                    result.file_size_before = 0
 
                 # Detect formats
                 if not source_format:
@@ -419,10 +440,13 @@ class FormatConverter:
                             input_file, output_file, source_format, target_format, options, job_id
                         )
 
-                # Get output file size
-                if output_file.exists():
+                # Get output file size using try/except to avoid blocking exists() check
+                try:
                     result.file_size_after = (await asyncio.to_thread(output_file.stat)).st_size
                     result.success = True
+                except FileNotFoundError:
+                    result.file_size_after = 0
+                    result.success = False
 
                 # Assess quality
                 if result.success:
@@ -492,7 +516,7 @@ class FormatConverter:
             conversion_method=ConversionMethod.DIRECT,
             input_file=str(input_file),
             output_file=str(output_file),
-            file_size_before=(await asyncio.to_thread(input_file.stat)).st_size if input_file.exists() else 0,
+            file_size_before=await self._get_file_size_safe(input_file),
             file_size_after=0,
             conversion_time_ms=0
         )
@@ -608,7 +632,7 @@ class FormatConverter:
             conversion_method=ConversionMethod.REVERSE_ENGINEERING,
             input_file=str(input_file),
             output_file=str(output_file),
-            file_size_before=(await asyncio.to_thread(input_file.stat)).st_size,
+            file_size_before=await self._get_file_size_safe(input_file),
             file_size_after=0,
             conversion_time_ms=0
         )
@@ -654,10 +678,12 @@ class FormatConverter:
             )
 
             result.success = export_result.success
-            if output_file.exists():
-                # Wrap blocking stat() call in asyncio.to_thread
+            # Use try/except to avoid blocking exists() check
+            try:
                 file_stat = await asyncio.to_thread(output_file.stat)
                 result.file_size_after = file_stat.st_size
+            except FileNotFoundError:
+                result.file_size_after = 0
 
             result.quality_metrics = {
                 "reconstruction_tolerance": options.tolerance,
@@ -837,7 +863,7 @@ class FormatConverter:
             conversion_method=ConversionMethod.DIRECT,
             input_file=str(input_file),
             output_file=str(output_file),
-            file_size_before=(await asyncio.to_thread(input_file.stat)).st_size,
+            file_size_before=await self._get_file_size_safe(input_file),
             file_size_after=0,
             conversion_time_ms=0
         )
@@ -900,12 +926,15 @@ class FormatConverter:
             logger.error(f"Dolaylı dönüştürme hatası: {e}")
             result.errors.append(str(e))
         finally:
-            # Clean up all temporary files
+            # Clean up all temporary files using try/except to avoid blocking exists() check
             for temp_file in temp_files:
                 try:
-                    if temp_file.exists():
-                        await asyncio.to_thread(temp_file.unlink)
-                        logger.debug(f"Cleaned up temporary file: {temp_file}")
+                    # Try to unlink directly - will fail if file doesn't exist
+                    await asyncio.to_thread(temp_file.unlink)
+                    logger.debug(f"Cleaned up temporary file: {temp_file}")
+                except FileNotFoundError:
+                    # File already deleted, nothing to do
+                    pass
                 except Exception as cleanup_error:
                     logger.warning(f"Failed to clean up temporary file {temp_file}: {cleanup_error}")
 
@@ -919,8 +948,8 @@ class FormatConverter:
         target_format: str
     ) -> dict[str, Any]:
         """Assess conversion quality metrics."""
-        input_size = (await asyncio.to_thread(input_file.stat)).st_size if input_file.exists() else 0
-        output_size = (await asyncio.to_thread(output_file.stat)).st_size if output_file.exists() else 0
+        input_size = await self._get_file_size_safe(input_file)
+        output_size = await self._get_file_size_safe(output_file)
         metrics = {
             "size_ratio": output_size / input_size if input_size > 0 else 0,
             "format_compatibility": "high",

@@ -337,8 +337,10 @@ class UniversalImporter:
             )
 
             try:
-                # Validate file exists
-                if not file_path.exists():
+                # Validate file exists using try/except to avoid blocking exists() check
+                try:
+                    await asyncio.to_thread(file_path.stat)
+                except FileNotFoundError:
                     raise FileNotFoundError(f"Dosya bulunamadı: {file_path}")
 
                 # Get file info

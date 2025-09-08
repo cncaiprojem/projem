@@ -12,6 +12,7 @@ Provides comprehensive REST API for:
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import shutil
 import tempfile
 import uuid
@@ -429,9 +430,11 @@ async def convert_format(
                 preserve_topology=preserve_topology
             )
             
-            # Generate proper job ID as integer using UUID hash
-            # Use UUID's int property to get a unique integer ID
-            job_id = uuid.uuid4().int % (2**31)  # Ensure it fits in a 32-bit signed integer
+            # Generate deterministic job ID based on file name and size
+            file_identifier = f"{file.filename}_{file.size if hasattr(file, 'size') else 0}"
+            job_id_hash = hashlib.sha256(f"convert_{file_identifier}".encode()).hexdigest()
+            # Use 32-bit signed integer for consistency across the codebase
+            job_id = int(job_id_hash, 16) % (2**31)
             
             # Convert
             result = await converter.convert(

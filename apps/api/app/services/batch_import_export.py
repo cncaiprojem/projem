@@ -628,10 +628,10 @@ class BatchProcessor:
     ) -> ExportResult | None:
         """Export single document with error handling."""
         async with self._semaphore:
-            try:
-                document, output_path, format = task
-                self._progress.current_file = output_path.name
+            document, output_path, format = task
+            self._progress.current_file = output_path.name
 
+            try:
                 # Export with timeout
                 result = await asyncio.wait_for(
                     self.exporter.export_with_validation(document, output_path, format, export_options),
@@ -650,6 +650,28 @@ class BatchProcessor:
             except Exception as e:
                 logger.error(f"Dışa aktarma hatası {output_path}: {e}")
                 self._progress.update(processed=1, failed=1)
+
+                # Add retry logic with exponential backoff like in _import_single
+                if batch_options.retry_failed:
+                    for retry in range(batch_options.max_retries):
+                        try:
+                            # Exponential backoff with jitter
+                            backoff_time = (2 ** retry) + (0.1 * retry)  # Add small jitter
+                            await asyncio.sleep(backoff_time)
+                            
+                            result = await asyncio.wait_for(
+                                self.exporter.export_with_validation(document, output_path, format, export_options),
+                                timeout=batch_options.timeout_per_file
+                            )
+                            
+                            if result and result.success:
+                                self._progress.update(successful=1, failed=-1)
+                                logger.info(f"Dışa aktarma başarılı (deneme {retry + 1}): {output_path}")
+                                return result
+                        except Exception as retry_error:
+                            logger.warning(f"Dışa aktarma deneme {retry + 1} başarısız: {retry_error}")
+                            continue
+
                 return None if batch_options.continue_on_error else None
 
     async def _convert_single(
@@ -661,23 +683,23 @@ class BatchProcessor:
     ) -> ConversionResult | None:
         """Convert single file with error handling."""
         async with self._semaphore:
+            input_file = Path(spec["input"])
+            output_file = Path(spec["output"])
+            self._progress.current_file = input_file.name
+
+            # Generate stable job ID based on input file name
+            file_identifier = input_file.name
             try:
-                input_file = Path(spec["input"])
-                output_file = Path(spec["output"])
-                self._progress.current_file = input_file.name
+                # Include file size for better uniqueness (wrap in asyncio.to_thread)
+                file_stat = await asyncio.to_thread(input_file.stat)
+                file_identifier = f"{input_file.name}_{file_stat.st_size}"
+            except Exception:
+                pass
 
-                # Generate stable job ID based on input file name
-                file_identifier = input_file.name
-                try:
-                    # Include file size for better uniqueness (wrap in asyncio.to_thread)
-                    file_stat = await asyncio.to_thread(input_file.stat)
-                    file_identifier = f"{input_file.name}_{file_stat.st_size}"
-                except Exception:
-                    pass
+            # Use 32-bit signed integer for consistency across the codebase
+            conversion_job_id = int(hashlib.sha256(f"convert_{file_identifier}".encode()).hexdigest(), 16) % (2**31)
 
-                # Use 32-bit signed integer for consistency across the codebase
-                conversion_job_id = int(hashlib.sha256(f"convert_{file_identifier}".encode()).hexdigest(), 16) % (2**31)
-
+            try:
                 # Convert with timeout
                 result = await asyncio.wait_for(
                     self.converter.convert(
@@ -703,6 +725,35 @@ class BatchProcessor:
             except Exception as e:
                 logger.error(f"Dönüştürme hatası {input_file}: {e}")
                 self._progress.update(processed=1, failed=1)
+
+                # Add retry logic with exponential backoff like in _import_single
+                if batch_options.retry_failed:
+                    for retry in range(batch_options.max_retries):
+                        try:
+                            # Exponential backoff with jitter
+                            backoff_time = (2 ** retry) + (0.1 * retry)  # Add small jitter
+                            await asyncio.sleep(backoff_time)
+                            
+                            result = await asyncio.wait_for(
+                                self.converter.convert(
+                                    input_file,
+                                    output_file,
+                                    spec.get("source_format"),
+                                    spec.get("target_format"),
+                                    conversion_options,
+                                    job_id=conversion_job_id
+                                ),
+                                timeout=batch_options.timeout_per_file
+                            )
+                            
+                            if result and result.success:
+                                self._progress.update(successful=1, failed=-1)
+                                logger.info(f"Dönüştürme başarılı (deneme {retry + 1}): {input_file}")
+                                return result
+                        except Exception as retry_error:
+                            logger.warning(f"Dönüştürme deneme {retry + 1} başarısız: {retry_error}")
+                            continue
+
                 return None if batch_options.continue_on_error else None
 
     async def _process_sequential(
