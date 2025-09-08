@@ -199,6 +199,7 @@ class FormatValidator:
                         break
         except Exception as e:
             logger.warning(f"Format detection by magic bytes failed: {e}")
+            # Don't expose exception details to users
         
         # Prefer magic byte detection if available
         return format_by_magic or format_by_ext
@@ -451,7 +452,8 @@ class UniversalImporter:
                 logger.warning(f"Unit conversion failed: {e}")
                 if original_shape is not None:
                     shape = original_shape
-                warnings.append(f"Birim dönüşümü başarısız: {e}")
+                # Generic message without exposing exception details
+                warnings.append("Birim dönüşümü başarısız")
         
         # Add to document
         part = document.addObject("Part::Feature", "ImportedSTEP")
@@ -464,7 +466,9 @@ class UniversalImporter:
                 # Wrap blocking readColors in asyncio.to_thread
                 await asyncio.to_thread(Import.readColors, str(file_path), document)
             except Exception as e:
-                warnings.append(f"Renkler korunamadı: {e}")
+                logger.warning(f"Color preservation failed: {e}")
+                # Generic message without exposing exception details
+                warnings.append("Renkler korunamadı")
         
         document.recompute()
         
@@ -572,7 +576,9 @@ class UniversalImporter:
             mesh_obj = document.addObject("Mesh::Feature", "Imported3MF")
             mesh_obj.Mesh = mesh
         except Exception as e:
-            warnings.append(f"3MF içe aktarma kısmi başarılı: {e}")
+            logger.warning(f"3MF import partial success: {e}")
+            # Generic message without exposing exception details
+            warnings.append("3MF içe aktarma kısmi başarılı")
         
         document.recompute()
         
@@ -599,7 +605,9 @@ class UniversalImporter:
             import importDXF
             await asyncio.to_thread(importDXF.insert, str(file_path), document.Name)
         except Exception as e:
-            warnings.append(f"DXF içe aktarma uyarısı: {e}")
+            logger.warning(f"DXF import warning: {e}")
+            # Generic message without exposing exception details
+            warnings.append("DXF içe aktarma uyarısı")
             # Fallback to basic import
             import Draft
             await asyncio.to_thread(Draft.import_dxf, str(file_path))
@@ -663,7 +671,9 @@ class UniversalImporter:
             # Wrap blocking FreeCAD operation in asyncio.to_thread
             await asyncio.to_thread(importIFC.insert, str(file_path), document.Name)
         except Exception as e:
-            warnings.append(f"IFC içe aktarma uyarısı: {e}")
+            logger.warning(f"IFC import warning: {e}")
+            # Generic message without exposing exception details
+            warnings.append("IFC içe aktarma uyarısı")
             # Try alternative import
             import Arch
             # Wrap blocking FreeCAD operation in asyncio.to_thread
@@ -712,7 +722,9 @@ class UniversalImporter:
         except ImportError:
             warnings.append("trimesh kütüphanesi gerekli")
         except Exception as e:
-            warnings.append(f"glTF içe aktarma hatası: {e}")
+            logger.error(f"glTF import error: {e}")
+            # Generic message without exposing exception details
+            warnings.append("glTF içe aktarma hatası")
         
         document.recompute()
         
@@ -810,7 +822,8 @@ class UniversalImporter:
                         }
                         metadata["materials"].append(mat_info)
             except Exception as e:
-                logger.warning(f"Malzeme bilgisi çıkarılamadı: {e}")
+                logger.warning(f"Material info extraction failed: {e}")
+                # No user-facing warning needed for metadata extraction
         
         # Extract document properties
         metadata["properties"] = {

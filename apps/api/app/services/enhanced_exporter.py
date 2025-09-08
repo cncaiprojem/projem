@@ -841,52 +841,84 @@ class EnhancedExporter:
     
     async def _export_xyz(self, document: Any, output_path: Path, options: ExportOptions) -> Dict:
         """Export XYZ point cloud format."""
-        points = []
+        # Use generator for memory-efficient streaming
+        def generate_points():
+            """Generator that yields points one at a time to avoid memory exhaustion."""
+            for obj in document.Objects:
+                if hasattr(obj, "Points"):
+                    # Point cloud object
+                    for p in obj.Points.Points:
+                        yield f"{p.x} {p.y} {p.z}"
+                elif hasattr(obj, "Shape") and obj.Shape:
+                    # Extract vertices from shape
+                    for v in obj.Shape.Vertexes:
+                        yield f"{v.X} {v.Y} {v.Z}"
         
-        for obj in document.Objects:
-            if hasattr(obj, "Points"):
-                # Point cloud object
-                for p in obj.Points.Points:
-                    points.append(f"{p.x} {p.y} {p.z}")
-            elif hasattr(obj, "Shape") and obj.Shape:
-                # Extract vertices from shape
-                for v in obj.Shape.Vertexes:
-                    points.append(f"{v.X} {v.Y} {v.Z}")
-        
-        # Write XYZ file using streaming to avoid memory issues with large point clouds
-        await self._stream_points_to_file(output_path, points)
+        # Write XYZ file using generator for memory-efficient streaming
+        await self._stream_points_to_file(output_path, generate_points())
         
         return {"warnings": []}
     
     async def _export_pcd(self, document: Any, output_path: Path, options: ExportOptions) -> Dict:
-        """Export PCD point cloud format."""
-        points = []
+        """Export PCD point cloud format using memory-efficient streaming."""
+        import tempfile
+        import shutil
         
-        for obj in document.Objects:
-            if hasattr(obj, "Points"):
-                for p in obj.Points.Points:
-                    points.append([p.x, p.y, p.z])
-            elif hasattr(obj, "Shape") and obj.Shape:
-                for v in obj.Shape.Vertexes:
-                    points.append([v.X, v.Y, v.Z])
+        # Count points and write to temp file simultaneously
+        point_count = 0
         
-        # Write PCD header and stream points to avoid memory issues
-        header = (
-            "# .PCD v0.7 - Point Cloud Data file format\n"
-            "VERSION 0.7\n"
-            "FIELDS x y z\n"
-            "SIZE 4 4 4\n"
-            "TYPE F F F\n"
-            "COUNT 1 1 1\n"
-            f"WIDTH {len(points)}\n"
-            "HEIGHT 1\n"
-            "VIEWPOINT 0 0 0 1 0 0 0\n"
-            f"POINTS {len(points)}\n"
-            "DATA ascii\n"
-        )
+        # Create temp file for points
+        temp_fd, temp_path = tempfile.mkstemp(suffix=".pcd_tmp", text=True)
         
-        # Stream PCD file to disk
-        await self._stream_pcd_to_file(output_path, header, points)
+        try:
+            # Write points to temp file while counting
+            def write_and_count_points():
+                nonlocal point_count
+                with os.fdopen(temp_fd, 'w') as temp_file:
+                    for obj in document.Objects:
+                        if hasattr(obj, "Points"):
+                            for p in obj.Points.Points:
+                                temp_file.write(f"{p.x} {p.y} {p.z}\n")
+                                point_count += 1
+                        elif hasattr(obj, "Shape") and obj.Shape:
+                            for v in obj.Shape.Vertexes:
+                                temp_file.write(f"{v.X} {v.Y} {v.Z}\n")
+                                point_count += 1
+            
+            # Write points to temp file
+            await asyncio.to_thread(write_and_count_points)
+            
+            # Now write final file with header and points
+            def write_final_pcd():
+                with open(output_path, 'w') as out_file:
+                    # Write header with correct point count
+                    header = (
+                        "# .PCD v0.7 - Point Cloud Data file format\n"
+                        "VERSION 0.7\n"
+                        "FIELDS x y z\n"
+                        "SIZE 4 4 4\n"
+                        "TYPE F F F\n"
+                        "COUNT 1 1 1\n"
+                        f"WIDTH {point_count}\n"
+                        "HEIGHT 1\n"
+                        "VIEWPOINT 0 0 0 1 0 0 0\n"
+                        f"POINTS {point_count}\n"
+                        "DATA ascii\n"
+                    )
+                    out_file.write(header)
+                    
+                    # Efficiently copy points from temp file
+                    with open(temp_path, 'r') as temp_file:
+                        shutil.copyfileobj(temp_file, out_file)
+            
+            await asyncio.to_thread(write_final_pcd)
+            
+        finally:
+            # Clean up temp file
+            try:
+                os.unlink(temp_path)
+            except Exception:
+                pass  # Ignore cleanup errors
         
         return {"warnings": []}
     
@@ -1086,20 +1118,22 @@ class EnhancedExporter:
             "point_cloud": ["xyz", "pcd"]
         }
     
-    async def _stream_points_to_file(self, output_path: Path, points: List[str]) -> None:
+    async def _stream_points_to_file(self, output_path: Path, points) -> None:
         """
         Stream points to file to avoid memory issues with large point clouds.
         
         Args:
             output_path: Path to output file
-            points: List of point strings
+            points: Iterator/generator of point strings
         """
         def write_points():
             with open(output_path, 'w') as f:
-                for i, point in enumerate(points):
-                    f.write(point)
-                    if i < len(points) - 1:
+                first = True
+                for point in points:
+                    if not first:
                         f.write('\n')
+                    f.write(point)
+                    first = False
         
         await asyncio.to_thread(write_points)
     

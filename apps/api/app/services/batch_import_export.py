@@ -648,6 +648,17 @@ class BatchProcessor:
                 output_file = Path(spec["output"])
                 self._progress.current_file = input_file.name
                 
+                # Generate stable job ID based on input file name
+                file_identifier = input_file.name
+                try:
+                    # Include file size for better uniqueness
+                    file_size = input_file.stat().st_size
+                    file_identifier = f"{input_file.name}_{file_size}"
+                except Exception:
+                    pass
+                
+                conversion_job_id = int(hashlib.sha256(f"convert_{file_identifier}".encode()).hexdigest()[:16], 16)
+                
                 # Convert with timeout
                 result = await asyncio.wait_for(
                     self.converter.convert(
@@ -656,7 +667,7 @@ class BatchProcessor:
                         spec.get("source_format"),
                         spec.get("target_format"),
                         conversion_options,
-                        job_id=int(hashlib.sha256(str(input_file).encode()).hexdigest()[:16], 16)
+                        job_id=conversion_job_id
                     ),
                     timeout=batch_options.timeout_per_file
                 )
