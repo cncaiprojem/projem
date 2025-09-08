@@ -847,9 +847,8 @@ class EnhancedExporter:
                 for v in obj.Shape.Vertexes:
                     points.append(f"{v.X} {v.Y} {v.Z}")
         
-        # Write XYZ file - build content and use asyncio.to_thread
-        content = "\n".join(points)
-        await asyncio.to_thread(output_path.write_text, content)
+        # Write XYZ file using streaming to avoid memory issues with large point clouds
+        await self._stream_points_to_file(output_path, points)
         
         return {"warnings": []}
     
@@ -865,8 +864,8 @@ class EnhancedExporter:
                 for v in obj.Shape.Vertexes:
                     points.append([v.X, v.Y, v.Z])
         
-        # Build PCD content
-        content = (
+        # Write PCD header and stream points to avoid memory issues
+        header = (
             "# .PCD v0.7 - Point Cloud Data file format\n"
             "VERSION 0.7\n"
             "FIELDS x y z\n"
@@ -880,12 +879,8 @@ class EnhancedExporter:
             "DATA ascii\n"
         )
         
-        # Add point data
-        for p in points:
-            content += f"{p[0]} {p[1]} {p[2]}\n"
-        
-        # Write PCD file using asyncio.to_thread
-        await asyncio.to_thread(output_path.write_text, content)
+        # Stream PCD file to disk
+        await self._stream_pcd_to_file(output_path, header, points)
         
         return {"warnings": []}
     
@@ -1084,3 +1079,37 @@ class EnhancedExporter:
             "visualization": ["vrml", "wrl", "x3d"],
             "point_cloud": ["xyz", "pcd"]
         }
+    
+    async def _stream_points_to_file(self, output_path: Path, points: List[str]) -> None:
+        """
+        Stream points to file to avoid memory issues with large point clouds.
+        
+        Args:
+            output_path: Path to output file
+            points: List of point strings
+        """
+        def write_points():
+            with open(output_path, 'w') as f:
+                for i, point in enumerate(points):
+                    f.write(point)
+                    if i < len(points) - 1:
+                        f.write('\n')
+        
+        await asyncio.to_thread(write_points)
+    
+    async def _stream_pcd_to_file(self, output_path: Path, header: str, points: List[List[float]]) -> None:
+        """
+        Stream PCD data to file to avoid memory issues with large point clouds.
+        
+        Args:
+            output_path: Path to output file
+            header: PCD header string
+            points: List of point coordinates
+        """
+        def write_pcd():
+            with open(output_path, 'w') as f:
+                f.write(header)
+                for point in points:
+                    f.write(f"{point[0]} {point[1]} {point[2]}\n")
+        
+        await asyncio.to_thread(write_pcd)

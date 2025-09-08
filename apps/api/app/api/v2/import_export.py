@@ -230,10 +230,14 @@ async def import_file(
         
         tmp_path = None
         try:
-            # Save uploaded file temporarily with proper cleanup
+            # Save uploaded file temporarily with proper cleanup using streaming
             with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
-                content = await file.read()
-                tmp.write(content)
+                # Stream file to disk instead of loading entire content into memory
+                await asyncio.to_thread(
+                    shutil.copyfileobj,
+                    file.file,
+                    tmp
+                )
                 tmp_path = Path(tmp.name)
             
             # Create import options
@@ -405,10 +409,14 @@ async def convert_format(
         input_path = None
         output_path = None
         try:
-            # Save uploaded file
+            # Save uploaded file using streaming
             with tempfile.NamedTemporaryFile(delete=False, suffix=Path(file.filename).suffix) as tmp:
-                content = await file.read()
-                tmp.write(content)
+                # Stream file to disk instead of loading entire content into memory
+                await asyncio.to_thread(
+                    shutil.copyfileobj,
+                    file.file,
+                    tmp
+                )
                 input_path = Path(tmp.name)
             
             # Create output path with proper cleanup

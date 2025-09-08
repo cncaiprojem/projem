@@ -449,7 +449,8 @@ class UniversalImporter:
                 warnings.append("Birimler inch'e dönüştürüldü")
             except Exception as e:
                 logger.warning(f"Unit conversion failed: {e}")
-                shape = original_shape if original_shape is not None else shape
+                if original_shape is not None:
+                    shape = original_shape
                 warnings.append(f"Birim dönüşümü başarısız: {e}")
         
         # Add to document

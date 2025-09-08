@@ -13,12 +13,19 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import os
 import tempfile
 from collections import defaultdict
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
+
+try:
+    import psutil
+    PSUTIL_AVAILABLE = True
+except ImportError:
+    PSUTIL_AVAILABLE = False
 
 from pydantic import BaseModel, Field
 
@@ -132,17 +139,15 @@ class ResourceMonitor:
     @classmethod
     def get_available_memory(cls) -> int:
         """Get available memory in MB."""
-        try:
-            import psutil
+        if PSUTIL_AVAILABLE:
             return psutil.virtual_memory().available // (1024 * 1024)
-        except ImportError:
+        else:
             # Default to 1GB if psutil not available
             return 1024
     
     @classmethod
     def get_cpu_count(cls) -> int:
         """Get number of CPU cores."""
-        import os
         return os.cpu_count() or 4
     
     @classmethod
