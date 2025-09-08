@@ -113,13 +113,16 @@ except FileNotFoundError:
 **Issue**: Direct shape modification without error handling  
 **Fix**: Added backup and try-except
 ```python
-# First copy the shape before any modification
-original_shape = shape.copy()
+# Initialize original_shape to None before try block
+original_shape = None
 try:
+    # First copy the shape before any modification
+    original_shape = shape.copy()
     shape.scale(MM_TO_INCH)  # Using constant instead of magic number
 except Exception as e:
-    # Proper error handling - original_shape is always defined here
-    shape = original_shape
+    # Proper error handling - check if original_shape exists
+    if original_shape:
+        shape = original_shape
     warnings.append(f"Birim dönüşümü başarısız: {e}")
 ```
 

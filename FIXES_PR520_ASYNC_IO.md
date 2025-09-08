@@ -150,12 +150,14 @@ from io import BytesIO
 
 ```python
 # Documentation now shows proper pattern without locals()
-original_shape = shape.copy()
+original_shape = None
 try:
+    original_shape = shape.copy()
     shape.scale(MM_TO_INCH)  # Using constant instead of magic number
 except Exception as e:
-    # original_shape is always defined here
-    shape = original_shape
+    # Check if original_shape exists before using it
+    if original_shape:
+        shape = original_shape
     warnings.append(f"Birim dönüşümü başarısız: {e}")
 ```
 

@@ -573,7 +573,8 @@ class FormatConverter:
         if result.success and options.simplify_mesh:
             try:
                 import trimesh
-                mesh = trimesh.load(str(output_file))
+                # Wrap blocking trimesh.load in asyncio.to_thread
+                mesh = await asyncio.to_thread(trimesh.load, str(output_file))
                 
                 if options.target_face_count:
                     simplified = mesh.simplify_quadric_decimation(options.target_face_count)
@@ -630,7 +631,8 @@ class FormatConverter:
             if options.detect_features:
                 # Detect and reconstruct features
                 # This is simplified - real implementation would be more complex
-                shape = shape.makeSolid()
+                # Wrap blocking makeSolid in asyncio.to_thread
+                shape = await asyncio.to_thread(shape.makeSolid)
             
             # Add to document
             part = doc.addObject("Part::Feature", "ReconstructedPart")
@@ -680,7 +682,8 @@ class FormatConverter:
         if result.success and target_format in ["gltf", "glb"]:
             try:
                 import trimesh
-                scene = trimesh.load(str(output_file))
+                # Wrap blocking trimesh.load in asyncio.to_thread
+                scene = await asyncio.to_thread(trimesh.load, str(output_file))
                 
                 # Optimize for web
                 for name, geom in scene.geometry.items():
@@ -691,7 +694,8 @@ class FormatConverter:
                 
                 # Export with compression if GLB
                 if target_format == "glb":
-                    scene.export(str(output_file), file_type="glb")
+                    # Wrap blocking scene.export in asyncio.to_thread
+                    await asyncio.to_thread(scene.export, str(output_file), file_type="glb")
                 
                 result.quality_metrics["web_optimized"] = True
                 

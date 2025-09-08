@@ -550,7 +550,7 @@ class BatchProcessor:
                 self._progress.current_file = file_path.name
                 
                 # Generate job ID as int using stable hash
-                import hashlib
+                # hashlib already imported at module level
                 job_id_hash = hashlib.sha256(f"{job_id_prefix}_{file_path.stem}_{file_path}".encode()).hexdigest()
                 job_id = int(job_id_hash[:16], 16)
                 

@@ -497,8 +497,8 @@ class EnhancedExporter:
         """Export native FreeCAD format."""
         import FreeCAD
         
-        # Save document
-        document.saveAs(str(output_path))
+        # Save document using asyncio.to_thread for blocking I/O
+        await asyncio.to_thread(document.saveAs, str(output_path))
         
         # Compress if requested
         if options.compress:
@@ -526,9 +526,9 @@ class EnhancedExporter:
         else:
             shape = Part.makeCompound(shapes)
         
-        # Export with schema
+        # Export with schema using asyncio.to_thread for blocking I/O
         import Import
-        Import.export([shape], str(output_path))
+        await asyncio.to_thread(Import.export, [shape], str(output_path))
         
         # Apply schema settings
         if options.step_schema != StepSchema.AP214:
@@ -591,11 +591,11 @@ class EnhancedExporter:
             for mesh in meshes:
                 final_mesh.addMesh(mesh)
             
-            # Export
+            # Export using asyncio.to_thread for blocking I/O
             if options.stl_ascii:
-                final_mesh.write(str(output_path), "AST")
+                await asyncio.to_thread(final_mesh.write, str(output_path), "AST")
             else:
-                final_mesh.write(str(output_path))
+                await asyncio.to_thread(final_mesh.write, str(output_path))
         
         return {"warnings": []}
     
@@ -616,7 +616,8 @@ class EnhancedExporter:
             final_mesh = Mesh.Mesh()
             for mesh in meshes:
                 final_mesh.addMesh(mesh)
-            final_mesh.write(str(output_path), "OBJ")
+            # Write OBJ using asyncio.to_thread for blocking I/O
+            await asyncio.to_thread(final_mesh.write, str(output_path), "OBJ")
         
         return {"warnings": []}
     
@@ -637,7 +638,8 @@ class EnhancedExporter:
             final_mesh = Mesh.Mesh()
             for mesh in meshes:
                 final_mesh.addMesh(mesh)
-            final_mesh.write(str(output_path), "PLY")
+            # Write PLY using asyncio.to_thread for blocking I/O
+            await asyncio.to_thread(final_mesh.write, str(output_path), "PLY")
         
         return {"warnings": []}
     
@@ -658,7 +660,8 @@ class EnhancedExporter:
             final_mesh = Mesh.Mesh()
             for mesh in meshes:
                 final_mesh.addMesh(mesh)
-            final_mesh.write(str(output_path), "OFF")
+            # Write OFF using asyncio.to_thread for blocking I/O
+            await asyncio.to_thread(final_mesh.write, str(output_path), "OFF")
         
         return {"warnings": []}
     
@@ -692,7 +695,8 @@ class EnhancedExporter:
             final_mesh = Mesh.Mesh()
             for mesh in meshes:
                 final_mesh.addMesh(mesh)
-            final_mesh.write(str(output_path), "AMF")
+            # Write AMF using asyncio.to_thread for blocking I/O
+            await asyncio.to_thread(final_mesh.write, str(output_path), "AMF")
         
         return {"warnings": []}
     
@@ -728,11 +732,13 @@ class EnhancedExporter:
         
         try:
             import importIFC
-            importIFC.export(document.Objects, str(output_path))
+            # Wrap blocking IFC export in asyncio.to_thread
+            await asyncio.to_thread(importIFC.export, document.Objects, str(output_path))
         except Exception as e:
             warnings.append(f"IFC dışa aktarma uyarısı: {e}")
             import Arch
-            Arch.exportIFC(document.Objects, str(output_path))
+            # Wrap blocking Arch.exportIFC in asyncio.to_thread
+            await asyncio.to_thread(Arch.exportIFC, document.Objects, str(output_path))
         
         return {"warnings": warnings}
     
@@ -767,8 +773,8 @@ class EnhancedExporter:
                     mesh = trimesh.Trimesh(vertices=vertices, faces=faces)
                     scene.add_geometry(mesh, node_name=obj.Label)
             
-            # Export to GLTF
-            scene.export(str(output_path))
+            # Export to GLTF using asyncio.to_thread for blocking I/O
+            await asyncio.to_thread(scene.export, str(output_path))
             
         except ImportError:
             warnings.append("trimesh kütüphanesi gerekli")
@@ -805,7 +811,8 @@ class EnhancedExporter:
             final_mesh = Mesh.Mesh()
             for mesh in meshes:
                 final_mesh.addMesh(mesh)
-            final_mesh.write(str(output_path), "VRML")
+            # Write VRML using asyncio.to_thread for blocking I/O
+            await asyncio.to_thread(final_mesh.write, str(output_path), "VRML")
         
         return {"warnings": []}
     
@@ -833,9 +840,9 @@ class EnhancedExporter:
                 for v in obj.Shape.Vertexes:
                     points.append(f"{v.X} {v.Y} {v.Z}")
         
-        # Write XYZ file
-        with open(output_path, "w") as f:
-            f.write("\n".join(points))
+        # Write XYZ file - build content and use asyncio.to_thread
+        content = "\n".join(points)
+        await asyncio.to_thread(output_path.write_text, content)
         
         return {"warnings": []}
     
@@ -851,22 +858,27 @@ class EnhancedExporter:
                 for v in obj.Shape.Vertexes:
                     points.append([v.X, v.Y, v.Z])
         
-        # Write PCD header
-        with open(output_path, "w") as f:
-            f.write("# .PCD v0.7 - Point Cloud Data file format\n")
-            f.write("VERSION 0.7\n")
-            f.write("FIELDS x y z\n")
-            f.write("SIZE 4 4 4\n")
-            f.write("TYPE F F F\n")
-            f.write("COUNT 1 1 1\n")
-            f.write(f"WIDTH {len(points)}\n")
-            f.write("HEIGHT 1\n")
-            f.write("VIEWPOINT 0 0 0 1 0 0 0\n")
-            f.write(f"POINTS {len(points)}\n")
-            f.write("DATA ascii\n")
-            
-            for p in points:
-                f.write(f"{p[0]} {p[1]} {p[2]}\n")
+        # Build PCD content
+        content = (
+            "# .PCD v0.7 - Point Cloud Data file format\n"
+            "VERSION 0.7\n"
+            "FIELDS x y z\n"
+            "SIZE 4 4 4\n"
+            "TYPE F F F\n"
+            "COUNT 1 1 1\n"
+            f"WIDTH {len(points)}\n"
+            "HEIGHT 1\n"
+            "VIEWPOINT 0 0 0 1 0 0 0\n"
+            f"POINTS {len(points)}\n"
+            "DATA ascii\n"
+        )
+        
+        # Add point data
+        for p in points:
+            content += f"{p[0]} {p[1]} {p[2]}\n"
+        
+        # Write PCD file using asyncio.to_thread
+        await asyncio.to_thread(output_path.write_text, content)
         
         return {"warnings": []}
     
@@ -975,17 +987,17 @@ class EnhancedExporter:
         
         # Try to read file header to verify format
         try:
-            with open(file_path, "rb") as f:
-                header = f.read(1024)
-                
-                if format == ExportFormat.STEP:
-                    verification["format_valid"] = b"ISO-10303-21" in header
-                elif format == ExportFormat.STL:
-                    verification["format_valid"] = b"solid" in header or len(header) >= 84
-                elif format == ExportFormat.IFC:
-                    verification["format_valid"] = b"IFC" in header
-                else:
-                    verification["format_valid"] = True
+            # Read file header asynchronously
+            header = await asyncio.to_thread(lambda: file_path.read_bytes()[:1024])
+            
+            if format == ExportFormat.STEP:
+                verification["format_valid"] = b"ISO-10303-21" in header
+            elif format == ExportFormat.STL:
+                verification["format_valid"] = b"solid" in header or len(header) >= 84
+            elif format == ExportFormat.IFC:
+                verification["format_valid"] = b"IFC" in header
+            else:
+                verification["format_valid"] = True
         except Exception as e:
             logger.warning(f"Format doğrulama hatası: {e}")
         
