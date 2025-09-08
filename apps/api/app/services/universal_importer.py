@@ -9,21 +9,18 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
-import json
-import os
-import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from ..core.constants import FREECAD_VERSION, OCCT_VERSION
 from ..core.logging import get_logger
 from ..core.metrics import import_counter, import_duration_histogram
 from ..core.telemetry import create_span
-from .freecad_document_manager import FreeCADDocumentManager, DocumentMetadata
+from .freecad_document_manager import DocumentMetadata, FreeCADDocumentManager
 
 logger = get_logger(__name__)
 
@@ -38,7 +35,7 @@ class ImportFormat(str, Enum):
     FCSTD = "fcstd"
     FCMACRO = "fcmacro"
     FCMAT = "fcmat"
-    
+
     # CAD Formats
     STEP = "step"
     STP = "stp"
@@ -48,7 +45,7 @@ class ImportFormat(str, Enum):
     BRP = "brp"
     SAT = "sat"
     SAB = "sab"
-    
+
     # Mesh Formats
     STL = "stl"
     OBJ = "obj"
@@ -56,24 +53,24 @@ class ImportFormat(str, Enum):
     OFF = "off"
     THREEMF = "3mf"
     AMF = "amf"
-    
+
     # Drawing Formats
     DXF = "dxf"
     DWG = "dwg"
     SVG = "svg"
-    
+
     # Point Cloud Formats
     PCD = "pcd"
     XYZ = "xyz"
     LAS = "las"
     LAZ = "laz"
-    
+
     # Industry Specific
     IFC = "ifc"  # Architecture/BIM
     DAE = "dae"  # COLLADA for animation
     GLTF = "gltf"  # Web 3D
     GLB = "glb"  # Web 3D binary
-    
+
     # Additional Formats
     PDF = "pdf"  # 2D/3D PDF
     U3D = "u3d"  # Universal 3D
@@ -110,7 +107,7 @@ class ImportOptions(BaseModel):
     import_hidden: bool = Field(default=False, description="Gizli nesneleri içe aktar")
     simplify_geometry: bool = Field(default=False, description="Geometriyi basitleştir")
     tolerance: float = Field(default=0.001, ge=0.0001, le=1.0, description="İçe aktarma toleransı")
-    
+
     model_config = {"json_schema_extra": {"examples": [
         {
             "preserve_history": True,
@@ -130,14 +127,14 @@ class ImportResult(BaseModel):
     file_path: str = Field(description="Dosya yolu")
     file_size: int = Field(description="Dosya boyutu (bytes)")
     sha256: str = Field(description="Dosya SHA256 hash")
-    metadata: Dict[str, Any] = Field(default_factory=dict, description="Metadata")
-    statistics: Dict[str, Any] = Field(default_factory=dict, description="İstatistikler")
-    warnings: List[str] = Field(default_factory=list, description="Uyarılar")
-    errors: List[str] = Field(default_factory=list, description="Hatalar")
+    metadata: dict[str, Any] = Field(default_factory=dict, description="Metadata")
+    statistics: dict[str, Any] = Field(default_factory=dict, description="İstatistikler")
+    warnings: list[str] = Field(default_factory=list, description="Uyarılar")
+    errors: list[str] = Field(default_factory=list, description="Hatalar")
     import_time_ms: float = Field(description="İçe aktarma süresi (ms)")
-    
+
     # Turkish messages
-    messages: Dict[str, str] = Field(default_factory=lambda: {
+    messages: dict[str, str] = Field(default_factory=lambda: {
         "format_detected": "Format tespit edildi",
         "validation_passed": "Doğrulama başarılı",
         "import_started": "İçe aktarma başladı",
@@ -148,7 +145,7 @@ class ImportResult(BaseModel):
 
 class FormatValidator:
     """Validates file formats before import."""
-    
+
     # Magic bytes for format detection
     MAGIC_BYTES = {
         b"ISO-10303-21": ["step", "stp"],
@@ -164,15 +161,15 @@ class FormatValidator:
         b"OFF": ["off"],
         b"#VRML": ["vrml", "wrl"],
     }
-    
+
     @classmethod
-    async def validate_format(cls, file_path: Path) -> Optional[ImportFormat]:
+    async def validate_format(cls, file_path: Path) -> ImportFormat | None:
         """
         Validate and detect file format.
-        
+
         Args:
             file_path: Path to file
-            
+
         Returns:
             Detected format or None
         """
@@ -182,7 +179,7 @@ class FormatValidator:
             format_by_ext = ImportFormat(extension)
         except ValueError:
             format_by_ext = None
-        
+
         # Then check by magic bytes
         format_by_magic = None
         try:
@@ -190,9 +187,9 @@ class FormatValidator:
             def read_header():
                 with open(file_path, "rb") as f:
                     return f.read(1024)  # Read first 1KB
-            
+
             header = await asyncio.to_thread(read_header)
-            
+
             for magic, formats in cls.MAGIC_BYTES.items():
                 if magic in header:
                     # Try to match with extension first
@@ -204,16 +201,16 @@ class FormatValidator:
         except Exception as e:
             logger.warning(f"Format detection by magic bytes failed: {e}")
             # Don't expose exception details to users
-        
+
         # Prefer magic byte detection if available
         return format_by_magic or format_by_ext
-    
+
     @classmethod
-    async def get_file_info(cls, file_path: Path) -> Dict[str, Any]:
+    async def get_file_info(cls, file_path: Path) -> dict[str, Any]:
         """Get file information."""
         # Wrap blocking stat call in asyncio.to_thread
         stat = await asyncio.to_thread(file_path.stat)
-        
+
         # Calculate SHA256 with async I/O
         def calculate_sha256():
             sha256 = hashlib.sha256()
@@ -221,13 +218,13 @@ class FormatValidator:
                 for chunk in iter(lambda: f.read(8192), b""):
                     sha256.update(chunk)
             return sha256.hexdigest()
-        
+
         sha256_hash = await asyncio.to_thread(calculate_sha256)
-        
+
         return {
             "size": stat.st_size,
-            "created": datetime.fromtimestamp(stat.st_ctime, tz=timezone.utc).isoformat(),
-            "modified": datetime.fromtimestamp(stat.st_mtime, tz=timezone.utc).isoformat(),
+            "created": datetime.fromtimestamp(stat.st_ctime, tz=UTC).isoformat(),
+            "modified": datetime.fromtimestamp(stat.st_mtime, tz=UTC).isoformat(),
             "sha256": sha256_hash,
             "extension": file_path.suffix.lower(),
             "name": file_path.name
@@ -236,37 +233,37 @@ class FormatValidator:
 
 class UniversalImporter:
     """Universal importer for 30+ formats with metadata preservation."""
-    
-    def __init__(self, document_manager: Optional[FreeCADDocumentManager] = None):
+
+    def __init__(self, document_manager: FreeCADDocumentManager | None = None):
         """
         Initialize universal importer.
-        
+
         Args:
             document_manager: Optional document manager instance
         """
         self.document_manager = document_manager or FreeCADDocumentManager()
         self._import_handlers = self._initialize_handlers()
         self._freecad_available = self._check_freecad()
-    
+
     def _check_freecad(self) -> bool:
         """Check if FreeCAD is available."""
         try:
             import FreeCAD
-            import Part
             import Mesh
+            import Part
             return True
         except ImportError:
             logger.error("FreeCAD gerekli ancak yüklü değil")
             return False
-    
-    def _initialize_handlers(self) -> Dict[ImportFormat, callable]:
+
+    def _initialize_handlers(self) -> dict[ImportFormat, callable]:
         """Initialize format-specific import handlers."""
         return {
             # Native FreeCAD
             ImportFormat.FCSTD: self._import_fcstd,
             ImportFormat.FCMACRO: self._import_fcmacro,
             ImportFormat.FCMAT: self._import_fcmat,
-            
+
             # CAD Formats
             ImportFormat.STEP: self._import_step,
             ImportFormat.STP: self._import_step,
@@ -274,7 +271,7 @@ class UniversalImporter:
             ImportFormat.IGS: self._import_iges,
             ImportFormat.BREP: self._import_brep,
             ImportFormat.BRP: self._import_brep,
-            
+
             # Mesh Formats
             ImportFormat.STL: self._import_stl,
             ImportFormat.OBJ: self._import_obj,
@@ -282,53 +279,53 @@ class UniversalImporter:
             ImportFormat.OFF: self._import_off,
             ImportFormat.THREEMF: self._import_3mf,
             ImportFormat.AMF: self._import_amf,
-            
+
             # Drawing Formats
             ImportFormat.DXF: self._import_dxf,
             ImportFormat.DWG: self._import_dwg,
             ImportFormat.SVG: self._import_svg,
-            
+
             # Point Cloud
             ImportFormat.PCD: self._import_pcd,
             ImportFormat.XYZ: self._import_xyz,
             ImportFormat.LAS: self._import_las,
-            
+
             # Industry Specific
             ImportFormat.IFC: self._import_ifc,
             ImportFormat.DAE: self._import_dae,
             ImportFormat.GLTF: self._import_gltf,
             ImportFormat.GLB: self._import_glb,
-            
+
             # Additional
             ImportFormat.VRML: self._import_vrml,
             ImportFormat.WRL: self._import_vrml,
         }
-    
+
     async def import_file(
         self,
-        file_path: Union[str, Path],
+        file_path: str | Path,
         job_id: int,
-        options: Optional[ImportOptions] = None
+        options: ImportOptions | None = None
     ) -> ImportResult:
         """
         Import file with metadata preservation.
-        
+
         Args:
             file_path: Path to import file
             job_id: Job ID for document naming
             options: Import options
-            
+
         Returns:
             Import result with metadata
         """
         with create_span("universal_import") as span:
             span.set_attribute("file_path", str(file_path))
             span.set_attribute("job_id", job_id)
-            
+
             start_time = asyncio.get_event_loop().time()
             file_path = Path(file_path)
             options = options or ImportOptions()
-            
+
             result = ImportResult(
                 success=False,
                 format=ImportFormat.FCSTD,
@@ -338,32 +335,32 @@ class UniversalImporter:
                 sha256="",
                 import_time_ms=0
             )
-            
+
             try:
                 # Validate file exists
                 if not file_path.exists():
                     raise FileNotFoundError(f"Dosya bulunamadı: {file_path}")
-                
+
                 # Get file info
                 file_info = await FormatValidator.get_file_info(file_path)
                 result.file_size = file_info["size"]
                 result.sha256 = file_info["sha256"]
-                
+
                 # Detect format
                 detected_format = await FormatValidator.validate_format(file_path)
                 if not detected_format:
                     raise ValueError(f"Desteklenmeyen format: {file_path.suffix}")
-                
+
                 result.format = detected_format
                 logger.info(f"Format tespit edildi: {detected_format.value}")
-                
+
                 # Get handler
                 handler = self._import_handlers.get(detected_format)
                 if not handler:
                     raise NotImplementedError(
                         f"Format henüz desteklenmiyor: {detected_format.value}"
                     )
-                
+
                 # Create document with manager
                 doc_result = await self.document_manager.create_document(
                     job_id=job_id,
@@ -374,84 +371,83 @@ class UniversalImporter:
                         import_options=options.model_dump()
                     )
                 )
-                
+
                 result.document_id = doc_result["document_id"]
-                
+
                 # Import with handler
                 import_data = await handler(file_path, doc_result["document"], options)
-                
+
                 # Extract metadata
                 result.metadata = await self._extract_metadata(
-                    doc_result["document"], 
+                    doc_result["document"],
                     detected_format,
                     options
                 )
-                
+
                 # Collect statistics
                 result.statistics = await self._collect_statistics(doc_result["document"])
-                
+
                 # Save document
                 await self.document_manager.save_document(
                     doc_result["document"],
                     compress=True
                 )
-                
+
                 result.success = True
                 result.warnings = import_data.get("warnings", [])
-                
+
                 # Record metrics
                 import_counter.labels(
                     format=detected_format.value,
                     status="success"
                 ).inc()
-                
+
             except Exception as e:
                 logger.error(f"İçe aktarma hatası: {e}")
                 result.errors.append(str(e))
                 result.success = False
-                
+
                 import_counter.labels(
                     format=result.format.value,
                     status="error"
                 ).inc()
-            
+
             finally:
                 # Calculate import time
                 result.import_time_ms = (asyncio.get_event_loop().time() - start_time) * 1000
                 import_duration_histogram.labels(
                     format=result.format.value
                 ).observe(result.import_time_ms)
-                
+
                 span.set_attribute("success", result.success)
                 span.set_attribute("import_time_ms", result.import_time_ms)
-            
+
             return result
-    
-    async def _import_fcstd(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_fcstd(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import native FreeCAD format."""
         import FreeCAD
-        
+
         # Open document directly
         FreeCAD.openDocument(str(file_path))
-        
+
         return {"warnings": []}
-    
-    async def _import_step(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_step(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import STEP format."""
         import Part
-        
+
         warnings = []
-        
+
         # Read STEP with options
         shape = Part.Shape()
         await asyncio.to_thread(shape.read, str(file_path))
-        
+
         # Apply unit conversion if needed
         original_shape = None  # Initialize before try block
         if options.unit_system == UnitSystem.IMPERIAL:
             # Convert from mm to inch with error handling
             try:
-                import FreeCAD
                 # Create backup before modification
                 original_shape = await asyncio.to_thread(shape.copy)
                 # Wrap CPU-intensive scale operation in asyncio.to_thread
@@ -463,11 +459,11 @@ class UniversalImporter:
                     shape = original_shape
                 # Generic message without exposing exception details
                 warnings.append("Birim dönüşümü başarısız")
-        
+
         # Add to document
         part = document.addObject("Part::Feature", "ImportedSTEP")
         part.Shape = shape
-        
+
         # Preserve colors if available
         if options.preserve_colors:
             try:
@@ -478,50 +474,50 @@ class UniversalImporter:
                 logger.warning(f"Color preservation failed: {e}")
                 # Generic message without exposing exception details
                 warnings.append("Renkler korunamadı")
-        
+
         document.recompute()
-        
+
         return {"warnings": warnings}
-    
-    async def _import_iges(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_iges(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import IGES format."""
         import Part
-        
+
         shape = Part.Shape()
         await asyncio.to_thread(shape.read, str(file_path))
-        
+
         part = document.addObject("Part::Feature", "ImportedIGES")
         part.Shape = shape
-        
+
         document.recompute()
-        
+
         return {"warnings": []}
-    
-    async def _import_brep(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_brep(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import BREP format."""
         import Part
-        
+
         shape = Part.Shape()
         await asyncio.to_thread(shape.read, str(file_path))
-        
+
         part = document.addObject("Part::Feature", "ImportedBREP")
         part.Shape = shape
-        
+
         document.recompute()
-        
+
         return {"warnings": []}
-    
-    async def _import_stl(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_stl(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import STL format."""
         import Mesh
-        
+
         # Wrap blocking FreeCAD operation in asyncio.to_thread
         mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
-        
+
         # Add to document
         mesh_obj = document.addObject("Mesh::Feature", "ImportedSTL")
         mesh_obj.Mesh = mesh
-        
+
         # Convert to solid if needed
         if options.merge_solids:
             import Part
@@ -530,54 +526,54 @@ class UniversalImporter:
             await asyncio.to_thread(shape.makeShapeFromMesh, mesh.Topology, options.tolerance)
             part = document.addObject("Part::Feature", "STLSolid")
             part.Shape = shape
-        
+
         document.recompute()
-        
+
         return {"warnings": []}
-    
-    async def _import_obj(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_obj(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import OBJ format."""
         import Mesh
-        
+
         # Wrap blocking FreeCAD operation in asyncio.to_thread
         mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         mesh_obj = document.addObject("Mesh::Feature", "ImportedOBJ")
         mesh_obj.Mesh = mesh
-        
+
         document.recompute()
-        
+
         return {"warnings": []}
-    
-    async def _import_ply(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_ply(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import PLY format."""
         import Mesh
-        
+
         # Wrap blocking FreeCAD operation in asyncio.to_thread
         mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         mesh_obj = document.addObject("Mesh::Feature", "ImportedPLY")
         mesh_obj.Mesh = mesh
-        
+
         document.recompute()
-        
+
         return {"warnings": []}
-    
-    async def _import_off(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_off(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import OFF format."""
         import Mesh
-        
+
         # Wrap blocking FreeCAD operation in asyncio.to_thread
         mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         mesh_obj = document.addObject("Mesh::Feature", "ImportedOFF")
         mesh_obj.Mesh = mesh
-        
+
         document.recompute()
-        
+
         return {"warnings": []}
-    
-    async def _import_3mf(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_3mf(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import 3MF format."""
         warnings = []
-        
+
         try:
             import Mesh
             # Wrap blocking FreeCAD operation in asyncio.to_thread
@@ -588,28 +584,28 @@ class UniversalImporter:
             logger.warning(f"3MF import partial success: {e}")
             # Generic message without exposing exception details
             warnings.append("3MF içe aktarma kısmi başarılı")
-        
+
         document.recompute()
-        
+
         return {"warnings": warnings}
-    
-    async def _import_amf(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_amf(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import AMF format."""
         import Mesh
-        
+
         # Wrap blocking FreeCAD operation in asyncio.to_thread
         mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         mesh_obj = document.addObject("Mesh::Feature", "ImportedAMF")
         mesh_obj.Mesh = mesh
-        
+
         document.recompute()
-        
+
         return {"warnings": []}
-    
-    async def _import_dxf(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_dxf(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import DXF format."""
         warnings = []
-        
+
         try:
             import importDXF
             await asyncio.to_thread(importDXF.insert, str(file_path), document.Name)
@@ -620,61 +616,67 @@ class UniversalImporter:
             # Fallback to basic import
             import Draft
             await asyncio.to_thread(Draft.import_dxf, str(file_path))
-        
+
         document.recompute()
-        
+
         return {"warnings": warnings}
-    
-    async def _import_dwg(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_dwg(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import DWG format (requires conversion)."""
-        warnings = ["DWG formatı DXF'e dönüştürme gerektirir"]
-        
+
         # Convert DWG to DXF first (requires external tool)
         # Then import as DXF
         return await self._import_dxf(file_path, document, options)
-    
-    async def _import_svg(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_svg(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import SVG format."""
         try:
             import importSVG
-            importSVG.insert(str(file_path), document.Name)
-        except Exception:
-            import Draft
-            Draft.import_svg(str(file_path))
-        
-        document.recompute()
-        
+            # Wrap blocking SVG import in asyncio.to_thread
+            await asyncio.to_thread(importSVG.insert, str(file_path), document.Name)
+        except Exception as e:
+            logger.warning(f"Failed to import SVG with importSVG: {e}")
+            try:
+                import Draft
+                # Wrap blocking Draft import in asyncio.to_thread
+                await asyncio.to_thread(Draft.import_svg, str(file_path))
+            except Exception as e2:
+                logger.error(f"Failed to import SVG with Draft: {e2}")
+                raise
+
+        # Wrap blocking recompute in asyncio.to_thread
+        await asyncio.to_thread(document.recompute)
+
         return {"warnings": []}
-    
-    async def _import_pcd(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_pcd(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import Point Cloud Data format."""
         warnings = ["Point cloud içe aktarma sınırlı destek"]
-        
+
         # Read point cloud and create points object
         import Points
         points = Points.Points()
         await asyncio.to_thread(points.read, str(file_path))
-        
+
         points_obj = document.addObject("Points::Feature", "ImportedPointCloud")
         points_obj.Points = points
-        
+
         document.recompute()
-        
+
         return {"warnings": warnings}
-    
-    async def _import_xyz(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_xyz(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import XYZ point cloud format."""
         return await self._import_pcd(file_path, document, options)
-    
-    async def _import_las(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_las(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import LAS/LAZ LIDAR format."""
-        warnings = ["LAS/LAZ formatı özel işleme gerektirir"]
         return await self._import_pcd(file_path, document, options)
-    
-    async def _import_ifc(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_ifc(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import IFC BIM format."""
         warnings = []
-        
+
         try:
             import importIFC
             # Wrap blocking FreeCAD operation in asyncio.to_thread
@@ -687,12 +689,12 @@ class UniversalImporter:
             import Arch
             # Wrap blocking FreeCAD operation in asyncio.to_thread
             await asyncio.to_thread(Arch.importIFC, str(file_path))
-        
+
         document.recompute()
-        
+
         return {"warnings": warnings}
-    
-    async def _import_dae(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_dae(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import COLLADA format."""
         try:
             import importDAE
@@ -704,28 +706,28 @@ class UniversalImporter:
             mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
             mesh_obj = document.addObject("Mesh::Feature", "ImportedCOLLADA")
             mesh_obj.Mesh = mesh
-        
+
         document.recompute()
-        
+
         return {"warnings": []}
-    
-    async def _import_gltf(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_gltf(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import glTF format."""
         warnings = ["glTF içe aktarma deneysel"]
-        
+
         # Try to use trimesh for GLTF import
         try:
             import trimesh
             # Wrap blocking trimesh operation in asyncio.to_thread
             scene = await asyncio.to_thread(trimesh.load, str(file_path))
-            
+
             import Mesh as FreeCADMesh
             for name, geom in scene.geometry.items():
                 mesh = FreeCADMesh.Mesh()
                 for face in geom.faces:
                     vertices = [geom.vertices[i] for i in face]
                     mesh.addFacet(*vertices)
-                
+
                 mesh_obj = document.addObject("Mesh::Feature", f"GLTF_{name}")
                 mesh_obj.Mesh = mesh
         except ImportError:
@@ -734,58 +736,58 @@ class UniversalImporter:
             logger.error(f"glTF import error: {e}")
             # Generic message without exposing exception details
             warnings.append("glTF içe aktarma hatası")
-        
+
         document.recompute()
-        
+
         return {"warnings": warnings}
-    
-    async def _import_glb(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_glb(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import GLB (binary glTF) format."""
         return await self._import_gltf(file_path, document, options)
-    
-    async def _import_vrml(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_vrml(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import VRML/WRL format."""
         import Mesh
-        
+
         # Wrap blocking FreeCAD operation in asyncio.to_thread
         mesh = await asyncio.to_thread(Mesh.Mesh, str(file_path))
         mesh_obj = document.addObject("Mesh::Feature", "ImportedVRML")
         mesh_obj.Mesh = mesh
-        
+
         document.recompute()
-        
+
         return {"warnings": []}
-    
-    async def _import_fcmacro(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_fcmacro(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import FreeCAD macro."""
         warnings = ["Makro içe aktarma güvenlik riski oluşturabilir"]
-        
+
         # Read macro content
         macro_content = await asyncio.to_thread(file_path.read_text, encoding="utf-8")
-        
+
         # Store in document metadata instead of executing
         document.Meta["ImportedMacro"] = macro_content
-        
+
         return {"warnings": warnings}
-    
-    async def _import_fcmat(self, file_path: Path, document: Any, options: ImportOptions) -> Dict:
+
+    async def _import_fcmat(self, file_path: Path, document: Any, options: ImportOptions) -> dict:
         """Import FreeCAD material."""
         import Material
-        
+
         mat = Material.Material()
         await asyncio.to_thread(mat.read, str(file_path))
-        
+
         # Store material in document
         document.Meta["ImportedMaterial"] = str(mat.Material)
-        
+
         return {"warnings": []}
-    
+
     async def _extract_metadata(
-        self, 
-        document: Any, 
+        self,
+        document: Any,
         format: ImportFormat,
         options: ImportOptions
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Extract metadata from imported document."""
         metadata = {
             "format": format.value,
@@ -796,7 +798,7 @@ class UniversalImporter:
             "materials": [],
             "properties": {}
         }
-        
+
         # Extract objects
         for obj in document.Objects:
             obj_info = {
@@ -805,7 +807,7 @@ class UniversalImporter:
                 "type": obj.TypeId,
                 "visibility": getattr(obj, "Visibility", True)
             }
-            
+
             # Extract shape info if available
             if hasattr(obj, "Shape"):
                 shape = obj.Shape
@@ -816,13 +818,12 @@ class UniversalImporter:
                     "edges": len(shape.Edges) if hasattr(shape, "Edges") else 0,
                     "vertices": len(shape.Vertexes) if hasattr(shape, "Vertexes") else 0
                 }
-            
+
             metadata["objects"].append(obj_info)
-        
+
         # Extract materials if preserved
         if options.preserve_materials:
             try:
-                import Material
                 for obj in document.Objects:
                     if hasattr(obj, "Material"):
                         mat_info = {
@@ -833,7 +834,7 @@ class UniversalImporter:
             except Exception as e:
                 logger.warning(f"Material info extraction failed: {e}")
                 # No user-facing warning needed for metadata extraction
-        
+
         # Extract document properties
         metadata["properties"] = {
             "author": document.Meta.get("Author", ""),
@@ -843,10 +844,10 @@ class UniversalImporter:
             "created": document.Meta.get("CreationDate", ""),
             "modified": document.Meta.get("LastModifiedDate", "")
         }
-        
+
         return metadata
-    
-    async def _collect_statistics(self, document: Any) -> Dict[str, Any]:
+
+    async def _collect_statistics(self, document: Any) -> dict[str, Any]:
         """Collect import statistics."""
         stats = {
             "total_objects": len(document.Objects),
@@ -856,12 +857,12 @@ class UniversalImporter:
             "total_vertices": 0,
             "bounding_box": None
         }
-        
+
         # Count object types
         for obj in document.Objects:
             type_id = obj.TypeId
             stats["object_types"][type_id] = stats["object_types"].get(type_id, 0) + 1
-            
+
             # Count geometric entities
             if hasattr(obj, "Shape"):
                 shape = obj.Shape
@@ -871,7 +872,7 @@ class UniversalImporter:
                     stats["total_edges"] += len(shape.Edges)
                 if hasattr(shape, "Vertexes"):
                     stats["total_vertices"] += len(shape.Vertexes)
-                
+
                 # Get bounding box
                 if hasattr(shape, "BoundBox"):
                     bb = shape.BoundBox
@@ -884,28 +885,28 @@ class UniversalImporter:
                         "z_max": bb.ZMax,
                         "diagonal": bb.DiagonalLength
                     }
-        
+
         return stats
-    
+
     async def batch_import(
         self,
-        file_paths: List[Union[str, Path]],
+        file_paths: list[str | Path],
         job_id: int,
-        options: Optional[ImportOptions] = None
-    ) -> List[ImportResult]:
+        options: ImportOptions | None = None
+    ) -> list[ImportResult]:
         """
         Batch import multiple files.
-        
+
         Args:
             file_paths: List of file paths
             job_id: Base job ID
             options: Import options
-            
+
         Returns:
             List of import results
         """
         results = []
-        
+
         for i, file_path in enumerate(file_paths):
             # Use job_id with index for unique document IDs
             result = await self.import_file(
@@ -914,10 +915,10 @@ class UniversalImporter:
                 options=options
             )
             results.append(result)
-        
+
         return results
-    
-    def get_supported_formats(self) -> Dict[str, List[str]]:
+
+    def get_supported_formats(self) -> dict[str, list[str]]:
         """Get list of supported formats by category."""
         return {
             "native": ["fcstd", "fcmacro", "fcmat"],

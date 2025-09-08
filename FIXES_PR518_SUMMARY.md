@@ -119,8 +119,9 @@ try:
     # First copy the shape before any modification
     original_shape = shape.copy()
     shape.scale(MM_TO_INCH)  # Using constant instead of magic number
-except Exception:
-    # Secure error handling - don't expose exception details
+except Exception as e:
+    # Secure error handling with logging
+    logger.warning(f"Unit conversion failed: {e}")
     if original_shape:
         shape = original_shape
     warnings.append("Birim dönüşümü başarısız")

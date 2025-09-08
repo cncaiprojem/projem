@@ -429,8 +429,9 @@ async def convert_format(
                 preserve_topology=preserve_topology
             )
             
-            # Generate proper job ID using UUID
-            job_id = str(uuid.uuid4())
+            # Generate proper job ID as integer using UUID hash
+            # Use UUID's int property to get a unique integer ID
+            job_id = uuid.uuid4().int % (2**31)  # Ensure it fits in a 32-bit signed integer
             
             # Convert
             result = await converter.convert(

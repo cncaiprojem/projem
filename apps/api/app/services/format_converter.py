@@ -577,8 +577,12 @@ class FormatConverter:
                 mesh = await asyncio.to_thread(trimesh.load, str(output_file))
                 
                 if options.target_face_count:
-                    simplified = mesh.simplify_quadric_decimation(options.target_face_count)
-                    simplified.export(str(output_file))
+                    # Wrap blocking mesh operations in asyncio.to_thread
+                    simplified = await asyncio.to_thread(
+                        mesh.simplify_quadric_decimation, 
+                        options.target_face_count
+                    )
+                    await asyncio.to_thread(simplified.export, str(output_file))
                     result.quality_metrics["face_count"] = len(simplified.faces)
             except ImportError:
                 result.warnings.append("trimesh kütüphanesi mesh basitleştirme için gerekli")
