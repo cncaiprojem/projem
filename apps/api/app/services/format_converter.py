@@ -614,8 +614,8 @@ class FormatConverter:
             import Part
             import Mesh
             
-            # Import mesh
-            mesh = Mesh.Mesh(str(input_file))
+            # Import mesh - wrap blocking operation in asyncio.to_thread
+            mesh = await asyncio.to_thread(Mesh.Mesh, str(input_file))
             
             # Create document
             doc = FreeCAD.newDocument()
@@ -651,7 +651,9 @@ class FormatConverter:
             
             result.success = export_result.success
             if output_file.exists():
-                result.file_size_after = output_file.stat().st_size
+                # Wrap blocking stat() call in asyncio.to_thread
+                file_stat = await asyncio.to_thread(output_file.stat)
+                result.file_size_after = file_stat.st_size
             
             result.quality_metrics = {
                 "reconstruction_tolerance": options.tolerance,

@@ -681,8 +681,8 @@ class EnhancedExporter:
         stl_path = output_path.with_suffix(".stl")
         await self._export_stl(document, stl_path, options)
         
-        # Rename to 3MF (basic support)
-        stl_path.rename(output_path)
+        # Rename to 3MF (basic support) - wrap in asyncio.to_thread
+        await asyncio.to_thread(stl_path.rename, output_path)
         
         return {"warnings": warnings}
     
@@ -763,7 +763,8 @@ class EnhancedExporter:
         except Exception:
             # Convert to mesh first
             await self._export_obj(document, output_path.with_suffix(".obj"), options)
-            output_path.with_suffix(".obj").rename(output_path)
+            # Wrap rename in asyncio.to_thread
+            await asyncio.to_thread(output_path.with_suffix(".obj").rename, output_path)
         
         return {"warnings": []}
     
@@ -803,7 +804,8 @@ class EnhancedExporter:
         
         # Convert to GLB if successful
         if output_path.with_suffix(".gltf").exists():
-            output_path.with_suffix(".gltf").rename(output_path)
+            # Wrap rename in asyncio.to_thread
+            await asyncio.to_thread(output_path.with_suffix(".gltf").rename, output_path)
         
         return result
     
@@ -834,8 +836,8 @@ class EnhancedExporter:
         # Export as VRML then convert header
         await self._export_vrml(document, output_path.with_suffix(".wrl"), options)
         
-        # Rename to X3D
-        output_path.with_suffix(".wrl").rename(output_path)
+        # Rename to X3D - wrap in asyncio.to_thread
+        await asyncio.to_thread(output_path.with_suffix(".wrl").rename, output_path)
         
         return {"warnings": ["X3D dışa aktarma VRML tabanlı"]}
     
@@ -914,9 +916,9 @@ class EnhancedExporter:
             await asyncio.to_thread(write_final_pcd)
             
         finally:
-            # Clean up temp file
+            # Clean up temp file - wrap in asyncio.to_thread
             try:
-                os.unlink(temp_path)
+                await asyncio.to_thread(os.unlink, temp_path)
             except Exception:
                 pass  # Ignore cleanup errors
         

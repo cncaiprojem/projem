@@ -564,8 +564,14 @@ class BatchProcessor:
                 
                 # Generate job ID as int using stable hash
                 # hashlib already imported at module level
-                # Use explicit str() conversion for consistent path representation
-                job_id_hash = hashlib.sha256(f"{job_id_prefix}_{file_path.stem}_{str(file_path)}".encode()).hexdigest()
+                # Use stable identifier with file size for better uniqueness
+                try:
+                    file_stat = await asyncio.to_thread(file_path.stat)
+                    file_identifier = f"{file_path.name}_{file_stat.st_size}"
+                except Exception:
+                    file_identifier = file_path.name
+                
+                job_id_hash = hashlib.sha256(f"{job_id_prefix}_{file_identifier}".encode()).hexdigest()
                 job_id = int(job_id_hash[:16], 16)
                 
                 # Import with timeout
@@ -651,9 +657,9 @@ class BatchProcessor:
                 # Generate stable job ID based on input file name
                 file_identifier = input_file.name
                 try:
-                    # Include file size for better uniqueness
-                    file_size = input_file.stat().st_size
-                    file_identifier = f"{input_file.name}_{file_size}"
+                    # Include file size for better uniqueness (wrap in asyncio.to_thread)
+                    file_stat = await asyncio.to_thread(input_file.stat)
+                    file_identifier = f"{input_file.name}_{file_stat.st_size}"
                 except Exception:
                     pass
                 

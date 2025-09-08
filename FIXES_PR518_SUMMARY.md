@@ -119,11 +119,11 @@ try:
     # First copy the shape before any modification
     original_shape = shape.copy()
     shape.scale(MM_TO_INCH)  # Using constant instead of magic number
-except Exception as e:
-    # Proper error handling - check if original_shape exists
+except Exception:
+    # Secure error handling - don't expose exception details
     if original_shape:
         shape = original_shape
-    warnings.append(f"Birim dönüşümü başarısız: {e}")
+    warnings.append("Birim dönüşümü başarısız")
 ```
 
 ### 11. Magic Numbers

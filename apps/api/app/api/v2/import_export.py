@@ -284,10 +284,10 @@ async def import_file(
                 detail=f"İçe aktarma başarısız: {str(e)}"
             )
         finally:
-            # Ensure temp file is cleaned up
+            # Ensure temp file is cleaned up - wrap in asyncio.to_thread
             if tmp_path and tmp_path.exists():
                 try:
-                    tmp_path.unlink()
+                    await asyncio.to_thread(tmp_path.unlink)
                 except Exception as e:
                     logger.warning(f"Geçici dosya silinemedi: {e}")
 
@@ -374,10 +374,10 @@ async def export_document(
                 detail=f"Dışa aktarma başarısız: {str(e)}"
             )
         finally:
-            # Ensure temp file is cleaned up
+            # Ensure temp file is cleaned up - wrap in asyncio.to_thread
             if output_path and output_path.exists():
                 try:
-                    output_path.unlink()
+                    await asyncio.to_thread(output_path.unlink)
                 except Exception as e:
                     logger.warning(f"Geçici dosya silinemedi: {e}")
 
@@ -482,15 +482,15 @@ async def convert_format(
                 detail=f"Dönüştürme başarısız: {str(e)}"
             )
         finally:
-            # Clean up temp files
+            # Clean up temp files - wrap in asyncio.to_thread
             if input_path and input_path.exists():
                 try:
-                    input_path.unlink()
+                    await asyncio.to_thread(input_path.unlink)
                 except Exception as e:
                     logger.warning(f"Geçici giriş dosyası silinemedi: {e}")
             if output_path and output_path.exists():
                 try:
-                    output_path.unlink()
+                    await asyncio.to_thread(output_path.unlink)
                 except Exception as e:
                     logger.warning(f"Geçici çıkış dosyası silinemedi: {e}")
 
@@ -570,11 +570,11 @@ async def batch_import(
                 detail=f"Toplu içe aktarma başarısız: {str(e)}"
             )
         finally:
-            # Clean up temporary files
+            # Clean up temporary files - wrap in asyncio.to_thread
             for temp_file in temp_files:
                 try:
                     if temp_file.exists():
-                        temp_file.unlink()
+                        await asyncio.to_thread(temp_file.unlink)
                 except Exception as e:
                     logger.warning(f"Geçici dosya silinemedi: {e}")
 
@@ -608,8 +608,8 @@ async def batch_export(
                 doc_data = await document_manager.get_document(doc_id)
                 documents.append(doc_data["document"])
             
-            # Create output directory with proper cleanup
-            output_dir = Path(tempfile.mkdtemp(prefix="batch_export_"))
+            # Create output directory with proper cleanup - wrap in asyncio.to_thread
+            output_dir = await asyncio.to_thread(lambda: Path(tempfile.mkdtemp(prefix="batch_export_")))
             
             # Start batch export
             result = await batch_processor.batch_export(
@@ -907,10 +907,11 @@ async def download_converted_file(
             temp_path = Path(tmp.name)
         
         # Add background task to clean up temp file after response is sent
-        def cleanup_temp_file():
+        async def cleanup_temp_file():
             try:
                 if temp_path.exists():
-                    temp_path.unlink()
+                    # Wrap blocking unlink in asyncio.to_thread
+                    await asyncio.to_thread(temp_path.unlink)
             except Exception as e:
                 logger.warning(f"Geçici dosya silinemedi: {e}")
         
