@@ -245,7 +245,9 @@ class BatchProcessor:
                     ])
                     total_size = sum(file_sizes)
                     avg_size_mb = (total_size / len(file_paths) / (1024 * 1024)) if file_paths else 1
-                    max_parallel = ResourceMonitor.calculate_optimal_parallel(
+                    # Wrap blocking psutil calls in asyncio.to_thread
+                    max_parallel = await asyncio.to_thread(
+                        ResourceMonitor.calculate_optimal_parallel,
                         len(file_paths), avg_size_mb
                     )
                 else:
@@ -372,7 +374,9 @@ class BatchProcessor:
                 
                 # Determine max parallel
                 if options.strategy == BatchStrategy.ADAPTIVE:
-                    max_parallel = ResourceMonitor.calculate_optimal_parallel(
+                    # Wrap blocking psutil calls in asyncio.to_thread
+                    max_parallel = await asyncio.to_thread(
+                        ResourceMonitor.calculate_optimal_parallel,
                         len(export_tasks), 10  # Assume 10MB average
                     )
                 else:
@@ -478,7 +482,11 @@ class BatchProcessor:
             try:
                 # Determine max parallel
                 if options.strategy == BatchStrategy.ADAPTIVE:
-                    max_parallel = ResourceMonitor.calculate_optimal_parallel(len(conversions), 20)
+                    # Wrap blocking psutil calls in asyncio.to_thread
+                    max_parallel = await asyncio.to_thread(
+                        ResourceMonitor.calculate_optimal_parallel,
+                        len(conversions), 20
+                    )
                 else:
                     max_parallel = options.max_parallel
                 
@@ -556,7 +564,8 @@ class BatchProcessor:
                 
                 # Generate job ID as int using stable hash
                 # hashlib already imported at module level
-                job_id_hash = hashlib.sha256(f"{job_id_prefix}_{file_path.stem}_{file_path}".encode()).hexdigest()
+                # Use explicit str() conversion for consistent path representation
+                job_id_hash = hashlib.sha256(f"{job_id_prefix}_{file_path.stem}_{str(file_path)}".encode()).hexdigest()
                 job_id = int(job_id_hash[:16], 16)
                 
                 # Import with timeout

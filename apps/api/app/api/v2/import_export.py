@@ -334,15 +334,15 @@ async def export_document(
             )
             
             if result.success:
-                # Upload to S3 using async I/O
+                # Upload to S3 using async I/O with streaming
                 s3_key = f"exports/{request.document_id}/{output_path.name}"
-                # Read file content asynchronously
-                file_content = await asyncio.to_thread(
-                    output_path.read_bytes
+                # Upload file directly by path for memory-efficient streaming
+                await asyncio.to_thread(
+                    storage_client.upload_file, 
+                    output_path,  # Pass path directly for streaming
+                    "artefacts", 
+                    s3_key
                 )
-                # Upload to S3 asynchronously
-                file_obj = BytesIO(file_content)
-                await asyncio.to_thread(storage_client.upload_file, file_obj, "artefacts", s3_key)
                 
                 # Create artefact record
                 artefact_service = ArtefactService(db)
@@ -441,15 +441,13 @@ async def convert_format(
             )
             
             if result.success:
-                # Upload to S3
+                # Upload to S3 with streaming
                 s3_key = f"conversions/{Path(file.filename).stem}_to_{target_format}.{target_format}"
-                # Read file asynchronously
-                file_content = await asyncio.to_thread(output_path.read_bytes)
-                # Upload asynchronously
+                # Upload file directly by path for memory-efficient streaming
                 await asyncio.to_thread(
-                    storage_client.upload_file, 
-                    BytesIO(file_content), 
-                    "artefacts", 
+                    storage_client.upload_file,
+                    output_path,  # Pass path directly for streaming
+                    "artefacts",
                     s3_key
                 )
                 
@@ -622,19 +620,17 @@ async def batch_export(
                 request.export_options
             )
             
-            # Upload results to S3
+            # Upload results to S3 with streaming
             if result.success:
                 for export_result in result.results:
                     if export_result.success:
                         file_path = Path(export_result.file_path)
                         s3_key = f"batch_exports/{file_path.name}"
-                        # Read file asynchronously
-                        file_content = await asyncio.to_thread(file_path.read_bytes)
-                        # Upload asynchronously
+                        # Upload file directly by path for memory-efficient streaming
                         await asyncio.to_thread(
-                            storage_client.upload_file, 
-                            BytesIO(file_content), 
-                            "artefacts", 
+                            storage_client.upload_file,
+                            file_path,  # Pass path directly for streaming
+                            "artefacts",
                             s3_key
                         )
             
