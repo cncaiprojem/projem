@@ -622,11 +622,13 @@ class FormatConverter:
             
             # Convert mesh to shape
             shape = Part.Shape()
-            shape.makeShapeFromMesh(mesh.Topology, options.tolerance)
+            # Wrap CPU-intensive makeShapeFromMesh in asyncio.to_thread
+            await asyncio.to_thread(shape.makeShapeFromMesh, mesh.Topology, options.tolerance)
             
             if options.fit_surfaces:
                 # Try to fit surfaces to mesh
-                shape = shape.removeSplitter()
+                # Wrap CPU-intensive removeSplitter in asyncio.to_thread
+                shape = await asyncio.to_thread(shape.removeSplitter)
                 
             if options.detect_features:
                 # Detect and reconstruct features

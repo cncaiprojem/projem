@@ -535,7 +535,8 @@ async def batch_import(
                     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
                         # Stream the content for large files
                         async for chunk in response.aiter_bytes():
-                            tmp.write(chunk)
+                            # Wrap blocking write in asyncio.to_thread
+                            await asyncio.to_thread(tmp.write, chunk)
                         temp_path = Path(tmp.name)
                         temp_files.append(temp_path)
                         file_paths.append(str(temp_path))
@@ -895,7 +896,10 @@ async def download_converted_file(
         # Save to temp file with proper cleanup
         suffix = Path(artefact.name).suffix or ".tmp"
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-            tmp.write(response.content)
+            # Stream response content for large files
+            async for chunk in response.aiter_bytes():
+                # Wrap blocking write in asyncio.to_thread
+                await asyncio.to_thread(tmp.write, chunk)
             temp_path = Path(tmp.name)
         
         # Add background task to clean up temp file after response is sent

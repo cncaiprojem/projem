@@ -444,7 +444,8 @@ class UniversalImporter:
                 import FreeCAD
                 # Create backup before modification
                 original_shape = shape.copy()
-                shape.scale(MM_TO_INCH)
+                # Wrap CPU-intensive scale operation in asyncio.to_thread
+                await asyncio.to_thread(shape.scale, MM_TO_INCH)
                 warnings.append("Birimler inch'e dönüştürüldü")
             except Exception as e:
                 logger.warning(f"Unit conversion failed: {e}")
@@ -459,7 +460,8 @@ class UniversalImporter:
         if options.preserve_colors:
             try:
                 import Import
-                Import.readColors(str(file_path), document)
+                # Wrap blocking readColors in asyncio.to_thread
+                await asyncio.to_thread(Import.readColors, str(file_path), document)
             except Exception as e:
                 warnings.append(f"Renkler korunamadı: {e}")
         
@@ -510,7 +512,8 @@ class UniversalImporter:
         if options.merge_solids:
             import Part
             shape = Part.Shape()
-            shape.makeShapeFromMesh(mesh.Topology, options.tolerance)
+            # Wrap CPU-intensive makeShapeFromMesh in asyncio.to_thread
+            await asyncio.to_thread(shape.makeShapeFromMesh, mesh.Topology, options.tolerance)
             part = document.addObject("Part::Feature", "STLSolid")
             part.Shape = shape
         

@@ -548,7 +548,8 @@ class EnhancedExporter:
         
         if shapes:
             shape = Part.makeCompound(shapes) if len(shapes) > 1 else shapes[0]
-            shape.exportIges(str(output_path))
+            # Wrap blocking exportIges in asyncio.to_thread
+            await asyncio.to_thread(shape.exportIges, str(output_path))
         
         return {"warnings": []}
     
@@ -563,7 +564,8 @@ class EnhancedExporter:
         
         if shapes:
             shape = Part.makeCompound(shapes) if len(shapes) > 1 else shapes[0]
-            shape.exportBrep(str(output_path))
+            # Wrap blocking exportBrep in asyncio.to_thread
+            await asyncio.to_thread(shape.exportBrep, str(output_path))
         
         return {"warnings": []}
     
@@ -706,12 +708,14 @@ class EnhancedExporter:
         
         try:
             import importDXF
-            importDXF.export(document.Objects, str(output_path))
+            # Wrap blocking export in asyncio.to_thread
+            await asyncio.to_thread(importDXF.export, document.Objects, str(output_path))
         except Exception as e:
             warnings.append(f"DXF dışa aktarma uyarısı: {e}")
             # Fallback
             import Draft
-            Draft.export_dxf(document.Objects, str(output_path))
+            # Wrap blocking export_dxf in asyncio.to_thread
+            await asyncio.to_thread(Draft.export_dxf, document.Objects, str(output_path))
         
         return {"warnings": warnings}
     
@@ -719,10 +723,12 @@ class EnhancedExporter:
         """Export SVG format."""
         try:
             import importSVG
-            importSVG.export(document.Objects, str(output_path))
+            # Wrap blocking export in asyncio.to_thread
+            await asyncio.to_thread(importSVG.export, document.Objects, str(output_path))
         except Exception:
             import Draft
-            Draft.export_svg(document.Objects, str(output_path))
+            # Wrap blocking export_svg in asyncio.to_thread
+            await asyncio.to_thread(Draft.export_svg, document.Objects, str(output_path))
         
         return {"warnings": []}
     
@@ -746,7 +752,8 @@ class EnhancedExporter:
         """Export COLLADA format."""
         try:
             import importDAE
-            importDAE.export(document.Objects, str(output_path))
+            # Wrap blocking export in asyncio.to_thread
+            await asyncio.to_thread(importDAE.export, document.Objects, str(output_path))
         except Exception:
             # Convert to mesh first
             await self._export_obj(document, output_path.with_suffix(".obj"), options)
