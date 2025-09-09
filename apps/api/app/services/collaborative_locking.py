@@ -57,10 +57,9 @@ class Lock:
     
     def is_active(self) -> bool:
         """Check if lock is currently active."""
-        # A lock is active if it's granted, not expired, and not released
-        return (self.status == LockStatus.GRANTED and 
-                not self.is_expired() and 
-                self.status != LockStatus.RELEASED)
+        # A lock is active if it's granted and not expired
+        # (GRANTED status already implies not RELEASED)
+        return self.status == LockStatus.GRANTED and not self.is_expired()
     
     def can_coexist_with(self, other: "Lock") -> bool:
         """Check if this lock can coexist with another."""
@@ -195,9 +194,17 @@ class DeadlockDetector:
         Returns:
             List of detected deadlocks
         """
-        # Build wait-for graph
+        # Build wait-for graph with object tracking
         wait_graph = defaultdict(set)
+        user_to_locks = defaultdict(set)  # Track which locks each user holds
+        user_waiting_for = defaultdict(set)  # Track which objects each user is waiting for
         
+        # Build map of users to their held locks
+        for obj_id, lock in locks.items():
+            if lock.is_active():
+                user_to_locks[lock.user_id].add(obj_id)
+        
+        # Build wait-for relationships
         for request in queue:
             waiting_user = request.user_id
             
@@ -207,6 +214,7 @@ class DeadlockDetector:
                     if lock.is_active() and lock.user_id != waiting_user:
                         # User is waiting for lock held by another user
                         wait_graph[waiting_user].add(lock.user_id)
+                        user_waiting_for[waiting_user].add(obj_id)
         
         # Find cycles in wait-for graph
         deadlocks = []
@@ -216,9 +224,16 @@ class DeadlockDetector:
             if user not in visited:
                 cycle = self._find_cycle(user, wait_graph, visited, set())
                 if cycle:
+                    # Select victim with fewest locks to minimize disruption
+                    victim_user = min(cycle, key=lambda u: len(user_to_locks.get(u, set())))
+                    victim_locks = list(user_to_locks.get(victim_user, set()))
+                    
                     deadlocks.append({
                         "users": cycle,
-                        "victim": {"user_id": cycle[0]}  # Simple victim selection
+                        "victim": {
+                            "user_id": victim_user,
+                            "object_ids": victim_locks  # Now we have the actual locks to release
+                        }
                     })
         
         return deadlocks

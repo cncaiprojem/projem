@@ -6,6 +6,8 @@ Manages WebSocket connections, operation queues, and conflict resolution.
 import asyncio
 import json
 import logging
+import random
+import time
 from datetime import datetime, UTC, timedelta
 from typing import Dict, List, Set, Optional, Any, Callable
 from collections import defaultdict, deque
@@ -195,24 +197,61 @@ class WebSocketManager:
 
 
 class OperationQueue:
-    """Manages operation queuing and ordering."""
+    """Manages operation queuing and ordering with retry support."""
     
     def __init__(self, max_size: int = OPERATION_QUEUE_MAX_SIZE):
         self.queue: deque = deque(maxlen=max_size)
         self.processing: Dict[str, ModelOperation] = {}
         self.processed: Set[str] = set()
+        self.retry_counts: Dict[str, int] = {}  # Track retry attempts
+        self.dead_letter_queue: deque = deque()  # For operations that exceed max retries
+        self.max_retries: int = 3
+        self.retry_delays: Dict[str, float] = {}  # Track exponential backoff delays
         
-    def enqueue(self, operation: ModelOperation):
-        """Add operation to queue."""
+    def enqueue(self, operation: ModelOperation, is_retry: bool = False) -> bool:
+        """Add operation to queue with retry tracking."""
         if operation.id not in self.processed:
+            if is_retry:
+                # Check if max retries exceeded
+                retry_count = self.retry_counts.get(operation.id, 0)
+                if retry_count >= self.max_retries:
+                    # Move to dead letter queue
+                    self.dead_letter_queue.append(operation)
+                    logger.warning(
+                        f"Operation {operation.id} moved to DLQ after {retry_count} retries"
+                    )
+                    return False
+                
+                # Update retry count and calculate exponential backoff
+                self.retry_counts[operation.id] = retry_count + 1
+                # Exponential backoff: 2^retry_count seconds with jitter
+                base_delay = 2 ** retry_count
+                jitter = base_delay * 0.1 * (0.5 - random.random())  # ±10% jitter
+                self.retry_delays[operation.id] = time.time() + base_delay + jitter
+            else:
+                # Initialize retry count for new operations
+                self.retry_counts[operation.id] = 0
+                self.retry_delays[operation.id] = 0
+            
             self.queue.append(operation)
+            return True
+        return False
     
     def dequeue(self) -> Optional[ModelOperation]:
-        """Get next operation from queue."""
-        if self.queue:
-            operation = self.queue.popleft()
-            self.processing[operation.id] = operation
-            return operation
+        """Get next operation from queue, respecting retry delays."""
+        current_time = time.time()
+        
+        # Find first operation that's ready to process
+        for i, operation in enumerate(self.queue):
+            delay_end = self.retry_delays.get(operation.id, 0)
+            if delay_end <= current_time:
+                # Remove from queue and add to processing
+                self.queue.rotate(-i)  # Rotate to position
+                operation = self.queue.popleft()
+                self.queue.rotate(i)  # Restore original order
+                self.processing[operation.id] = operation
+                return operation
+        
         return None
     
     def mark_processed(self, operation_id: str):
@@ -220,6 +259,9 @@ class OperationQueue:
         if operation_id in self.processing:
             del self.processing[operation_id]
         self.processed.add(operation_id)
+        # Clean up retry tracking
+        self.retry_counts.pop(operation_id, None)
+        self.retry_delays.pop(operation_id, None)
     
     def get_pending_count(self) -> int:
         """Get count of pending operations."""
@@ -229,11 +271,18 @@ class OperationQueue:
         """Get count of processing operations."""
         return len(self.processing)
     
+    def get_dlq_count(self) -> int:
+        """Get count of dead letter queue operations."""
+        return len(self.dead_letter_queue)
+    
     def clear(self):
         """Clear all queues."""
         self.queue.clear()
         self.processing.clear()
         self.processed.clear()
+        self.retry_counts.clear()
+        self.retry_delays.clear()
+        self.dead_letter_queue.clear()
 
 
 class CollaborationProtocol:
@@ -357,8 +406,10 @@ class CollaborationProtocol:
                     queue.mark_processed(operation.id)
                 except Exception as e:
                     logger.error(f"Error processing operation {operation.id}: {e}")
-                    # Re-queue on error
-                    queue.enqueue(operation)
+                    # Re-queue with retry tracking
+                    if not queue.enqueue(operation, is_retry=True):
+                        # Operation moved to DLQ, notify relevant connections
+                        await self._notify_operation_failure(session, operation, str(e))
     
     async def _cleanup_old_sessions(self):
         """Clean up sessions with no participants."""
@@ -589,6 +640,25 @@ class CollaborationProtocol:
                 "type": "operation_failed",
                 "operation_id": operation.id,
                 "error": "Failed to apply operation"
+            }
+        )
+    
+    async def _notify_operation_failure(
+        self,
+        session: CollaborationSession,
+        operation: ModelOperation,
+        error_message: str
+    ):
+        """Notify about operation failure that exceeded retry limit."""
+        # Notify all participants about the permanent failure
+        await self.websocket_manager.send_to_document(
+            session.document_id,
+            {
+                "type": "operation_dlq",
+                "operation_id": operation.id,
+                "user_id": operation.user_id,
+                "error": error_message,
+                "message": "Operation moved to dead letter queue after max retries"
             }
         )
     

@@ -3,6 +3,7 @@ Operational Transformation Engine for Real-time Collaborative FreeCAD Model Edit
 Implements conflict-free concurrent operation transformation algorithms.
 """
 
+import numpy as np
 from datetime import datetime, UTC
 from typing import List, Tuple, Optional, Dict, Any, Union
 from enum import Enum
@@ -365,22 +366,31 @@ class OperationalTransform:
             return TransformResult(op1, op2)
         
         if strategy == ConflictResolutionStrategy.MERGE:
-            # Combine rotations
+            # Combine rotations using quaternion multiplication
             rot1 = Point3D.from_dict(op1.parameters.get("rotation", {"x": 0, "y": 0, "z": 0}))
             rot2 = Point3D.from_dict(op2.parameters.get("rotation", {"x": 0, "y": 0, "z": 0}))
             
-            # Simple addition for Euler angles (not perfect but acceptable for most cases)
+            # Convert Euler angles to quaternions and compose
+            q1 = self._euler_to_quaternion(rot1.x, rot1.y, rot1.z)
+            q2 = self._euler_to_quaternion(rot2.x, rot2.y, rot2.z)
+            
+            # Quaternion multiplication (q2 * q1 for applying q1 then q2)
+            q_combined = self._quaternion_multiply(q2, q1)
+            
+            # Convert back to Euler angles
+            combined_euler = self._quaternion_to_euler(q_combined)
+            
             combined_rot = Point3D(
-                x=(rot1.x + rot2.x) % 360,
-                y=(rot1.y + rot2.y) % 360,
-                z=(rot1.z + rot2.z) % 360
+                x=combined_euler[0],
+                y=combined_euler[1],
+                z=combined_euler[2]
             )
             
             combined_op = ModelOperation(
                 type=OperationType.ROTATE,
                 object_id=op1.object_id,
                 parameters={"rotation": combined_rot.to_dict()},
-                metadata={"combined_from": [op1.id, op2.id]}
+                metadata={"combined_from": [op1.id, op2.id], "method": "quaternion"}
             )
             
             return TransformResult(combined_op, NoOperation())
@@ -604,3 +614,73 @@ class OperationalTransform:
         }, sort_keys=True)
         
         return hashlib.sha256(op_string.encode()).hexdigest()
+    
+    def _euler_to_quaternion(self, roll: float, pitch: float, yaw: float) -> np.ndarray:
+        """
+        Convert Euler angles (in degrees) to quaternion.
+        Roll (x), pitch (y), yaw (z) in degrees.
+        Returns quaternion as [w, x, y, z].
+        """
+        # Convert degrees to radians
+        roll = np.radians(roll)
+        pitch = np.radians(pitch)
+        yaw = np.radians(yaw)
+        
+        # Calculate quaternion components
+        cy = np.cos(yaw * 0.5)
+        sy = np.sin(yaw * 0.5)
+        cp = np.cos(pitch * 0.5)
+        sp = np.sin(pitch * 0.5)
+        cr = np.cos(roll * 0.5)
+        sr = np.sin(roll * 0.5)
+        
+        w = cr * cp * cy + sr * sp * sy
+        x = sr * cp * cy - cr * sp * sy
+        y = cr * sp * cy + sr * cp * sy
+        z = cr * cp * sy - sr * sp * cy
+        
+        return np.array([w, x, y, z])
+    
+    def _quaternion_multiply(self, q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+        """
+        Multiply two quaternions.
+        q1 and q2 are [w, x, y, z] arrays.
+        Returns the product quaternion.
+        """
+        w1, x1, y1, z1 = q1
+        w2, x2, y2, z2 = q2
+        
+        w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
+        x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
+        y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
+        z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
+        
+        return np.array([w, x, y, z])
+    
+    def _quaternion_to_euler(self, q: np.ndarray) -> Tuple[float, float, float]:
+        """
+        Convert quaternion to Euler angles (in degrees).
+        q is [w, x, y, z] array.
+        Returns (roll, pitch, yaw) in degrees.
+        """
+        w, x, y, z = q
+        
+        # Roll (x-axis rotation)
+        sinr_cosp = 2 * (w * x + y * z)
+        cosr_cosp = 1 - 2 * (x * x + y * y)
+        roll = np.arctan2(sinr_cosp, cosr_cosp)
+        
+        # Pitch (y-axis rotation)
+        sinp = 2 * (w * y - z * x)
+        if np.abs(sinp) >= 1:
+            pitch = np.copysign(np.pi / 2, sinp)  # Use 90 degrees if out of range
+        else:
+            pitch = np.arcsin(sinp)
+        
+        # Yaw (z-axis rotation)
+        siny_cosp = 2 * (w * z + x * y)
+        cosy_cosp = 1 - 2 * (y * y + z * z)
+        yaw = np.arctan2(siny_cosp, cosy_cosp)
+        
+        # Convert radians to degrees
+        return (np.degrees(roll), np.degrees(pitch), np.degrees(yaw))

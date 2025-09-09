@@ -104,7 +104,7 @@ async def collaborate(
         # Authenticate user
         user = await get_current_user_ws(token, db)
         if not user:
-            logger.warning(f"WebSocket authentication failed for document {document_id} with token: {token[:10] if token else 'None'}...")
+            logger.warning(f"WebSocket authentication failed for document {document_id}")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
         
@@ -146,41 +146,29 @@ async def collaborate(
                 
                 logger.debug(f"Received message type: {message_type} from user {user.id}")
                 
-                # Route message to appropriate handler
-                if message_type == "operation":
-                    await handle_operation(connection_id, document_id, user, data)
+                # Message handler mapping for cleaner routing
+                message_handlers = {
+                    "operation": handle_operation,
+                    "cursor_update": handle_cursor_update,
+                    "selection_update": handle_selection_update,
+                    "lock_request": handle_lock_request,
+                    "lock_release": handle_lock_release,
+                    "sync_request": handle_sync_request,
+                    "presence_update": handle_presence_update,
+                    "undo": handle_undo,
+                    "redo": handle_redo,
+                    "resolve_conflict": handle_conflict_resolution,
+                }
                 
-                elif message_type == "cursor_update":
-                    await handle_cursor_update(connection_id, document_id, user, data)
-                
-                elif message_type == "selection_update":
-                    await handle_selection_update(connection_id, document_id, user, data)
-                
-                elif message_type == "lock_request":
-                    await handle_lock_request(connection_id, document_id, user, data)
-                
-                elif message_type == "lock_release":
-                    await handle_lock_release(connection_id, document_id, user, data)
-                
-                elif message_type == "sync_request":
-                    await handle_sync_request(connection_id, document_id, user, data)
-                
-                elif message_type == "presence_update":
-                    await handle_presence_update(connection_id, document_id, user, data)
-                
-                elif message_type == "undo":
-                    await handle_undo(connection_id, document_id, user, data)
-                
-                elif message_type == "redo":
-                    await handle_redo(connection_id, document_id, user, data)
-                
-                elif message_type == "resolve_conflict":
-                    await handle_conflict_resolution(connection_id, document_id, user, data)
-                
-                elif message_type == "ping":
+                # Special handling for ping
+                if message_type == "ping":
                     await websocket.send_json({"type": "pong"})
-                
+                elif message_type in message_handlers:
+                    # Route to appropriate handler
+                    handler = message_handlers[message_type]
+                    await handler(connection_id, document_id, user, data)
                 else:
+                    # Unknown message type
                     logger.warning(f"Unknown message type: {message_type}")
                     await websocket.send_json({
                         "type": "error",
