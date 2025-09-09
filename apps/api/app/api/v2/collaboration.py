@@ -186,10 +186,10 @@ async def collaborate(
                     "message": "Invalid JSON format"
                 })
             except Exception as e:
-                logger.error(f"Error handling message: {e}")
+                logger.error(f"Error handling message: {e}", exc_info=True)
                 await websocket.send_json({
                     "type": "error",
-                    "message": str(e)
+                    "message": "An error occurred while processing your request"
                 })
                 
     except WebSocketDisconnect:
@@ -763,10 +763,10 @@ async def get_collaboration_status(
         }
         
     except Exception as e:
-        logger.error(f"Error getting collaboration status: {e}")
+        logger.error(f"Error getting collaboration status: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Failed to retrieve collaboration status"
         )
 
 
@@ -801,10 +801,10 @@ async def get_change_history(
         }
         
     except Exception as e:
-        logger.error(f"Error getting change history: {e}")
+        logger.error(f"Error getting change history: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Failed to retrieve change history"
         )
 
 
@@ -825,8 +825,8 @@ async def get_collaboration_statistics(
         return stats
         
     except Exception as e:
-        logger.error(f"Error getting collaboration statistics: {e}")
+        logger.error(f"Error getting collaboration statistics: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=str(e)
+            detail="Failed to retrieve collaboration statistics"
         )

@@ -13,6 +13,13 @@ import json
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
+from app.utils.quaternion_math import (
+    euler_to_quaternion,
+    quaternion_to_euler,
+    quaternion_multiply,
+    axis_angle_to_quaternion,
+    quaternion_to_axis_angle
+)
 
 
 class OperationType(str, Enum):
@@ -371,14 +378,14 @@ class OperationalTransform:
             rot2 = Point3D.from_dict(op2.parameters.get("rotation", {"x": 0, "y": 0, "z": 0}))
             
             # Convert Euler angles to quaternions and compose
-            q1 = self._euler_to_quaternion(rot1.x, rot1.y, rot1.z)
-            q2 = self._euler_to_quaternion(rot2.x, rot2.y, rot2.z)
+            q1 = euler_to_quaternion(rot1.x, rot1.y, rot1.z)
+            q2 = euler_to_quaternion(rot2.x, rot2.y, rot2.z)
             
             # Quaternion multiplication (q2 * q1 for applying q1 then q2)
-            q_combined = self._quaternion_multiply(q2, q1)
+            q_combined = quaternion_multiply(q2, q1)
             
             # Convert back to Euler angles
-            combined_euler = self._quaternion_to_euler(q_combined)
+            combined_euler = quaternion_to_euler(q_combined)
             
             combined_rot = Point3D(
                 x=combined_euler[0],
@@ -655,22 +662,22 @@ class OperationalTransform:
                         # Current rotation quaternion
                         curr_angle = current_rot.get("angle", 0)
                         curr_axis = current_rot.get("axis", {"x": 0, "y": 0, "z": 1})
-                        curr_quat = self._axis_angle_to_quaternion(
+                        curr_quat = axis_angle_to_quaternion(
                             curr_axis["x"], curr_axis["y"], curr_axis["z"], curr_angle
                         )
                         
                         # New rotation quaternion
                         new_angle = rotation.get("angle", 0)
                         new_axis = rotation.get("axis", {"x": 0, "y": 0, "z": 1})
-                        new_quat = self._axis_angle_to_quaternion(
+                        new_quat = axis_angle_to_quaternion(
                             new_axis["x"], new_axis["y"], new_axis["z"], new_angle
                         )
                         
                         # Combine rotations
-                        result_quat = self._quaternion_multiply(curr_quat, new_quat)
+                        result_quat = quaternion_multiply(curr_quat, new_quat)
                         
                         # Convert back to axis-angle
-                        axis, angle = self._quaternion_to_axis_angle(result_quat)
+                        axis, angle = quaternion_to_axis_angle(result_quat)
                         obj["placement"]["rotation"] = {
                             "angle": angle,
                             "axis": {"x": axis[0], "y": axis[1], "z": axis[2]}
@@ -733,52 +740,6 @@ class OperationalTransform:
         
         return new_state
     
-    def _axis_angle_to_quaternion(self, x: float, y: float, z: float, angle: float) -> np.ndarray:
-        """Convert axis-angle representation to quaternion."""
-        import numpy as np
-        
-        # Normalize axis
-        axis = np.array([x, y, z])
-        axis_norm = np.linalg.norm(axis)
-        if axis_norm > 0:
-            axis = axis / axis_norm
-        else:
-            axis = np.array([0, 0, 1])
-        
-        # Convert angle to radians if needed
-        angle_rad = np.radians(angle) if angle > 2 * np.pi else angle
-        
-        # Calculate quaternion
-        half_angle = angle_rad * 0.5
-        s = np.sin(half_angle)
-        w = np.cos(half_angle)
-        x = axis[0] * s
-        y = axis[1] * s
-        z = axis[2] * s
-        
-        return np.array([w, x, y, z])
-    
-    def _quaternion_to_axis_angle(self, q: np.ndarray) -> Tuple[np.ndarray, float]:
-        """Convert quaternion to axis-angle representation."""
-        import numpy as np
-        
-        w, x, y, z = q
-        
-        # Calculate angle
-        angle = 2 * np.arccos(np.clip(w, -1.0, 1.0))
-        
-        # Calculate axis
-        s = np.sin(angle * 0.5)
-        if s < 0.001:  # Close to zero, arbitrary axis
-            axis = np.array([0, 0, 1])
-        else:
-            axis = np.array([x, y, z]) / s
-        
-        # Convert angle to degrees
-        angle_deg = np.degrees(angle)
-        
-        return axis, angle_deg
-    
     def compute_operation_checksum(self, operation: ModelOperation) -> str:
         """
         Compute a checksum for an operation for verification.
@@ -800,73 +761,3 @@ class OperationalTransform:
         }, sort_keys=True)
         
         return hashlib.sha256(op_string.encode()).hexdigest()
-    
-    def _euler_to_quaternion(self, roll: float, pitch: float, yaw: float) -> np.ndarray:
-        """
-        Convert Euler angles (in degrees) to quaternion.
-        Roll (x), pitch (y), yaw (z) in degrees.
-        Returns quaternion as [w, x, y, z].
-        """
-        # Convert degrees to radians
-        roll = np.radians(roll)
-        pitch = np.radians(pitch)
-        yaw = np.radians(yaw)
-        
-        # Calculate quaternion components
-        cy = np.cos(yaw * 0.5)
-        sy = np.sin(yaw * 0.5)
-        cp = np.cos(pitch * 0.5)
-        sp = np.sin(pitch * 0.5)
-        cr = np.cos(roll * 0.5)
-        sr = np.sin(roll * 0.5)
-        
-        w = cr * cp * cy + sr * sp * sy
-        x = sr * cp * cy - cr * sp * sy
-        y = cr * sp * cy + sr * cp * sy
-        z = cr * cp * sy - sr * sp * cy
-        
-        return np.array([w, x, y, z])
-    
-    def _quaternion_multiply(self, q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
-        """
-        Multiply two quaternions.
-        q1 and q2 are [w, x, y, z] arrays.
-        Returns the product quaternion.
-        """
-        w1, x1, y1, z1 = q1
-        w2, x2, y2, z2 = q2
-        
-        w = w1 * w2 - x1 * x2 - y1 * y2 - z1 * z2
-        x = w1 * x2 + x1 * w2 + y1 * z2 - z1 * y2
-        y = w1 * y2 + y1 * w2 + z1 * x2 - x1 * z2
-        z = w1 * z2 + z1 * w2 + x1 * y2 - y1 * x2
-        
-        return np.array([w, x, y, z])
-    
-    def _quaternion_to_euler(self, q: np.ndarray) -> Tuple[float, float, float]:
-        """
-        Convert quaternion to Euler angles (in degrees).
-        q is [w, x, y, z] array.
-        Returns (roll, pitch, yaw) in degrees.
-        """
-        w, x, y, z = q
-        
-        # Roll (x-axis rotation)
-        sinr_cosp = 2 * (w * x + y * z)
-        cosr_cosp = 1 - 2 * (x * x + y * y)
-        roll = np.arctan2(sinr_cosp, cosr_cosp)
-        
-        # Pitch (y-axis rotation)
-        sinp = 2 * (w * y - z * x)
-        if np.abs(sinp) >= 1:
-            pitch = np.copysign(np.pi / 2, sinp)  # Use 90 degrees if out of range
-        else:
-            pitch = np.arcsin(sinp)
-        
-        # Yaw (z-axis rotation)
-        siny_cosp = 2 * (w * z + x * y)
-        cosy_cosp = 1 - 2 * (y * y + z * z)
-        yaw = np.arctan2(siny_cosp, cosy_cosp)
-        
-        # Convert radians to degrees
-        return (np.degrees(roll), np.degrees(pitch), np.degrees(yaw))

@@ -290,6 +290,10 @@ class CollaborativeLocking:
         self.transactions: Dict[str, Transaction] = {}  # transaction_id -> Transaction
         self.deadlock_detector = DeadlockDetector()
         
+        # Event-based lock waiting system
+        # {document_id: {object_id: asyncio.Event}}
+        self.lock_events: Dict[str, Dict[str, asyncio.Event]] = defaultdict(dict)
+        
         # Fairness tracking: user_id -> last_processed_timestamp
         self.user_last_processed: Dict[str, datetime] = {}
         self.max_consecutive_requests_per_user = 3  # Limit consecutive requests per user
@@ -538,6 +542,10 @@ class CollaborativeLocking:
                     if self.redis_client:
                         await self._remove_lock_from_redis(document_id, obj_id)
                     
+                    # Signal any waiting tasks that this lock is now available
+                    if obj_id in self.lock_events[document_id]:
+                        self.lock_events[document_id][obj_id].set()
+                    
                     released.append(obj_id)
                     
                     logger.debug(f"Released lock on {obj_id} for user {user_id}")
@@ -742,7 +750,18 @@ class CollaborativeLocking:
         document_id: str,
         request: LockRequest
     ):
-        """Wait for locks to become available."""
+        """Wait for locks to become available using event-based notifications."""
+        # Create events for each object we're waiting for
+        events_to_wait = []
+        
+        for obj_id in request.object_ids:
+            # Get or create event for this object
+            if obj_id not in self.lock_events[document_id]:
+                self.lock_events[document_id][obj_id] = asyncio.Event()
+            
+            event = self.lock_events[document_id][obj_id]
+            events_to_wait.append(event)
+        
         while True:
             # Check if locks are available
             all_available = True
@@ -765,8 +784,31 @@ class CollaborativeLocking:
                     self.lock_queue[document_id].remove(request)
                 return
             
-            # Wait a bit before checking again
-            await asyncio.sleep(0.1)
+            # Wait for any of the events to be set (indicating a lock was released)
+            # Use wait_for with timeout to periodically check for deadlocks/cancellation
+            try:
+                # Create a combined event wait task
+                wait_tasks = [asyncio.create_task(event.wait()) for event in events_to_wait]
+                done, pending = await asyncio.wait(
+                    wait_tasks,
+                    timeout=1.0,  # Check every second for other conditions
+                    return_when=asyncio.FIRST_COMPLETED
+                )
+                
+                # Cancel pending tasks
+                for task in pending:
+                    task.cancel()
+                
+                # Clear the events that were set
+                for event in events_to_wait:
+                    event.clear()
+                    
+            except asyncio.CancelledError:
+                # Handle cancellation gracefully
+                raise
+            except Exception as e:
+                logger.error(f"Error waiting for locks: {e}", exc_info=True)
+                await asyncio.sleep(0.1)  # Brief fallback delay
     
     async def _cleanup_expired_locks(self):
         """Clean up expired locks."""

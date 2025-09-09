@@ -9,7 +9,7 @@ import logging
 import random
 import time
 from datetime import datetime, UTC, timedelta
-from typing import Dict, List, Set, Optional, Any, Callable
+from typing import Dict, List, Set, Optional, Any, Callable, Union
 from collections import defaultdict, deque
 import uuid
 from dataclasses import dataclass, field

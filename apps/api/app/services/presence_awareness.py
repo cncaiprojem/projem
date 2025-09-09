@@ -163,12 +163,22 @@ class PresenceAwareness:
     Manages user presence, cursor tracking, and object locking.
     """
     
-    def __init__(self, redis_url: Optional[str] = None):
+    def __init__(self, redis_url: Optional[str] = None, collaboration_protocol=None):
+        """
+        Initialize presence awareness system.
+        
+        Args:
+            redis_url: Optional Redis URL for distributed presence tracking
+            collaboration_protocol: Optional collaboration protocol instance for broadcasting
+        """
         self.active_users: Dict[str, Dict[str, UserPresence]] = defaultdict(dict)  # document_id -> user_id -> presence
         self.user_cursors: Dict[str, Dict[str, Tuple[Point3D, datetime]]] = defaultdict(dict)
         self.user_selections: Dict[str, Dict[str, Set[str]]] = defaultdict(dict)
         self.object_locks: Dict[str, Dict[str, ObjectLock]] = defaultdict(dict)  # document_id -> object_id -> lock
         self.lock_queue: Dict[str, List[Tuple[str, str, LockType]]] = defaultdict(list)  # Pending lock requests
+        
+        # Store collaboration protocol reference to avoid circular imports
+        self._collaboration_protocol = collaboration_protocol
         
         self.redis_url = redis_url or settings.REDIS_URL
         self.redis_client: Optional[aioredis.Redis] = None
@@ -629,6 +639,22 @@ class PresenceAwareness:
     
     # Color generation is now handled by the shared utility module in app.utils.color_utils
     
+    def _get_collaboration_protocol(self):
+        """Get collaboration protocol instance, with fallback to lazy import."""
+        if self._collaboration_protocol:
+            return self._collaboration_protocol
+        
+        # Fallback to import if not injected (maintains backward compatibility)
+        try:
+            from app.services.collaboration_protocol import collaboration_protocol
+            return collaboration_protocol
+        except ImportError:
+            return None
+    
+    def set_collaboration_protocol(self, protocol):
+        """Set the collaboration protocol instance (for dependency injection)."""
+        self._collaboration_protocol = protocol
+    
     # Broadcast methods (integrate with WebSocket manager)
     async def _broadcast_status_changes(
         self,
@@ -637,7 +663,10 @@ class PresenceAwareness:
         status: UserStatus
     ):
         """Broadcast status changes."""
-        from app.services.collaboration_protocol import collaboration_protocol
+        protocol = self._get_collaboration_protocol()
+        if not protocol:
+            logger.warning("No collaboration protocol available for broadcasting")
+            return
         
         # Prepare message
         message = {
@@ -648,7 +677,7 @@ class PresenceAwareness:
         }
         
         # Broadcast to all users in the document
-        await collaboration_protocol.websocket_manager.broadcast_to_document(
+        await protocol.websocket_manager.broadcast_to_document(
             document_id, message
         )
         
@@ -662,7 +691,10 @@ class PresenceAwareness:
         viewport: Optional[ViewportInfo]
     ):
         """Broadcast cursor position update."""
-        from app.services.collaboration_protocol import collaboration_protocol
+        protocol = self._get_collaboration_protocol()
+        if not protocol:
+            logger.warning("No collaboration protocol available for broadcasting")
+            return
         
         # Get user presence for color and name
         user_presence = self.active_users[document_id].get(user_id)
@@ -679,7 +711,7 @@ class PresenceAwareness:
         }
         
         # Broadcast to all other users (exclude sender)
-        await collaboration_protocol.websocket_manager.broadcast_to_document(
+        await protocol.websocket_manager.broadcast_to_document(
             document_id, message, exclude={user_id}
         )
         
@@ -692,7 +724,10 @@ class PresenceAwareness:
         selected_objects: List[str]
     ):
         """Broadcast selection update."""
-        from app.services.collaboration_protocol import collaboration_protocol
+        protocol = self._get_collaboration_protocol()
+        if not protocol:
+            logger.warning("No collaboration protocol available for broadcasting")
+            return
         
         # Get user presence for color
         user_presence = self.active_users[document_id].get(user_id)
@@ -708,7 +743,7 @@ class PresenceAwareness:
         }
         
         # Broadcast to all users including sender (for UI consistency)
-        await collaboration_protocol.websocket_manager.broadcast_to_document(
+        await protocol.websocket_manager.broadcast_to_document(
             document_id, message
         )
         
@@ -722,7 +757,10 @@ class PresenceAwareness:
         lock_type: LockType
     ):
         """Broadcast lock acquisition."""
-        from app.services.collaboration_protocol import collaboration_protocol
+        protocol = self._get_collaboration_protocol()
+        if not protocol:
+            logger.warning("No collaboration protocol available for broadcasting")
+            return
         
         # Get user presence for details
         user_presence = self.active_users[document_id].get(user_id)
@@ -739,7 +777,7 @@ class PresenceAwareness:
         }
         
         # Broadcast to all users
-        await collaboration_protocol.websocket_manager.broadcast_to_document(
+        await protocol.websocket_manager.broadcast_to_document(
             document_id, message
         )
         
@@ -752,7 +790,10 @@ class PresenceAwareness:
         user_id: str
     ):
         """Broadcast lock release."""
-        from app.services.collaboration_protocol import collaboration_protocol
+        protocol = self._get_collaboration_protocol()
+        if not protocol:
+            logger.warning("No collaboration protocol available for broadcasting")
+            return
         
         # Prepare message
         message = {
@@ -763,7 +804,7 @@ class PresenceAwareness:
         }
         
         # Broadcast to all users
-        await collaboration_protocol.websocket_manager.broadcast_to_document(
+        await protocol.websocket_manager.broadcast_to_document(
             document_id, message
         )
         
@@ -771,7 +812,10 @@ class PresenceAwareness:
     
     async def _broadcast_user_removed(self, document_id: str, user_id: str):
         """Broadcast user removal."""
-        from app.services.collaboration_protocol import collaboration_protocol
+        protocol = self._get_collaboration_protocol()
+        if not protocol:
+            logger.warning("No collaboration protocol available for broadcasting")
+            return
         
         # Prepare message
         message = {
@@ -781,7 +825,7 @@ class PresenceAwareness:
         }
         
         # Broadcast to all remaining users
-        await collaboration_protocol.websocket_manager.broadcast_to_document(
+        await protocol.websocket_manager.broadcast_to_document(
             document_id, message
         )
         

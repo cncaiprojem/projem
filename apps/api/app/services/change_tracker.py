@@ -514,8 +514,17 @@ class ChangeTracker:
             logger.debug(f"Applied inverse operation {inverse_op.id} successfully")
             
         except Exception as e:
-            logger.error(f"Failed to apply inverse operation {inverse_op.id}: {e}")
-            # Don't raise to allow partial undo/redo
+            logger.error(
+                f"Failed to apply inverse operation {inverse_op.id}: {e}",
+                exc_info=True,
+                extra={
+                    "operation_id": inverse_op.id,
+                    "operation_type": inverse_op.type.value if inverse_op.type else None,
+                    "document_id": doc_id,
+                    "object_id": inverse_op.object_id
+                }
+            )
+            # Don't raise to allow partial undo/redo - this allows other operations to be attempted
     
     def _create_object_in_document(self, doc_id: str, object_id: str, object_type: str, object_data: Dict[str, Any]):
         """Create an object in the FreeCAD document (blocking operation)."""
@@ -678,8 +687,17 @@ class ChangeTracker:
                     logger.debug(f"Reapplied operation {op.id} successfully")
                     
                 except Exception as e:
-                    logger.error(f"Failed to reapply operation {op.id}: {e}")
-                    # Don't raise to allow partial redo
+                    logger.error(
+                        f"Failed to reapply operation {op.id}: {e}",
+                        exc_info=True,
+                        extra={
+                            "operation_id": op.id,
+                            "operation_type": op.type.value if op.type else None,
+                            "document_id": doc_id,
+                            "object_id": op.object_id
+                        }
+                    )
+                    # Don't raise to allow partial redo - this allows other operations to be attempted
     
     def _capture_object_state(self, obj) -> Dict[str, Any]:
         """Capture the current state of a FreeCAD object."""
@@ -726,8 +744,14 @@ class ChangeTracker:
                         # Only capture serializable properties
                         if isinstance(prop_value, (str, int, float, bool, list, dict)):
                             custom_props[prop_name] = prop_value
-                    except Exception:
-                        pass  # Skip properties that can't be accessed
+                    except Exception as e:
+                        logger.debug(
+                            f"Skipping property {prop_name} that cannot be accessed: {e}",
+                            extra={
+                                "property_name": prop_name,
+                                "object_name": getattr(obj, "Name", "unknown")
+                            }
+                        )
             
             if custom_props:
                 state["properties"] = custom_props
