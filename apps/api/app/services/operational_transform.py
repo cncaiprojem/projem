@@ -1,0 +1,588 @@
+"""
+Operational Transformation Engine for Real-time Collaborative FreeCAD Model Editing.
+Implements conflict-free concurrent operation transformation algorithms.
+"""
+
+from datetime import datetime, UTC
+from typing import List, Tuple, Optional, Dict, Any, Union
+from enum import Enum
+from dataclasses import dataclass, field
+import uuid
+import json
+from decimal import Decimal
+
+from pydantic import BaseModel, Field
+
+
+class OperationType(str, Enum):
+    """Types of operations that can be performed on FreeCAD models."""
+    CREATE = "create"
+    MODIFY = "modify"
+    DELETE = "delete"
+    MOVE = "move"
+    ROTATE = "rotate"
+    SCALE = "scale"
+    PROPERTY_CHANGE = "property_change"
+    CONSTRAINT_ADD = "constraint_add"
+    CONSTRAINT_REMOVE = "constraint_remove"
+    NO_OP = "no_op"
+
+
+class ConflictResolutionStrategy(str, Enum):
+    """Strategies for resolving conflicts between operations."""
+    TIMESTAMP = "timestamp"  # Last write wins
+    PRIORITY = "priority"  # User priority based
+    MERGE = "merge"  # Automatic merge attempt
+    MANUAL = "manual"  # Requires user intervention
+
+
+@dataclass
+class Point3D:
+    """3D point representation."""
+    x: float
+    y: float
+    z: float
+    
+    def to_dict(self) -> Dict[str, float]:
+        return {"x": self.x, "y": self.y, "z": self.z}
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, float]) -> "Point3D":
+        return cls(x=data["x"], y=data["y"], z=data["z"])
+
+
+@dataclass
+class Transform3D:
+    """3D transformation matrix."""
+    position: Point3D
+    rotation: Point3D  # Euler angles in degrees
+    scale: Point3D
+    
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "position": self.position.to_dict(),
+            "rotation": self.rotation.to_dict(),
+            "scale": self.scale.to_dict()
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "Transform3D":
+        return cls(
+            position=Point3D.from_dict(data["position"]),
+            rotation=Point3D.from_dict(data["rotation"]),
+            scale=Point3D.from_dict(data["scale"])
+        )
+
+
+@dataclass
+class ModelOperation:
+    """Represents an operation on a FreeCAD model."""
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    type: OperationType = OperationType.NO_OP
+    object_id: Optional[str] = None
+    user_id: Optional[str] = None
+    session_id: Optional[str] = None
+    timestamp: datetime = field(default_factory=lambda: datetime.now(UTC))
+    version: int = 0
+    parameters: Dict[str, Any] = field(default_factory=dict)
+    parent_operation_id: Optional[str] = None
+    metadata: Dict[str, Any] = field(default_factory=dict)
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert operation to dictionary."""
+        return {
+            "id": self.id,
+            "type": self.type.value,
+            "object_id": self.object_id,
+            "user_id": self.user_id,
+            "session_id": self.session_id,
+            "timestamp": self.timestamp.isoformat(),
+            "version": self.version,
+            "parameters": self.parameters,
+            "parent_operation_id": self.parent_operation_id,
+            "metadata": self.metadata
+        }
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "ModelOperation":
+        """Create operation from dictionary."""
+        return cls(
+            id=data.get("id", str(uuid.uuid4())),
+            type=OperationType(data.get("type", "no_op")),
+            object_id=data.get("object_id"),
+            user_id=data.get("user_id"),
+            session_id=data.get("session_id"),
+            timestamp=datetime.fromisoformat(data["timestamp"]) if "timestamp" in data else datetime.now(UTC),
+            version=data.get("version", 0),
+            parameters=data.get("parameters", {}),
+            parent_operation_id=data.get("parent_operation_id"),
+            metadata=data.get("metadata", {})
+        )
+    
+    def is_no_op(self) -> bool:
+        """Check if this is a no-operation."""
+        return self.type == OperationType.NO_OP
+    
+    def conflicts_with(self, other: "ModelOperation") -> bool:
+        """Check if this operation conflicts with another."""
+        if self.is_no_op() or other.is_no_op():
+            return False
+        
+        # Same object operations always conflict
+        if self.object_id and other.object_id and self.object_id == other.object_id:
+            return True
+        
+        # Check for constraint conflicts
+        if self.type in [OperationType.CONSTRAINT_ADD, OperationType.CONSTRAINT_REMOVE]:
+            if other.type in [OperationType.CONSTRAINT_ADD, OperationType.CONSTRAINT_REMOVE]:
+                # Check if constraints reference same objects
+                self_refs = set(self.parameters.get("referenced_objects", []))
+                other_refs = set(other.parameters.get("referenced_objects", []))
+                if self_refs.intersection(other_refs):
+                    return True
+        
+        return False
+
+
+class NoOperation(ModelOperation):
+    """Represents a no-operation (used when operations cancel out)."""
+    def __init__(self):
+        super().__init__(type=OperationType.NO_OP)
+
+
+@dataclass
+class TransformResult:
+    """Result of transforming two operations."""
+    op1_prime: ModelOperation
+    op2_prime: ModelOperation
+    conflict_resolved: bool = True
+    resolution_metadata: Dict[str, Any] = field(default_factory=dict)
+
+
+class OperationalTransform:
+    """
+    Transform concurrent operations for conflict-free collaboration.
+    Implements the operational transformation algorithm for FreeCAD models.
+    """
+    
+    def __init__(self):
+        self.transform_functions = {
+            (OperationType.MODIFY, OperationType.MODIFY): self._transform_modify_modify,
+            (OperationType.MODIFY, OperationType.DELETE): self._transform_modify_delete,
+            (OperationType.DELETE, OperationType.MODIFY): self._transform_delete_modify,
+            (OperationType.DELETE, OperationType.DELETE): self._transform_delete_delete,
+            (OperationType.CREATE, OperationType.CREATE): self._transform_create_create,
+            (OperationType.MOVE, OperationType.MOVE): self._transform_move_move,
+            (OperationType.ROTATE, OperationType.ROTATE): self._transform_rotate_rotate,
+            (OperationType.SCALE, OperationType.SCALE): self._transform_scale_scale,
+            (OperationType.PROPERTY_CHANGE, OperationType.PROPERTY_CHANGE): self._transform_property_property,
+            (OperationType.CONSTRAINT_ADD, OperationType.CONSTRAINT_ADD): self._transform_constraint_constraint,
+        }
+    
+    def transform_operation(
+        self,
+        op1: ModelOperation,
+        op2: ModelOperation,
+        strategy: ConflictResolutionStrategy = ConflictResolutionStrategy.MERGE
+    ) -> TransformResult:
+        """
+        Transform two concurrent operations to maintain consistency.
+        
+        Args:
+            op1: First operation
+            op2: Second operation
+            strategy: Conflict resolution strategy
+            
+        Returns:
+            TransformResult with transformed operations
+        """
+        # No-ops pass through unchanged
+        if op1.is_no_op():
+            return TransformResult(op1, op2)
+        if op2.is_no_op():
+            return TransformResult(op1, op2)
+        
+        # Get specific transform function
+        transform_key = (op1.type, op2.type)
+        if transform_key in self.transform_functions:
+            return self.transform_functions[transform_key](op1, op2, strategy)
+        
+        # Default: operations don't conflict
+        return TransformResult(op1, op2)
+    
+    def _transform_modify_modify(
+        self,
+        op1: ModelOperation,
+        op2: ModelOperation,
+        strategy: ConflictResolutionStrategy
+    ) -> TransformResult:
+        """Transform two modify operations on the same object."""
+        if op1.object_id != op2.object_id:
+            return TransformResult(op1, op2)
+        
+        if strategy == ConflictResolutionStrategy.TIMESTAMP:
+            # Last write wins
+            if op1.timestamp > op2.timestamp:
+                return TransformResult(op1, NoOperation())
+            else:
+                return TransformResult(NoOperation(), op2)
+        
+        elif strategy == ConflictResolutionStrategy.MERGE:
+            # Attempt to merge non-conflicting property changes
+            merged_params = self._merge_parameters(op1.parameters, op2.parameters)
+            if merged_params is not None:
+                # Create merged operation
+                merged_op = ModelOperation(
+                    type=OperationType.MODIFY,
+                    object_id=op1.object_id,
+                    parameters=merged_params,
+                    metadata={"merged_from": [op1.id, op2.id]}
+                )
+                return TransformResult(merged_op, NoOperation())
+            else:
+                # Merge failed, fall back to timestamp
+                return self._transform_modify_modify(op1, op2, ConflictResolutionStrategy.TIMESTAMP)
+        
+        elif strategy == ConflictResolutionStrategy.PRIORITY:
+            # Use user priority
+            priority1 = op1.metadata.get("user_priority", 0)
+            priority2 = op2.metadata.get("user_priority", 0)
+            if priority1 >= priority2:
+                return TransformResult(op1, NoOperation())
+            else:
+                return TransformResult(NoOperation(), op2)
+        
+        # Manual resolution required
+        return TransformResult(
+            op1, op2,
+            conflict_resolved=False,
+            resolution_metadata={"requires_manual": True}
+        )
+    
+    def _transform_modify_delete(
+        self,
+        modify_op: ModelOperation,
+        delete_op: ModelOperation,
+        strategy: ConflictResolutionStrategy
+    ) -> TransformResult:
+        """Transform modify vs delete operations."""
+        if modify_op.object_id != delete_op.object_id:
+            return TransformResult(modify_op, delete_op)
+        
+        # Delete typically wins (can't modify deleted object)
+        return TransformResult(NoOperation(), delete_op)
+    
+    def _transform_delete_modify(
+        self,
+        delete_op: ModelOperation,
+        modify_op: ModelOperation,
+        strategy: ConflictResolutionStrategy
+    ) -> TransformResult:
+        """Transform delete vs modify operations."""
+        if delete_op.object_id != modify_op.object_id:
+            return TransformResult(delete_op, modify_op)
+        
+        # Delete wins
+        return TransformResult(delete_op, NoOperation())
+    
+    def _transform_delete_delete(
+        self,
+        op1: ModelOperation,
+        op2: ModelOperation,
+        strategy: ConflictResolutionStrategy
+    ) -> TransformResult:
+        """Transform two delete operations on the same object."""
+        if op1.object_id != op2.object_id:
+            return TransformResult(op1, op2)
+        
+        # Both trying to delete same object - only one succeeds
+        if op1.timestamp < op2.timestamp:
+            return TransformResult(op1, NoOperation())
+        else:
+            return TransformResult(NoOperation(), op2)
+    
+    def _transform_create_create(
+        self,
+        op1: ModelOperation,
+        op2: ModelOperation,
+        strategy: ConflictResolutionStrategy
+    ) -> TransformResult:
+        """Transform two create operations."""
+        # Check for ID collision
+        created_id1 = op1.parameters.get("new_object_id")
+        created_id2 = op2.parameters.get("new_object_id")
+        
+        if created_id1 == created_id2:
+            # ID collision - assign new ID to later operation
+            if op1.timestamp < op2.timestamp:
+                op2.parameters["new_object_id"] = f"{created_id2}_v2"
+            else:
+                op1.parameters["new_object_id"] = f"{created_id1}_v2"
+        
+        return TransformResult(op1, op2)
+    
+    def _transform_move_move(
+        self,
+        op1: ModelOperation,
+        op2: ModelOperation,
+        strategy: ConflictResolutionStrategy
+    ) -> TransformResult:
+        """Transform two move operations on the same object."""
+        if op1.object_id != op2.object_id:
+            return TransformResult(op1, op2)
+        
+        if strategy == ConflictResolutionStrategy.MERGE:
+            # Combine movements (vector addition)
+            pos1 = Point3D.from_dict(op1.parameters.get("position", {"x": 0, "y": 0, "z": 0}))
+            pos2 = Point3D.from_dict(op2.parameters.get("position", {"x": 0, "y": 0, "z": 0}))
+            
+            combined_pos = Point3D(
+                x=pos1.x + pos2.x,
+                y=pos1.y + pos2.y,
+                z=pos1.z + pos2.z
+            )
+            
+            combined_op = ModelOperation(
+                type=OperationType.MOVE,
+                object_id=op1.object_id,
+                parameters={"position": combined_pos.to_dict()},
+                metadata={"combined_from": [op1.id, op2.id]}
+            )
+            
+            return TransformResult(combined_op, NoOperation())
+        
+        # Use timestamp strategy
+        return self._transform_modify_modify(op1, op2, ConflictResolutionStrategy.TIMESTAMP)
+    
+    def _transform_rotate_rotate(
+        self,
+        op1: ModelOperation,
+        op2: ModelOperation,
+        strategy: ConflictResolutionStrategy
+    ) -> TransformResult:
+        """Transform two rotate operations on the same object."""
+        if op1.object_id != op2.object_id:
+            return TransformResult(op1, op2)
+        
+        if strategy == ConflictResolutionStrategy.MERGE:
+            # Combine rotations
+            rot1 = Point3D.from_dict(op1.parameters.get("rotation", {"x": 0, "y": 0, "z": 0}))
+            rot2 = Point3D.from_dict(op2.parameters.get("rotation", {"x": 0, "y": 0, "z": 0}))
+            
+            # Simple addition for Euler angles (not perfect but acceptable for most cases)
+            combined_rot = Point3D(
+                x=(rot1.x + rot2.x) % 360,
+                y=(rot1.y + rot2.y) % 360,
+                z=(rot1.z + rot2.z) % 360
+            )
+            
+            combined_op = ModelOperation(
+                type=OperationType.ROTATE,
+                object_id=op1.object_id,
+                parameters={"rotation": combined_rot.to_dict()},
+                metadata={"combined_from": [op1.id, op2.id]}
+            )
+            
+            return TransformResult(combined_op, NoOperation())
+        
+        return self._transform_modify_modify(op1, op2, ConflictResolutionStrategy.TIMESTAMP)
+    
+    def _transform_scale_scale(
+        self,
+        op1: ModelOperation,
+        op2: ModelOperation,
+        strategy: ConflictResolutionStrategy
+    ) -> TransformResult:
+        """Transform two scale operations on the same object."""
+        if op1.object_id != op2.object_id:
+            return TransformResult(op1, op2)
+        
+        if strategy == ConflictResolutionStrategy.MERGE:
+            # Multiply scales
+            scale1 = Point3D.from_dict(op1.parameters.get("scale", {"x": 1, "y": 1, "z": 1}))
+            scale2 = Point3D.from_dict(op2.parameters.get("scale", {"x": 1, "y": 1, "z": 1}))
+            
+            combined_scale = Point3D(
+                x=scale1.x * scale2.x,
+                y=scale1.y * scale2.y,
+                z=scale1.z * scale2.z
+            )
+            
+            combined_op = ModelOperation(
+                type=OperationType.SCALE,
+                object_id=op1.object_id,
+                parameters={"scale": combined_scale.to_dict()},
+                metadata={"combined_from": [op1.id, op2.id]}
+            )
+            
+            return TransformResult(combined_op, NoOperation())
+        
+        return self._transform_modify_modify(op1, op2, ConflictResolutionStrategy.TIMESTAMP)
+    
+    def _transform_property_property(
+        self,
+        op1: ModelOperation,
+        op2: ModelOperation,
+        strategy: ConflictResolutionStrategy
+    ) -> TransformResult:
+        """Transform two property change operations."""
+        if op1.object_id != op2.object_id:
+            return TransformResult(op1, op2)
+        
+        prop1 = op1.parameters.get("property_name")
+        prop2 = op2.parameters.get("property_name")
+        
+        if prop1 != prop2:
+            # Different properties - both can apply
+            return TransformResult(op1, op2)
+        
+        # Same property - use resolution strategy
+        return self._transform_modify_modify(op1, op2, strategy)
+    
+    def _transform_constraint_constraint(
+        self,
+        op1: ModelOperation,
+        op2: ModelOperation,
+        strategy: ConflictResolutionStrategy
+    ) -> TransformResult:
+        """Transform two constraint operations."""
+        # Check if constraints conflict
+        refs1 = set(op1.parameters.get("referenced_objects", []))
+        refs2 = set(op2.parameters.get("referenced_objects", []))
+        
+        if not refs1.intersection(refs2):
+            # No shared references - both can apply
+            return TransformResult(op1, op2)
+        
+        # Constraints conflict - use strategy
+        if strategy == ConflictResolutionStrategy.TIMESTAMP:
+            if op1.timestamp > op2.timestamp:
+                return TransformResult(op1, NoOperation())
+            else:
+                return TransformResult(NoOperation(), op2)
+        
+        # Manual resolution for complex constraint conflicts
+        return TransformResult(
+            op1, op2,
+            conflict_resolved=False,
+            resolution_metadata={"requires_manual": True, "reason": "constraint_conflict"}
+        )
+    
+    def _merge_parameters(self, params1: Dict[str, Any], params2: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        Attempt to merge two parameter sets.
+        
+        Returns merged parameters if successful, None if conflict detected.
+        """
+        merged = {}
+        all_keys = set(params1.keys()) | set(params2.keys())
+        
+        for key in all_keys:
+            if key in params1 and key in params2:
+                # Both have this parameter
+                val1, val2 = params1[key], params2[key]
+                
+                # If values are the same, no conflict
+                if val1 == val2:
+                    merged[key] = val1
+                # Try to merge if both are dicts
+                elif isinstance(val1, dict) and isinstance(val2, dict):
+                    sub_merged = self._merge_parameters(val1, val2)
+                    if sub_merged is None:
+                        return None  # Conflict in nested parameters
+                    merged[key] = sub_merged
+                else:
+                    # Conflict - can't merge
+                    return None
+            elif key in params1:
+                merged[key] = params1[key]
+            else:
+                merged[key] = params2[key]
+        
+        return merged
+    
+    def apply_operation_sequence(
+        self,
+        operations: List[ModelOperation],
+        initial_state: Optional[Dict[str, Any]] = None
+    ) -> Tuple[Dict[str, Any], List[ModelOperation]]:
+        """
+        Apply a sequence of operations with transformation.
+        
+        Args:
+            operations: List of operations to apply
+            initial_state: Initial model state (optional)
+            
+        Returns:
+            Tuple of (final_state, transformed_operations)
+        """
+        if initial_state is None:
+            state = {}
+        else:
+            state = initial_state.copy()
+        
+        # Sort operations by timestamp
+        sorted_ops = sorted(operations, key=lambda op: op.timestamp)
+        
+        transformed = []
+        for new_op in sorted_ops:
+            # Transform against all previously applied operations
+            current_op = new_op
+            for existing_op in transformed:
+                result = self.transform_operation(current_op, existing_op)
+                current_op = result.op1_prime
+            
+            if not current_op.is_no_op():
+                transformed.append(current_op)
+                # Apply operation to state (simplified - actual implementation would modify FreeCAD document)
+                state = self._apply_to_state(state, current_op)
+        
+        return state, transformed
+    
+    def _apply_to_state(self, state: Dict[str, Any], operation: ModelOperation) -> Dict[str, Any]:
+        """
+        Apply an operation to the model state.
+        
+        This is a simplified implementation - actual implementation would
+        interact with FreeCAD document.
+        """
+        new_state = state.copy()
+        
+        if operation.type == OperationType.CREATE:
+            obj_id = operation.parameters.get("new_object_id")
+            if obj_id:
+                new_state[obj_id] = operation.parameters.get("object_data", {})
+        
+        elif operation.type == OperationType.DELETE:
+            if operation.object_id in new_state:
+                del new_state[operation.object_id]
+        
+        elif operation.type == OperationType.MODIFY:
+            if operation.object_id in new_state:
+                new_state[operation.object_id].update(operation.parameters)
+        
+        # Add more operation types as needed
+        
+        return new_state
+    
+    def compute_operation_checksum(self, operation: ModelOperation) -> str:
+        """
+        Compute a checksum for an operation for verification.
+        
+        Args:
+            operation: Operation to compute checksum for
+            
+        Returns:
+            Checksum string
+        """
+        import hashlib
+        
+        # Create deterministic string representation
+        op_string = json.dumps({
+            "type": operation.type.value,
+            "object_id": operation.object_id,
+            "parameters": operation.parameters,
+            "version": operation.version
+        }, sort_keys=True)
+        
+        return hashlib.sha256(op_string.encode()).hexdigest()
