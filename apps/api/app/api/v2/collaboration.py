@@ -29,6 +29,7 @@ from app.services.offline_sync import OfflineSync
 from app.services.change_tracker import ChangeTracker, ModelChange
 from app.services.operational_transform import ModelOperation
 from app.core.config import settings
+from app.utils.color_utils import generate_user_color
 
 logger = logging.getLogger(__name__)
 
@@ -125,7 +126,7 @@ async def collaborate(
             {
                 "name": user.full_name or user.email,
                 "status": "active",
-                "color": _get_user_color(str(user.id))
+                "color": generate_user_color(str(user.id), method="palette")
             }
         )
         
@@ -450,6 +451,15 @@ async def handle_lock_release(
         
     except Exception as e:
         logger.error(f"Error handling lock release: {e}")
+        # Notify client of the error
+        await collaboration_protocol.websocket_manager.send_to_connection(
+            connection_id,
+            {
+                "type": "lock_release_error",
+                "message": "Failed to release locks. Please try again.",
+                "error": "An error occurred while releasing the locks."
+            }
+        )
 
 
 async def handle_sync_request(
@@ -600,6 +610,15 @@ async def handle_undo(
             
     except Exception as e:
         logger.error(f"Error handling undo: {e}")
+        # Notify client of the error
+        await collaboration_protocol.websocket_manager.send_to_connection(
+            connection_id,
+            {
+                "type": "undo_error",
+                "message": "Failed to perform undo operation. Please try again.",
+                "error": "An error occurred while processing the undo request."
+            }
+        )
 
 
 async def handle_redo(
@@ -645,6 +664,15 @@ async def handle_redo(
             
     except Exception as e:
         logger.error(f"Error handling redo: {e}")
+        # Notify client of the error
+        await collaboration_protocol.websocket_manager.send_to_connection(
+            connection_id,
+            {
+                "type": "redo_error",
+                "message": "Failed to perform redo operation. Please try again.",
+                "error": "An error occurred while processing the redo request."
+            }
+        )
 
 
 async def handle_conflict_resolution(
@@ -680,28 +708,19 @@ async def handle_conflict_resolution(
         
     except Exception as e:
         logger.error(f"Error handling conflict resolution: {e}")
+        # Notify client of the error
+        await collaboration_protocol.websocket_manager.send_to_connection(
+            connection_id,
+            {
+                "type": "conflict_resolution_error",
+                "message": "Failed to resolve conflict. Please try again.",
+                "error": "An error occurred while resolving the conflict.",
+                "conflict_id": conflict_id if 'conflict_id' in locals() else None
+            }
+        )
 
 
-def _get_user_color(user_id: str) -> str:
-    """Generate a consistent color for a user."""
-    try:
-        # Convert string user_id to int for color selection
-        # Use hash for non-numeric IDs
-        if user_id.isdigit():
-            user_id_int = int(user_id)
-        else:
-            # Use hash for non-numeric user IDs
-            user_id_int = abs(hash(user_id))
-        
-        colors = [
-            "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
-            "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E2"
-        ]
-        return colors[user_id_int % len(colors)]
-    except Exception as e:
-        logger.warning(f"Error generating color for user {user_id}: {e}")
-        # Return a default color on error
-        return "#808080"  # Gray as fallback
+# Color generation is now handled by the shared utility module in app.utils.color_utils
 
 
 # HTTP endpoints for collaboration status

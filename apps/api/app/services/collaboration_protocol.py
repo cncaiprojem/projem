@@ -226,8 +226,10 @@ class OperationQueue:
                 self.retry_counts[operation.id] = retry_count + 1
                 # Exponential backoff: 2^retry_count seconds with jitter
                 base_delay = 2 ** retry_count
-                jitter = base_delay * 0.1 * (0.5 - random.random())  # ±10% jitter
-                self.retry_delays[operation.id] = time.time() + base_delay + jitter
+                # Correctly calculate ±10% jitter: random value between -0.1 and +0.1
+                jitter_factor = (random.random() - 0.5) * 0.2  # Random value in [-0.1, 0.1]
+                jittered_delay = base_delay * (1 + jitter_factor)  # Apply ±10% jitter
+                self.retry_delays[operation.id] = time.time() + jittered_delay
             else:
                 # Initialize retry count for new operations
                 self.retry_counts[operation.id] = 0

@@ -5,7 +5,6 @@ Tracks active users, cursor positions, selections, and object locks.
 
 import asyncio
 import logging
-import colorsys
 from datetime import datetime, UTC, timedelta
 from typing import Dict, List, Set, Optional, Any, Tuple
 from dataclasses import dataclass, field
@@ -17,6 +16,7 @@ from collections import defaultdict
 from redis import asyncio as aioredis
 
 from app.core.config import settings
+from app.utils.color_utils import generate_user_color
 
 logger = logging.getLogger(__name__)
 
@@ -323,7 +323,7 @@ class PresenceAwareness:
             presence = UserPresence(
                 user_id=user_id,
                 name=presence_data.get("name", f"User {user_id[:8]}"),
-                color=presence_data.get("color", self._generate_user_color(user_id))
+                color=presence_data.get("color", generate_user_color(user_id, method="hsl"))
             )
             self.active_users[document_id][user_id] = presence
         else:
@@ -627,28 +627,7 @@ class PresenceAwareness:
         
         return sorted(nearby, key=lambda x: x[1])
     
-    def _generate_user_color(self, user_id: str) -> str:
-        """Generate a consistent color for a user using proper HSL to RGB conversion."""
-        # Use hash to generate consistent color
-        hash_val = abs(hash(user_id))
-        
-        # Generate hue from hash (0.0 to 1.0)
-        hue = (hash_val % 360) / 360.0
-        
-        # Use good saturation and lightness for visibility
-        saturation = 0.7  # 70% saturation for vibrant colors
-        lightness = 0.5   # 50% lightness for good contrast
-        
-        # Convert HSL to RGB using colorsys
-        # Note: colorsys.hls_to_rgb uses HLS order (Hue, Lightness, Saturation)
-        r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
-        
-        # Convert to 0-255 range and format as hex
-        r_int = int(r * 255)
-        g_int = int(g * 255)
-        b_int = int(b * 255)
-        
-        return f"#{r_int:02x}{g_int:02x}{b_int:02x}"
+    # Color generation is now handled by the shared utility module in app.utils.color_utils
     
     # Broadcast methods (would integrate with WebSocket manager)
     async def _broadcast_status_changes(
