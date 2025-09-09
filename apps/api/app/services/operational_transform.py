@@ -571,27 +571,213 @@ class OperationalTransform:
         """
         Apply an operation to the model state.
         
-        This is a simplified implementation - actual implementation would
-        interact with FreeCAD document.
+        This method updates the in-memory state representation that tracks
+        the FreeCAD document objects and their properties.
         """
-        new_state = state.copy()
+        import copy
+        
+        # Deep copy the state to avoid mutations
+        new_state = copy.deepcopy(state)
         
         if operation.type == OperationType.CREATE:
+            # Create new object in state
             obj_id = operation.parameters.get("new_object_id")
             if obj_id:
-                new_state[obj_id] = operation.parameters.get("object_data", {})
+                object_data = operation.parameters.get("object_data", {})
+                new_state[obj_id] = {
+                    "id": obj_id,
+                    "type": operation.parameters.get("type", "Part::Feature"),
+                    "created_at": operation.timestamp.isoformat() if operation.timestamp else None,
+                    "created_by": operation.user_id,
+                    "properties": object_data,
+                    "placement": object_data.get("placement", {
+                        "position": {"x": 0, "y": 0, "z": 0},
+                        "rotation": {"angle": 0, "axis": {"x": 0, "y": 0, "z": 1}}
+                    })
+                }
         
         elif operation.type == OperationType.DELETE:
-            if operation.object_id in new_state:
+            # Remove object from state
+            if operation.object_id and operation.object_id in new_state:
                 del new_state[operation.object_id]
         
         elif operation.type == OperationType.MODIFY:
-            if operation.object_id in new_state:
-                new_state[operation.object_id].update(operation.parameters)
+            # Update object properties
+            if operation.object_id and operation.object_id in new_state:
+                obj = new_state[operation.object_id]
+                # Update properties while preserving structure
+                if "properties" not in obj:
+                    obj["properties"] = {}
+                obj["properties"].update(operation.parameters)
+                obj["modified_at"] = operation.timestamp.isoformat() if operation.timestamp else None
+                obj["modified_by"] = operation.user_id
         
-        # Add more operation types as needed
+        elif operation.type == OperationType.MOVE:
+            # Update object position
+            if operation.object_id and operation.object_id in new_state:
+                obj = new_state[operation.object_id]
+                if "placement" not in obj:
+                    obj["placement"] = {
+                        "position": {"x": 0, "y": 0, "z": 0},
+                        "rotation": {"angle": 0, "axis": {"x": 0, "y": 0, "z": 1}}
+                    }
+                
+                position = operation.parameters.get("position", {})
+                if position:
+                    obj["placement"]["position"].update(position)
+                
+                rotation = operation.parameters.get("rotation")
+                if rotation:
+                    obj["placement"]["rotation"] = rotation
+                
+                obj["moved_at"] = operation.timestamp.isoformat() if operation.timestamp else None
+                obj["moved_by"] = operation.user_id
+        
+        elif operation.type == OperationType.ROTATE:
+            # Update object rotation
+            if operation.object_id and operation.object_id in new_state:
+                obj = new_state[operation.object_id]
+                if "placement" not in obj:
+                    obj["placement"] = {
+                        "position": {"x": 0, "y": 0, "z": 0},
+                        "rotation": {"angle": 0, "axis": {"x": 0, "y": 0, "z": 1}}
+                    }
+                
+                rotation = operation.parameters.get("rotation", {})
+                if rotation:
+                    # Apply rotation (could be absolute or relative)
+                    if operation.parameters.get("relative", False):
+                        # Relative rotation - combine with existing
+                        current_rot = obj["placement"]["rotation"]
+                        # Convert to quaternions, multiply, convert back
+                        import numpy as np
+                        
+                        # Current rotation quaternion
+                        curr_angle = current_rot.get("angle", 0)
+                        curr_axis = current_rot.get("axis", {"x": 0, "y": 0, "z": 1})
+                        curr_quat = self._axis_angle_to_quaternion(
+                            curr_axis["x"], curr_axis["y"], curr_axis["z"], curr_angle
+                        )
+                        
+                        # New rotation quaternion
+                        new_angle = rotation.get("angle", 0)
+                        new_axis = rotation.get("axis", {"x": 0, "y": 0, "z": 1})
+                        new_quat = self._axis_angle_to_quaternion(
+                            new_axis["x"], new_axis["y"], new_axis["z"], new_angle
+                        )
+                        
+                        # Combine rotations
+                        result_quat = self._quaternion_multiply(curr_quat, new_quat)
+                        
+                        # Convert back to axis-angle
+                        axis, angle = self._quaternion_to_axis_angle(result_quat)
+                        obj["placement"]["rotation"] = {
+                            "angle": angle,
+                            "axis": {"x": axis[0], "y": axis[1], "z": axis[2]}
+                        }
+                    else:
+                        # Absolute rotation
+                        obj["placement"]["rotation"] = rotation
+                
+                obj["rotated_at"] = operation.timestamp.isoformat() if operation.timestamp else None
+                obj["rotated_by"] = operation.user_id
+        
+        elif operation.type == OperationType.SCALE:
+            # Update object scale
+            if operation.object_id and operation.object_id in new_state:
+                obj = new_state[operation.object_id]
+                scale = operation.parameters.get("scale", 1.0)
+                
+                if isinstance(scale, (int, float)):
+                    obj["scale"] = {"x": scale, "y": scale, "z": scale}
+                else:
+                    obj["scale"] = scale
+                
+                obj["scaled_at"] = operation.timestamp.isoformat() if operation.timestamp else None
+                obj["scaled_by"] = operation.user_id
+        
+        elif operation.type == OperationType.GROUP:
+            # Group objects
+            group_id = operation.parameters.get("group_id")
+            object_ids = operation.parameters.get("object_ids", [])
+            
+            if group_id:
+                new_state[group_id] = {
+                    "id": group_id,
+                    "type": "App::DocumentObjectGroup",
+                    "created_at": operation.timestamp.isoformat() if operation.timestamp else None,
+                    "created_by": operation.user_id,
+                    "members": object_ids,
+                    "properties": operation.parameters.get("properties", {})
+                }
+                
+                # Update grouped objects
+                for obj_id in object_ids:
+                    if obj_id in new_state:
+                        new_state[obj_id]["parent_group"] = group_id
+        
+        elif operation.type == OperationType.UNGROUP:
+            # Ungroup objects
+            group_id = operation.object_id
+            if group_id and group_id in new_state:
+                group = new_state[group_id]
+                members = group.get("members", [])
+                
+                # Remove parent reference from members
+                for obj_id in members:
+                    if obj_id in new_state:
+                        new_state[obj_id].pop("parent_group", None)
+                
+                # Remove the group
+                del new_state[group_id]
         
         return new_state
+    
+    def _axis_angle_to_quaternion(self, x: float, y: float, z: float, angle: float) -> np.ndarray:
+        """Convert axis-angle representation to quaternion."""
+        import numpy as np
+        
+        # Normalize axis
+        axis = np.array([x, y, z])
+        axis_norm = np.linalg.norm(axis)
+        if axis_norm > 0:
+            axis = axis / axis_norm
+        else:
+            axis = np.array([0, 0, 1])
+        
+        # Convert angle to radians if needed
+        angle_rad = np.radians(angle) if angle > 2 * np.pi else angle
+        
+        # Calculate quaternion
+        half_angle = angle_rad * 0.5
+        s = np.sin(half_angle)
+        w = np.cos(half_angle)
+        x = axis[0] * s
+        y = axis[1] * s
+        z = axis[2] * s
+        
+        return np.array([w, x, y, z])
+    
+    def _quaternion_to_axis_angle(self, q: np.ndarray) -> Tuple[np.ndarray, float]:
+        """Convert quaternion to axis-angle representation."""
+        import numpy as np
+        
+        w, x, y, z = q
+        
+        # Calculate angle
+        angle = 2 * np.arccos(np.clip(w, -1.0, 1.0))
+        
+        # Calculate axis
+        s = np.sin(angle * 0.5)
+        if s < 0.001:  # Close to zero, arbitrary axis
+            axis = np.array([0, 0, 1])
+        else:
+            axis = np.array([x, y, z]) / s
+        
+        # Convert angle to degrees
+        angle_deg = np.degrees(angle)
+        
+        return axis, angle_deg
     
     def compute_operation_checksum(self, operation: ModelOperation) -> str:
         """

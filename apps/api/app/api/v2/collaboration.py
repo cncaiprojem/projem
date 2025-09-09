@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.auth import get_current_user_ws
+from app.middleware.jwt_middleware import get_current_user
 from app.models.user import User
 from app.services.collaboration_protocol import CollaborationProtocol
 from app.services.presence_awareness import PresenceAwareness, Point3D, ViewportInfo
@@ -225,11 +226,12 @@ async def handle_operation(
         if not operation_data:
             return
         
-        # Add user information
-        operation_data["user_id"] = str(user.id)
+        # Create a copy to avoid modifying the original
+        operation_data_with_user = operation_data.copy()
+        operation_data_with_user["user_id"] = str(user.id)
         
         # Track change
-        operation = ModelOperation.from_dict(operation_data)
+        operation = ModelOperation.from_dict(operation_data_with_user)
         change = ModelChange(
             user_id=str(user.id),
             operation=operation,
@@ -239,7 +241,7 @@ async def handle_operation(
         
         # Handle through collaboration protocol
         await collaboration_protocol.handle_client_operation(
-            connection_id, operation_data
+            connection_id, operation_data_with_user
         )
         
         # Store for offline sync
@@ -682,6 +684,7 @@ async def handle_conflict_resolution(
     data: Dict[str, Any]
 ):
     """Handle manual conflict resolution."""
+    conflict_id = None  # Define at the beginning to ensure it's always available
     try:
         conflict_id = data.get("conflict_id")
         resolution = data.get("resolution")
@@ -715,7 +718,7 @@ async def handle_conflict_resolution(
                 "type": "conflict_resolution_error",
                 "message": "Failed to resolve conflict. Please try again.",
                 "error": "An error occurred while resolving the conflict.",
-                "conflict_id": conflict_id if 'conflict_id' in locals() else None
+                "conflict_id": conflict_id  # Now always defined
             }
         )
 
@@ -728,7 +731,7 @@ async def handle_conflict_resolution(
 @router.get("/collaboration/status/{document_id}")
 async def get_collaboration_status(
     document_id: str,
-    current_user: User = Depends(get_current_user_ws),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get collaboration status for a document."""
@@ -771,7 +774,7 @@ async def get_collaboration_status(
 async def get_change_history(
     document_id: str,
     limit: int = Query(100, ge=1, le=1000),
-    current_user: User = Depends(get_current_user_ws),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get change history for a document."""
@@ -807,7 +810,7 @@ async def get_change_history(
 
 @router.get("/collaboration/statistics")
 async def get_collaboration_statistics(
-    current_user: User = Depends(get_current_user_ws),
+    current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """Get overall collaboration statistics."""

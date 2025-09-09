@@ -50,8 +50,13 @@ def _generate_hsl_color(user_id: str) -> str:
     Returns:
         Hex color string
     """
-    # Use hash to generate consistent color
-    hash_val = abs(hash(user_id))
+    import hashlib
+    
+    # Use SHA256 hash for consistent color generation
+    hash_obj = hashlib.sha256(user_id.encode('utf-8'))
+    hash_bytes = hash_obj.digest()
+    # Use first 4 bytes as integer for consistency
+    hash_val = int.from_bytes(hash_bytes[:4], 'big')
     
     # Generate hue from hash (0.0 to 1.0)
     hue = (hash_val % 360) / 360.0
@@ -85,12 +90,17 @@ def _generate_palette_color(user_id: str) -> str:
     Returns:
         Hex color string from the palette
     """
+    import hashlib
+    
     # Convert string user_id to int for color selection
     if user_id.isdigit():
         user_id_int = int(user_id)
     else:
-        # Use hash for non-numeric IDs
-        user_id_int = abs(hash(user_id))
+        # Use SHA256 hash for non-numeric IDs
+        hash_obj = hashlib.sha256(user_id.encode('utf-8'))
+        hash_bytes = hash_obj.digest()
+        # Use first 4 bytes as integer for consistency
+        user_id_int = int.from_bytes(hash_bytes[:4], 'big')
     
     # Predefined palette of distinct, visually appealing colors
     colors = [

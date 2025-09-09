@@ -341,52 +341,322 @@ class OfflineSync:
         """
         Apply an operation to the document.
         
-        This would integrate with FreeCADDocumentManager.
+        Integrates with FreeCADDocumentManager for actual document manipulation.
         """
+        import asyncio
+        from app.services.freecad_document_manager import document_manager, DocumentException
+        
         try:
-            # TODO: Integrate with FreeCADDocumentManager
-            # For now, just add to buffer
+            # Add to buffer for history tracking
             if document_id not in self.operation_buffers:
                 self.operation_buffers[document_id] = OperationBuffer()
             
             self.operation_buffers[document_id].add(operation)
             
-            # Update version vector
-            if operation.user_id:
+            # Get or create document
+            doc_handle = document_manager.get_document(document_id)
+            if not doc_handle:
+                logger.info(f"Document {document_id} not found, creating new document")
+                doc_handle = await asyncio.to_thread(
+                    document_manager.create_document,
+                    document_id
+                )
+                if not doc_handle:
+                    logger.error(f"Failed to create document {document_id}")
+                    return False
+            
+            # Apply operation to FreeCAD document
+            doc = doc_handle.document
+            success = False
+            
+            if operation.type == OperationType.CREATE:
+                # Create new object
+                object_id = operation.parameters.get("new_object_id", str(uuid.uuid4()))
+                object_type = operation.parameters.get("type", "Part::Feature")
+                object_data = operation.parameters.get("object_data", {})
+                
+                success = await asyncio.to_thread(
+                    self._create_object,
+                    doc,
+                    object_id,
+                    object_type,
+                    object_data
+                )
+                
+            elif operation.type == OperationType.DELETE:
+                # Delete object
+                success = await asyncio.to_thread(
+                    self._delete_object,
+                    doc,
+                    operation.object_id
+                )
+                
+            elif operation.type == OperationType.MODIFY:
+                # Modify object
+                success = await asyncio.to_thread(
+                    self._modify_object,
+                    doc,
+                    operation.object_id,
+                    operation.parameters
+                )
+                
+            elif operation.type == OperationType.MOVE:
+                # Move object
+                position = operation.parameters.get("position", {})
+                success = await asyncio.to_thread(
+                    self._move_object,
+                    doc,
+                    operation.object_id,
+                    position
+                )
+            
+            # Recompute document if successful
+            if success and hasattr(doc, "recompute"):
+                await asyncio.to_thread(doc.recompute)
+            
+            # Update version vector if successful
+            if success and operation.user_id:
                 if document_id not in self.version_vectors:
                     self.version_vectors[document_id] = {}
                 
                 current_version = self.version_vectors[document_id].get(operation.user_id, 0)
                 self.version_vectors[document_id][operation.user_id] = current_version + 1
             
-            return True
+            return success
             
-        except Exception as e:
-            logger.error(f"Error applying operation {operation.id}: {e}")
+        except DocumentException as e:
+            logger.error(f"Document error applying operation {operation.id}: {e}")
             return False
+        except Exception as e:
+            logger.error(f"Unexpected error applying operation {operation.id}: {e}")
+            return False
+    
+    def _create_object(self, doc, object_id: str, object_type: str, object_data: Dict[str, Any]) -> bool:
+        """Create an object in the FreeCAD document."""
+        try:
+            if hasattr(doc, "addObject"):
+                obj = doc.addObject(object_type, object_id)
+                
+                # Apply properties
+                for prop_name, prop_value in object_data.items():
+                    if prop_name not in ["type", "id"] and hasattr(obj, prop_name):
+                        try:
+                            setattr(obj, prop_name, prop_value)
+                        except Exception as e:
+                            logger.warning(f"Could not set property {prop_name}: {e}")
+                
+                return True
+        except Exception as e:
+            logger.error(f"Failed to create object {object_id}: {e}")
+        return False
+    
+    def _delete_object(self, doc, object_id: str) -> bool:
+        """Delete an object from the FreeCAD document."""
+        try:
+            if hasattr(doc, "getObject") and hasattr(doc, "removeObject"):
+                obj = doc.getObject(object_id)
+                if obj:
+                    doc.removeObject(object_id)
+                    return True
+        except Exception as e:
+            logger.error(f"Failed to delete object {object_id}: {e}")
+        return False
+    
+    def _modify_object(self, doc, object_id: str, parameters: Dict[str, Any]) -> bool:
+        """Modify object properties in the FreeCAD document."""
+        try:
+            if hasattr(doc, "getObject"):
+                obj = doc.getObject(object_id)
+                if obj:
+                    for prop_name, prop_value in parameters.items():
+                        if hasattr(obj, prop_name):
+                            try:
+                                setattr(obj, prop_name, prop_value)
+                            except Exception as e:
+                                logger.warning(f"Could not modify property {prop_name}: {e}")
+                    return True
+        except Exception as e:
+            logger.error(f"Failed to modify object {object_id}: {e}")
+        return False
+    
+    def _move_object(self, doc, object_id: str, position: Dict[str, Any]) -> bool:
+        """Move an object in the FreeCAD document."""
+        try:
+            if hasattr(doc, "getObject"):
+                obj = doc.getObject(object_id)
+                if obj and hasattr(obj, "Placement"):
+                    import FreeCAD
+                    
+                    placement = obj.Placement
+                    if any(k in position for k in ["x", "y", "z"]):
+                        placement.Base = FreeCAD.Vector(
+                            position.get("x", placement.Base.x),
+                            position.get("y", placement.Base.y),
+                            position.get("z", placement.Base.z)
+                        )
+                        obj.Placement = placement
+                        return True
+        except Exception as e:
+            logger.error(f"Failed to move object {object_id}: {e}")
+        return False
     
     async def _full_resync(self, client_id: str) -> SyncResult:
         """Perform full resynchronization for a client."""
+        import asyncio
+        from app.services.freecad_document_manager import document_manager
+        
         logger.info(f"Performing full resync for client {client_id}")
         
         state = self.sync_states[client_id]
-        
-        # Get current document state
-        # TODO: Get from FreeCADDocumentManager
+        document_id = state.document_id
         
         result = SyncResult()
-        result.success = True
-        result.new_version = self._get_current_version(state.document_id)
-        result.new_checksum = self._calculate_checksum(state.document_id)
-        result.metadata["full_resync"] = True
         
-        # Update state
-        state.last_sync_version = result.new_version
-        state.last_sync_timestamp = datetime.now(UTC)
-        state.checksum = result.new_checksum
-        state.pending_operations.clear()
+        try:
+            # Get current document state from FreeCADDocumentManager
+            doc_handle = document_manager.get_document(document_id)
+            
+            if not doc_handle:
+                # Document doesn't exist, create new one
+                logger.info(f"Document {document_id} not found, creating new for full resync")
+                doc_handle = await asyncio.to_thread(
+                    document_manager.create_document,
+                    document_id
+                )
+                
+                if not doc_handle:
+                    result.success = False
+                    result.metadata["error"] = "Failed to create document"
+                    return result
+            
+            # Get document snapshot for client
+            doc = doc_handle.document
+            document_snapshot = await asyncio.to_thread(
+                self._capture_document_state, doc
+            )
+            
+            # Get all operations from buffer to rebuild history
+            if document_id in self.operation_buffers:
+                buffer = self.operation_buffers[document_id]
+                all_operations = list(buffer.operations)
+                
+                # Send operations to client for replay
+                result.transformed_operations = all_operations
+                result.operations_applied = len(all_operations)
+            
+            # Calculate current version and checksum
+            result.new_version = self._get_current_version(document_id)
+            result.new_checksum = self._calculate_checksum(document_id)
+            result.success = True
+            result.metadata["full_resync"] = True
+            result.metadata["document_snapshot"] = document_snapshot
+            
+            # Update sync state
+            state.last_sync_version = result.new_version
+            state.last_sync_timestamp = datetime.now(UTC)
+            state.checksum = result.new_checksum
+            state.pending_operations.clear()
+            
+            logger.info(
+                f"Full resync completed for client {client_id}: "
+                f"version={result.new_version}, operations={result.operations_applied}"
+            )
+            
+        except Exception as e:
+            logger.error(f"Error during full resync for client {client_id}: {e}")
+            result.success = False
+            result.metadata["error"] = str(e)
         
         return result
+    
+    def _capture_document_state(self, doc) -> Dict[str, Any]:
+        """Capture the complete state of a FreeCAD document."""
+        state = {
+            "objects": [],
+            "metadata": {}
+        }
+        
+        try:
+            # Capture document metadata
+            if hasattr(doc, "Name"):
+                state["metadata"]["name"] = doc.Name
+            if hasattr(doc, "Label"):
+                state["metadata"]["label"] = doc.Label
+            if hasattr(doc, "FileName"):
+                state["metadata"]["filename"] = doc.FileName
+            
+            # Capture all objects in document
+            if hasattr(doc, "Objects"):
+                for obj in doc.Objects:
+                    obj_state = {
+                        "id": obj.Name if hasattr(obj, "Name") else str(uuid.uuid4()),
+                        "type": obj.TypeId if hasattr(obj, "TypeId") else "Unknown",
+                        "properties": {}
+                    }
+                    
+                    # Capture placement
+                    if hasattr(obj, "Placement"):
+                        placement = obj.Placement
+                        obj_state["placement"] = {
+                            "position": {
+                                "x": placement.Base.x,
+                                "y": placement.Base.y,
+                                "z": placement.Base.z
+                            },
+                            "rotation": {
+                                "angle": placement.Rotation.Angle,
+                                "axis": {
+                                    "x": placement.Rotation.Axis.x,
+                                    "y": placement.Rotation.Axis.y,
+                                    "z": placement.Rotation.Axis.z
+                                }
+                            }
+                        }
+                    
+                    # Capture shape info
+                    if hasattr(obj, "Shape"):
+                        shape = obj.Shape
+                        if shape:
+                            obj_state["shape"] = {
+                                "type": shape.ShapeType,
+                                "volume": shape.Volume if hasattr(shape, "Volume") else 0,
+                                "area": shape.Area if hasattr(shape, "Area") else 0,
+                                "bbox": {
+                                    "min": {
+                                        "x": shape.BoundBox.XMin,
+                                        "y": shape.BoundBox.YMin,
+                                        "z": shape.BoundBox.ZMin
+                                    },
+                                    "max": {
+                                        "x": shape.BoundBox.XMax,
+                                        "y": shape.BoundBox.YMax,
+                                        "z": shape.BoundBox.ZMax
+                                    }
+                                } if hasattr(shape, "BoundBox") else None
+                            }
+                    
+                    # Capture custom properties
+                    if hasattr(obj, "PropertiesList"):
+                        for prop_name in obj.PropertiesList:
+                            if not prop_name.startswith("_"):
+                                try:
+                                    prop_value = getattr(obj, prop_name)
+                                    # Only capture serializable properties
+                                    if isinstance(prop_value, (str, int, float, bool, list)):
+                                        obj_state["properties"][prop_name] = prop_value
+                                except Exception:
+                                    pass
+                    
+                    state["objects"].append(obj_state)
+            
+            # Calculate document statistics
+            state["metadata"]["object_count"] = len(state["objects"])
+            state["metadata"]["capture_timestamp"] = datetime.now(UTC).isoformat()
+            
+        except Exception as e:
+            logger.error(f"Error capturing document state: {e}")
+        
+        return state
     
     def _calculate_checksum(self, document_id: str) -> str:
         """Calculate checksum for document state."""

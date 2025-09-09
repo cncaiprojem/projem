@@ -623,11 +623,288 @@ class CollaborationProtocol:
         """
         Apply operation to the actual FreeCAD document.
         
-        This would integrate with FreeCADDocumentManager.
+        Integrates with FreeCADDocumentManager to apply operations.
         """
-        # TODO: Integrate with FreeCADDocumentManager
-        # For now, just return success
-        return True
+        import asyncio
+        from app.services.freecad_document_manager import document_manager, DocumentException
+        
+        try:
+            # Get document handle
+            doc_handle = document_manager.get_document(document_id)
+            if not doc_handle:
+                logger.warning(f"Document {document_id} not found, attempting to create/open")
+                # Try to open or create the document
+                doc_handle = await asyncio.to_thread(
+                    document_manager.open_or_create_document,
+                    document_id
+                )
+                if not doc_handle:
+                    logger.error(f"Failed to open/create document {document_id}")
+                    return False
+            
+            # Apply operation based on type
+            doc = doc_handle.document
+            success = False
+            
+            if operation.type == OperationType.CREATE:
+                # Create new object
+                object_id = operation.parameters.get("new_object_id", str(uuid.uuid4()))
+                object_type = operation.parameters.get("type", "Part::Feature")
+                object_data = operation.parameters.get("object_data", {})
+                
+                success = await asyncio.to_thread(
+                    self._create_freecad_object,
+                    doc,
+                    object_id,
+                    object_type,
+                    object_data
+                )
+                
+            elif operation.type == OperationType.DELETE:
+                # Delete object
+                success = await asyncio.to_thread(
+                    self._delete_freecad_object,
+                    doc,
+                    operation.object_id
+                )
+                
+            elif operation.type == OperationType.MODIFY:
+                # Modify object properties
+                success = await asyncio.to_thread(
+                    self._modify_freecad_object,
+                    doc,
+                    operation.object_id,
+                    operation.parameters
+                )
+                
+            elif operation.type == OperationType.MOVE:
+                # Move object
+                position = operation.parameters.get("position", {})
+                rotation = operation.parameters.get("rotation")
+                
+                success = await asyncio.to_thread(
+                    self._move_freecad_object,
+                    doc,
+                    operation.object_id,
+                    position,
+                    rotation
+                )
+                
+            elif operation.type == OperationType.ROTATE:
+                # Rotate object
+                rotation = operation.parameters.get("rotation", {})
+                success = await asyncio.to_thread(
+                    self._rotate_freecad_object,
+                    doc,
+                    operation.object_id,
+                    rotation
+                )
+                
+            elif operation.type == OperationType.SCALE:
+                # Scale object
+                scale = operation.parameters.get("scale", 1.0)
+                success = await asyncio.to_thread(
+                    self._scale_freecad_object,
+                    doc,
+                    operation.object_id,
+                    scale
+                )
+            
+            # Recompute document if operation succeeded
+            if success and hasattr(doc, "recompute"):
+                await asyncio.to_thread(doc.recompute)
+            
+            # Auto-save if configured
+            if success and hasattr(doc_handle, "auto_save") and doc_handle.auto_save:
+                await asyncio.to_thread(doc_handle.save)
+            
+            return success
+            
+        except DocumentException as e:
+            logger.error(f"Document error applying operation {operation.id}: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"Unexpected error applying operation {operation.id}: {e}")
+            return False
+    
+    def _create_freecad_object(
+        self,
+        doc,
+        object_id: str,
+        object_type: str,
+        object_data: Dict[str, Any]
+    ) -> bool:
+        """Create a FreeCAD object (blocking operation)."""
+        try:
+            if hasattr(doc, "addObject"):
+                obj = doc.addObject(object_type, object_id)
+                
+                # Apply initial properties
+                for prop_name, prop_value in object_data.items():
+                    if prop_name not in ["type", "id"] and hasattr(obj, prop_name):
+                        try:
+                            setattr(obj, prop_name, prop_value)
+                        except Exception as e:
+                            logger.warning(f"Could not set property {prop_name}: {e}")
+                
+                return True
+        except Exception as e:
+            logger.error(f"Failed to create object {object_id}: {e}")
+        return False
+    
+    def _delete_freecad_object(self, doc, object_id: str) -> bool:
+        """Delete a FreeCAD object (blocking operation)."""
+        try:
+            if hasattr(doc, "getObject") and hasattr(doc, "removeObject"):
+                obj = doc.getObject(object_id)
+                if obj:
+                    doc.removeObject(object_id)
+                    return True
+                logger.warning(f"Object {object_id} not found for deletion")
+        except Exception as e:
+            logger.error(f"Failed to delete object {object_id}: {e}")
+        return False
+    
+    def _modify_freecad_object(
+        self,
+        doc,
+        object_id: str,
+        parameters: Dict[str, Any]
+    ) -> bool:
+        """Modify a FreeCAD object (blocking operation)."""
+        try:
+            if hasattr(doc, "getObject"):
+                obj = doc.getObject(object_id)
+                if obj:
+                    for prop_name, prop_value in parameters.items():
+                        if hasattr(obj, prop_name):
+                            try:
+                                setattr(obj, prop_name, prop_value)
+                            except Exception as e:
+                                logger.warning(f"Could not modify property {prop_name}: {e}")
+                    return True
+                logger.warning(f"Object {object_id} not found for modification")
+        except Exception as e:
+            logger.error(f"Failed to modify object {object_id}: {e}")
+        return False
+    
+    def _move_freecad_object(
+        self,
+        doc,
+        object_id: str,
+        position: Dict[str, Any],
+        rotation: Optional[Dict[str, Any]] = None
+    ) -> bool:
+        """Move a FreeCAD object (blocking operation)."""
+        try:
+            if hasattr(doc, "getObject"):
+                obj = doc.getObject(object_id)
+                if obj and hasattr(obj, "Placement"):
+                    import FreeCAD
+                    
+                    placement = obj.Placement
+                    
+                    # Update position
+                    if position and any(k in position for k in ["x", "y", "z"]):
+                        placement.Base = FreeCAD.Vector(
+                            position.get("x", placement.Base.x),
+                            position.get("y", placement.Base.y),
+                            position.get("z", placement.Base.z)
+                        )
+                    
+                    # Update rotation if provided
+                    if rotation:
+                        if "angle" in rotation and "axis" in rotation:
+                            axis = rotation["axis"]
+                            placement.Rotation = FreeCAD.Rotation(
+                                FreeCAD.Vector(
+                                    axis.get("x", 0),
+                                    axis.get("y", 0),
+                                    axis.get("z", 1)
+                                ),
+                                rotation["angle"]
+                            )
+                    
+                    obj.Placement = placement
+                    return True
+                logger.warning(f"Object {object_id} not found for moving")
+        except Exception as e:
+            logger.error(f"Failed to move object {object_id}: {e}")
+        return False
+    
+    def _rotate_freecad_object(
+        self,
+        doc,
+        object_id: str,
+        rotation: Dict[str, Any]
+    ) -> bool:
+        """Rotate a FreeCAD object (blocking operation)."""
+        try:
+            if hasattr(doc, "getObject"):
+                obj = doc.getObject(object_id)
+                if obj and hasattr(obj, "Placement"):
+                    import FreeCAD
+                    
+                    placement = obj.Placement
+                    
+                    if "angle" in rotation and "axis" in rotation:
+                        axis = rotation["axis"]
+                        # Apply rotation relative to current rotation
+                        new_rotation = FreeCAD.Rotation(
+                            FreeCAD.Vector(
+                                axis.get("x", 0),
+                                axis.get("y", 0),
+                                axis.get("z", 1)
+                            ),
+                            rotation["angle"]
+                        )
+                        placement.Rotation = placement.Rotation * new_rotation
+                        obj.Placement = placement
+                        return True
+                logger.warning(f"Object {object_id} not found for rotation")
+        except Exception as e:
+            logger.error(f"Failed to rotate object {object_id}: {e}")
+        return False
+    
+    def _scale_freecad_object(
+        self,
+        doc,
+        object_id: str,
+        scale: Union[float, Dict[str, float]]
+    ) -> bool:
+        """Scale a FreeCAD object (blocking operation)."""
+        try:
+            if hasattr(doc, "getObject"):
+                obj = doc.getObject(object_id)
+                if obj:
+                    import FreeCAD
+                    
+                    # Determine scale factors
+                    if isinstance(scale, (int, float)):
+                        scale_x = scale_y = scale_z = scale
+                    else:
+                        scale_x = scale.get("x", 1.0)
+                        scale_y = scale.get("y", 1.0)
+                        scale_z = scale.get("z", 1.0)
+                    
+                    # Apply scaling
+                    if hasattr(obj, "Shape"):
+                        # Create scaling matrix
+                        mat = FreeCAD.Matrix()
+                        mat.scale(scale_x, scale_y, scale_z)
+                        
+                        # Apply to shape
+                        obj.Shape = obj.Shape.transformGeometry(mat)
+                        return True
+                    elif hasattr(obj, "Scale"):
+                        # Some objects have direct scale property
+                        obj.Scale = FreeCAD.Vector(scale_x, scale_y, scale_z)
+                        return True
+                    
+                logger.warning(f"Object {object_id} not found or cannot be scaled")
+        except Exception as e:
+            logger.error(f"Failed to scale object {object_id}: {e}")
+        return False
     
     async def _handle_operation_failure(
         self,

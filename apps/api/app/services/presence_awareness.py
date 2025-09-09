@@ -629,7 +629,7 @@ class PresenceAwareness:
     
     # Color generation is now handled by the shared utility module in app.utils.color_utils
     
-    # Broadcast methods (would integrate with WebSocket manager)
+    # Broadcast methods (integrate with WebSocket manager)
     async def _broadcast_status_changes(
         self,
         document_id: str,
@@ -637,8 +637,22 @@ class PresenceAwareness:
         status: UserStatus
     ):
         """Broadcast status changes."""
-        # This would integrate with the WebSocket manager
-        logger.debug(f"Broadcasting status change for {user_ids} to {status}")
+        from app.services.collaboration_protocol import collaboration_protocol
+        
+        # Prepare message
+        message = {
+            "type": "presence_status_change",
+            "users": user_ids,
+            "status": status.value,
+            "timestamp": datetime.now(UTC).isoformat()
+        }
+        
+        # Broadcast to all users in the document
+        await collaboration_protocol.websocket_manager.broadcast_to_document(
+            document_id, message
+        )
+        
+        logger.debug(f"Broadcast status change for {user_ids} to {status}")
     
     async def _broadcast_cursor_update(
         self,
@@ -648,7 +662,28 @@ class PresenceAwareness:
         viewport: Optional[ViewportInfo]
     ):
         """Broadcast cursor position update."""
-        logger.debug(f"Broadcasting cursor update for {user_id}")
+        from app.services.collaboration_protocol import collaboration_protocol
+        
+        # Get user presence for color and name
+        user_presence = self.active_users[document_id].get(user_id)
+        
+        # Prepare message
+        message = {
+            "type": "cursor_update",
+            "user_id": user_id,
+            "position": position.to_dict(),
+            "viewport": viewport.to_dict() if viewport else None,
+            "user_color": user_presence.color if user_presence else "#808080",
+            "user_name": user_presence.name if user_presence else f"User {user_id[:8]}",
+            "timestamp": datetime.now(UTC).isoformat()
+        }
+        
+        # Broadcast to all other users (exclude sender)
+        await collaboration_protocol.websocket_manager.broadcast_to_document(
+            document_id, message, exclude={user_id}
+        )
+        
+        logger.debug(f"Broadcast cursor update for {user_id}")
     
     async def _broadcast_selection_update(
         self,
@@ -657,7 +692,27 @@ class PresenceAwareness:
         selected_objects: List[str]
     ):
         """Broadcast selection update."""
-        logger.debug(f"Broadcasting selection update for {user_id}: {selected_objects}")
+        from app.services.collaboration_protocol import collaboration_protocol
+        
+        # Get user presence for color
+        user_presence = self.active_users[document_id].get(user_id)
+        
+        # Prepare message
+        message = {
+            "type": "selection_update",
+            "user_id": user_id,
+            "selected_objects": selected_objects,
+            "user_color": user_presence.color if user_presence else "#808080",
+            "user_name": user_presence.name if user_presence else f"User {user_id[:8]}",
+            "timestamp": datetime.now(UTC).isoformat()
+        }
+        
+        # Broadcast to all users including sender (for UI consistency)
+        await collaboration_protocol.websocket_manager.broadcast_to_document(
+            document_id, message
+        )
+        
+        logger.debug(f"Broadcast selection update for {user_id}: {selected_objects}")
     
     async def _broadcast_lock_update(
         self,
@@ -667,7 +722,28 @@ class PresenceAwareness:
         lock_type: LockType
     ):
         """Broadcast lock acquisition."""
-        logger.debug(f"Broadcasting lock update: {user_id} locked {object_id} ({lock_type})")
+        from app.services.collaboration_protocol import collaboration_protocol
+        
+        # Get user presence for details
+        user_presence = self.active_users[document_id].get(user_id)
+        
+        # Prepare message
+        message = {
+            "type": "lock_acquired",
+            "object_id": object_id,
+            "user_id": user_id,
+            "lock_type": lock_type.value,
+            "user_color": user_presence.color if user_presence else "#808080",
+            "user_name": user_presence.name if user_presence else f"User {user_id[:8]}",
+            "timestamp": datetime.now(UTC).isoformat()
+        }
+        
+        # Broadcast to all users
+        await collaboration_protocol.websocket_manager.broadcast_to_document(
+            document_id, message
+        )
+        
+        logger.debug(f"Broadcast lock update: {user_id} locked {object_id} ({lock_type})")
     
     async def _broadcast_lock_release(
         self,
@@ -676,8 +752,37 @@ class PresenceAwareness:
         user_id: str
     ):
         """Broadcast lock release."""
-        logger.debug(f"Broadcasting lock release: {user_id} released {object_id}")
+        from app.services.collaboration_protocol import collaboration_protocol
+        
+        # Prepare message
+        message = {
+            "type": "lock_released",
+            "object_id": object_id,
+            "user_id": user_id,
+            "timestamp": datetime.now(UTC).isoformat()
+        }
+        
+        # Broadcast to all users
+        await collaboration_protocol.websocket_manager.broadcast_to_document(
+            document_id, message
+        )
+        
+        logger.debug(f"Broadcast lock release: {user_id} released {object_id}")
     
     async def _broadcast_user_removed(self, document_id: str, user_id: str):
         """Broadcast user removal."""
-        logger.debug(f"Broadcasting user removal: {user_id} left {document_id}")
+        from app.services.collaboration_protocol import collaboration_protocol
+        
+        # Prepare message
+        message = {
+            "type": "user_left",
+            "user_id": user_id,
+            "timestamp": datetime.now(UTC).isoformat()
+        }
+        
+        # Broadcast to all remaining users
+        await collaboration_protocol.websocket_manager.broadcast_to_document(
+            document_id, message
+        )
+        
+        logger.debug(f"Broadcast user removal: {user_id} left {document_id}")

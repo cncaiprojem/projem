@@ -245,22 +245,34 @@ class DeadlockDetector:
         visited: Set[str],
         path: Set[str]
     ) -> Optional[List[str]]:
-        """Find cycle in directed graph using DFS."""
+        """
+        Find cycle in directed graph using DFS.
+        
+        This simplified implementation directly returns the cycle path
+        when found, avoiding complex reconstruction logic.
+        """
         visited.add(node)
         path.add(node)
         
         for neighbor in graph.get(node, set()):
             if neighbor in path:
-                # Found cycle
-                return [neighbor, node]
+                # Found cycle - build the cycle path
+                cycle_nodes = []
+                found_start = False
+                
+                # Reconstruct cycle from path
+                for n in path:
+                    if n == neighbor:
+                        found_start = True
+                    if found_start:
+                        cycle_nodes.append(n)
+                
+                return cycle_nodes
+                
             elif neighbor not in visited:
                 cycle = self._find_cycle(neighbor, graph, visited, path)
                 if cycle:
-                    if node in cycle:
-                        return cycle
-                    else:
-                        cycle.append(node)
-                        return cycle
+                    return cycle
         
         path.remove(node)
         return None

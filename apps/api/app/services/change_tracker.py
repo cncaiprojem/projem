@@ -401,6 +401,10 @@ class ChangeTracker:
         
         op = change.operation
         
+        # Import here to avoid circular imports
+        from app.services.freecad_document_manager import document_manager
+        import asyncio
+        
         # Create inverse operation based on type
         if op.type == OperationType.CREATE:
             # Inverse of create is delete
@@ -456,23 +460,279 @@ class ChangeTracker:
                 metadata={"inverse_of": op.id}
             )
         
-        # TODO: Apply inverse operation to actual FreeCAD document
-        # This will be implemented when FreeCADDocumentManager is integrated
-        raise NotImplementedError(
-            "FreeCAD document integration pending: Cannot apply inverse operation yet. "
-            "This functionality will be available once FreeCADDocumentManager is integrated."
-        )
+        # Apply inverse operation to FreeCAD document
+        try:
+            # Get document ID from metadata or change
+            doc_id = change.metadata.get("document_id") or inverse_op.metadata.get("document_id")
+            if not doc_id:
+                logger.warning(f"No document ID found for inverse operation {inverse_op.id}")
+                return
+            
+            # Apply the operation based on type
+            if inverse_op.type == OperationType.CREATE:
+                # Create object in document
+                object_data = inverse_op.parameters.get("object_data", {})
+                object_type = object_data.get("type", "Part::Feature")
+                
+                # Use asyncio.to_thread for blocking FreeCAD operations
+                await asyncio.to_thread(
+                    self._create_object_in_document,
+                    doc_id,
+                    inverse_op.parameters.get("new_object_id"),
+                    object_type,
+                    object_data
+                )
+                
+            elif inverse_op.type == OperationType.DELETE:
+                # Delete object from document
+                await asyncio.to_thread(
+                    self._delete_object_from_document,
+                    doc_id,
+                    inverse_op.object_id
+                )
+                
+            elif inverse_op.type == OperationType.MODIFY:
+                # Modify object properties
+                await asyncio.to_thread(
+                    self._modify_object_in_document,
+                    doc_id,
+                    inverse_op.object_id,
+                    inverse_op.parameters
+                )
+                
+            elif inverse_op.type == OperationType.MOVE:
+                # Move object to new position
+                position = inverse_op.parameters.get("position")
+                if position:
+                    await asyncio.to_thread(
+                        self._move_object_in_document,
+                        doc_id,
+                        inverse_op.object_id,
+                        position
+                    )
+            
+            logger.debug(f"Applied inverse operation {inverse_op.id} successfully")
+            
+        except Exception as e:
+            logger.error(f"Failed to apply inverse operation {inverse_op.id}: {e}")
+            # Don't raise to allow partial undo/redo
+    
+    def _create_object_in_document(self, doc_id: str, object_id: str, object_type: str, object_data: Dict[str, Any]):
+        """Create an object in the FreeCAD document (blocking operation)."""
+        from app.services.freecad_document_manager import document_manager
+        
+        doc_handle = document_manager.get_document(doc_id)
+        if not doc_handle:
+            logger.warning(f"Document {doc_id} not found")
+            return
+        
+        # Access the actual FreeCAD document
+        doc = doc_handle.document
+        if hasattr(doc, "addObject"):
+            # Create FreeCAD object
+            obj = doc.addObject(object_type, object_id)
+            
+            # Apply properties from object_data
+            for prop_name, prop_value in object_data.items():
+                if prop_name not in ["type", "id"] and hasattr(obj, prop_name):
+                    try:
+                        setattr(obj, prop_name, prop_value)
+                    except Exception as e:
+                        logger.warning(f"Could not set property {prop_name} on object {object_id}: {e}")
+            
+            # Recompute document
+            doc.recompute()
+    
+    def _delete_object_from_document(self, doc_id: str, object_id: str):
+        """Delete an object from the FreeCAD document (blocking operation)."""
+        from app.services.freecad_document_manager import document_manager
+        
+        doc_handle = document_manager.get_document(doc_id)
+        if not doc_handle:
+            logger.warning(f"Document {doc_id} not found")
+            return
+        
+        doc = doc_handle.document
+        if hasattr(doc, "removeObject") and hasattr(doc, "getObject"):
+            obj = doc.getObject(object_id)
+            if obj:
+                doc.removeObject(object_id)
+                doc.recompute()
+    
+    def _modify_object_in_document(self, doc_id: str, object_id: str, parameters: Dict[str, Any]):
+        """Modify object properties in the FreeCAD document (blocking operation)."""
+        from app.services.freecad_document_manager import document_manager
+        
+        doc_handle = document_manager.get_document(doc_id)
+        if not doc_handle:
+            logger.warning(f"Document {doc_id} not found")
+            return
+        
+        doc = doc_handle.document
+        if hasattr(doc, "getObject"):
+            obj = doc.getObject(object_id)
+            if obj:
+                # Apply parameter changes
+                for prop_name, prop_value in parameters.items():
+                    if hasattr(obj, prop_name):
+                        try:
+                            setattr(obj, prop_name, prop_value)
+                        except Exception as e:
+                            logger.warning(f"Could not modify property {prop_name} on object {object_id}: {e}")
+                
+                doc.recompute()
+    
+    def _move_object_in_document(self, doc_id: str, object_id: str, position: Dict[str, Any]):
+        """Move an object in the FreeCAD document (blocking operation)."""
+        from app.services.freecad_document_manager import document_manager
+        
+        doc_handle = document_manager.get_document(doc_id)
+        if not doc_handle:
+            logger.warning(f"Document {doc_id} not found")
+            return
+        
+        doc = doc_handle.document
+        if hasattr(doc, "getObject"):
+            obj = doc.getObject(object_id)
+            if obj and hasattr(obj, "Placement"):
+                # Update placement with new position
+                import FreeCAD
+                placement = obj.Placement
+                if "x" in position and "y" in position and "z" in position:
+                    placement.Base = FreeCAD.Vector(
+                        position["x"],
+                        position["y"],
+                        position["z"]
+                    )
+                    obj.Placement = placement
+                    doc.recompute()
     
     async def _reapply_operations(self, group: ChangeGroup):
         """Reapply operations for redo."""
+        import asyncio
+        from app.services.freecad_document_manager import document_manager
+        
         for change in group.changes:
             if change.operation:
-                # TODO: Reapply operation to FreeCAD document  
-                # This will be implemented when FreeCADDocumentManager is integrated
-                raise NotImplementedError(
-                    "FreeCAD document integration pending: Cannot reapply operation yet. "
-                    "This functionality will be available once FreeCADDocumentManager is integrated."
-                )
+                op = change.operation
+                
+                try:
+                    # Get document ID from metadata
+                    doc_id = change.metadata.get("document_id") or op.metadata.get("document_id")
+                    if not doc_id:
+                        logger.warning(f"No document ID found for operation {op.id}")
+                        continue
+                    
+                    # Apply the operation based on type
+                    if op.type == OperationType.CREATE:
+                        # Create object in document
+                        object_data = op.parameters.get("object_data", {})
+                        object_type = object_data.get("type", "Part::Feature")
+                        
+                        await asyncio.to_thread(
+                            self._create_object_in_document,
+                            doc_id,
+                            op.parameters.get("new_object_id"),
+                            object_type,
+                            object_data
+                        )
+                        
+                    elif op.type == OperationType.DELETE:
+                        # Delete object from document
+                        await asyncio.to_thread(
+                            self._delete_object_from_document,
+                            doc_id,
+                            op.object_id
+                        )
+                        
+                    elif op.type == OperationType.MODIFY:
+                        # Modify object properties
+                        await asyncio.to_thread(
+                            self._modify_object_in_document,
+                            doc_id,
+                            op.object_id,
+                            op.parameters
+                        )
+                        
+                    elif op.type == OperationType.MOVE:
+                        # Move object to new position
+                        position = op.parameters.get("position")
+                        if position:
+                            await asyncio.to_thread(
+                                self._move_object_in_document,
+                                doc_id,
+                                op.object_id,
+                                position
+                            )
+                    
+                    # Store the after state for future reference
+                    if op.object_id:
+                        doc_handle = document_manager.get_document(doc_id)
+                        if doc_handle and hasattr(doc_handle.document, "getObject"):
+                            obj = doc_handle.document.getObject(op.object_id)
+                            if obj:
+                                change.after_state = await asyncio.to_thread(
+                                    self._capture_object_state, obj
+                                )
+                    
+                    logger.debug(f"Reapplied operation {op.id} successfully")
+                    
+                except Exception as e:
+                    logger.error(f"Failed to reapply operation {op.id}: {e}")
+                    # Don't raise to allow partial redo
+    
+    def _capture_object_state(self, obj) -> Dict[str, Any]:
+        """Capture the current state of a FreeCAD object."""
+        state = {}
+        
+        # Capture basic properties
+        if hasattr(obj, "Name"):
+            state["name"] = obj.Name
+        if hasattr(obj, "Label"):
+            state["label"] = obj.Label
+        if hasattr(obj, "Placement"):
+            placement = obj.Placement
+            state["placement"] = {
+                "base": {
+                    "x": placement.Base.x,
+                    "y": placement.Base.y,
+                    "z": placement.Base.z
+                },
+                "rotation": {
+                    "angle": placement.Rotation.Angle,
+                    "axis": {
+                        "x": placement.Rotation.Axis.x,
+                        "y": placement.Rotation.Axis.y,
+                        "z": placement.Rotation.Axis.z
+                    }
+                }
+            }
+        
+        # Capture type-specific properties
+        if hasattr(obj, "Shape"):
+            shape = obj.Shape
+            if shape:
+                state["shape_type"] = shape.ShapeType
+                state["volume"] = shape.Volume if hasattr(shape, "Volume") else 0
+                state["area"] = shape.Area if hasattr(shape, "Area") else 0
+        
+        # Capture custom properties
+        if hasattr(obj, "PropertiesList"):
+            custom_props = {}
+            for prop_name in obj.PropertiesList:
+                if not prop_name.startswith("_"):  # Skip internal properties
+                    try:
+                        prop_value = getattr(obj, prop_name)
+                        # Only capture serializable properties
+                        if isinstance(prop_value, (str, int, float, bool, list, dict)):
+                            custom_props[prop_name] = prop_value
+                    except Exception:
+                        pass  # Skip properties that can't be accessed
+            
+            if custom_props:
+                state["properties"] = custom_props
+        
+        return state
     
     def get_change_history(
         self,
