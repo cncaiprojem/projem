@@ -25,7 +25,7 @@ from app.services.operational_transform import (
     OperationType
 )
 from app.services.conflict_resolver import ConflictResolver
-from app.core.config import settings
+from app.core.settings import settings
 
 logger = logging.getLogger(__name__)
 
@@ -947,18 +947,123 @@ class CollaborationProtocol:
         session: CollaborationSession
     ):
         """Send initial document state to a new connection."""
-        # Get current document state
-        # TODO: Get from FreeCADDocumentManager
+        import asyncio
+        from app.services.freecad_document_manager import document_manager
         
+        # Get current document state from FreeCADDocumentManager
+        document_state = {}
+        document_objects = []
+        
+        try:
+            # Check if document exists in document manager
+            if session.document_id in document_manager._doc_handles:
+                # Get the real FreeCAD document handle
+                doc_handle = document_manager._doc_handles[session.document_id]
+                
+                # Get comprehensive snapshot using adapter
+                snapshot = await asyncio.to_thread(
+                    document_manager.adapter.take_snapshot,
+                    doc_handle
+                )
+                
+                # Extract document objects and properties
+                if snapshot:
+                    document_objects = snapshot.get("objects", [])
+                    document_state = {
+                        "properties": snapshot.get("properties", {}),
+                        "metadata": snapshot.get("metadata", {}),
+                        "object_count": len(document_objects)
+                    }
+                    
+                    logger.info(
+                        "Retrieved document state from FreeCADDocumentManager",
+                        document_id=session.document_id,
+                        object_count=len(document_objects)
+                    )
+            else:
+                # Try to open or create the document if not in handles
+                logger.info(
+                    "Document not in handles, attempting to open",
+                    document_id=session.document_id
+                )
+                
+                # Extract job_id from document_id (format: doc_{job_id})
+                job_id = session.document_id.replace("doc_", "") if session.document_id.startswith("doc_") else session.document_id
+                
+                try:
+                    # Try to open the document
+                    metadata = await asyncio.to_thread(
+                        document_manager.open_document,
+                        job_id=job_id,
+                        create_if_not_exists=True
+                    )
+                    
+                    # Now try to get the handle again
+                    if session.document_id in document_manager._doc_handles:
+                        doc_handle = document_manager._doc_handles[session.document_id]
+                        snapshot = await asyncio.to_thread(
+                            document_manager.adapter.take_snapshot,
+                            doc_handle
+                        )
+                        
+                        if snapshot:
+                            document_objects = snapshot.get("objects", [])
+                            document_state = {
+                                "properties": snapshot.get("properties", {}),
+                                "metadata": snapshot.get("metadata", {}),
+                                "object_count": len(document_objects)
+                            }
+                except Exception as e:
+                    logger.warning(
+                        "Could not open document from manager",
+                        document_id=session.document_id,
+                        error=str(e)
+                    )
+            
+            # Get operation history for the document
+            operation_history = []
+            if session.operation_history:
+                # Send last 100 operations for context
+                operation_history = [
+                    op.to_dict() if hasattr(op, 'to_dict') else op
+                    for op in list(session.operation_history)[-100:]
+                ]
+            
+        except Exception as e:
+            logger.error(
+                "Error retrieving document state",
+                document_id=session.document_id,
+                error=str(e),
+                exc_info=True
+            )
+            # Continue with empty state if error occurs
+        
+        # Prepare the complete initial state message
+        initial_state_message = {
+            "type": "initial_state",
+            "document_id": session.document_id,
+            "version": session.operation_version,
+            "participants": list(session.participants),
+            "pending_conflicts": len(session.conflict_queue),
+            "document_state": document_state,
+            "objects": document_objects,
+            "operation_history": operation_history,
+            "timestamp": datetime.now(UTC).isoformat()
+        }
+        
+        # Send the complete initial state to the new connection
         await self.websocket_manager.send_to_connection(
             connection_id,
-            {
-                "type": "initial_state",
-                "document_id": session.document_id,
-                "version": session.operation_version,
-                "participants": list(session.participants),
-                "pending_conflicts": len(session.conflict_queue)
-            }
+            initial_state_message
+        )
+        
+        logger.info(
+            "Sent initial state to connection",
+            connection_id=connection_id,
+            document_id=session.document_id,
+            object_count=len(document_objects),
+            history_count=len(operation_history),
+            participant_count=len(session.participants)
         )
     
     async def _broadcast_operation(
