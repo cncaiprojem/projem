@@ -457,14 +457,22 @@ class ChangeTracker:
             )
         
         # TODO: Apply inverse operation to actual FreeCAD document
-        logger.debug(f"Applied inverse operation for change {change.id}")
+        # This will be implemented when FreeCADDocumentManager is integrated
+        raise NotImplementedError(
+            "FreeCAD document integration pending: Cannot apply inverse operation yet. "
+            "This functionality will be available once FreeCADDocumentManager is integrated."
+        )
     
     async def _reapply_operations(self, group: ChangeGroup):
         """Reapply operations for redo."""
         for change in group.changes:
             if change.operation:
-                # TODO: Reapply operation to FreeCAD document
-                logger.debug(f"Reapplied operation for change {change.id}")
+                # TODO: Reapply operation to FreeCAD document  
+                # This will be implemented when FreeCADDocumentManager is integrated
+                raise NotImplementedError(
+                    "FreeCAD document integration pending: Cannot reapply operation yet. "
+                    "This functionality will be available once FreeCADDocumentManager is integrated."
+                )
     
     def get_change_history(
         self,

@@ -470,7 +470,7 @@ class OperationalTransform:
     
     def _merge_parameters(self, params1: Dict[str, Any], params2: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
-        Attempt to merge two parameter sets.
+        Attempt to merge two parameter sets with type checking.
         
         Returns merged parameters if successful, None if conflict detected.
         """
@@ -482,6 +482,11 @@ class OperationalTransform:
                 # Both have this parameter
                 val1, val2 = params1[key], params2[key]
                 
+                # Check if types match
+                if type(val1) != type(val2):
+                    # Different types - conflict
+                    return None
+                
                 # If values are the same, no conflict
                 if val1 == val2:
                     merged[key] = val1
@@ -491,8 +496,21 @@ class OperationalTransform:
                     if sub_merged is None:
                         return None  # Conflict in nested parameters
                     merged[key] = sub_merged
+                # Handle lists - merge if they contain the same elements
+                elif isinstance(val1, list) and isinstance(val2, list):
+                    # For lists, we'll use union if they contain simple types
+                    if all(isinstance(x, (str, int, float, bool)) for x in val1 + val2):
+                        # Union of simple values
+                        merged[key] = list(set(val1) | set(val2))
+                    else:
+                        # Complex list conflict
+                        return None
+                # Handle numeric types specially for precision
+                elif isinstance(val1, (int, float, Decimal)) and isinstance(val2, (int, float, Decimal)):
+                    # For numeric conflicts, return None (let conflict resolver handle)
+                    return None
                 else:
-                    # Conflict - can't merge
+                    # Conflict - can't merge different values of same type
                     return None
             elif key in params1:
                 merged[key] = params1[key]

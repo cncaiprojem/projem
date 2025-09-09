@@ -104,6 +104,7 @@ async def collaborate(
         # Authenticate user
         user = await get_current_user_ws(token, db)
         if not user:
+            logger.warning(f"WebSocket authentication failed for document {document_id} with token: {token[:10] if token else 'None'}...")
             await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
             return
         
@@ -124,7 +125,7 @@ async def collaborate(
             {
                 "name": user.full_name or user.email,
                 "status": "active",
-                "color": _get_user_color(user.id)
+                "color": _get_user_color(str(user.id))
             }
         )
         
@@ -693,14 +694,26 @@ async def handle_conflict_resolution(
         logger.error(f"Error handling conflict resolution: {e}")
 
 
-def _get_user_color(user_id: int) -> str:
+def _get_user_color(user_id: str) -> str:
     """Generate a consistent color for a user."""
-    # Use hash to generate color
-    colors = [
-        "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
-        "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E2"
-    ]
-    return colors[user_id % len(colors)]
+    try:
+        # Convert string user_id to int for color selection
+        # Use hash for non-numeric IDs
+        if user_id.isdigit():
+            user_id_int = int(user_id)
+        else:
+            # Use hash for non-numeric user IDs
+            user_id_int = abs(hash(user_id))
+        
+        colors = [
+            "#FF6B6B", "#4ECDC4", "#45B7D1", "#96CEB4", "#FFEAA7",
+            "#DDA0DD", "#98D8C8", "#F7DC6F", "#BB8FCE", "#85C1E2"
+        ]
+        return colors[user_id_int % len(colors)]
+    except Exception as e:
+        logger.warning(f"Error generating color for user {user_id}: {e}")
+        # Return a default color on error
+        return "#808080"  # Gray as fallback
 
 
 # HTTP endpoints for collaboration status

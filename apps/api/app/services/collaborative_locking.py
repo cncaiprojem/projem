@@ -57,7 +57,10 @@ class Lock:
     
     def is_active(self) -> bool:
         """Check if lock is currently active."""
-        return self.status == LockStatus.GRANTED and not self.is_expired()
+        # A lock is active if it's granted, not expired, and not released
+        return (self.status == LockStatus.GRANTED and 
+                not self.is_expired() and 
+                self.status != LockStatus.RELEASED)
     
     def can_coexist_with(self, other: "Lock") -> bool:
         """Check if this lock can coexist with another."""
@@ -75,6 +78,20 @@ class Lock:
         
         # Shared locks can coexist
         if self.lock_type == LockType.SHARED and other.lock_type == LockType.SHARED:
+            return True
+        
+        # UPGRADE locks cannot coexist with EXCLUSIVE locks
+        if (self.lock_type == LockType.UPGRADE and other.lock_type == LockType.EXCLUSIVE) or \
+           (self.lock_type == LockType.EXCLUSIVE and other.lock_type == LockType.UPGRADE):
+            return False
+        
+        # UPGRADE locks can coexist with SHARED locks
+        if (self.lock_type == LockType.UPGRADE and other.lock_type == LockType.SHARED) or \
+           (self.lock_type == LockType.SHARED and other.lock_type == LockType.UPGRADE):
+            return True
+        
+        # Multiple UPGRADE locks can coexist (though only one can upgrade at a time)
+        if self.lock_type == LockType.UPGRADE and other.lock_type == LockType.UPGRADE:
             return True
         
         return False
@@ -164,6 +181,76 @@ class Transaction:
         return not self.committed and not self.rolled_back
 
 
+class DeadlockDetector:
+    """Detects deadlocks in lock requests."""
+    
+    def detect_deadlocks(
+        self,
+        locks: Dict[str, Lock],
+        queue: List[LockRequest]
+    ) -> List[Dict[str, Any]]:
+        """
+        Detect deadlocks using wait-for graph.
+        
+        Returns:
+            List of detected deadlocks
+        """
+        # Build wait-for graph
+        wait_graph = defaultdict(set)
+        
+        for request in queue:
+            waiting_user = request.user_id
+            
+            for obj_id in request.object_ids:
+                if obj_id in locks:
+                    lock = locks[obj_id]
+                    if lock.is_active() and lock.user_id != waiting_user:
+                        # User is waiting for lock held by another user
+                        wait_graph[waiting_user].add(lock.user_id)
+        
+        # Find cycles in wait-for graph
+        deadlocks = []
+        visited = set()
+        
+        for user in wait_graph:
+            if user not in visited:
+                cycle = self._find_cycle(user, wait_graph, visited, set())
+                if cycle:
+                    deadlocks.append({
+                        "users": cycle,
+                        "victim": {"user_id": cycle[0]}  # Simple victim selection
+                    })
+        
+        return deadlocks
+    
+    def _find_cycle(
+        self,
+        node: str,
+        graph: Dict[str, Set[str]],
+        visited: Set[str],
+        path: Set[str]
+    ) -> Optional[List[str]]:
+        """Find cycle in directed graph using DFS."""
+        visited.add(node)
+        path.add(node)
+        
+        for neighbor in graph.get(node, set()):
+            if neighbor in path:
+                # Found cycle
+                return [neighbor, node]
+            elif neighbor not in visited:
+                cycle = self._find_cycle(neighbor, graph, visited, path)
+                if cycle:
+                    if node in cycle:
+                        return cycle
+                    else:
+                        cycle.append(node)
+                        return cycle
+        
+        path.remove(node)
+        return None
+
+
 class CollaborativeLocking:
     """
     Manages collaborative object locking with transaction support.
@@ -175,6 +262,11 @@ class CollaborativeLocking:
         self.lock_queue: Dict[str, List[LockRequest]] = defaultdict(list)  # document_id -> queue
         self.transactions: Dict[str, Transaction] = {}  # transaction_id -> Transaction
         self.deadlock_detector = DeadlockDetector()
+        
+        # Fairness tracking: user_id -> last_processed_timestamp
+        self.user_last_processed: Dict[str, datetime] = {}
+        self.max_consecutive_requests_per_user = 3  # Limit consecutive requests per user
+        self.user_request_counts: Dict[str, int] = defaultdict(int)  # Track consecutive requests
         
         self.redis_url = redis_url or settings.REDIS_URL
         self.redis_client: Optional[aioredis.Redis] = None
@@ -446,39 +538,70 @@ class CollaborativeLocking:
     ) -> bool:
         """
         Upgrade a shared lock to exclusive.
+        Uses distributed locking to prevent race conditions.
         
         Returns:
             True if upgrade successful, False otherwise
         """
-        async with self._lock:
-            lock = self.object_locks[document_id].get(object_id)
+        # Use a distributed lock to serialize upgrade requests
+        upgrade_lock_key = f"upgrade_lock:{document_id}:{object_id}"
+        
+        # Try to acquire distributed lock for the upgrade operation
+        if self.redis_client:
+            # Use SET with NX and EX for atomic lock acquisition
+            lock_acquired = await self.redis_client.set(
+                upgrade_lock_key,
+                user_id,
+                nx=True,  # Only set if not exists
+                ex=5  # Expire after 5 seconds to prevent deadlock
+            )
             
-            if not lock or lock.user_id != user_id:
+            if not lock_acquired:
+                # Another upgrade is in progress
+                logger.debug(f"Failed to acquire upgrade lock for {object_id}, another upgrade in progress")
                 return False
-            
-            if lock.lock_type == LockType.EXCLUSIVE:
-                # Already exclusive
-                return True
-            
-            if lock.lock_type in [LockType.SHARED, LockType.UPGRADE]:
-                # Check if upgrade is possible (no other locks)
-                can_upgrade = True
+        
+        try:
+            async with self._lock:
+                lock = self.object_locks[document_id].get(object_id)
                 
-                # In a real implementation, would check for other shared locks
-                # For now, assume upgrade is possible
+                if not lock or lock.user_id != user_id:
+                    return False
                 
-                if can_upgrade:
-                    lock.lock_type = LockType.EXCLUSIVE
-                    lock.acquired_at = datetime.now(UTC)
-                    
-                    # Update in Redis
-                    if self.redis_client:
-                        await self._store_lock_in_redis(document_id, object_id, lock)
-                    
-                    logger.debug(f"Upgraded lock on {object_id} to exclusive for user {user_id}")
+                if lock.lock_type == LockType.EXCLUSIVE:
+                    # Already exclusive
                     return True
-            
-            return False
+                
+                if lock.lock_type in [LockType.SHARED, LockType.UPGRADE]:
+                    # Check if upgrade is possible (no other active locks from different users)
+                    can_upgrade = True
+                    
+                    # Check for conflicting locks
+                    for other_obj_id, other_lock in self.object_locks[document_id].items():
+                        if (other_obj_id == object_id and 
+                            other_lock.user_id != user_id and 
+                            other_lock.is_active() and
+                            other_lock.lock_type != LockType.SHARED):
+                            # Found a conflicting lock
+                            can_upgrade = False
+                            break
+                    
+                    if can_upgrade:
+                        lock.lock_type = LockType.EXCLUSIVE
+                        lock.acquired_at = datetime.now(UTC)
+                        
+                        # Update in Redis
+                        if self.redis_client:
+                            await self._store_lock_in_redis(document_id, object_id, lock)
+                        
+                        logger.debug(f"Upgraded lock on {object_id} to exclusive for user {user_id}")
+                        return True
+                
+                return False
+        finally:
+            # Release the distributed lock
+            if self.redis_client:
+                await self.redis_client.delete(upgrade_lock_key)
     
     async def extend_lock(
         self,
@@ -638,7 +761,7 @@ class CollaborativeLocking:
             await self._process_queue(doc_id)
     
     async def _process_queue(self, document_id: str):
-        """Process pending lock requests for a document."""
+        """Process pending lock requests for a document with fairness."""
         if document_id not in self.lock_queue:
             return
         
@@ -646,23 +769,66 @@ class CollaborativeLocking:
         if not queue:
             return
         
-        # Sort by priority (higher first) and request time
-        queue.sort(key=lambda r: (-r.priority, r.requested_at))
-        
+        # Sort by priority and apply fairness rules
+        now = datetime.now(UTC)
         processed = []
         
+        # Group requests by user
+        user_requests: Dict[str, List[LockRequest]] = defaultdict(list)
         for request in queue:
+            user_requests[request.user_id].append(request)
+        
+        # Sort each user's requests by priority and time
+        for user_id, requests in user_requests.items():
+            requests.sort(key=lambda r: (-r.priority, r.requested_at))
+        
+        # Process requests with fairness
+        requests_to_process = []
+        
+        # First, include users who haven't been processed recently
+        for user_id, requests in user_requests.items():
+            if user_id not in self.user_last_processed or \
+               (now - self.user_last_processed.get(user_id, datetime.min.replace(tzinfo=UTC))) > timedelta(seconds=2):
+                # User hasn't been processed recently
+                requests_to_process.extend(requests[:self.max_consecutive_requests_per_user])
+                self.user_request_counts[user_id] = len(requests[:self.max_consecutive_requests_per_user])
+        
+        # Then, include users with low consecutive counts
+        for user_id, requests in user_requests.items():
+            if self.user_request_counts.get(user_id, 0) < self.max_consecutive_requests_per_user:
+                remaining_slots = self.max_consecutive_requests_per_user - self.user_request_counts.get(user_id, 0)
+                for request in requests[:remaining_slots]:
+                    if request not in requests_to_process:
+                        requests_to_process.append(request)
+        
+        # Sort final list by priority and time
+        requests_to_process.sort(key=lambda r: (-r.priority, r.requested_at))
+        
+        # Process the fair selection of requests
+        for request in requests_to_process:
             # Try to acquire locks
             result = await self.acquire_locks(document_id, request)
             
-            if result.success or len(result.failed) > 0:
-                # Either succeeded or definitively failed
+            if result.success:
+                # Update fairness tracking
+                self.user_last_processed[request.user_id] = now
+                self.user_request_counts[request.user_id] += 1
                 processed.append(request)
+            elif len(result.failed) > 0:
+                # Definitively failed
+                processed.append(request)
+                # Reset user count on failure
+                self.user_request_counts[request.user_id] = 0
         
         # Remove processed requests
         for request in processed:
             if request in queue:
                 queue.remove(request)
+        
+        # Reset counts for users with no pending requests
+        for user_id in list(self.user_request_counts.keys()):
+            if user_id not in user_requests or not user_requests[user_id]:
+                self.user_request_counts[user_id] = 0
     
     async def _process_queue_for_objects(
         self,
@@ -806,71 +972,3 @@ class CollaborativeLocking:
         }
 
 
-class DeadlockDetector:
-    """Detects deadlocks in lock requests."""
-    
-    def detect_deadlocks(
-        self,
-        locks: Dict[str, Lock],
-        queue: List[LockRequest]
-    ) -> List[Dict[str, Any]]:
-        """
-        Detect deadlocks using wait-for graph.
-        
-        Returns:
-            List of detected deadlocks
-        """
-        # Build wait-for graph
-        wait_graph = defaultdict(set)
-        
-        for request in queue:
-            waiting_user = request.user_id
-            
-            for obj_id in request.object_ids:
-                if obj_id in locks:
-                    lock = locks[obj_id]
-                    if lock.is_active() and lock.user_id != waiting_user:
-                        # User is waiting for lock held by another user
-                        wait_graph[waiting_user].add(lock.user_id)
-        
-        # Find cycles in wait-for graph
-        deadlocks = []
-        visited = set()
-        
-        for user in wait_graph:
-            if user not in visited:
-                cycle = self._find_cycle(user, wait_graph, visited, set())
-                if cycle:
-                    deadlocks.append({
-                        "users": cycle,
-                        "victim": {"user_id": cycle[0]}  # Simple victim selection
-                    })
-        
-        return deadlocks
-    
-    def _find_cycle(
-        self,
-        node: str,
-        graph: Dict[str, Set[str]],
-        visited: Set[str],
-        path: Set[str]
-    ) -> Optional[List[str]]:
-        """Find cycle in directed graph using DFS."""
-        visited.add(node)
-        path.add(node)
-        
-        for neighbor in graph.get(node, set()):
-            if neighbor in path:
-                # Found cycle
-                return [neighbor, node]
-            elif neighbor not in visited:
-                cycle = self._find_cycle(neighbor, graph, visited, path)
-                if cycle:
-                    if node in cycle:
-                        return cycle
-                    else:
-                        cycle.append(node)
-                        return cycle
-        
-        path.remove(node)
-        return None

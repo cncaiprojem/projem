@@ -5,6 +5,7 @@ Tracks active users, cursor positions, selections, and object locks.
 
 import asyncio
 import logging
+import colorsys
 from datetime import datetime, UTC, timedelta
 from typing import Dict, List, Set, Optional, Any, Tuple
 from dataclasses import dataclass, field
@@ -441,14 +442,24 @@ class PresenceAwareness:
         user_id: str,
         object_id: str,
         lock_type: LockType = LockType.EXCLUSIVE,
-        timeout_seconds: int = 300
+        timeout_seconds: Optional[int] = None
     ) -> bool:
         """
         Acquire lock for editing an object.
         
+        Args:
+            document_id: Document ID
+            user_id: User ID
+            object_id: Object to lock
+            lock_type: Type of lock (EXCLUSIVE or SHARED)
+            timeout_seconds: Lock timeout in seconds (default from settings or 300)
+        
         Returns:
             True if lock was acquired, False otherwise
         """
+        # Use configured default if not specified
+        if timeout_seconds is None:
+            timeout_seconds = getattr(settings, 'LOCK_TIMEOUT_SECONDS', 300)
         current_lock = self.object_locks[document_id].get(object_id)
         
         # Check if object is already locked
@@ -617,16 +628,27 @@ class PresenceAwareness:
         return sorted(nearby, key=lambda x: x[1])
     
     def _generate_user_color(self, user_id: str) -> str:
-        """Generate a consistent color for a user."""
+        """Generate a consistent color for a user using proper HSL to RGB conversion."""
         # Use hash to generate consistent color
-        hash_val = hash(user_id)
-        hue = (hash_val % 360)
-        # Use HSL with good saturation and lightness for visibility
-        # Convert to hex (simplified - actual implementation would use proper HSL to RGB)
-        r = int((hue / 360) * 255)
-        g = int(((hue + 120) % 360 / 360) * 255)
-        b = int(((hue + 240) % 360 / 360) * 255)
-        return f"#{r:02x}{g:02x}{b:02x}"
+        hash_val = abs(hash(user_id))
+        
+        # Generate hue from hash (0.0 to 1.0)
+        hue = (hash_val % 360) / 360.0
+        
+        # Use good saturation and lightness for visibility
+        saturation = 0.7  # 70% saturation for vibrant colors
+        lightness = 0.5   # 50% lightness for good contrast
+        
+        # Convert HSL to RGB using colorsys
+        # Note: colorsys.hls_to_rgb uses HLS order (Hue, Lightness, Saturation)
+        r, g, b = colorsys.hls_to_rgb(hue, lightness, saturation)
+        
+        # Convert to 0-255 range and format as hex
+        r_int = int(r * 255)
+        g_int = int(g * 255)
+        b_int = int(b * 255)
+        
+        return f"#{r_int:02x}{g_int:02x}{b_int:02x}"
     
     # Broadcast methods (would integrate with WebSocket manager)
     async def _broadcast_status_changes(

@@ -27,6 +27,13 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
+# Configuration constants
+OPERATION_HISTORY_MAX_LENGTH = 1000
+OPERATION_QUEUE_MAX_SIZE = 10000
+PROCESS_QUEUE_INTERVAL_MS = 100
+CLEANUP_INTERVAL_SECONDS = 300
+REDIS_OPERATION_EXPIRE_SECONDS = 3600
+REDIS_OPERATION_TRIM_LIMIT = 1000
 
 @dataclass
 class CollaborationSession:
@@ -36,7 +43,7 @@ class CollaborationSession:
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     participants: Set[str] = field(default_factory=set)
     operation_version: int = 0
-    operation_history: deque = field(default_factory=lambda: deque(maxlen=1000))
+    operation_history: deque = field(default_factory=lambda: deque(maxlen=OPERATION_HISTORY_MAX_LENGTH))
     pending_operations: Dict[str, List[ModelOperation]] = field(default_factory=dict)
     conflict_queue: List[Dict[str, Any]] = field(default_factory=list)
     
@@ -190,7 +197,7 @@ class WebSocketManager:
 class OperationQueue:
     """Manages operation queuing and ordering."""
     
-    def __init__(self, max_size: int = 10000):
+    def __init__(self, max_size: int = OPERATION_QUEUE_MAX_SIZE):
         self.queue: deque = deque(maxlen=max_size)
         self.processing: Dict[str, ModelOperation] = {}
         self.processed: Set[str] = set()
@@ -307,7 +314,7 @@ class CollaborationProtocol:
         """Process operation queues continuously."""
         while True:
             try:
-                await asyncio.sleep(0.1)  # Process every 100ms
+                await asyncio.sleep(PROCESS_QUEUE_INTERVAL_MS / 1000)  # Process at configured interval
                 await self._process_all_queues()
             except asyncio.CancelledError:
                 break
@@ -318,7 +325,7 @@ class CollaborationProtocol:
         """Clean up old sessions periodically."""
         while True:
             try:
-                await asyncio.sleep(300)  # Clean up every 5 minutes
+                await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)  # Clean up at configured interval
                 await self._cleanup_old_sessions()
             except asyncio.CancelledError:
                 break
@@ -380,7 +387,7 @@ class CollaborationProtocol:
                     "created_at": session.created_at.isoformat(),
                     "version": session.operation_version
                 }),
-                ex=3600  # Expire after 1 hour
+                ex=REDIS_OPERATION_EXPIRE_SECONDS  # Expire at configured interval
             )
         
         logger.info(f"Created collaboration session for document {document_id}")
@@ -659,11 +666,11 @@ class CollaborationProtocol:
             json.dumps(operation.to_dict())
         )
         
-        # Keep only last 1000 operations
-        await self.redis_client.ltrim(key, -1000, -1)
+        # Keep only last configured number of operations
+        await self.redis_client.ltrim(key, -REDIS_OPERATION_TRIM_LIMIT, -1)
         
         # Set expiration
-        await self.redis_client.expire(key, 3600)  # 1 hour
+        await self.redis_client.expire(key, REDIS_OPERATION_EXPIRE_SECONDS)  # Configured expiry
     
     async def get_operation_history(
         self,

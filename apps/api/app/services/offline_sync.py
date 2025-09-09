@@ -136,6 +136,7 @@ class OfflineSync:
         self.operation_transform = OperationalTransform()
         self.conflict_resolver = ConflictResolver()
         self.version_vectors: Dict[str, Dict[str, int]] = {}  # document_id -> client_id -> version
+        self.conflict_history: Dict[str, List[Dict[str, Any]]] = {}  # document_id -> list of conflicts
         
     def register_client(
         self,
@@ -390,10 +391,17 @@ class OfflineSync:
     def _calculate_checksum(self, document_id: str) -> str:
         """Calculate checksum for document state."""
         # TODO: Calculate from actual document state
-        # For now, use version vector
+        # For now, use version vector with deterministic JSON serialization
         if document_id in self.version_vectors:
-            data = json.dumps(self.version_vectors[document_id], sort_keys=True)
-            return hashlib.sha256(data.encode()).hexdigest()
+            # Use sort_keys=True and ensure_ascii=True for deterministic output
+            # Also use separators without spaces for consistency across platforms
+            data = json.dumps(
+                self.version_vectors[document_id], 
+                sort_keys=True,
+                ensure_ascii=True,
+                separators=(',', ':')  # No spaces for consistency
+            )
+            return hashlib.sha256(data.encode('utf-8')).hexdigest()
         return ""
     
     def _verify_checksum(self, checksum1: str, checksum2: str) -> bool:
@@ -490,7 +498,7 @@ class OfflineSync:
         return result
     
     async def compact_operation_buffer(self, document_id: str):
-        """Compact operation buffer by merging compatible operations."""
+        """Compact operation buffer by merging compatible operations with conflict detection."""
         if document_id not in self.operation_buffers:
             return
         
@@ -511,21 +519,61 @@ class OfflineSync:
         
         # Compact operations for each object
         compacted = []
+        conflicts_detected = []
         
         for obj_id, ops in object_ops.items():
             if len(ops) == 1:
                 compacted.append(ops[0])
             else:
-                # Try to merge operations
-                merged = self._merge_operations(ops)
-                compacted.extend(merged)
+                # Check for conflicts before merging
+                has_conflict = False
+                
+                # Check if operations from different users modify the same object
+                user_ids = set(op.user_id for op in ops if op.user_id)
+                if len(user_ids) > 1:
+                    # Multiple users modifying same object - potential conflict
+                    logger.warning(f"Conflict detected: Multiple users ({user_ids}) modifying object {obj_id}")
+                    has_conflict = True
+                    conflicts_detected.append({
+                        "object_id": obj_id,
+                        "user_ids": list(user_ids),
+                        "operations": [op.to_dict() for op in ops]
+                    })
+                
+                # Check for conflicting operation types
+                op_types = set(op.type for op in ops)
+                if OperationType.DELETE in op_types and len(op_types) > 1:
+                    # DELETE operation conflicts with other operations
+                    logger.warning(f"Conflict detected: DELETE operation conflicts with other operations on object {obj_id}")
+                    has_conflict = True
+                    conflicts_detected.append({
+                        "object_id": obj_id,
+                        "conflict_type": "delete_conflict",
+                        "operation_types": [t.value for t in op_types]
+                    })
+                
+                if has_conflict:
+                    # Don't merge conflicting operations, keep them separate
+                    compacted.extend(ops)
+                else:
+                    # Try to merge operations
+                    merged = self._merge_operations(ops)
+                    compacted.extend(merged)
         
         # Update buffer with compacted operations
         buffer.clear()
         for op in compacted:
             buffer.add(op)
         
-        logger.debug(f"Compacted operation buffer from {len(operations)} to {len(compacted)} operations")
+        # Log results
+        if conflicts_detected:
+            logger.warning(f"Compaction completed with {len(conflicts_detected)} conflicts detected")
+            # Store conflicts for later resolution
+            if document_id not in self.conflict_history:
+                self.conflict_history[document_id] = []
+            self.conflict_history[document_id].extend(conflicts_detected)
+        else:
+            logger.debug(f"Compacted operation buffer from {len(operations)} to {len(compacted)} operations")
     
     def _merge_operations(self, operations: List[ModelOperation]) -> List[ModelOperation]:
         """Merge compatible operations."""
