@@ -248,13 +248,12 @@ async def handle_operation(
         await offline_sync.store_operation(document_id, operation)
         
     except Exception as e:
-        logger.error(f"Error handling operation: {e}")
+        logger.error(f"Error handling operation: {e}", exc_info=True)
         await collaboration_protocol.websocket_manager.send_to_connection(
             connection_id,
             {
                 "type": "operation_error",
-                "message": COLLABORATION_MESSAGES_TR['operation_failed'],
-                "error": str(e)
+                "message": COLLABORATION_MESSAGES_TR['operation_failed']
             }
         )
 
@@ -402,12 +401,12 @@ async def handle_lock_request(
             )
         
     except Exception as e:
-        logger.error(f"Error handling lock request: {e}")
+        logger.error(f"Error handling lock request: {e}", exc_info=True)
         await collaboration_protocol.websocket_manager.send_to_connection(
             connection_id,
             {
                 "type": "lock_error",
-                "error": str(e)
+                "message": "Failed to acquire locks. Please try again."
             }
         )
 
@@ -458,8 +457,7 @@ async def handle_lock_release(
             connection_id,
             {
                 "type": "lock_release_error",
-                "message": "Failed to release locks. Please try again.",
-                "error": "An error occurred while releasing the locks."
+                "message": "Failed to release locks. Please try again."
             }
         )
 
@@ -516,12 +514,11 @@ async def handle_sync_request(
                 )
         
     except Exception as e:
-        logger.error(f"Error handling sync request: {e}")
+        logger.error(f"Error handling sync request: {e}", exc_info=True)
         await collaboration_protocol.websocket_manager.send_to_connection(
             connection_id,
             {
                 "type": "sync_error",
-                "error": str(e),
                 "message": COLLABORATION_MESSAGES_TR['sync_failed']
             }
         )
@@ -617,8 +614,7 @@ async def handle_undo(
             connection_id,
             {
                 "type": "undo_error",
-                "message": "Failed to perform undo operation. Please try again.",
-                "error": "An error occurred while processing the undo request."
+                "message": "Failed to perform undo operation. Please try again."
             }
         )
 
@@ -671,8 +667,7 @@ async def handle_redo(
             connection_id,
             {
                 "type": "redo_error",
-                "message": "Failed to perform redo operation. Please try again.",
-                "error": "An error occurred while processing the redo request."
+                "message": "Failed to perform redo operation. Please try again."
             }
         )
 
@@ -717,7 +712,6 @@ async def handle_conflict_resolution(
             {
                 "type": "conflict_resolution_error",
                 "message": "Failed to resolve conflict. Please try again.",
-                "error": "An error occurred while resolving the conflict.",
                 "conflict_id": conflict_id  # Now always defined
             }
         )

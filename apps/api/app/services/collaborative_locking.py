@@ -222,7 +222,7 @@ class DeadlockDetector:
         
         for user in wait_graph:
             if user not in visited:
-                cycle = self._find_cycle(user, wait_graph, visited, set())
+                cycle = self._find_cycle(user, wait_graph, visited, [])
                 if cycle:
                     # Select victim with fewest locks to minimize disruption
                     victim_user = min(cycle, key=lambda u: len(user_to_locks.get(u, set())))
@@ -243,30 +243,22 @@ class DeadlockDetector:
         node: str,
         graph: Dict[str, Set[str]],
         visited: Set[str],
-        path: Set[str]
+        path: List[str]
     ) -> Optional[List[str]]:
         """
         Find cycle in directed graph using DFS.
         
-        This simplified implementation directly returns the cycle path
-        when found, avoiding complex reconstruction logic.
+        Uses a list for the path to maintain order, which is essential
+        for correctly reconstructing the cycle when detected.
         """
         visited.add(node)
-        path.add(node)
+        path.append(node)
         
         for neighbor in graph.get(node, set()):
             if neighbor in path:
-                # Found cycle - build the cycle path
-                cycle_nodes = []
-                found_start = False
-                
-                # Reconstruct cycle from path
-                for n in path:
-                    if n == neighbor:
-                        found_start = True
-                    if found_start:
-                        cycle_nodes.append(n)
-                
+                # Found cycle - return the cycle portion of the path
+                cycle_start_index = path.index(neighbor)
+                cycle_nodes = path[cycle_start_index:]
                 return cycle_nodes
                 
             elif neighbor not in visited:
@@ -274,7 +266,7 @@ class DeadlockDetector:
                 if cycle:
                     return cycle
         
-        path.remove(node)
+        path.pop()
         return None
 
 

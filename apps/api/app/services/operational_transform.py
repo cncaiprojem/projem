@@ -584,6 +584,9 @@ class OperationalTransform:
         import copy
         
         # Deep copy the state to avoid mutations
+        # TODO: Performance optimization opportunity - deepcopy can be expensive for large state objects.
+        # Consider using immutable data structures (e.g., pyrsistent) or implementing a more efficient
+        # copy-on-write mechanism with path-based updates for better performance in production.
         new_state = copy.deepcopy(state)
         
         if operation.type == OperationType.CREATE:
