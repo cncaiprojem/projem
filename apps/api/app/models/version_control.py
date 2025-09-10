@@ -189,26 +189,13 @@ class Branch(BaseModel):
     @classmethod
     def validate_branch_name(cls, v: str) -> str:
         """Validate branch name following Git conventions."""
-        if not v:
-            raise ValueError("Branch name cannot be empty")
+        from app.utils.vcs_validation import validate_branch_name, get_invalid_branch_name_reasons
         
-        # Invalid patterns (same as ModelBranchManager)
-        invalid_patterns = ['..', '~', '^', ':', '\\', '?', '*', '[', '@{', '//']
-        for pattern in invalid_patterns:
-            if pattern in v:
-                raise ValueError(f"Branch name cannot contain '{pattern}'")
-        
-        # Cannot start or end with certain characters
-        if v.startswith('/') or v.startswith('.') or v.startswith('-'):
-            raise ValueError("Branch name cannot start with '/', '.', or '-'")
-        if v.endswith('/') or v.endswith('.'):
-            raise ValueError("Branch name cannot end with '/' or '.'")
-        if v.endswith('.lock'):
-            raise ValueError("Branch name cannot end with '.lock'")
-        
-        # Check for control characters
-        if any(ord(c) < 32 for c in v):
-            raise ValueError("Branch name cannot contain control characters")
+        if not validate_branch_name(v):
+            errors = get_invalid_branch_name_reasons(v)
+            if errors:
+                raise ValueError(errors[0])  # Return first error
+            raise ValueError("Invalid branch name")
         
         return v
 
@@ -346,6 +333,8 @@ class StorageStats(BaseModel):
     delta_compressed_objects: int = Field(default=0, description="Number of delta-compressed objects")
     compression_ratio: float = Field(description="Overall compression ratio")
     last_gc_timestamp: Optional[datetime] = Field(default=None, description="Last garbage collection time")
+    gc_runs: int = Field(default=0, description="Number of garbage collection runs")
+    objects_removed: int = Field(default=0, description="Total objects removed by garbage collection")
 
 
 # Turkish translations for messages

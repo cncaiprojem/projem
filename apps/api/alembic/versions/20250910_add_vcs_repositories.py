@@ -11,7 +11,7 @@ from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision = 'add_vcs_repositories'
-down_revision = None  # Update this to the latest revision ID
+down_revision = 'task_711_artefact_storage'  # Points to the previous migration
 branch_labels = None
 depends_on = None
 

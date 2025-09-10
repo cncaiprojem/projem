@@ -178,8 +178,8 @@ class ModelBranchManager:
                 
                 # Check if branch is merged (unless forced)
                 if not force:
-                    # Would check if branch is merged into main/master
-                    pass
+                    # Check if branch is merged into main/master or current branch
+                    await self._check_branch_merged(branch_name)
                 
                 # Delete branch reference
                 ref_path = self.heads_path / branch_name
@@ -576,37 +576,108 @@ class ModelBranchManager:
     
     def _validate_branch_name(self, name: str) -> bool:
         """Validate branch name."""
-        if not name:
-            return False
-        
-        # Invalid patterns
-        invalid_patterns = [
-            '..',  # No double dots
-            '~',   # No tilde
-            '^',   # No caret
-            ':',   # No colon
-            '?',   # No question mark
-            '*',   # No asterisk
-            '[',   # No brackets
-            ' ',   # No spaces
-            '\t',  # No tabs
-        ]
-        
-        for pattern in invalid_patterns:
-            if pattern in name:
-                return False
-        
-        # Can't start or end with slash
-        if name.startswith('/') or name.endswith('/'):
-            return False
-        
-        # Can't end with .lock
-        if name.endswith('.lock'):
-            return False
-        
-        return True
+        from app.utils.vcs_validation import validate_branch_name
+        return validate_branch_name(name)
     
     def _validate_tag_name(self, name: str) -> bool:
         """Validate tag name."""
-        # Same rules as branch names for now
-        return self._validate_branch_name(name)
+        from app.utils.vcs_validation import validate_tag_name
+        return validate_tag_name(name)
+    
+    async def _check_branch_merged(self, branch_name: str) -> bool:
+        """
+        Check if a branch has been merged into main/master or current branch.
+        
+        Args:
+            branch_name: Name of branch to check
+            
+        Returns:
+            True if merged, raises error if not merged
+            
+        Raises:
+            ValueError: If branch has unmerged commits
+        """
+        try:
+            # Get the branch commit
+            branch = await self.get_branch(branch_name)
+            if not branch:
+                return True  # Branch doesn't exist, consider it merged
+            
+            branch_commit = branch.head
+            
+            # Check against main/master branches
+            for main_branch_name in ["main", "master"]:
+                main_branch = await self.get_branch(main_branch_name)
+                if main_branch:
+                    # Check if branch commit is reachable from main
+                    if await self._is_ancestor(branch_commit, main_branch.head):
+                        return True
+            
+            # Check against current branch if different
+            if self._current_branch and self._current_branch != branch_name:
+                current_branch = await self.get_branch(self._current_branch)
+                if current_branch:
+                    if await self._is_ancestor(branch_commit, current_branch.head):
+                        return True
+            
+            # Branch has unmerged commits
+            raise ValueError(
+                f"Branch '{branch_name}' has unmerged commits. "
+                f"Use force=True to delete anyway or merge the branch first."
+            )
+            
+        except ValueError:
+            raise
+        except Exception as e:
+            logger.warning(
+                "branch_merge_check_failed",
+                branch_name=branch_name,
+                error=str(e)
+            )
+            # On error, allow deletion (don't block operation)
+            return True
+    
+    async def _is_ancestor(self, ancestor_commit: str, descendant_commit: str) -> bool:
+        """
+        Check if ancestor_commit is an ancestor of descendant_commit.
+        
+        This follows the commit parent chain to see if we can reach
+        the ancestor from the descendant.
+        """
+        try:
+            # Import here to avoid circular dependency
+            from app.services.model_commit_manager import ModelCommitManager
+            
+            # Create temporary commit manager for traversal
+            commit_manager = ModelCommitManager(self.repo_path / "objects")
+            
+            # Start from descendant and walk back through parents
+            visited = set()
+            to_check = [descendant_commit]
+            
+            while to_check:
+                current = to_check.pop(0)
+                
+                if current in visited:
+                    continue
+                visited.add(current)
+                
+                # Found the ancestor
+                if current == ancestor_commit:
+                    return True
+                
+                # Get commit and add parents to check
+                commit = await commit_manager.get_commit(current)
+                if commit and commit.parents:
+                    to_check.extend(commit.parents)
+            
+            return False
+            
+        except Exception as e:
+            logger.debug(
+                "ancestor_check_failed",
+                ancestor=ancestor_commit[:8],
+                descendant=descendant_commit[:8],
+                error=str(e)
+            )
+            return False

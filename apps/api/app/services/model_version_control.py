@@ -837,9 +837,11 @@ class ModelVersionControl:
                 if resolved.object_data:
                     auto_resolved.append(conflict)
             
-            # Remove auto-resolved conflicts
-            for resolved in auto_resolved:
-                conflicts.remove(resolved)
+            # Remove auto-resolved conflicts from the conflicts list
+            # We need to remove the actual MergeConflict, not the ResolvedObject
+            for conflict in auto_resolved:
+                if conflict in conflicts:
+                    conflicts.remove(conflict)
             
             # Update counter
             auto_resolved_count = len(auto_resolved)
@@ -915,7 +917,8 @@ class ModelVersionControl:
             
             # Reconstruct objects in document
             for entry in entries:
-                if entry.get("type") == "object":
+                # TreeEntry has object_type field, not type
+                if entry.get("object_type") == ObjectType.BLOB.value:
                     # Get object data from object store
                     obj_hash = entry.get("hash")
                     if obj_hash:
@@ -978,12 +981,11 @@ class ModelVersionControl:
             True if successful, False otherwise
         """
         try:
-            # Extract FreeCAD object data
-            if "freecad_data" in obj_data:
-                fc_data = obj_data["freecad_data"]
-                
-                # Recreate object based on type
-                obj_type = fc_data.get("type", "Part::Feature")
+            # Extract FreeCAD object data - it's a FreeCADObjectData model
+            # The fields are directly in obj_data, not nested under "freecad_data"
+            if obj_data:
+                # Use type_id field (correct field name from FreeCADObjectData model)
+                obj_type = obj_data.get("type_id", "Part::Feature")
                 
                 # Use document manager to create object
                 # This is simplified - actual implementation would need to
@@ -996,8 +998,8 @@ class ModelVersionControl:
                     )
                     
                     # Set object properties
-                    if new_obj and "properties" in fc_data:
-                        for prop_name, prop_value in fc_data["properties"].items():
+                    if new_obj and "properties" in obj_data:
+                        for prop_name, prop_value in obj_data["properties"].items():
                             if hasattr(new_obj, prop_name):
                                 try:
                                     setattr(new_obj, prop_name, prop_value)
@@ -1008,8 +1010,8 @@ class ModelVersionControl:
                                         error=str(e)
                                     )
                     
-                    # Handle geometry data if present
-                    if "geometry" in fc_data:
+                    # Handle shape data if present (FreeCADObjectData has shape_data field)
+                    if "shape_data" in obj_data:
                         # This would require proper geometry reconstruction
                         # based on the FreeCAD object type
                         pass

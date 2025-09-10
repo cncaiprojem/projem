@@ -80,7 +80,9 @@ class ModelObjectStore:
             total_size_bytes=0,
             compressed_size_bytes=0,
             delta_compressed_objects=0,
-            compression_ratio=1.0
+            compression_ratio=1.0,
+            gc_runs=0,
+            objects_removed=0
         )
         
         logger.info("object_store_initialized", store_path=str(store_path))
@@ -162,8 +164,8 @@ class ModelObjectStore:
                     )
                     return obj_hash
                 
-                # Serialize object
-                serialized = self._serialize_object(obj)
+                # Serialize object with type information
+                serialized = self._serialize_object(obj, obj_type)
                 
                 # Compress
                 compressed = await asyncio.to_thread(gzip.compress, serialized)
@@ -426,8 +428,8 @@ class ModelObjectStore:
         path = self._get_object_path(obj_hash)
         return path.exists()
     
-    def _serialize_object(self, obj: Any) -> bytes:
-        """Serialize object deterministically."""
+    def _serialize_object(self, obj: Any, obj_type: Optional[ObjectType] = None) -> bytes:
+        """Serialize object deterministically with type information."""
         if hasattr(obj, 'dict'):
             # Pydantic model
             data = obj.dict()
@@ -438,8 +440,17 @@ class ModelObjectStore:
             # Primitive or dict
             data = obj
         
+        # Add type information for proper deserialization and GC
+        if obj_type:
+            wrapper = {
+                "type": obj_type.value,
+                "data": data
+            }
+        else:
+            wrapper = data
+        
         # Deterministic JSON serialization
-        return json.dumps(data, sort_keys=True, default=str).encode('utf-8')
+        return json.dumps(wrapper, sort_keys=True, default=str).encode('utf-8')
     
     def _deserialize_object(
         self,
@@ -449,8 +460,23 @@ class ModelObjectStore:
         """Deserialize object from bytes."""
         obj_dict = json.loads(data.decode('utf-8'))
         
-        # Return as dict for now - actual implementation would
-        # reconstruct proper object types based on obj_type
+        # Check if the object has type wrapper
+        if isinstance(obj_dict, dict) and "type" in obj_dict and "data" in obj_dict:
+            # Extract the actual data from wrapper
+            stored_type = obj_dict["type"]
+            actual_data = obj_dict["data"]
+            
+            # Validate type if specified
+            if obj_type and stored_type != obj_type.value:
+                logger.warning(
+                    "object_type_mismatch",
+                    expected=obj_type.value,
+                    actual=stored_type
+                )
+            
+            return actual_data
+        
+        # Return as-is for backward compatibility
         return obj_dict
     
     def _update_cache(self, obj_hash: str, obj: Any):
@@ -524,21 +550,39 @@ class ModelObjectStore:
                 visited.add(obj_hash)
                 reachable.add(obj_hash)
                 
-                # Get object and add references
-                obj = await self.get_object(obj_hash)
-                if obj and isinstance(obj, dict):
+                # Get raw object to check its type
+                path = self._get_object_path(obj_hash)
+                if path.exists():
+                    compressed = await asyncio.to_thread(self._read_file, path)
+                    serialized = await asyncio.to_thread(gzip.decompress, compressed)
+                    raw_obj = json.loads(serialized.decode('utf-8'))
+                    
+                    # Check if it has type wrapper
+                    if isinstance(raw_obj, dict) and "type" in raw_obj and "data" in raw_obj:
+                        obj_type = raw_obj["type"]
+                        obj_data = raw_obj["data"]
+                    else:
+                        # Legacy format - try to infer type from structure
+                        obj_data = raw_obj
+                        if "tree" in obj_data and "parents" in obj_data:
+                            obj_type = "commit"
+                        elif "entries" in obj_data:
+                            obj_type = "tree"
+                        else:
+                            obj_type = "blob"
+                    
                     # If it's a commit, add tree and parents
-                    if obj.get("type") == "commit":
-                        if "tree" in obj:
-                            refs_to_check.append(obj["tree"])
-                            reachable.add(obj["tree"])
-                        if "parents" in obj:
-                            for parent in obj["parents"]:
+                    if obj_type == "commit":
+                        if "tree" in obj_data:
+                            refs_to_check.append(obj_data["tree"])
+                            reachable.add(obj_data["tree"])
+                        if "parents" in obj_data:
+                            for parent in obj_data["parents"]:
                                 refs_to_check.append(parent)
                     # If it's a tree, add all entries
-                    elif obj.get("type") == "tree":
-                        if "entries" in obj:
-                            for entry in obj["entries"]:
+                    elif obj_type == "tree":
+                        if "entries" in obj_data:
+                            for entry in obj_data["entries"]:
                                 if "hash" in entry:
                                     reachable.add(entry["hash"])
             

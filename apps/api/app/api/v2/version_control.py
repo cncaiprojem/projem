@@ -33,6 +33,7 @@ from app.models.version_control import (
 )
 from app.services.model_version_control import ModelVersionControl, ModelVersionControlError
 from app.services.vcs_repository_registry import get_vcs_registry, VCSRepositoryRegistryError
+from app.utils.vcs_error_handler import handle_vcs_errors
 
 router = APIRouter(prefix="/version-control", tags=["version-control"])
 logger = structlog.get_logger(__name__)
