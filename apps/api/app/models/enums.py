@@ -449,3 +449,60 @@ class SyncStatus(str, enum.Enum):
     FAILED = "failed"
     CONFLICT = "conflict"
     SKIPPED = "skipped"
+
+
+class LockType(str, enum.Enum):
+    """
+    Types of locks for collaborative editing.
+    
+    Used by both CollaborativeLocking service (for transactional object locking)
+    and PresenceAwareness service (for real-time lock status display).
+    
+    CollaborativeLocking focuses on enforcing lock semantics and transactions,
+    while PresenceAwareness focuses on broadcasting lock states to users.
+    """
+    EXCLUSIVE = "exclusive"  # Only one user can hold this lock (write access)
+    SHARED = "shared"  # Multiple users can hold shared locks (read access)
+    UPGRADE = "upgrade"  # Shared lock that can be upgraded to exclusive (CollaborativeLocking)
+    PENDING = "pending"  # Lock request pending approval (PresenceAwareness)
+
+
+class LockStatus(str, enum.Enum):
+    """Lock request status for collaborative editing."""
+    GRANTED = "granted"
+    PENDING = "pending"
+    DENIED = "denied"
+    EXPIRED = "expired"
+    RELEASED = "released"
+
+
+class UserStatus(str, enum.Enum):
+    """User status in collaboration sessions."""
+    ACTIVE = "active"
+    IDLE = "idle"
+    AWAY = "away"
+    OFFLINE = "offline"
+
+
+class OperationType(str, enum.Enum):
+    """Types of operations that can be performed on FreeCAD models in collaborative editing."""
+    CREATE = "create"
+    MODIFY = "modify"
+    DELETE = "delete"
+    MOVE = "move"
+    ROTATE = "rotate"
+    SCALE = "scale"
+    PROPERTY_CHANGE = "property_change"
+    CONSTRAINT_ADD = "constraint_add"
+    CONSTRAINT_REMOVE = "constraint_remove"
+    GROUP = "group"  # Group multiple objects into App::DocumentObjectGroup
+    UNGROUP = "ungroup"  # Remove objects from a group or dissolve group
+    NO_OP = "no_op"
+
+
+class ConflictResolutionStrategy(str, enum.Enum):
+    """Strategies for resolving conflicts between operations in collaborative editing."""
+    TIMESTAMP = "timestamp"  # Last write wins
+    PRIORITY = "priority"  # User priority based
+    MERGE = "merge"  # Automatic merge attempt
+    MANUAL = "manual"  # Requires user intervention

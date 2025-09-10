@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..core.database import async_session
 from ..core.s3_client import s3_client
-from ..core.queue_constants import DLQ_QUEUES, DLQ_PREFIX
+from ..core.queue_constants import DLQ_QUEUES, DLQ_SUFFIX
 
 logger = logging.getLogger(__name__)
 
@@ -209,8 +209,12 @@ def cleanup_dead_letter_queue(self, max_messages: int = 1000) -> Dict[str, Any]:
                                 logger.debug(f"Discarded old DLQ message from {dlq_name} (age: {message_age_hours:.1f}h)")
                             else:
                                 # Mesajı orijinal kuyruğa geri gönder (retry)
-                                # DLQ adından orijinal queue adını çıkar
-                                original_queue = dlq_name.replace(DLQ_PREFIX, "")
+                                # DLQ adından orijinal queue adını çıkar (format: {queue}_dlq)
+                                # Use string slicing to avoid incorrect modification if queue name contains "_dlq" substring
+                                if dlq_name.endswith(DLQ_SUFFIX):
+                                    original_queue = dlq_name[:-len(DLQ_SUFFIX)]
+                                else:
+                                    original_queue = dlq_name
                                 if properties.headers and "x-original-queue" in properties.headers:
                                     original_queue = properties.headers.get("x-original-queue")
                                 
