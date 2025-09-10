@@ -1,6 +1,12 @@
 """
 Presence Awareness System for Collaborative FreeCAD Editing.
-Tracks active users, cursor positions, selections, and object locks.
+
+This service tracks active users, cursor positions, selections, and broadcasts
+real-time lock states to all connected users. It focuses on user presence and
+real-time state synchronization for UI updates.
+
+Distinguished from CollaborativeLocking which enforces transactional lock semantics
+and handles complex lock operations like upgrades and deadlock detection.
 """
 
 import asyncio
@@ -16,24 +22,10 @@ from collections import defaultdict
 from redis import asyncio as aioredis
 
 from app.core.config import settings
+from app.models.enums import UserStatus, LockType
 from app.utils.color_utils import generate_user_color
 
 logger = logging.getLogger(__name__)
-
-
-class UserStatus(str, Enum):
-    """User status in collaboration."""
-    ACTIVE = "active"
-    IDLE = "idle"
-    AWAY = "away"
-    OFFLINE = "offline"
-
-
-class LockType(str, Enum):
-    """Types of object locks."""
-    EXCLUSIVE = "exclusive"  # Only one user can edit
-    SHARED = "shared"  # Multiple users can view/read
-    PENDING = "pending"  # Lock request pending
 
 
 @dataclass

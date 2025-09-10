@@ -13,6 +13,7 @@ import json
 from decimal import Decimal
 
 from pydantic import BaseModel, Field
+from app.models.enums import OperationType, ConflictResolutionStrategy
 from app.utils.quaternion_math import (
     euler_to_quaternion,
     quaternion_to_euler,
@@ -20,28 +21,6 @@ from app.utils.quaternion_math import (
     axis_angle_to_quaternion,
     quaternion_to_axis_angle
 )
-
-
-class OperationType(str, Enum):
-    """Types of operations that can be performed on FreeCAD models."""
-    CREATE = "create"
-    MODIFY = "modify"
-    DELETE = "delete"
-    MOVE = "move"
-    ROTATE = "rotate"
-    SCALE = "scale"
-    PROPERTY_CHANGE = "property_change"
-    CONSTRAINT_ADD = "constraint_add"
-    CONSTRAINT_REMOVE = "constraint_remove"
-    NO_OP = "no_op"
-
-
-class ConflictResolutionStrategy(str, Enum):
-    """Strategies for resolving conflicts between operations."""
-    TIMESTAMP = "timestamp"  # Last write wins
-    PRIORITY = "priority"  # User priority based
-    MERGE = "merge"  # Automatic merge attempt
-    MANUAL = "manual"  # Requires user intervention
 
 
 @dataclass

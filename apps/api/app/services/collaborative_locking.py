@@ -1,6 +1,12 @@
 """
 Collaborative Locking System for FreeCAD Model Objects.
-Manages object-level locks with transaction support.
+
+This service manages transactional object-level locks with support for exclusive,
+shared, and upgradeable locks. It enforces lock semantics, handles deadlock detection,
+and provides transaction support for complex multi-object operations.
+
+Distinguished from PresenceAwareness which focuses on real-time lock state display
+and user presence broadcasting without enforcing lock semantics.
 """
 
 import asyncio
@@ -16,24 +22,9 @@ from collections import defaultdict
 from redis import asyncio as aioredis
 
 from app.core.config import settings
+from app.models.enums import LockType, LockStatus
 
 logger = logging.getLogger(__name__)
-
-
-class LockType(str, Enum):
-    """Types of locks."""
-    EXCLUSIVE = "exclusive"  # Only one user can hold this lock
-    SHARED = "shared"  # Multiple users can hold shared locks
-    UPGRADE = "upgrade"  # Shared lock that can be upgraded to exclusive
-
-
-class LockStatus(str, Enum):
-    """Lock request status."""
-    GRANTED = "granted"
-    PENDING = "pending"
-    DENIED = "denied"
-    EXPIRED = "expired"
-    RELEASED = "released"
 
 
 @dataclass
