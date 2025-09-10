@@ -562,11 +562,13 @@ class OperationalTransform:
         """
         import copy
         
-        # Deep copy the state to avoid mutations
-        # TODO: Performance optimization opportunity - deepcopy can be expensive for large state objects.
-        # Consider using immutable data structures (e.g., pyrsistent) or implementing a more efficient
-        # copy-on-write mechanism with path-based updates for better performance in production.
-        new_state = copy.deepcopy(state)
+        # Copy-on-write optimization: Only deep copy modified objects
+        # This approach significantly improves performance for large state objects by:
+        # 1. Creating a shallow copy of the top-level dictionary
+        # 2. Only deep copying individual objects when they are actually modified
+        # 3. Leaving unmodified objects as shared references (safe since they're not changed)
+        # This reduces memory usage and CPU time compared to deep copying the entire state
+        new_state = dict(state)  # Shallow copy of top-level dictionary
         
         if operation.type == OperationType.CREATE:
             # Create new object in state
@@ -593,6 +595,8 @@ class OperationalTransform:
         elif operation.type == OperationType.MODIFY:
             # Update object properties
             if operation.object_id and operation.object_id in new_state:
+                # Deep copy only the specific object being modified (copy-on-write)
+                new_state[operation.object_id] = copy.deepcopy(new_state[operation.object_id])
                 obj = new_state[operation.object_id]
                 # Update properties while preserving structure
                 if "properties" not in obj:
@@ -604,6 +608,8 @@ class OperationalTransform:
         elif operation.type == OperationType.MOVE:
             # Update object position
             if operation.object_id and operation.object_id in new_state:
+                # Deep copy only the specific object being modified (copy-on-write)
+                new_state[operation.object_id] = copy.deepcopy(new_state[operation.object_id])
                 obj = new_state[operation.object_id]
                 if "placement" not in obj:
                     obj["placement"] = {
@@ -625,6 +631,8 @@ class OperationalTransform:
         elif operation.type == OperationType.ROTATE:
             # Update object rotation
             if operation.object_id and operation.object_id in new_state:
+                # Deep copy only the specific object being modified (copy-on-write)
+                new_state[operation.object_id] = copy.deepcopy(new_state[operation.object_id])
                 obj = new_state[operation.object_id]
                 if "placement" not in obj:
                     obj["placement"] = {
@@ -674,6 +682,8 @@ class OperationalTransform:
         elif operation.type == OperationType.SCALE:
             # Update object scale
             if operation.object_id and operation.object_id in new_state:
+                # Deep copy only the specific object being modified (copy-on-write)
+                new_state[operation.object_id] = copy.deepcopy(new_state[operation.object_id])
                 obj = new_state[operation.object_id]
                 scale = operation.parameters.get("scale", 1.0)
                 
@@ -703,6 +713,8 @@ class OperationalTransform:
                 # Update grouped objects
                 for obj_id in object_ids:
                     if obj_id in new_state:
+                        # Deep copy only the specific object being modified (copy-on-write)
+                        new_state[obj_id] = copy.deepcopy(new_state[obj_id])
                         new_state[obj_id]["parent_group"] = group_id
         
         elif operation.type == OperationType.UNGROUP:
@@ -715,6 +727,8 @@ class OperationalTransform:
                 # Remove parent reference from members
                 for obj_id in members:
                     if obj_id in new_state:
+                        # Deep copy only the specific object being modified (copy-on-write)
+                        new_state[obj_id] = copy.deepcopy(new_state[obj_id])
                         new_state[obj_id].pop("parent_group", None)
                 
                 # Remove the group

@@ -617,9 +617,31 @@ class CollaborativeLocking:
                 
                 return False
         finally:
-            # Release the distributed lock
+            # Release the distributed lock atomically
+            # Only delete if we still own the lock (prevents race conditions)
             if self.redis_client:
-                await self.redis_client.delete(upgrade_lock_key)
+                # Lua script to atomically check owner and delete
+                lua_script = """
+                if redis.call("get", KEYS[1]) == ARGV[1] then
+                    return redis.call("del", KEYS[1])
+                else
+                    return 0
+                end
+                """
+                try:
+                    # Execute the Lua script to safely release the lock
+                    result = await self.redis_client.eval(
+                        lua_script,
+                        1,  # Number of keys
+                        upgrade_lock_key,  # KEYS[1]
+                        user_id  # ARGV[1] - the owner ID
+                    )
+                    if result == 0:
+                        logger.debug(
+                            f"Lock {upgrade_lock_key} not released - owned by different user or already expired"
+                        )
+                except Exception as e:
+                    logger.error(f"Error releasing distributed lock {upgrade_lock_key}: {e}")
     
     async def extend_lock(
         self,

@@ -306,6 +306,14 @@ async def handle_cursor_update(
         
     except Exception as e:
         logger.error(f"Error handling cursor update: {e}")
+        # Notify client of the error for debugging
+        await collaboration_protocol.websocket_manager.send_to_connection(
+            connection_id,
+            {
+                "type": "cursor_update_error",
+                "message": "Failed to update cursor position. Please try again."
+            }
+        )
 
 
 async def handle_selection_update(
@@ -347,6 +355,14 @@ async def handle_selection_update(
         
     except Exception as e:
         logger.error(f"Error handling selection update: {e}")
+        # Notify client of the error for debugging
+        await collaboration_protocol.websocket_manager.send_to_connection(
+            connection_id,
+            {
+                "type": "selection_update_error",
+                "message": "Failed to update selection. Please try again."
+            }
+        )
 
 
 async def handle_lock_request(
@@ -564,6 +580,14 @@ async def handle_presence_update(
         
     except Exception as e:
         logger.error(f"Error handling presence update: {e}")
+        # Notify client of the error for debugging
+        await collaboration_protocol.websocket_manager.send_to_connection(
+            connection_id,
+            {
+                "type": "presence_update_error",
+                "message": "Failed to update presence. Please try again."
+            }
+        )
 
 
 async def handle_undo(

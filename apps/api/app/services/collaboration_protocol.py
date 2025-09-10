@@ -633,10 +633,13 @@ class CollaborationProtocol:
             doc_handle = document_manager.get_document(document_id)
             if not doc_handle:
                 logger.warning(f"Document {document_id} not found, attempting to create/open")
-                # Try to open or create the document
+                # Extract job_id from document_id (format: doc_{job_id})
+                job_id = document_id.replace("doc_", "") if document_id.startswith("doc_") else document_id
+                
+                # Try to open or create the document with the correct job_id
                 doc_handle = await asyncio.to_thread(
                     document_manager.open_or_create_document,
-                    document_id
+                    job_id
                 )
                 if not doc_handle:
                     logger.error(f"Failed to open/create document {document_id}")
