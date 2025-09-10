@@ -283,7 +283,11 @@ class FileService:
             )
 
             # Add key constraint
-            post_policy.add_starts_with_condition("key", object_key.replace(f"{bucket_name}/", ""))
+            # Extract object name from object_key (format: {bucket_name}/{path})
+            # Use string slicing to avoid incorrect modification if bucket_name appears in path
+            prefix = f"{bucket_name}/"
+            object_name_in_bucket = object_key[len(prefix):] if object_key.startswith(prefix) else object_key
+            post_policy.add_starts_with_condition("key", object_name_in_bucket)
 
             # Add content-length constraint
             post_policy.add_content_length_range_condition(1, request.size)
@@ -315,8 +319,12 @@ class FileService:
                 fields = form_data["fields"]
             else:
                 # Fallback if fields not properly returned
+                # Extract object name from object_key (format: {bucket_name}/{path})
+                # Use string slicing to avoid incorrect modification if bucket_name appears in path
+                prefix = f"{bucket_name}/"
+                object_name_in_bucket = object_key[len(prefix):] if object_key.startswith(prefix) else object_key
                 fields = {
-                    "key": object_key.replace(f"{bucket_name}/", ""),
+                    "key": object_name_in_bucket,
                     "Content-Type": request.mime_type,
                     "x-amz-tagging": tag_string,
                 }
@@ -1057,7 +1065,10 @@ class FileService:
                 bucket_name = parts[0]
 
             # Step 3: Parse object name from key
-            object_name = object_key.replace(f"{bucket_name}/", "")
+            # Extract object name from object_key (format: {bucket_name}/{path})
+            # Use string slicing to avoid incorrect modification if bucket_name appears in path
+            prefix = f"{bucket_name}/"
+            object_name = object_key[len(prefix):] if object_key.startswith(prefix) else object_key
 
             # Step 4: Check if object exists
             try:

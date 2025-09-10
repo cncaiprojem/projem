@@ -634,7 +634,8 @@ class CollaborationProtocol:
             if not doc_handle:
                 logger.warning(f"Document {document_id} not found, attempting to create/open")
                 # Extract job_id from document_id (format: doc_{job_id})
-                job_id = document_id.replace("doc_", "") if document_id.startswith("doc_") else document_id
+                # Use string slicing to avoid incorrect modification if job_id contains "doc_" substring
+                job_id = document_id[4:] if document_id.startswith("doc_") else document_id
                 
                 # Try to open or create the document with the correct job_id
                 doc_handle = await asyncio.to_thread(
@@ -991,7 +992,8 @@ class CollaborationProtocol:
                 )
                 
                 # Extract job_id from document_id (format: doc_{job_id})
-                job_id = session.document_id.replace("doc_", "") if session.document_id.startswith("doc_") else session.document_id
+                # Use string slicing to avoid incorrect modification if job_id contains "doc_" substring
+                job_id = session.document_id[4:] if session.document_id.startswith("doc_") else session.document_id
                 
                 try:
                     # Try to open the document
