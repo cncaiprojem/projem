@@ -13,6 +13,7 @@ import hashlib
 import json
 import os
 import shutil
+from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set, Tuple
@@ -66,8 +67,8 @@ class ModelObjectStore:
         self.pack_path = self.store_path / "pack"
         self.refs_path = self.store_path / "refs"
         
-        # Cache for frequently accessed objects
-        self._cache: Dict[str, Any] = {}
+        # Cache for frequently accessed objects (LRU)
+        self._cache: OrderedDict[str, Any] = OrderedDict()
         self._cache_size_limit = 100
         
         # Delta compression index
@@ -454,12 +455,22 @@ class ModelObjectStore:
     
     def _update_cache(self, obj_hash: str, obj: Any):
         """Update object cache with LRU eviction."""
-        # Evict if cache is full
-        if len(self._cache) >= self._cache_size_limit:
-            # Remove oldest entry (simple FIFO for now)
-            oldest = next(iter(self._cache))
-            del self._cache[oldest]
+        from collections import OrderedDict
         
+        # Convert to OrderedDict if not already (for LRU functionality)
+        if not isinstance(self._cache, OrderedDict):
+            self._cache = OrderedDict(self._cache)
+        
+        # If object already in cache, remove it (will re-add at end)
+        if obj_hash in self._cache:
+            del self._cache[obj_hash]
+        
+        # Evict least recently used if cache is full
+        if len(self._cache) >= self._cache_size_limit:
+            # Remove least recently used (first item in OrderedDict)
+            self._cache.popitem(last=False)
+        
+        # Add new item at end (most recently used)
         self._cache[obj_hash] = obj
     
     def _write_file(self, path: Path, data: bytes):
@@ -481,13 +492,90 @@ class ModelObjectStore:
     
     async def _garbage_collect(self) -> int:
         """Remove unreachable objects."""
-        # Would walk from refs to find reachable objects
-        # and remove unreachable ones
-        logger.info(
-            "garbage_collection_complete",
-            message=VERSION_CONTROL_TR['garbage_collected']
-        )
-        return 0
+        try:
+            # Collect all reachable objects
+            reachable = set()
+            
+            # Start from all refs (branches and tags)
+            refs_to_check = []
+            
+            # Check branch heads
+            heads_path = self.refs_path / "heads"
+            if heads_path.exists():
+                for ref_file in heads_path.iterdir():
+                    if ref_file.is_file():
+                        commit_hash = await asyncio.to_thread(ref_file.read_text)
+                        refs_to_check.append(commit_hash.strip())
+            
+            # Check tags
+            tags_path = self.refs_path / "tags"
+            if tags_path.exists():
+                for ref_file in tags_path.iterdir():
+                    if ref_file.is_file():
+                        commit_hash = await asyncio.to_thread(ref_file.read_text)
+                        refs_to_check.append(commit_hash.strip())
+            
+            # Walk commit graph to find all reachable objects
+            visited = set()
+            while refs_to_check:
+                obj_hash = refs_to_check.pop()
+                if obj_hash in visited:
+                    continue
+                visited.add(obj_hash)
+                reachable.add(obj_hash)
+                
+                # Get object and add references
+                obj = await self.get_object(obj_hash)
+                if obj and isinstance(obj, dict):
+                    # If it's a commit, add tree and parents
+                    if obj.get("type") == "commit":
+                        if "tree" in obj:
+                            refs_to_check.append(obj["tree"])
+                            reachable.add(obj["tree"])
+                        if "parents" in obj:
+                            for parent in obj["parents"]:
+                                refs_to_check.append(parent)
+                    # If it's a tree, add all entries
+                    elif obj.get("type") == "tree":
+                        if "entries" in obj:
+                            for entry in obj["entries"]:
+                                if "hash" in entry:
+                                    reachable.add(entry["hash"])
+            
+            # Find and remove unreachable objects
+            removed_count = 0
+            if self.objects_path.exists():
+                for obj_dir in self.objects_path.iterdir():
+                    if obj_dir.is_dir() and len(obj_dir.name) == 2:
+                        for obj_file in obj_dir.iterdir():
+                            full_hash = obj_dir.name + obj_file.name
+                            if full_hash not in reachable:
+                                await asyncio.to_thread(obj_file.unlink)
+                                removed_count += 1
+                                
+                                # Clear from cache if present
+                                if full_hash in self._cache:
+                                    del self._cache[full_hash]
+            
+            # Update statistics
+            self._stats.gc_runs += 1
+            self._stats.objects_removed += removed_count
+            
+            logger.info(
+                "garbage_collection_complete",
+                removed_count=removed_count,
+                reachable_count=len(reachable),
+                message=VERSION_CONTROL_TR['garbage_collected']
+            )
+            
+            return removed_count
+            
+        except Exception as e:
+            logger.error(
+                "garbage_collection_failed",
+                error=str(e)
+            )
+            return 0
     
     async def _pack_objects(self) -> int:
         """Pack loose objects into pack files."""

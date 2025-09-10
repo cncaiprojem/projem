@@ -377,7 +377,7 @@ class TestModelDiffer:
         differ = ModelDiffer()
         
         # Create modified version
-        modified = FreeCADObjectData(**sample_freecad_object.dict())
+        modified = FreeCADObjectData(**sample_freecad_object.model_dump())
         modified.properties["Length"] = 20.0  # Changed
         modified.properties["Color"] = "Red"  # Added
         
@@ -402,7 +402,7 @@ class TestModelDiffer:
         differ = ModelDiffer()
         
         # Create modified version with shape changes
-        modified = FreeCADObjectData(**sample_freecad_object.dict())
+        modified = FreeCADObjectData(**sample_freecad_object.model_dump())
         modified.shape_data["volume"] = 200.0  # Increased volume
         modified.shape_data["vertex_count"] = 10  # More vertices
         
@@ -424,8 +424,8 @@ class TestModelConflictResolver:
         resolver = ModelConflictResolver()
         
         # Create conflict
-        our_version = FreeCADObjectData(**sample_freecad_object.dict())
-        their_version = FreeCADObjectData(**sample_freecad_object.dict())
+        our_version = FreeCADObjectData(**sample_freecad_object.model_dump())
+        their_version = FreeCADObjectData(**sample_freecad_object.model_dump())
         their_version.properties["Length"] = 15.0
         
         conflict = MergeConflict(
@@ -453,10 +453,10 @@ class TestModelConflictResolver:
         resolver = ModelConflictResolver()
         
         # Create numeric conflict
-        base = FreeCADObjectData(**sample_freecad_object.dict())
-        our_version = FreeCADObjectData(**sample_freecad_object.dict())
+        base = FreeCADObjectData(**sample_freecad_object.model_dump())
+        our_version = FreeCADObjectData(**sample_freecad_object.model_dump())
         our_version.properties["Length"] = 12.0
-        their_version = FreeCADObjectData(**sample_freecad_object.dict())
+        their_version = FreeCADObjectData(**sample_freecad_object.model_dump())
         their_version.properties["Length"] = 14.0
         
         conflict = MergeConflict(

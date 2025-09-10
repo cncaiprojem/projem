@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import shutil
 import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
@@ -822,6 +823,9 @@ class ModelVersionControl:
             strategy
         )
         
+        # Initialize auto_resolved counter
+        auto_resolved_count = 0
+        
         if conflicts:
             # Try to auto-resolve conflicts
             auto_resolved = []
@@ -836,6 +840,9 @@ class ModelVersionControl:
             # Remove auto-resolved conflicts
             for resolved in auto_resolved:
                 conflicts.remove(resolved)
+            
+            # Update counter
+            auto_resolved_count = len(auto_resolved)
         
         if not conflicts:
             # Create merge commit
@@ -856,7 +863,7 @@ class ModelVersionControl:
                 conflicts=[],
                 merged_tree=merged_tree,
                 strategy_used=strategy,
-                auto_resolved_count=len(auto_resolved) if 'auto_resolved' in locals() else 0
+                auto_resolved_count=auto_resolved_count
             )
         else:
             return MergeResult(
@@ -865,14 +872,159 @@ class ModelVersionControl:
                 conflicts=conflicts,
                 merged_tree=merged_tree,
                 strategy_used=strategy,
-                auto_resolved_count=len(auto_resolved) if 'auto_resolved' in locals() else 0
+                auto_resolved_count=auto_resolved_count
             )
     
-    async def _reconstruct_document_from_tree(self, tree) -> Optional[Path]:
-        """Reconstruct FreeCAD document from tree."""
-        # This would reconstruct the document from tree objects
-        # For now, return None as placeholder
-        return None
+    async def _reconstruct_document_from_tree(self, tree: Dict[str, Any]) -> Optional[Path]:
+        """
+        Reconstruct FreeCAD document from tree.
+        
+        This method takes a tree object (containing FreeCAD object data)
+        and reconstructs a FreeCAD document file from it.
+        
+        Args:
+            tree: Tree object containing document structure
+            
+        Returns:
+            Path to reconstructed document file, or None if reconstruction fails
+        """
+        try:
+            if not tree:
+                logger.warning("Cannot reconstruct document from empty tree")
+                return None
+            
+            # Create temporary file for reconstructed document
+            temp_path = Path(tempfile.gettempdir()) / f"reconstructed_{uuid4().hex[:8]}.FCStd"
+            
+            # Get tree entries (objects in the document)
+            entries = tree.get("entries", [])
+            if not entries:
+                logger.warning("Tree has no entries to reconstruct")
+                return None
+            
+            # Create new document using document manager
+            doc_id = f"reconstruct_{uuid4().hex[:8]}"
+            doc_handle = await asyncio.to_thread(
+                self.doc_manager.create_document, 
+                doc_id
+            )
+            
+            if not doc_handle:
+                logger.error("Failed to create document for reconstruction")
+                return None
+            
+            # Reconstruct objects in document
+            for entry in entries:
+                if entry.get("type") == "object":
+                    # Get object data from object store
+                    obj_hash = entry.get("hash")
+                    if obj_hash:
+                        obj_data = await self.object_store.get_object(obj_hash)
+                        if obj_data and isinstance(obj_data, dict):
+                            # Reconstruct object in document
+                            await self._reconstruct_object_in_document(
+                                doc_handle, 
+                                entry.get("name", "Object"),
+                                obj_data
+                            )
+            
+            # Save reconstructed document
+            await asyncio.to_thread(
+                self.doc_manager.save_document,
+                doc_id,
+                owner_id="system"  # System owner for reconstruction
+            )
+            
+            # Get the saved document path
+            saved_path = self.doc_manager.get_document_path(doc_id)
+            if saved_path and saved_path.exists():
+                # Move to our temp location
+                await asyncio.to_thread(shutil.move, str(saved_path), str(temp_path))
+                
+                logger.info(
+                    "document_reconstructed_from_tree",
+                    tree_entries=len(entries),
+                    document_path=str(temp_path)
+                )
+                
+                return temp_path
+            
+            logger.warning("Failed to get saved document path")
+            return None
+            
+        except Exception as e:
+            logger.error(
+                "document_reconstruction_failed",
+                error=str(e),
+                tree_entries=len(tree.get("entries", []))
+            )
+            return None
+    
+    async def _reconstruct_object_in_document(
+        self, 
+        doc_handle: Any, 
+        obj_name: str, 
+        obj_data: Dict[str, Any]
+    ) -> bool:
+        """
+        Reconstruct a single object in a FreeCAD document.
+        
+        Args:
+            doc_handle: FreeCAD document handle
+            obj_name: Name for the object
+            obj_data: Object data dictionary
+            
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Extract FreeCAD object data
+            if "freecad_data" in obj_data:
+                fc_data = obj_data["freecad_data"]
+                
+                # Recreate object based on type
+                obj_type = fc_data.get("type", "Part::Feature")
+                
+                # Use document manager to create object
+                # This is simplified - actual implementation would need to
+                # handle different object types properly
+                if hasattr(doc_handle, "addObject"):
+                    new_obj = await asyncio.to_thread(
+                        doc_handle.addObject,
+                        obj_type,
+                        obj_name
+                    )
+                    
+                    # Set object properties
+                    if new_obj and "properties" in fc_data:
+                        for prop_name, prop_value in fc_data["properties"].items():
+                            if hasattr(new_obj, prop_name):
+                                try:
+                                    setattr(new_obj, prop_name, prop_value)
+                                except Exception as e:
+                                    logger.debug(
+                                        "property_set_failed",
+                                        property=prop_name,
+                                        error=str(e)
+                                    )
+                    
+                    # Handle geometry data if present
+                    if "geometry" in fc_data:
+                        # This would require proper geometry reconstruction
+                        # based on the FreeCAD object type
+                        pass
+                    
+                    return True
+            
+            return False
+            
+        except Exception as e:
+            logger.error(
+                "object_reconstruction_failed",
+                object_name=obj_name,
+                error=str(e)
+            )
+            return False
     
     async def cleanup(self):
         """Cleanup resources."""

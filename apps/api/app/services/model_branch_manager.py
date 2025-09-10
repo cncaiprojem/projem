@@ -415,8 +415,12 @@ class ModelBranchManager:
             
             # Store tag metadata
             tag_meta_path = self.tags_path / f"{tag_name}.json"
-            with open(tag_meta_path, 'w') as f:
-                json.dump(tag.dict(), f, indent=2, default=str)
+            tag_data = tag.model_dump() if hasattr(tag, 'model_dump') else tag.dict()
+            await asyncio.to_thread(
+                lambda: tag_meta_path.write_text(
+                    json.dumps(tag_data, indent=2, default=str)
+                )
+            )
             
             # Cache tag
             self._tags[tag_name] = tag

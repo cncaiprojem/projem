@@ -188,9 +188,28 @@ class Branch(BaseModel):
     @field_validator('name')
     @classmethod
     def validate_branch_name(cls, v: str) -> str:
-        """Validate branch name."""
-        if not v or '/' in v and v.startswith('/'):
-            raise ValueError("Invalid branch name")
+        """Validate branch name following Git conventions."""
+        if not v:
+            raise ValueError("Branch name cannot be empty")
+        
+        # Invalid patterns (same as ModelBranchManager)
+        invalid_patterns = ['..', '~', '^', ':', '\\', '?', '*', '[', '@{', '//']
+        for pattern in invalid_patterns:
+            if pattern in v:
+                raise ValueError(f"Branch name cannot contain '{pattern}'")
+        
+        # Cannot start or end with certain characters
+        if v.startswith('/') or v.startswith('.') or v.startswith('-'):
+            raise ValueError("Branch name cannot start with '/', '.', or '-'")
+        if v.endswith('/') or v.endswith('.'):
+            raise ValueError("Branch name cannot end with '/' or '.'")
+        if v.endswith('.lock'):
+            raise ValueError("Branch name cannot end with '.lock'")
+        
+        # Check for control characters
+        if any(ord(c) < 32 for c in v):
+            raise ValueError("Branch name cannot contain control characters")
+        
         return v
 
 
