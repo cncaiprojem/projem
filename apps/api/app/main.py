@@ -49,6 +49,7 @@ from .routers import payments as payments_router  # Payment provider abstraction
 from .routers import files as files_router  # File upload/download endpoints (Task 5.3)
 from .routers import artefacts as artefacts_router  # Artefact persistence endpoints (Task 5.7)
 from .routers import upload_normalization as upload_normalization_router  # Upload normalization endpoints (Task 7.7)
+from .routers import batch_processing as batch_processing_router  # Task 7.23: Batch processing and automation
 # Task 7.16: Real-time progress updates
 from .api.v1 import websocket as websocket_router
 from .api.v1 import sse as sse_router
@@ -235,6 +236,7 @@ app.include_router(payments_router.router)  # Payment provider abstraction endpo
 app.include_router(files_router.router)  # File upload/download endpoints (Task 5.3)
 app.include_router(artefacts_router.router)  # Artefact persistence endpoints (Task 5.7)
 app.include_router(upload_normalization_router.router)  # Upload normalization endpoints (Task 7.7)
+app.include_router(batch_processing_router.router)  # Task 7.23: Batch processing and automation
 # Task 7.16: Real-time progress updates via WebSocket and SSE
 app.include_router(websocket_router.router)  # WebSocket endpoints for real-time progress
 app.include_router(sse_router.router)  # SSE endpoints for real-time progress
