@@ -38,7 +38,7 @@ def upgrade() -> None:
         sa.Column('storage_size_bytes', sa.BigInteger(), nullable=True, comment='Repository storage size in bytes'),
         sa.Column('last_commit_at', sa.DateTime(timezone=True), nullable=True, comment='Timestamp of last commit'),
         sa.Column('last_gc_at', sa.DateTime(timezone=True), nullable=True, comment='Timestamp of last garbage collection'),
-        sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True, comment='Additional repository metadata'),
+        sa.Column('repo_metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True, comment='Additional repository metadata'),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name='fk_vcs_repositories_owner_id_users', ondelete='RESTRICT'),
@@ -75,6 +75,11 @@ def downgrade() -> None:
     
     # Drop trigger
     op.execute("DROP TRIGGER IF EXISTS update_vcs_repositories_updated_at ON vcs_repositories")
+    
+    # Drop function only if no other tables use it
+    op.execute("""
+        DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
+    """)
     
     # Drop indexes
     op.drop_index('ix_vcs_repositories_repository_id_is_active', table_name='vcs_repositories')

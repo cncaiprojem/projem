@@ -161,8 +161,53 @@ def handle_vcs_errors(
             def sync_wrapper(*args, **kwargs):
                 try:
                     return func(*args, **kwargs)
+                except ValueError as e:
+                    if log_errors:
+                        logger.error(
+                            f"vcs_{operation or 'operation'}_validation_error",
+                            error=str(e),
+                            error_type="ValueError",
+                            **kwargs
+                        )
+                    raise HTTPException(
+                        status_code=400,
+                        detail={
+                            "code": "vcs.validation_error",
+                            "message": str(e)
+                        }
+                    )
+                except PermissionError as e:
+                    if log_errors:
+                        logger.error(
+                            f"vcs_{operation or 'operation'}_permission_denied",
+                            error=str(e),
+                            error_type="PermissionError",
+                            **kwargs
+                        )
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "code": "vcs.permission_denied",
+                            "message": "You don't have permission to perform this operation."
+                        }
+                    )
+                except FileNotFoundError as e:
+                    if log_errors:
+                        logger.error(
+                            f"vcs_{operation or 'operation'}_not_found",
+                            error=str(e),
+                            error_type="FileNotFoundError",
+                            **kwargs
+                        )
+                    raise HTTPException(
+                        status_code=404,
+                        detail={
+                            "code": "vcs.not_found",
+                            "message": "The requested resource was not found."
+                        }
+                    )
                 except Exception as e:
-                    # Use same error handling logic
+                    # Use same error handling logic as async
                     if log_errors:
                         logger.error(
                             f"vcs_{operation or 'operation'}_failed",
@@ -171,9 +216,23 @@ def handle_vcs_errors(
                             **kwargs
                         )
                     
+                    # Check for known error types
+                    if "already exists" in str(e).lower():
+                        raise HTTPException(
+                            status_code=409,
+                            detail={
+                                "code": "vcs.conflict",
+                                "message": str(e)
+                            }
+                        )
+                    
+                    # Default internal error
                     raise HTTPException(
-                        status_code=VCSErrorHandler.get_http_status(e),
-                        detail=VCSErrorHandler.format_error_detail(e)
+                        status_code=500,
+                        detail={
+                            "code": "vcs.internal_error",
+                            "message": "An unexpected error occurred. Please try again later."
+                        }
                     )
             return sync_wrapper
     

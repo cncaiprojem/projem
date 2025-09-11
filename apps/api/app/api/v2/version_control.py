@@ -465,12 +465,18 @@ async def optimize_storage(
         # Optimize storage
         stats = await vcs.optimize_storage()
         
-        # Update last_gc_at timestamp
-        await _registry.update_repository_metadata(
-            db=db,
-            repository_id=repo_id,
-            last_gc_at=True
-        )
+        # Update last_gc_at timestamp directly on db_repo
+        from datetime import datetime, timezone
+        db_repo.last_gc_at = datetime.now(timezone.utc)
+        
+        # Update metadata to track last GC commit count
+        if not db_repo.repo_metadata:
+            db_repo.repo_metadata = {}
+        db_repo.repo_metadata['last_gc_commit_count'] = db_repo.commit_count
+        
+        # Commit the changes
+        await db.commit()
+        await db.refresh(db_repo)
         
         return {
             "status": "success",

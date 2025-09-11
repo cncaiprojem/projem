@@ -293,6 +293,58 @@ class ModelBranchManager:
             )
             raise BranchManagerError(f"Failed to update branch: {str(e)}")
     
+    async def get_branch(
+        self,
+        branch_name: str,
+    ) -> Optional[Branch]:
+        """
+        Get a specific branch by name.
+        
+        Args:
+            branch_name: Name of the branch to retrieve
+            
+        Returns:
+            Branch object if found, None otherwise
+        """
+        try:
+            # Check if branch exists
+            if not await self.branch_exists(branch_name):
+                return None
+            
+            # Check cache first
+            if branch_name in self._branches:
+                return self._branches[branch_name]
+            
+            # Read branch reference
+            ref_path = self.heads_path / branch_name
+            if ref_path.exists():
+                commit_hash = ref_path.read_text().strip()
+                
+                # Create branch object
+                branch = Branch(
+                    name=branch_name,
+                    head=commit_hash,
+                    created_at=datetime.fromtimestamp(ref_path.stat().st_ctime, tz=timezone.utc),
+                    updated_at=datetime.fromtimestamp(ref_path.stat().st_mtime, tz=timezone.utc),
+                    protected=branch_name in ["main", "master"],
+                    metadata={}
+                )
+                
+                # Cache the branch
+                self._branches[branch_name] = branch
+                
+                return branch
+            
+            return None
+            
+        except Exception as e:
+            logger.error(
+                "get_branch_failed",
+                error=str(e),
+                branch_name=branch_name
+            )
+            return None
+    
     async def get_current_branch(self) -> Optional[str]:
         """Get current branch name."""
         if self._current_branch:

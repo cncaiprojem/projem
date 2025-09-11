@@ -34,6 +34,7 @@ from app.models.version_control import (
     MergeResult,
     MergeStrategy,
     Repository,
+    Tree,
     VERSION_CONTROL_TR,
 )
 from app.services.freecad_document_manager import FreeCADDocumentManager
@@ -877,7 +878,7 @@ class ModelVersionControl:
                 auto_resolved_count=auto_resolved_count
             )
     
-    async def _reconstruct_document_from_tree(self, tree: Dict[str, Any]) -> Optional[Path]:
+    async def _reconstruct_document_from_tree(self, tree: Tree) -> Optional[Path]:
         """
         Reconstruct FreeCAD document from tree.
         
@@ -898,8 +899,8 @@ class ModelVersionControl:
             # Create temporary file for reconstructed document
             temp_path = Path(tempfile.gettempdir()) / f"reconstructed_{uuid4().hex[:8]}.FCStd"
             
-            # Get tree entries (objects in the document)
-            entries = tree.get("entries", [])
+            # Get tree entries (objects in the document) - use attribute access
+            entries = tree.entries if hasattr(tree, 'entries') else []
             if not entries:
                 logger.warning("Tree has no entries to reconstruct")
                 return None

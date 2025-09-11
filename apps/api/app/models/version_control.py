@@ -360,5 +360,7 @@ VERSION_CONTROL_TR = {
     'error_commit_not_found': 'Commit bulunamadı',
     'error_merge_failed': 'Birleştirme başarısız',
     'error_checkout_failed': 'Dal değiştirme başarısız',
-    'error_object_corrupt': 'Nesne bozuk'
+    'error_object_corrupt': 'Nesne bozuk',
+    'rollback_complete': 'Geri alma işlemi tamamlandı',
+    'optimization_complete': 'Optimizasyon tamamlandı'
 }

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, TYPE_CHECKING
 from uuid import uuid4
 
 import structlog
@@ -26,6 +26,9 @@ from app.models.version_control import (
     VERSION_CONTROL_TR,
 )
 from app.services.model_object_store import ModelObjectStore
+
+if TYPE_CHECKING:
+    from app.services.freecad_document_manager import FreeCADDocumentManager
 
 logger = structlog.get_logger(__name__)
 
@@ -46,14 +49,16 @@ class ModelCommitManager:
     - Commit validation and integrity checks
     """
     
-    def __init__(self, object_store: ModelObjectStore):
+    def __init__(self, object_store: ModelObjectStore, document_manager: Optional['FreeCADDocumentManager'] = None):
         """
         Initialize commit manager.
         
         Args:
             object_store: Object store for content storage
+            document_manager: Optional document manager for FreeCAD operations
         """
         self.object_store = object_store
+        self.document_manager = document_manager
         
         logger.info("commit_manager_initialized")
     
@@ -259,14 +264,18 @@ class ModelCommitManager:
             
             try:
                 # Get document from document manager
-                from app.services.freecad_document_manager import document_manager
+                if not self.document_manager:
+                    from app.services.freecad_document_manager import document_manager
+                    doc_manager = document_manager
+                else:
+                    doc_manager = self.document_manager
                 
                 # Check if document exists
-                if document_id not in document_manager.documents:
+                if document_id not in doc_manager.documents:
                     raise ValueError(f"Document {document_id} not found")
                 
                 # Get document handle if available
-                doc_handle = document_manager._doc_handles.get(document_id)
+                doc_handle = doc_manager._doc_handles.get(document_id)
                 
                 entries = []
                 
@@ -288,7 +297,7 @@ class ModelCommitManager:
                         entries.append(entry)
                 else:
                     # Mock document - use metadata
-                    metadata = document_manager.documents[document_id]
+                    metadata = doc_manager.documents[document_id]
                     
                     # Create a single entry for document metadata
                     meta_data = FreeCADObjectData(

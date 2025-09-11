@@ -395,8 +395,8 @@ class ModelConflictResolver:
         analysis: Dict[str, Any],
     ) -> ResolvedObject:
         """Resolve trivial conflicts."""
-        # For trivial conflicts, prefer the more recent change
-        # In real implementation, would check timestamps
+        # For trivial conflicts, we keep their version (the incoming changes)
+        # This is a simple resolution strategy that accepts the newer changes
         return self._resolve_keep_theirs(conflict)
     
     def _resolve_numeric(

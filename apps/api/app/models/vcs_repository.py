@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, JSON, UniqueConstraint, Index
+from sqlalchemy import BigInteger, Boolean, Column, DateTime, ForeignKey, Integer, String, Text, JSON, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 
@@ -56,7 +56,7 @@ class VCSRepository(Base, TimestampMixin):
     # Owner relationship
     owner_id: Mapped[int] = mapped_column(
         Integer,
-        ForeignKey("users.id", ondelete="CASCADE"),
+        ForeignKey("users.id", ondelete="RESTRICT"),
         nullable=False,
         comment="Repository owner"
     )
@@ -127,7 +127,7 @@ class VCSRepository(Base, TimestampMixin):
     )
     
     storage_size_bytes: Mapped[Optional[int]] = mapped_column(
-        Integer,
+        BigInteger,
         nullable=True,
         comment="Repository storage size in bytes"
     )
@@ -145,8 +145,8 @@ class VCSRepository(Base, TimestampMixin):
         comment="Timestamp of last garbage collection"
     )
     
-    # Additional metadata as JSON
-    metadata: Mapped[Optional[dict]] = mapped_column(
+    # Additional metadata as JSON (renamed to avoid SQLAlchemy reserved word)
+    repo_metadata: Mapped[Optional[dict]] = mapped_column(
         JSON,
         nullable=True,
         default=dict,
@@ -175,11 +175,23 @@ class VCSRepository(Base, TimestampMixin):
     
     def _requires_gc(self) -> bool:
         """Check if repository requires garbage collection."""
-        from datetime import timedelta
+        from datetime import timedelta, timezone
         
         if not self.last_gc_at:
             return True
         
         # GC recommended every 30 days or after 100 commits since last GC
         days_since_gc = (datetime.now(timezone.utc) - self.last_gc_at).days
+        
+        # Check if enough commits have been made since last GC
+        # Note: In a real implementation, we'd track commits_since_last_gc separately
+        # For now, we use a simple heuristic based on total commits
+        commits_threshold = 100
+        if self.commit_count > commits_threshold:
+            # If we have metadata tracking last GC commit count
+            if self.repo_metadata and 'last_gc_commit_count' in self.repo_metadata:
+                commits_since_gc = self.commit_count - self.repo_metadata['last_gc_commit_count']
+                if commits_since_gc >= commits_threshold:
+                    return True
+        
         return days_since_gc > 30
