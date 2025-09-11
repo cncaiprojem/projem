@@ -10,7 +10,7 @@ import asyncio
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Tuple
+from typing import Any, Dict, List, Optional, Set, Tuple, TYPE_CHECKING
 
 import structlog
 
@@ -26,6 +26,11 @@ from app.models.version_control import (
     TreeEntry,
     VERSION_CONTROL_TR,
 )
+from app.utils.vcs_validation import validate_branch_name, validate_tag_name
+
+if TYPE_CHECKING:
+    from app.services.model_commit_manager import ModelCommitManager
+    from app.services.model_object_store import ModelObjectStore
 
 logger = structlog.get_logger(__name__)
 
@@ -47,19 +52,26 @@ class ModelBranchManager:
     - Tree merging algorithms
     """
     
-    def __init__(self, refs_path: Path, object_store: Optional['ModelObjectStore'] = None):
+    def __init__(
+        self, 
+        refs_path: Path, 
+        object_store: Optional['ModelObjectStore'] = None,
+        commit_manager: Optional['ModelCommitManager'] = None
+    ):
         """
         Initialize branch manager.
         
         Args:
             refs_path: Path to refs directory
             object_store: Optional object store for accessing commits and objects
+            commit_manager: Optional commit manager for accessing commits
         """
         self.refs_path = Path(refs_path)
         self.heads_path = self.refs_path / "heads"
         self.tags_path = self.refs_path / "tags"
         self.head_file = self.refs_path / "HEAD"
         self.object_store = object_store
+        self.commit_manager = commit_manager
         
         # Current branch cache
         self._current_branch: Optional[str] = None
@@ -688,12 +700,10 @@ class ModelBranchManager:
     
     def _validate_branch_name(self, name: str) -> bool:
         """Validate branch name."""
-        from app.utils.vcs_validation import validate_branch_name
         return validate_branch_name(name)
     
     def _validate_tag_name(self, name: str) -> bool:
         """Validate tag name."""
-        from app.utils.vcs_validation import validate_tag_name
         return validate_tag_name(name)
     
     async def _check_branch_merged(self, branch_name: str) -> bool:
@@ -757,23 +767,9 @@ class ModelBranchManager:
         the ancestor from the descendant.
         """
         try:
-            # Object store is required - no fallback
-            if not self.object_store:
-                raise ValueError("Object store is required for branch operations")
-            
-            # Import here to avoid circular dependency
-            from app.services.model_commit_manager import ModelCommitManager
-            from app.services.freecad_document_manager import FreeCADDocumentManager, DocumentManagerConfig
-            
-            # Create document manager for commit manager
-            config = DocumentManagerConfig(
-                base_dir=str(self.refs_path.parent.parent / "working"),
-                use_real_freecad=False  # Use mock for branch operations
-            )
-            document_manager = FreeCADDocumentManager(config)
-            
-            # Create commit manager with required dependencies
-            commit_manager = ModelCommitManager(self.object_store, document_manager)
+            # Commit manager is required for this operation
+            if not self.commit_manager:
+                raise ValueError("Commit manager is required for branch operations")
             
             # Start from descendant and walk back through parents
             visited = set()
@@ -791,7 +787,7 @@ class ModelBranchManager:
                     return True
                 
                 # Get commit and add parents to check
-                commit = await commit_manager.get_commit(current)
+                commit = await self.commit_manager.get_commit(current)
                 if commit and commit.parents:
                     to_check.extend(commit.parents)
             

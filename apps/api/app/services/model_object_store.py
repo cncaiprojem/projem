@@ -481,11 +481,6 @@ class ModelObjectStore:
     
     def _update_cache(self, obj_hash: str, obj: Any):
         """Update object cache with LRU eviction."""
-        from collections import OrderedDict
-        
-        # Convert to OrderedDict if not already (for LRU functionality)
-        if not isinstance(self._cache, OrderedDict):
-            self._cache = OrderedDict(self._cache)
         
         # If object already in cache, remove it (will re-add at end)
         if obj_hash in self._cache:

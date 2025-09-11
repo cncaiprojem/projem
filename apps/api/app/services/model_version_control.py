@@ -108,7 +108,11 @@ class ModelVersionControl:
         # Initialize components (doc_manager must be initialized before commit_manager)
         self.object_store = ModelObjectStore(self.repo_path / ".mvcstore")
         self.commit_manager = ModelCommitManager(self.object_store, self.doc_manager)
-        self.branch_manager = ModelBranchManager(self.repo_path / ".mvcstore" / "refs", self.object_store)
+        self.branch_manager = ModelBranchManager(
+            self.repo_path / ".mvcstore" / "refs", 
+            self.object_store,
+            self.commit_manager
+        )
         self.differ = ModelDiffer(self.object_store)
         self.conflict_resolver = ModelConflictResolver()
         
@@ -367,8 +371,28 @@ class ModelVersionControl:
                 # Find common ancestor
                 common_ancestor = await self._find_common_ancestor(source_head, target_head)
                 
+                # Check if already merged
+                if common_ancestor == source_head:
+                    # Source is already merged into target (nothing to do)
+                    result = MergeResult(
+                        success=True,
+                        commit_hash=target_head,
+                        conflicts=[],
+                        merged_tree=None,
+                        strategy_used=strategy,
+                        auto_resolved_count=0
+                    )
+                    
+                    logger.info(
+                        "already_merged",
+                        source=source_branch,
+                        target=target_branch,
+                        correlation_id=correlation_id,
+                        message=f"Branch {source_branch} is already merged into {target_branch}"
+                    )
+                    
                 # Check for fast-forward merge
-                if common_ancestor == target_head:
+                elif common_ancestor == target_head:
                     # Fast-forward merge possible
                     await self.branch_manager.update_branch(target_branch, source_head)
                     

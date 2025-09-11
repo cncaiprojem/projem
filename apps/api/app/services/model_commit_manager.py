@@ -476,9 +476,8 @@ class ModelCommitManager:
         objects = {}
         
         try:
-            # Import FreeCAD adapter
-            from app.services.freecad_document_manager import RealFreeCADAdapter
-            adapter = RealFreeCADAdapter()
+            # Use the adapter from document manager
+            adapter = self.document_manager.adapter
             
             # Take snapshot
             snapshot = adapter.take_snapshot(doc_handle)

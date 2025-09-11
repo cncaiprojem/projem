@@ -9,6 +9,7 @@ and rollback capabilities.
 from __future__ import annotations
 
 import hashlib
+import json
 from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
@@ -118,7 +119,6 @@ class FreeCADObjectData(BaseModel):
     
     def calculate_hash(self) -> str:
         """Calculate deterministic hash of object data."""
-        import json
         # Sort keys for deterministic serialization
         data_str = json.dumps(self.model_dump(), sort_keys=True, default=str)
         return hashlib.sha256(data_str.encode()).hexdigest()
@@ -142,7 +142,6 @@ class Tree(BaseModel):
     
     def calculate_hash(self) -> str:
         """Calculate tree hash."""
-        import json
         # Sort entries for deterministic hash
         sorted_entries = sorted(self.entries, key=lambda e: e.name)
         data = [e.model_dump() for e in sorted_entries]
@@ -166,7 +165,6 @@ class Commit(BaseModel):
     
     def calculate_hash(self) -> str:
         """Calculate commit hash."""
-        import json
         data = {
             "tree": self.tree,
             "parents": sorted(self.parents),

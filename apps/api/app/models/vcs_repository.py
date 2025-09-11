@@ -5,7 +5,7 @@ This module defines SQLAlchemy models for persisting VCS repository metadata
 and managing repository instances in a production-ready manner.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from uuid import uuid4
 
@@ -175,8 +175,6 @@ class VCSRepository(Base, TimestampMixin):
     
     def _requires_gc(self) -> bool:
         """Check if repository requires garbage collection."""
-        from datetime import timedelta, timezone
-        
         if not self.last_gc_at:
             return True
         

@@ -7,6 +7,7 @@ for FreeCAD models.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 import structlog
@@ -466,7 +467,6 @@ async def optimize_storage(
         stats = await vcs.optimize_storage()
         
         # Update last_gc_at timestamp directly on db_repo
-        from datetime import datetime, timezone
         db_repo.last_gc_at = datetime.now(timezone.utc)
         
         # Update metadata to track last GC commit count

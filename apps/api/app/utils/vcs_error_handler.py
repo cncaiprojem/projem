@@ -5,6 +5,7 @@ This module provides decorators and utilities for consistent error handling
 across VCS API endpoints.
 """
 
+import asyncio
 import functools
 import structlog
 from typing import Callable, Optional, Type, Union
@@ -237,7 +238,3 @@ def handle_vcs_errors(
             return sync_wrapper
     
     return decorator
-
-
-# Import asyncio only if needed
-import asyncio
