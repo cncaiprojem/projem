@@ -106,6 +106,7 @@ _registry = get_vcs_registry()
 
 
 @router.post("/init", response_model=Repository)
+@handle_vcs_errors(operation="init_repository")
 async def init_repository(
     request: InitRepositoryRequest,
     current_user: User = Depends(get_current_user),
@@ -122,67 +123,34 @@ async def init_repository(
         span.set_attribute("user.id", current_user.id)
         span.set_attribute("repository.name", request.name)
         
-        try:
-            # Create repository with registry
-            db_repo, vcs = await _registry.create_repository(
-                db=db,
-                name=request.name,
-                owner=current_user,
-                description=request.description,
-                use_real_freecad=request.use_real_freecad
-            )
-            
-            metrics.freecad_vcs_operations_total.labels(operation="init").inc()
-            
-            # Return repository info
-            return Repository(
-                id=db_repo.repository_id,
-                name=db_repo.name,
-                description=db_repo.description,
-                created_at=db_repo.created_at,
-                updated_at=db_repo.updated_at,
-                default_branch="main",
-                commit_count=db_repo.commit_count,
-                branch_count=db_repo.branch_count,
-                tag_count=db_repo.tag_count,
-                metadata=db_repo.metadata or {}
-            )
-            
-        except VCSRepositoryRegistryError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except ModelVersionControlError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except Exception as e:
-            # Log the full error for debugging
-            logger.error(
-                "repository_init_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                user_id=current_user.id,
-                repository_name=request.name
-            )
-            # Return generic error to client
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Failed to initialize repository. Please try again later."
-            )
+        # Create repository with registry
+        db_repo, vcs = await _registry.create_repository(
+            db=db,
+            name=request.name,
+            owner=current_user,
+            description=request.description,
+            use_real_freecad=request.use_real_freecad
+        )
+        
+        metrics.freecad_vcs_operations_total.labels(operation="init").inc()
+        
+        # Return repository info
+        return Repository(
+            id=db_repo.repository_id,
+            name=db_repo.name,
+            description=db_repo.description,
+            created_at=db_repo.created_at,
+            updated_at=db_repo.updated_at,
+            default_branch="main",
+            commit_count=db_repo.commit_count,
+            branch_count=db_repo.branch_count,
+            tag_count=db_repo.tag_count,
+            metadata=db_repo.metadata or {}
+        )
 
 
 @router.post("/{repo_id}/commit", response_model=Dict[str, str])
+@handle_vcs_errors(operation="commit_changes")
 async def commit_changes(
     repo_id: str,
     request: CommitRequest,
@@ -201,74 +169,32 @@ async def commit_changes(
         span.set_attribute("repository.id", repo_id)
         span.set_attribute("job.id", request.job_id)
         
-        try:
-            # Get repository and VCS instance from registry
-            db_repo, vcs = await _registry.get_repository(
-                db=db,
-                repository_id=repo_id,
-                user=current_user,
-                check_access=True
-            )
-            
-            # Commit changes
-            commit_hash = await vcs.commit_changes(
-                job_id=request.job_id,
-                message=request.message,
-                author=f"{current_user.name} <{current_user.email}>",
-                metadata=request.metadata
-            )
-            
-            metrics.freecad_vcs_commits_total.inc()
-            
-            return {
-                "commit_hash": commit_hash,
-                "message": VERSION_CONTROL_TR['commit_created'].format(hash=commit_hash[:8])
-            }
-            
-        except VCSRepositoryRegistryError as e:
-            if e.code == "REPOSITORY_NOT_FOUND":
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "code": e.code,
-                        "message": e.message,
-                        "turkish_message": e.turkish_message
-                    }
-                )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except ModelVersionControlError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except Exception as e:
-            # Log the full error for debugging
-            logger.error(
-                "vcs_operation_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                user_id=current_user.id,
-                repository_id=repo_id
-            )
-            # Return generic error to client
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Operation failed. Please try again later."
-            )
+        # Get repository and VCS instance from registry
+        db_repo, vcs = await _registry.get_repository(
+            db=db,
+            repository_id=repo_id,
+            user=current_user,
+            check_access=True
+        )
+        
+        # Commit changes
+        commit_hash = await vcs.commit_changes(
+            job_id=request.job_id,
+            message=request.message,
+            author=f"{current_user.name} <{current_user.email}>",
+            metadata=request.metadata
+        )
+        
+        metrics.freecad_vcs_commits_total.inc()
+        
+        return {
+            "commit_hash": commit_hash,
+            "message": VERSION_CONTROL_TR['commit_created'].format(hash=commit_hash[:8])
+        }
 
 
 @router.post("/{repo_id}/branch", response_model=Branch)
+@handle_vcs_errors(operation="create_branch")
 async def create_branch(
     repo_id: str,
     request: CreateBranchRequest,
@@ -287,69 +213,27 @@ async def create_branch(
         span.set_attribute("repository.id", repo_id)
         span.set_attribute("branch.name", request.branch_name)
         
-        try:
-            # Get repository and VCS instance from registry
-            db_repo, vcs = await _registry.get_repository(
-                db=db,
-                repository_id=repo_id,
-                user=current_user,
-                check_access=True
-            )
-            
-            # Create branch
-            branch = await vcs.create_branch(
-                branch_name=request.branch_name,
-                from_commit=request.from_commit
-            )
-            
-            metrics.freecad_vcs_branches_total.inc()
-            
-            return branch
-            
-        except VCSRepositoryRegistryError as e:
-            if e.code == "REPOSITORY_NOT_FOUND":
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "code": e.code,
-                        "message": e.message,
-                        "turkish_message": e.turkish_message
-                    }
-                )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except ModelVersionControlError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except Exception as e:
-            # Log the full error for debugging
-            logger.error(
-                "vcs_operation_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                user_id=current_user.id,
-                repository_id=repo_id
-            )
-            # Return generic error to client
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Operation failed. Please try again later."
-            )
+        # Get repository and VCS instance from registry
+        db_repo, vcs = await _registry.get_repository(
+            db=db,
+            repository_id=repo_id,
+            user=current_user,
+            check_access=True
+        )
+        
+        # Create branch
+        branch = await vcs.create_branch(
+            branch_name=request.branch_name,
+            from_commit=request.from_commit
+        )
+        
+        metrics.freecad_vcs_branches_total.inc()
+        
+        return branch
 
 
 @router.post("/{repo_id}/merge", response_model=MergeResult)
+@handle_vcs_errors(operation="merge_branches")
 async def merge_branches(
     repo_id: str,
     request: MergeBranchesRequest,
@@ -369,73 +253,31 @@ async def merge_branches(
         span.set_attribute("source.branch", request.source_branch)
         span.set_attribute("target.branch", request.target_branch)
         
-        try:
-            # Get repository and VCS instance from registry
-            db_repo, vcs = await _registry.get_repository(
-                db=db,
-                repository_id=repo_id,
-                user=current_user,
-                check_access=True
-            )
-            
-            # Merge branches
-            result = await vcs.merge_branches(
-                source_branch=request.source_branch,
-                target_branch=request.target_branch,
-                strategy=request.strategy,
-                author=f"{current_user.name} <{current_user.email}>"
-            )
-            
-            metrics.freecad_vcs_merges_total.labels(
-                status="success" if result.success else "conflict"
-            ).inc()
-            
-            return result
-            
-        except VCSRepositoryRegistryError as e:
-            if e.code == "REPOSITORY_NOT_FOUND":
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "code": e.code,
-                        "message": e.message,
-                        "turkish_message": e.turkish_message
-                    }
-                )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except ModelVersionControlError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except Exception as e:
-            # Log the full error for debugging
-            logger.error(
-                "vcs_operation_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                user_id=current_user.id,
-                repository_id=repo_id
-            )
-            # Return generic error to client
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Operation failed. Please try again later."
-            )
+        # Get repository and VCS instance from registry
+        db_repo, vcs = await _registry.get_repository(
+            db=db,
+            repository_id=repo_id,
+            user=current_user,
+            check_access=True
+        )
+        
+        # Merge branches
+        result = await vcs.merge_branches(
+            source_branch=request.source_branch,
+            target_branch=request.target_branch,
+            strategy=request.strategy,
+            author=f"{current_user.name} <{current_user.email}>"
+        )
+        
+        metrics.freecad_vcs_merges_total.labels(
+            status="success" if result.success else "conflict"
+        ).inc()
+        
+        return result
 
 
 @router.post("/{repo_id}/checkout", response_model=CheckoutResult)
+@handle_vcs_errors(operation="checkout_commit")
 async def checkout_commit(
     repo_id: str,
     request: CheckoutRequest,
@@ -445,79 +287,37 @@ async def checkout_commit(
     """
     Checkout a specific commit.
     
-    Switches to a specific commit version, optionally creating a new branch.
+    Switches the working directory to the specified commit state.
     """
     correlation_id = get_correlation_id()
     
     with create_span("api_checkout_commit", correlation_id=correlation_id) as span:
         span.set_attribute("user.id", current_user.id)
         span.set_attribute("repository.id", repo_id)
-        span.set_attribute("commit.hash", request.commit_hash[:8])
+        span.set_attribute("commit.hash", request.commit_hash)
         
-        try:
-            # Get repository and VCS instance from registry
-            db_repo, vcs = await _registry.get_repository(
-                db=db,
-                repository_id=repo_id,
-                user=current_user,
-                check_access=True
-            )
-            
-            # Checkout commit
-            result = await vcs.checkout_commit(
-                commit_hash=request.commit_hash,
-                create_branch=request.create_branch,
-                branch_name=request.branch_name
-            )
-            
-            metrics.freecad_vcs_checkouts_total.inc()
-            
-            return result
-            
-        except VCSRepositoryRegistryError as e:
-            if e.code == "REPOSITORY_NOT_FOUND":
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "code": e.code,
-                        "message": e.message,
-                        "turkish_message": e.turkish_message
-                    }
-                )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except ModelVersionControlError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except Exception as e:
-            # Log the full error for debugging
-            logger.error(
-                "vcs_operation_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                user_id=current_user.id,
-                repository_id=repo_id
-            )
-            # Return generic error to client
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Operation failed. Please try again later."
-            )
+        # Get repository and VCS instance from registry
+        db_repo, vcs = await _registry.get_repository(
+            db=db,
+            repository_id=repo_id,
+            user=current_user,
+            check_access=True
+        )
+        
+        # Checkout commit
+        result = await vcs.checkout_commit(
+            commit_hash=request.commit_hash,
+            create_branch=request.create_branch,
+            branch_name=request.branch_name
+        )
+        
+        metrics.freecad_vcs_checkouts_total.inc()
+        
+        return result
 
 
 @router.get("/{repo_id}/history", response_model=List[CommitInfo])
+@handle_vcs_errors(operation="get_history")
 async def get_history(
     repo_id: str,
     branch: Optional[str] = Query(default=None, description="Branch name"),
@@ -526,78 +326,36 @@ async def get_history(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get commit history.
+    Get commit history for a repository.
     
-    Returns the commit history for a branch.
+    Returns the commit history for the specified branch or HEAD.
     """
     correlation_id = get_correlation_id()
     
     with create_span("api_get_history", correlation_id=correlation_id) as span:
         span.set_attribute("user.id", current_user.id)
         span.set_attribute("repository.id", repo_id)
-        span.set_attribute("branch", branch or "current")
+        span.set_attribute("branch", branch or "HEAD")
         
-        try:
-            # Get repository and VCS instance from registry
-            db_repo, vcs = await _registry.get_repository(
-                db=db,
-                repository_id=repo_id,
-                user=current_user,
-                check_access=True
-            )
-            
-            # Get history
-            history = await vcs.get_history(
-                branch=branch,
-                limit=limit
-            )
-            
-            return history
-            
-        except VCSRepositoryRegistryError as e:
-            if e.code == "REPOSITORY_NOT_FOUND":
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "code": e.code,
-                        "message": e.message,
-                        "turkish_message": e.turkish_message
-                    }
-                )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except ModelVersionControlError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except Exception as e:
-            # Log the full error for debugging
-            logger.error(
-                "vcs_operation_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                user_id=current_user.id,
-                repository_id=repo_id
-            )
-            # Return generic error to client
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Operation failed. Please try again later."
-            )
+        # Get repository and VCS instance from registry
+        db_repo, vcs = await _registry.get_repository(
+            db=db,
+            repository_id=repo_id,
+            user=current_user,
+            check_access=True
+        )
+        
+        # Get commit history
+        history = await vcs.get_commit_history(
+            branch=branch,
+            limit=limit
+        )
+        
+        return history
 
 
 @router.post("/{repo_id}/diff", response_model=CommitDiff)
+@handle_vcs_errors(operation="diff_commits")
 async def diff_commits(
     repo_id: str,
     request: DiffRequest,
@@ -605,79 +363,37 @@ async def diff_commits(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Calculate diff between commits.
+    Calculate diff between two commits.
     
-    Returns detailed differences between two commits.
+    Returns the differences between two commits including object changes.
     """
     correlation_id = get_correlation_id()
     
     with create_span("api_diff_commits", correlation_id=correlation_id) as span:
         span.set_attribute("user.id", current_user.id)
         span.set_attribute("repository.id", repo_id)
-        span.set_attribute("from.commit", request.from_commit[:8])
-        span.set_attribute("to.commit", request.to_commit[:8])
+        span.set_attribute("from.commit", request.from_commit)
+        span.set_attribute("to.commit", request.to_commit)
         
-        try:
-            # Get repository and VCS instance from registry
-            db_repo, vcs = await _registry.get_repository(
-                db=db,
-                repository_id=repo_id,
-                user=current_user,
-                check_access=True
-            )
-            
-            # Calculate diff
-            diff = await vcs.diff_commits(
-                from_commit=request.from_commit,
-                to_commit=request.to_commit
-            )
-            
-            return diff
-            
-        except VCSRepositoryRegistryError as e:
-            if e.code == "REPOSITORY_NOT_FOUND":
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "code": e.code,
-                        "message": e.message,
-                        "turkish_message": e.turkish_message
-                    }
-                )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except ModelVersionControlError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except Exception as e:
-            # Log the full error for debugging
-            logger.error(
-                "vcs_operation_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                user_id=current_user.id,
-                repository_id=repo_id
-            )
-            # Return generic error to client
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Operation failed. Please try again later."
-            )
+        # Get repository and VCS instance from registry
+        db_repo, vcs = await _registry.get_repository(
+            db=db,
+            repository_id=repo_id,
+            user=current_user,
+            check_access=True
+        )
+        
+        # Calculate diff
+        diff = await vcs.diff_commits(
+            from_commit=request.from_commit,
+            to_commit=request.to_commit
+        )
+        
+        return diff
 
 
 @router.post("/{repo_id}/rollback", response_model=Dict[str, Any])
+@handle_vcs_errors(operation="rollback_to_commit")
 async def rollback_to_commit(
     repo_id: str,
     request: RollbackRequest,
@@ -687,81 +403,41 @@ async def rollback_to_commit(
     """
     Rollback to a specific commit.
     
-    Resets the branch to a previous commit state.
+    Creates a new commit that reverts changes to match the specified commit.
     """
     correlation_id = get_correlation_id()
     
-    with create_span("api_rollback", correlation_id=correlation_id) as span:
+    with create_span("api_rollback_to_commit", correlation_id=correlation_id) as span:
         span.set_attribute("user.id", current_user.id)
         span.set_attribute("repository.id", repo_id)
-        span.set_attribute("commit.hash", request.commit_hash[:8])
+        span.set_attribute("commit.hash", request.commit_hash)
         
-        try:
-            # Get repository and VCS instance from registry
-            db_repo, vcs = await _registry.get_repository(
-                db=db,
-                repository_id=repo_id,
-                user=current_user,
-                check_access=True
-            )
-            
-            # Rollback
-            success = await vcs.rollback_to_commit(
-                commit_hash=request.commit_hash,
-                branch=request.branch
-            )
-            
-            metrics.freecad_vcs_rollbacks_total.inc()
-            
-            return {
-                "success": success,
-                "message": VERSION_CONTROL_TR['rollback'].format(commit=request.commit_hash[:8])
-            }
-            
-        except VCSRepositoryRegistryError as e:
-            if e.code == "REPOSITORY_NOT_FOUND":
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "code": e.code,
-                        "message": e.message,
-                        "turkish_message": e.turkish_message
-                    }
-                )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except ModelVersionControlError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except Exception as e:
-            # Log the full error for debugging
-            logger.error(
-                "vcs_operation_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                user_id=current_user.id,
-                repository_id=repo_id
-            )
-            # Return generic error to client
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Operation failed. Please try again later."
-            )
+        # Get repository and VCS instance from registry
+        db_repo, vcs = await _registry.get_repository(
+            db=db,
+            repository_id=repo_id,
+            user=current_user,
+            check_access=True
+        )
+        
+        # Rollback to commit
+        rollback_hash = await vcs.rollback_to_commit(
+            commit_hash=request.commit_hash,
+            branch=request.branch,
+            author=f"{current_user.name} <{current_user.email}>"
+        )
+        
+        metrics.freecad_vcs_rollbacks_total.inc()
+        
+        return {
+            "rollback_commit": rollback_hash,
+            "target_commit": request.commit_hash,
+            "message": VERSION_CONTROL_TR['rollback_complete'].format(hash=request.commit_hash[:8])
+        }
 
 
 @router.post("/{repo_id}/optimize", response_model=Dict[str, Any])
+@handle_vcs_errors(operation="optimize_storage")
 async def optimize_storage(
     repo_id: str,
     current_user: User = Depends(get_current_user),
@@ -770,7 +446,7 @@ async def optimize_storage(
     """
     Optimize repository storage.
     
-    Performs garbage collection and delta compression.
+    Runs garbage collection, delta compression, and object packing.
     """
     correlation_id = get_correlation_id()
     
@@ -778,60 +454,29 @@ async def optimize_storage(
         span.set_attribute("user.id", current_user.id)
         span.set_attribute("repository.id", repo_id)
         
-        try:
-            # Get repository and VCS instance from registry
-            db_repo, vcs = await _registry.get_repository(
-                db=db,
-                repository_id=repo_id,
-                user=current_user,
-                check_access=True
-            )
-            
-            # Optimize storage
-            stats = await vcs.optimize_storage()
-            
-            metrics.freecad_vcs_gc_runs_total.inc()
-            
-            return stats
-            
-        except VCSRepositoryRegistryError as e:
-            if e.code == "REPOSITORY_NOT_FOUND":
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND,
-                    detail={
-                        "code": e.code,
-                        "message": e.message,
-                        "turkish_message": e.turkish_message
-                    }
-                )
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except ModelVersionControlError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "code": e.code,
-                    "message": e.message,
-                    "turkish_message": e.turkish_message
-                }
-            )
-        except Exception as e:
-            # Log the full error for debugging
-            logger.error(
-                "vcs_operation_failed",
-                error=str(e),
-                error_type=type(e).__name__,
-                user_id=current_user.id,
-                repository_id=repo_id
-            )
-            # Return generic error to client
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Operation failed. Please try again later."
-            )
+        # Get repository and VCS instance from registry
+        db_repo, vcs = await _registry.get_repository(
+            db=db,
+            repository_id=repo_id,
+            user=current_user,
+            check_access=True
+        )
+        
+        # Optimize storage
+        stats = await vcs.optimize_storage()
+        
+        # Update last_gc_at timestamp
+        await _registry.update_repository_metadata(
+            db=db,
+            repository_id=repo_id,
+            last_gc_at=True
+        )
+        
+        return {
+            "status": "success",
+            "stats": stats,
+            "message": VERSION_CONTROL_TR['optimization_complete']
+        }
+
+
+# Additional endpoints can be added here following the same pattern

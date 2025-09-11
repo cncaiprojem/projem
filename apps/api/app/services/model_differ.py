@@ -47,14 +47,19 @@ class ModelDiffer:
     - Diff statistics
     """
     
-    def __init__(self):
-        """Initialize model differ."""
+    def __init__(self, object_store: Optional['ModelObjectStore'] = None):
+        """Initialize model differ.
+        
+        Args:
+            object_store: Optional object store for loading objects during detailed diff
+        """
         # Tolerance for floating point comparisons
         self.tolerance = 1e-6
+        self.object_store = object_store
         
         logger.info("model_differ_initialized")
     
-    def diff_objects(
+    async def diff_objects(
         self,
         obj1: FreeCADObjectData,
         obj2: FreeCADObjectData,
@@ -285,16 +290,42 @@ class ModelDiffer:
                     
                     if entry1 and entry2:
                         if entry1.hash != entry2.hash:
-                            # Object modified
-                            # Would load and diff actual objects here
-                            diff = ObjectDiff(
-                                object_id=name,
-                                diff_type=DiffType.MODIFIED,
-                                property_changes=[],
-                                shape_diff=None,
-                                expression_changes={}
-                            )
-                            object_diffs.append(diff)
+                            # Object modified - load and compute detailed diff
+                            try:
+                                # Load both objects for detailed comparison
+                                obj1 = await self.object_store.get_object(entry1.hash) if self.object_store else None
+                                obj2 = await self.object_store.get_object(entry2.hash) if self.object_store else None
+                                
+                                if obj1 and obj2:
+                                    # Compute detailed diff between objects
+                                    detailed_diff = await self.diff_objects(obj1, obj2)
+                                    object_diffs.append(detailed_diff)
+                                else:
+                                    # Fallback to basic diff if objects can't be loaded
+                                    diff = ObjectDiff(
+                                        object_id=name,
+                                        diff_type=DiffType.MODIFIED,
+                                        property_changes=[],
+                                        shape_diff=None,
+                                        expression_changes={}
+                                    )
+                                    object_diffs.append(diff)
+                            except Exception as e:
+                                logger.warning(
+                                    "failed_to_compute_detailed_diff",
+                                    object_id=name,
+                                    error=str(e)
+                                )
+                                # Fallback to basic diff on error
+                                diff = ObjectDiff(
+                                    object_id=name,
+                                    diff_type=DiffType.MODIFIED,
+                                    property_changes=[],
+                                    shape_diff=None,
+                                    expression_changes={}
+                                )
+                                object_diffs.append(diff)
+                            
                             stats["modified"] += 1
                     elif entry2:
                         # Object added

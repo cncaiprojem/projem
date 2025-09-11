@@ -47,17 +47,19 @@ class ModelBranchManager:
     - Tree merging algorithms
     """
     
-    def __init__(self, refs_path: Path):
+    def __init__(self, refs_path: Path, object_store: Optional['ModelObjectStore'] = None):
         """
         Initialize branch manager.
         
         Args:
             refs_path: Path to refs directory
+            object_store: Optional object store for accessing commits and objects
         """
         self.refs_path = Path(refs_path)
         self.heads_path = self.refs_path / "heads"
         self.tags_path = self.refs_path / "tags"
         self.head_file = self.refs_path / "HEAD"
+        self.object_store = object_store
         
         # Current branch cache
         self._current_branch: Optional[str] = None
@@ -524,15 +526,38 @@ class ModelBranchManager:
                         merged_entries[name] = source_entry
                     else:
                         # Both changed - conflict
-                        # Would create MergeConflict here
-                        # For now, use strategy to decide
+                        # Create MergeConflict object
+                        conflict = MergeConflict(
+                            object_id=name,
+                            base_version=base_entry if base_entry else None,
+                            our_version=target_entry,
+                            their_version=source_entry,
+                            conflict_type="content_conflict",
+                            auto_resolvable=False,
+                            suggested_resolution=f"Use {strategy.value} strategy"
+                        )
+                        conflicts.append(conflict)
+                        
+                        # Apply strategy to decide which version to use
                         if strategy == MergeStrategy.OURS:
                             merged_entries[name] = target_entry
                         else:
                             merged_entries[name] = source_entry
                 else:
                     # No base - both added with different content
-                    # Conflict - use strategy
+                    # Create MergeConflict object for add-add conflict
+                    conflict = MergeConflict(
+                        object_id=name,
+                        base_version=None,
+                        our_version=target_entry,
+                        their_version=source_entry,
+                        conflict_type="add_add_conflict",
+                        auto_resolvable=False,
+                        suggested_resolution=f"Both branches added '{name}' with different content"
+                    )
+                    conflicts.append(conflict)
+                    
+                    # Apply strategy to resolve
                     if strategy == MergeStrategy.OURS:
                         merged_entries[name] = target_entry
                     else:
@@ -645,11 +670,20 @@ class ModelBranchManager:
         the ancestor from the descendant.
         """
         try:
-            # Import here to avoid circular dependency
-            from app.services.model_commit_manager import ModelCommitManager
-            
-            # Create temporary commit manager for traversal
-            commit_manager = ModelCommitManager(self.repo_path / "objects")
+            # Use object store if available, otherwise create temporary commit manager
+            if self.object_store:
+                # Import here to avoid circular dependency
+                from app.services.model_commit_manager import ModelCommitManager
+                commit_manager = ModelCommitManager(self.object_store)
+            else:
+                # Fallback to creating from path (for backward compatibility)
+                from app.services.model_commit_manager import ModelCommitManager
+                from app.services.model_object_store import ModelObjectStore
+                
+                # Derive objects path from refs path
+                objects_path = self.refs_path.parent / "objects"
+                temp_object_store = ModelObjectStore(objects_path)
+                commit_manager = ModelCommitManager(temp_object_store)
             
             # Start from descendant and walk back through parents
             visited = set()

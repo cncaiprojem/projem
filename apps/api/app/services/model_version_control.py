@@ -99,8 +99,8 @@ class ModelVersionControl:
         # Initialize components
         self.object_store = ModelObjectStore(self.repo_path / ".mvcstore")
         self.commit_manager = ModelCommitManager(self.object_store)
-        self.branch_manager = ModelBranchManager(self.repo_path / ".mvcstore" / "refs")
-        self.differ = ModelDiffer()
+        self.branch_manager = ModelBranchManager(self.repo_path / ".mvcstore" / "refs", self.object_store)
+        self.differ = ModelDiffer(self.object_store)
         self.conflict_resolver = ModelConflictResolver()
         
         # Initialize FreeCAD document manager

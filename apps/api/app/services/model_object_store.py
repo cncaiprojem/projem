@@ -525,6 +525,26 @@ class ModelObjectStore:
             # Start from all refs (branches and tags)
             refs_to_check = []
             
+            # Check HEAD reference first (critical for detached HEAD state)
+            head_file = self.refs_path / "HEAD"
+            if head_file.exists():
+                head_content = await asyncio.to_thread(head_file.read_text)
+                head_content = head_content.strip()
+                
+                # HEAD can point to a branch (ref: refs/heads/branch) or directly to a commit
+                if head_content.startswith("ref:"):
+                    # Points to a branch
+                    ref_path = head_content[4:].strip()
+                    actual_ref_file = self.refs_path.parent / ref_path
+                    if actual_ref_file.exists():
+                        commit_hash = await asyncio.to_thread(actual_ref_file.read_text)
+                        refs_to_check.append(commit_hash.strip())
+                        logger.debug("gc_adding_head_branch_ref", ref=ref_path, commit=commit_hash.strip()[:8])
+                else:
+                    # Detached HEAD - points directly to a commit
+                    refs_to_check.append(head_content)
+                    logger.debug("gc_adding_detached_head", commit=head_content[:8])
+            
             # Check branch heads
             heads_path = self.refs_path / "heads"
             if heads_path.exists():

@@ -35,20 +35,20 @@ def upgrade() -> None:
         sa.Column('commit_count', sa.Integer(), nullable=False, server_default='0', comment='Total number of commits'),
         sa.Column('branch_count', sa.Integer(), nullable=False, server_default='1', comment='Total number of branches'),
         sa.Column('tag_count', sa.Integer(), nullable=False, server_default='0', comment='Total number of tags'),
-        sa.Column('storage_size_bytes', sa.Integer(), nullable=True, comment='Repository storage size in bytes'),
+        sa.Column('storage_size_bytes', sa.BigInteger(), nullable=True, comment='Repository storage size in bytes'),
         sa.Column('last_commit_at', sa.DateTime(timezone=True), nullable=True, comment='Timestamp of last commit'),
         sa.Column('last_gc_at', sa.DateTime(timezone=True), nullable=True, comment='Timestamp of last garbage collection'),
         sa.Column('metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True, comment='Additional repository metadata'),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
-        sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name='fk_vcs_repositories_owner_id_users', ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['owner_id'], ['users.id'], name='fk_vcs_repositories_owner_id_users', ondelete='RESTRICT'),
         sa.PrimaryKeyConstraint('id', name='pk_vcs_repositories'),
         sa.UniqueConstraint('repository_id', name='uq_vcs_repositories_repository_id'),
         sa.UniqueConstraint('owner_id', 'name', name='uq_vcs_repositories_owner_name')
     )
     
     # Create indexes
-    op.create_index('ix_vcs_repositories_repository_id', 'vcs_repositories', ['repository_id'])
+    # Note: repository_id already has a unique constraint, so separate index is redundant
     op.create_index('ix_vcs_repositories_owner_id_is_active', 'vcs_repositories', ['owner_id', 'is_active'])
     op.create_index('ix_vcs_repositories_repository_id_is_active', 'vcs_repositories', ['repository_id', 'is_active'])
     
@@ -79,7 +79,6 @@ def downgrade() -> None:
     # Drop indexes
     op.drop_index('ix_vcs_repositories_repository_id_is_active', table_name='vcs_repositories')
     op.drop_index('ix_vcs_repositories_owner_id_is_active', table_name='vcs_repositories')
-    op.drop_index('ix_vcs_repositories_repository_id', table_name='vcs_repositories')
     
     # Drop table
     op.drop_table('vcs_repositories')
