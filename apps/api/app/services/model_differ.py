@@ -110,11 +110,11 @@ class ModelDiffer:
             obj2.expressions
         )
         
-        # If no changes, mark as unmodified
+        # If no changes, mark as unchanged
         if (not diff.property_changes and 
             not diff.shape_diff and 
             not diff.expression_changes):
-            diff.diff_type = DiffType.MODIFIED  # Actually unchanged
+            diff.diff_type = DiffType.UNCHANGED
         
         return diff
     
@@ -299,7 +299,10 @@ class ModelDiffer:
                                 if obj1 and obj2:
                                     # Compute detailed diff between objects
                                     detailed_diff = await self.diff_objects(obj1, obj2)
-                                    object_diffs.append(detailed_diff)
+                                    # Only add to diffs if there are actual changes
+                                    if detailed_diff.diff_type != DiffType.UNCHANGED:
+                                        object_diffs.append(detailed_diff)
+                                        stats["modified"] += 1
                                 else:
                                     # Fallback to basic diff if objects can't be loaded
                                     diff = ObjectDiff(
@@ -310,6 +313,7 @@ class ModelDiffer:
                                         expression_changes={}
                                     )
                                     object_diffs.append(diff)
+                                    stats["modified"] += 1
                             except Exception as e:
                                 logger.warning(
                                     "failed_to_compute_detailed_diff",
@@ -325,8 +329,7 @@ class ModelDiffer:
                                     expression_changes={}
                                 )
                                 object_diffs.append(diff)
-                            
-                            stats["modified"] += 1
+                                stats["modified"] += 1
                     elif entry2:
                         # Object added
                         diff = ObjectDiff(

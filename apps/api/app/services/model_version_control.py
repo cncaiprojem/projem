@@ -97,20 +97,20 @@ class ModelVersionControl:
             # Use temp directory if not specified
             self.repo_path = Path(tempfile.gettempdir()) / f"mvc_repo_{uuid4().hex[:8]}"
         
-        # Initialize components
-        self.object_store = ModelObjectStore(self.repo_path / ".mvcstore")
-        self.commit_manager = ModelCommitManager(self.object_store)
-        self.branch_manager = ModelBranchManager(self.repo_path / ".mvcstore" / "refs", self.object_store)
-        self.differ = ModelDiffer(self.object_store)
-        self.conflict_resolver = ModelConflictResolver()
-        
-        # Initialize FreeCAD document manager
+        # Initialize FreeCAD document manager first (needed by commit manager)
         from app.services.freecad_document_manager import DocumentManagerConfig
         config = DocumentManagerConfig(
             base_dir=str(self.repo_path / "working"),
             use_real_freecad=use_real_freecad
         )
         self.doc_manager = FreeCADDocumentManager(config)
+        
+        # Initialize components (doc_manager must be initialized before commit_manager)
+        self.object_store = ModelObjectStore(self.repo_path / ".mvcstore")
+        self.commit_manager = ModelCommitManager(self.object_store, self.doc_manager)
+        self.branch_manager = ModelBranchManager(self.repo_path / ".mvcstore" / "refs", self.object_store)
+        self.differ = ModelDiffer(self.object_store)
+        self.conflict_resolver = ModelConflictResolver()
         
         # Repository metadata
         self.repository: Optional[Repository] = None
@@ -171,7 +171,7 @@ class ModelVersionControl:
                 repo_meta_path.parent.mkdir(parents=True, exist_ok=True)
                 
                 with open(repo_meta_path, 'w') as f:
-                    json.dump(repo.dict(), f, indent=2, default=str)
+                    json.dump(repo.model_dump(), f, indent=2, default=str)
                 
                 self.repository = repo
                 

@@ -407,7 +407,7 @@ class ModelConflictResolver:
         """Resolve numeric conflicts by averaging or other strategies."""
         try:
             # Start with our version
-            merged = FreeCADObjectData(**conflict.our_version.dict())
+            merged = FreeCADObjectData(**conflict.our_version.model_dump())
             
             # Average numeric conflicts
             our_changes = self._get_changes(conflict.base_version, conflict.our_version)

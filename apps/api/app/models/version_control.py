@@ -16,6 +16,8 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
+from app.utils.vcs_validation import validate_branch_name, get_invalid_branch_name_reasons
+
 
 class ConflictResolutionStrategy(str, Enum):
     """Conflict resolution strategies for merging."""
@@ -31,6 +33,7 @@ class MergeStrategy(str, Enum):
     RECURSIVE = "recursive"  # Default recursive merge
     OCTOPUS = "octopus"  # Multi-branch merge
     OURS = "ours"  # Keep our branch
+    THEIRS = "theirs"  # Keep their branch
     SUBTREE = "subtree"  # Subtree merge
 
 
@@ -49,6 +52,7 @@ class DiffType(str, Enum):
     DELETED = "deleted"
     RENAMED = "renamed"
     COPIED = "copied"
+    UNCHANGED = "unchanged"
 
 
 class ChangeType(str, Enum):
@@ -187,10 +191,9 @@ class Branch(BaseModel):
     
     @field_validator('name')
     @classmethod
-    def validate_branch_name(cls, v: str) -> str:
+    def validate_branch_name_field(cls, v: str) -> str:
         """Validate branch name following Git conventions."""
-        from app.utils.vcs_validation import validate_branch_name, get_invalid_branch_name_reasons
-        
+        # Use the imported functions from the top of the file
         if not validate_branch_name(v):
             errors = get_invalid_branch_name_reasons(v)
             if errors:

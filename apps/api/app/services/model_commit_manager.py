@@ -271,7 +271,7 @@ class ModelCommitManager:
                     raise ValueError(f"Document {document_id} not found")
                 
                 # Get document handle if available
-                doc_handle = doc_manager._doc_handles.get(document_id)
+                doc_handle = doc_manager.get_document_handle(document_id)
                 
                 entries = []
                 

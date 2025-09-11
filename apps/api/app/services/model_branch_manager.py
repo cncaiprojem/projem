@@ -607,7 +607,18 @@ class ModelBranchManager:
                         # Apply strategy to decide which version to use
                         if strategy == MergeStrategy.OURS:
                             merged_entries[name] = target_entry
+                        elif strategy == MergeStrategy.THEIRS:
+                            merged_entries[name] = source_entry
+                        elif strategy == MergeStrategy.RECURSIVE:
+                            # For recursive strategy, prefer source (incoming changes)
+                            # but this would ideally do a deeper merge
+                            merged_entries[name] = source_entry
+                        elif strategy == MergeStrategy.SUBTREE:
+                            # For subtree strategy, treat source as subtree
+                            # For now, use source version
+                            merged_entries[name] = source_entry
                         else:
+                            # Default to source for unknown strategies
                             merged_entries[name] = source_entry
                 else:
                     # No base - both added with different content
@@ -746,20 +757,23 @@ class ModelBranchManager:
         the ancestor from the descendant.
         """
         try:
-            # Use object store if available, otherwise create temporary commit manager
-            if self.object_store:
-                # Import here to avoid circular dependency
-                from app.services.model_commit_manager import ModelCommitManager
-                commit_manager = ModelCommitManager(self.object_store)
-            else:
-                # Fallback to creating from path (for backward compatibility)
-                from app.services.model_commit_manager import ModelCommitManager
-                from app.services.model_object_store import ModelObjectStore
-                
-                # Derive objects path from refs path
-                objects_path = self.refs_path.parent / "objects"
-                temp_object_store = ModelObjectStore(objects_path)
-                commit_manager = ModelCommitManager(temp_object_store)
+            # Object store is required - no fallback
+            if not self.object_store:
+                raise ValueError("Object store is required for branch operations")
+            
+            # Import here to avoid circular dependency
+            from app.services.model_commit_manager import ModelCommitManager
+            from app.services.freecad_document_manager import FreeCADDocumentManager, DocumentManagerConfig
+            
+            # Create document manager for commit manager
+            config = DocumentManagerConfig(
+                base_dir=str(self.refs_path.parent.parent / "working"),
+                use_real_freecad=False  # Use mock for branch operations
+            )
+            document_manager = FreeCADDocumentManager(config)
+            
+            # Create commit manager with required dependencies
+            commit_manager = ModelCommitManager(self.object_store, document_manager)
             
             # Start from descendant and walk back through parents
             visited = set()
