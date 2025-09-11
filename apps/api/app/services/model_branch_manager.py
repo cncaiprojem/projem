@@ -578,17 +578,31 @@ class ModelBranchManager:
                         merged_entries[name] = source_entry
                     else:
                         # Both changed - conflict
-                        # Create MergeConflict object
-                        conflict = MergeConflict(
-                            object_id=name,
-                            base_version=base_entry if base_entry else None,
-                            our_version=target_entry,
-                            their_version=source_entry,
-                            conflict_type="content_conflict",
-                            auto_resolvable=False,
-                            suggested_resolution=f"Use {strategy.value} strategy"
-                        )
-                        conflicts.append(conflict)
+                        # Fetch FreeCADObjectData from object store
+                        base_obj_data = None
+                        if base_entry and self.object_store:
+                            base_obj_data = await self.object_store.get_object(base_entry.hash)
+                        
+                        our_obj_data = None
+                        if target_entry and self.object_store:
+                            our_obj_data = await self.object_store.get_object(target_entry.hash)
+                        
+                        their_obj_data = None
+                        if source_entry and self.object_store:
+                            their_obj_data = await self.object_store.get_object(source_entry.hash)
+                        
+                        # Create MergeConflict object with FreeCADObjectData
+                        if our_obj_data and their_obj_data:
+                            conflict = MergeConflict(
+                                object_id=name,
+                                base_version=base_obj_data,
+                                our_version=our_obj_data,
+                                their_version=their_obj_data,
+                                conflict_type="content_conflict",
+                                auto_resolvable=False,
+                                suggested_resolution=f"Use {strategy.value} strategy"
+                            )
+                            conflicts.append(conflict)
                         
                         # Apply strategy to decide which version to use
                         if strategy == MergeStrategy.OURS:
@@ -597,17 +611,27 @@ class ModelBranchManager:
                             merged_entries[name] = source_entry
                 else:
                     # No base - both added with different content
-                    # Create MergeConflict object for add-add conflict
-                    conflict = MergeConflict(
-                        object_id=name,
-                        base_version=None,
-                        our_version=target_entry,
-                        their_version=source_entry,
-                        conflict_type="add_add_conflict",
-                        auto_resolvable=False,
-                        suggested_resolution=f"Both branches added '{name}' with different content"
-                    )
-                    conflicts.append(conflict)
+                    # Fetch FreeCADObjectData from object store
+                    our_obj_data = None
+                    if target_entry and self.object_store:
+                        our_obj_data = await self.object_store.get_object(target_entry.hash)
+                    
+                    their_obj_data = None
+                    if source_entry and self.object_store:
+                        their_obj_data = await self.object_store.get_object(source_entry.hash)
+                    
+                    # Create MergeConflict object with FreeCADObjectData
+                    if our_obj_data and their_obj_data:
+                        conflict = MergeConflict(
+                            object_id=name,
+                            base_version=None,
+                            our_version=our_obj_data,
+                            their_version=their_obj_data,
+                            conflict_type="add_add_conflict",
+                            auto_resolvable=False,
+                            suggested_resolution=f"Both branches added '{name}' with different content"
+                        )
+                        conflicts.append(conflict)
                     
                     # Apply strategy to resolve
                     if strategy == MergeStrategy.OURS:

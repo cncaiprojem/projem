@@ -159,10 +159,10 @@ class ModelConflictResolver:
         try:
             # Start with base version if available
             if conflict.base_version:
-                merged = FreeCADObjectData(**conflict.base_version.dict())
+                merged = FreeCADObjectData(**conflict.base_version.model_dump())
             else:
                 # No base - start with our version
-                merged = FreeCADObjectData(**conflict.our_version.dict())
+                merged = FreeCADObjectData(**conflict.our_version.model_dump())
             
             # Apply non-conflicting changes from both versions
             our_changes = self._get_changes(conflict.base_version, conflict.our_version)

@@ -176,7 +176,7 @@ class VCSRepositoryRegistry:
                     )
                     
                     # Update database with repository info
-                    db_repo.metadata = {
+                    db_repo.repo_metadata = {
                         "initialized_at": datetime.now(timezone.utc).isoformat(),
                         "version": "1.0.0"
                     }

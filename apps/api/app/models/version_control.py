@@ -116,7 +116,7 @@ class FreeCADObjectData(BaseModel):
         """Calculate deterministic hash of object data."""
         import json
         # Sort keys for deterministic serialization
-        data_str = json.dumps(self.dict(), sort_keys=True, default=str)
+        data_str = json.dumps(self.model_dump(), sort_keys=True, default=str)
         return hashlib.sha256(data_str.encode()).hexdigest()
 
 
@@ -141,7 +141,7 @@ class Tree(BaseModel):
         import json
         # Sort entries for deterministic hash
         sorted_entries = sorted(self.entries, key=lambda e: e.name)
-        data = [e.dict() for e in sorted_entries]
+        data = [e.model_dump() for e in sorted_entries]
         data_str = json.dumps(data, sort_keys=True, default=str)
         return hashlib.sha256(data_str.encode()).hexdigest()
 

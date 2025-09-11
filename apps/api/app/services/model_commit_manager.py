@@ -49,13 +49,13 @@ class ModelCommitManager:
     - Commit validation and integrity checks
     """
     
-    def __init__(self, object_store: ModelObjectStore, document_manager: Optional['FreeCADDocumentManager'] = None):
+    def __init__(self, object_store: ModelObjectStore, document_manager: 'FreeCADDocumentManager'):
         """
         Initialize commit manager.
         
         Args:
             object_store: Object store for content storage
-            document_manager: Optional document manager for FreeCAD operations
+            document_manager: Document manager for FreeCAD operations (required)
         """
         self.object_store = object_store
         self.document_manager = document_manager
@@ -264,11 +264,7 @@ class ModelCommitManager:
             
             try:
                 # Get document from document manager
-                if not self.document_manager:
-                    from app.services.freecad_document_manager import document_manager
-                    doc_manager = document_manager
-                else:
-                    doc_manager = self.document_manager
+                doc_manager = self.document_manager
                 
                 # Check if document exists
                 if document_id not in doc_manager.documents:
@@ -304,7 +300,7 @@ class ModelCommitManager:
                         type_id="Document.Metadata",
                         name=document_id,
                         label=f"Document {document_id}",
-                        properties=metadata.dict(),
+                        properties=metadata.model_dump() if hasattr(metadata, 'model_dump') else metadata.dict(),
                         placement=None,
                         shape_data=None,
                         expressions={},

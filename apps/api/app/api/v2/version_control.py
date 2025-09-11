@@ -145,7 +145,7 @@ async def init_repository(
             commit_count=db_repo.commit_count,
             branch_count=db_repo.branch_count,
             tag_count=db_repo.tag_count,
-            metadata=db_repo.metadata or {}
+            metadata=db_repo.repo_metadata or {}
         )
 
 
@@ -181,7 +181,7 @@ async def commit_changes(
         commit_hash = await vcs.commit_changes(
             job_id=request.job_id,
             message=request.message,
-            author=f"{current_user.name} <{current_user.email}>",
+            author=f"{current_user.generate_display_name()} <{current_user.email}>",
             metadata=request.metadata
         )
         
@@ -266,7 +266,7 @@ async def merge_branches(
             source_branch=request.source_branch,
             target_branch=request.target_branch,
             strategy=request.strategy,
-            author=f"{current_user.name} <{current_user.email}>"
+            author=f"{current_user.generate_display_name()} <{current_user.email}>"
         )
         
         metrics.freecad_vcs_merges_total.labels(
@@ -424,7 +424,7 @@ async def rollback_to_commit(
         rollback_hash = await vcs.rollback_to_commit(
             commit_hash=request.commit_hash,
             branch=request.branch,
-            author=f"{current_user.name} <{current_user.email}>"
+            author=f"{current_user.generate_display_name()} <{current_user.email}>"
         )
         
         metrics.freecad_vcs_rollbacks_total.inc()

@@ -226,7 +226,8 @@ class ModelVersionControl:
             
             try:
                 # Get or create document
-                doc_metadata = self.doc_manager.open_document(
+                doc_metadata = await asyncio.to_thread(
+                    self.doc_manager.open_document,
                     job_id=job_id,
                     create_if_not_exists=True
                 )
@@ -918,19 +919,36 @@ class ModelVersionControl:
             
             # Reconstruct objects in document
             for entry in entries:
-                # TreeEntry has object_type field, not type
-                if entry.get("object_type") == ObjectType.BLOB.value:
-                    # Get object data from object store
-                    obj_hash = entry.get("hash")
-                    if obj_hash:
-                        obj_data = await self.object_store.get_object(obj_hash)
-                        if obj_data and isinstance(obj_data, dict):
-                            # Reconstruct object in document
-                            await self._reconstruct_object_in_document(
-                                doc_handle, 
-                                entry.get("name", "Object"),
-                                obj_data
-                            )
+                # TreeEntry has object_type field as direct attribute
+                # Check if entry is a TreeEntry object or dict for compatibility
+                if hasattr(entry, 'object_type'):
+                    # TreeEntry object
+                    if entry.object_type == ObjectType.BLOB:
+                        # Get object data from object store
+                        obj_hash = entry.hash
+                        if obj_hash:
+                            obj_data = await self.object_store.get_object(obj_hash)
+                            if obj_data and isinstance(obj_data, dict):
+                                # Reconstruct object in document
+                                await self._reconstruct_object_in_document(
+                                    doc_handle, 
+                                    entry.name,
+                                    obj_data
+                                )
+                elif isinstance(entry, dict):
+                    # Dictionary (backward compatibility)
+                    if entry.get("object_type") == ObjectType.BLOB.value:
+                        # Get object data from object store
+                        obj_hash = entry.get("hash")
+                        if obj_hash:
+                            obj_data = await self.object_store.get_object(obj_hash)
+                            if obj_data and isinstance(obj_data, dict):
+                                # Reconstruct object in document
+                                await self._reconstruct_object_in_document(
+                                    doc_handle, 
+                                    entry.get("name", "Object"),
+                                    obj_data
+                                )
             
             # Save reconstructed document
             await asyncio.to_thread(
@@ -1032,7 +1050,7 @@ class ModelVersionControl:
     async def cleanup(self):
         """Cleanup resources."""
         try:
-            self.doc_manager.shutdown()
+            await asyncio.to_thread(self.doc_manager.shutdown)
             await self.object_store.cleanup()
             logger.info("model_version_control_cleanup_complete")
         except Exception as e:

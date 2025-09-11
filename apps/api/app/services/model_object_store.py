@@ -432,7 +432,7 @@ class ModelObjectStore:
         """Serialize object deterministically with type information."""
         if hasattr(obj, 'dict'):
             # Pydantic model
-            data = obj.dict()
+            data = obj.model_dump() if hasattr(obj, 'model_dump') else obj.dict()
         elif hasattr(obj, '__dict__'):
             # Regular object
             data = obj.__dict__

@@ -77,8 +77,23 @@ def downgrade() -> None:
     op.execute("DROP TRIGGER IF EXISTS update_vcs_repositories_updated_at ON vcs_repositories")
     
     # Drop function only if no other tables use it
+    # Using CASCADE is risky as it may drop other table triggers
+    # Check if any other tables use this function first
     op.execute("""
-        DROP FUNCTION IF EXISTS update_updated_at_column() CASCADE;
+        DO $$
+        BEGIN
+            -- Check if the function is used by other triggers
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_trigger t
+                JOIN pg_proc p ON t.tgfoid = p.oid
+                WHERE p.proname = 'update_updated_at_column'
+                  AND t.tgrelid != 'vcs_repositories'::regclass
+            ) THEN
+                -- Safe to drop the function
+                DROP FUNCTION IF EXISTS update_updated_at_column();
+            END IF;
+        END $$;
     """)
     
     # Drop indexes
