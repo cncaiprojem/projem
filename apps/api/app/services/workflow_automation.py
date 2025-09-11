@@ -26,50 +26,9 @@ from pydantic import BaseModel, Field, field_validator
 from ..core.logging import get_logger
 from ..core.metrics import workflow_counter, workflow_duration_histogram
 from ..core.telemetry import create_span
+from ..models.enums import StepType, StepStatus, WorkflowStatus, ErrorHandling
 
 logger = get_logger(__name__)
-
-
-class StepType(str, Enum):
-    """Workflow step types."""
-    ACTION = "action"  # Execute an action
-    CONDITION = "condition"  # Evaluate condition
-    BRANCH = "branch"  # Conditional branching
-    PARALLEL = "parallel"  # Parallel execution
-    LOOP = "loop"  # Loop execution
-    WAIT = "wait"  # Wait for condition
-    APPROVAL = "approval"  # Manual approval
-    SUBPROCESS = "subprocess"  # Sub-workflow
-
-
-class StepStatus(str, Enum):
-    """Step execution status."""
-    PENDING = "pending"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-    WAITING = "waiting"
-    CANCELLED = "cancelled"
-
-
-class WorkflowStatus(str, Enum):
-    """Workflow execution status."""
-    CREATED = "created"
-    RUNNING = "running"
-    PAUSED = "paused"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-class ErrorHandling(str, Enum):
-    """Error handling strategies."""
-    FAIL = "fail"  # Fail the workflow
-    RETRY = "retry"  # Retry the step
-    SKIP = "skip"  # Skip the step
-    CONTINUE = "continue"  # Continue execution
-    ROLLBACK = "rollback"  # Rollback changes
 
 
 class StepCondition(BaseModel):
@@ -82,23 +41,42 @@ class StepCondition(BaseModel):
         """Evaluate condition against context."""
         field_value = context.get(self.field)
         
-        if self.operator == "eq":
-            return field_value == self.value
-        elif self.operator == "ne":
-            return field_value != self.value
-        elif self.operator == "gt":
-            return field_value > self.value
-        elif self.operator == "lt":
-            return field_value < self.value
-        elif self.operator == "gte":
-            return field_value >= self.value
-        elif self.operator == "lte":
-            return field_value <= self.value
-        elif self.operator == "in":
-            return field_value in self.value
-        elif self.operator == "contains":
-            return self.value in field_value
-        else:
+        # Handle None values
+        if field_value is None:
+            if self.operator == "eq":
+                return self.value is None
+            elif self.operator == "ne":
+                return self.value is not None
+            else:
+                return False  # Other operations require non-None values
+        
+        try:
+            if self.operator == "eq":
+                return field_value == self.value
+            elif self.operator == "ne":
+                return field_value != self.value
+            elif self.operator == "gt":
+                return field_value > self.value
+            elif self.operator == "lt":
+                return field_value < self.value
+            elif self.operator == "gte":
+                return field_value >= self.value
+            elif self.operator == "lte":
+                return field_value <= self.value
+            elif self.operator == "in":
+                return field_value in self.value
+            elif self.operator == "contains":
+                return self.value in field_value
+            else:
+                logger.warning(f"Unknown operator: {self.operator}")
+                return False
+        except TypeError as e:
+            # Handle incompatible type comparisons
+            logger.debug(f"Type error in condition evaluation: {e}. Field: {self.field}, Operator: {self.operator}, Field value type: {type(field_value)}, Compare value type: {type(self.value)}")
+            return False
+        except Exception as e:
+            # Handle any other unexpected errors
+            logger.warning(f"Error evaluating condition: {e}. Field: {self.field}, Operator: {self.operator}")
             return False
 
 

@@ -801,6 +801,36 @@ batch_file_counter = Counter(
     registry=REGISTRY
 )
 
+# Workflow metrics (Task 7.23)
+workflow_counter = Counter(
+    'workflow_executions_total',
+    'Count of workflow executions',
+    ['workflow_name', 'status'],
+    registry=REGISTRY
+)
+
+workflow_duration_histogram = Histogram(
+    'workflow_duration_seconds',
+    'Duration of workflow executions',
+    ['workflow_name'],
+    registry=REGISTRY
+)
+
+# Scheduled job metrics (Task 7.23)
+scheduled_job_counter = Counter(
+    'scheduled_jobs_total',
+    'Count of scheduled job executions',
+    ['job_name', 'status'],
+    registry=REGISTRY
+)
+
+scheduled_job_duration_histogram = Histogram(
+    'scheduled_job_duration_seconds',
+    'Duration of scheduled job executions',
+    ['job_name'],
+    registry=REGISTRY
+)
+
 # Export all metrics for direct access if needed
 __all__ = [
     'job_create_total',
@@ -874,6 +904,10 @@ __all__ = [
     'batch_counter',
     'batch_duration_histogram',
     'batch_file_counter',
+    'workflow_counter',
+    'workflow_duration_histogram',
+    'scheduled_job_counter',
+    'scheduled_job_duration_histogram',
     'MetricsCollector',
     'metrics'
 ]

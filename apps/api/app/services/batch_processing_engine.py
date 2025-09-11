@@ -32,41 +32,12 @@ from ..core.environment import environment as settings
 from ..core.logging import get_logger
 from ..core.metrics import batch_counter, batch_duration_histogram
 from ..core.telemetry import create_span
+from ..models.enums import BatchStatus, BatchItemStatus, ProcessingStrategy
 
 logger = get_logger(__name__)
 
 T = TypeVar('T')
 R = TypeVar('R')
-
-
-class BatchItemStatus(str, Enum):
-    """Status of individual batch items."""
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    SKIPPED = "skipped"
-    RETRYING = "retrying"
-
-
-class BatchStatus(str, Enum):
-    """Overall batch status."""
-    CREATED = "created"
-    QUEUED = "queued"
-    RUNNING = "running"
-    PAUSED = "paused"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
-
-
-class ProcessingStrategy(str, Enum):
-    """Batch processing strategies."""
-    PARALLEL = "parallel"  # Maximum parallelism
-    SEQUENTIAL = "sequential"  # One at a time
-    ADAPTIVE = "adaptive"  # Adjust based on resources
-    CHUNKED = "chunked"  # Process in chunks
-    PRIORITY = "priority"  # Process by priority
 
 
 class BatchItem(BaseModel, Generic[T]):
@@ -242,12 +213,27 @@ class ProgressTracker:
             try:
                 data = await self.redis.hgetall(f"batch:progress:{batch_id}")
                 if data:
-                    return {
-                        k.decode() if isinstance(k, bytes) else k: 
-                        json.loads(v.decode()) if isinstance(v, bytes) and v.decode().startswith(('[', '{')) 
-                        else v.decode() if isinstance(v, bytes) else v
-                        for k, v in data.items()
-                    }
+                    result = {}
+                    for k, v in data.items():
+                        # Decode key if bytes
+                        key = k.decode() if isinstance(k, bytes) else k
+                        
+                        # Decode and parse value
+                        if isinstance(v, bytes):
+                            v_str = v.decode()
+                            # Try to parse as JSON
+                            try:
+                                # Check if it looks like JSON (starts with {, [, or is a quoted string)
+                                if v_str and (v_str[0] in '{["' or v_str in ('true', 'false', 'null') or v_str.replace('.', '', 1).replace('-', '', 1).isdigit()):
+                                    result[key] = json.loads(v_str)
+                                else:
+                                    result[key] = v_str
+                            except (json.JSONDecodeError, ValueError):
+                                # If JSON parsing fails, use as string
+                                result[key] = v_str
+                        else:
+                            result[key] = v
+                    return result
             except Exception as e:
                 logger.warning(f"Redis okuma hatası: {e}")
                 return self._local_progress.get(batch_id)

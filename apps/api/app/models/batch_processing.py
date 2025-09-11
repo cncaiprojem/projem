@@ -33,9 +33,17 @@ from sqlalchemy.orm import relationship, validates
 from sqlalchemy.ext.hybrid import hybrid_property
 
 from .base import Base, TimestampMixin
-from ..services.batch_processing_engine import BatchStatus, BatchItemStatus, ProcessingStrategy
-from ..services.workflow_automation import WorkflowStatus, StepStatus, StepType, ErrorHandling
-from ..services.scheduled_operations import JobTriggerType, JobStatus as ScheduledJobStatus
+from .enums import (
+    BatchStatus, 
+    BatchItemStatus, 
+    ProcessingStrategy,
+    WorkflowStatus, 
+    StepStatus, 
+    StepType, 
+    ErrorHandling,
+    JobTriggerType, 
+    ScheduledJobStatus
+)
 
 
 class BatchJob(Base, TimestampMixin):
@@ -98,7 +106,7 @@ class BatchJob(Base, TimestampMixin):
     metadata_ = Column("metadata", JSON, default=dict, comment="Additional metadata")
     
     # Relationships
-    user = relationship("User", back_populates="batch_jobs")
+    user = relationship("User")
     items = relationship("BatchJobItem", back_populates="batch_job", cascade="all, delete-orphan")
     
     @validates("batch_id")

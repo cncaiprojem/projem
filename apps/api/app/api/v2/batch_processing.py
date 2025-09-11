@@ -31,24 +31,26 @@ from ...models.batch_processing import (
     ScheduledJob,
     ScheduledJobExecution
 )
+from ...models.enums import (
+    BatchStatus,
+    ProcessingStrategy,
+    WorkflowStatus,
+    JobTriggerType
+)
 from ...services.batch_processing_engine import (
     BatchItem,
     BatchOptions,
-    BatchProcessingEngine,
-    BatchStatus,
-    ProcessingStrategy
+    BatchProcessingEngine
 )
 from ...services.workflow_automation import (
     Workflow,
     WorkflowEngine,
     WorkflowStep,
-    ExecutionOptions,
-    WorkflowStatus
+    ExecutionOptions
 )
 from ...services.scheduled_operations import (
     ScheduledOperations,
-    ScheduledJobConfig,
-    JobTriggerType
+    ScheduledJobConfig
 )
 from ...services.batch_operations import (
     BatchOperations,
@@ -171,7 +173,8 @@ def get_scheduler() -> ScheduledOperations:
     global scheduler
     if scheduler is None:
         scheduler = ScheduledOperations()
-        if not scheduler.is_running():
+        # Check the scheduler.scheduler.running attribute
+        if not scheduler.scheduler.running:
             scheduler.start()
     return scheduler
 

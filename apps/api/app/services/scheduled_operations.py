@@ -36,27 +36,11 @@ from ..core.environment import environment as settings
 from ..core.logging import get_logger
 from ..core.metrics import scheduled_job_counter, scheduled_job_duration_histogram
 from ..core.telemetry import create_span
+from ..models.enums import JobTriggerType, ScheduledJobStatus as JobStatus
 from .freecad_document_manager import FreeCADDocumentManager
 from .batch_import_export import BatchProcessor
 
 logger = get_logger(__name__)
-
-
-class JobTriggerType(str, Enum):
-    """Types of job triggers."""
-    CRON = "cron"
-    INTERVAL = "interval"
-    DATE = "date"
-
-
-class JobStatus(str, Enum):
-    """Job execution status."""
-    SCHEDULED = "scheduled"
-    RUNNING = "running"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    MISSED = "missed"
-    PAUSED = "paused"
 
 
 class OptimizationType(str, Enum):

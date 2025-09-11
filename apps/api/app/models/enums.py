@@ -506,3 +506,99 @@ class ConflictResolutionStrategy(str, enum.Enum):
     PRIORITY = "priority"  # User priority based
     MERGE = "merge"  # Automatic merge attempt
     MANUAL = "manual"  # Requires user intervention
+
+
+# Batch Processing Enums (Task 7.23)
+class BatchStatus(str, enum.Enum):
+    """Batch job execution status."""
+    CREATED = "created"
+    QUEUED = "queued"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class BatchItemStatus(str, enum.Enum):
+    """Individual batch item status."""
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    RETRYING = "retrying"
+
+
+class ProcessingStrategy(str, enum.Enum):
+    """Batch processing strategy."""
+    SEQUENTIAL = "sequential"  # Process items one by one
+    PARALLEL = "parallel"  # Process items in parallel
+    ADAPTIVE = "adaptive"  # Adjust based on system load
+    CHUNKED = "chunked"  # Process in fixed-size chunks
+
+
+class WorkflowStatus(str, enum.Enum):
+    """Workflow execution status."""
+    CREATED = "created"
+    PENDING = "pending"
+    RUNNING = "running"
+    PAUSED = "paused"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+    TIMEOUT = "timeout"
+
+
+class StepStatus(str, enum.Enum):
+    """Workflow step execution status."""
+    PENDING = "pending"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    SKIPPED = "skipped"
+    WAITING = "waiting"
+    CANCELLED = "cancelled"
+    TIMEOUT = "timeout"
+
+
+class StepType(str, enum.Enum):
+    """Workflow step types."""
+    ACTION = "action"  # Execute an action
+    CONDITION = "condition"  # Evaluate condition
+    BRANCH = "branch"  # Conditional branching
+    DECISION = "decision"  # Conditional branching (legacy alias)
+    PARALLEL = "parallel"  # Parallel execution
+    LOOP = "loop"  # Iterative execution
+    WAIT = "wait"  # Wait for condition/time
+    APPROVAL = "approval"  # Human approval required
+    NOTIFICATION = "notification"  # Send notification
+    SUBPROCESS = "subprocess"  # Sub-workflow
+
+
+class ErrorHandling(str, enum.Enum):
+    """Error handling strategies for workflow steps."""
+    FAIL = "fail"  # Fail the entire workflow
+    CONTINUE = "continue"  # Continue to next step
+    RETRY = "retry"  # Retry the step
+    SKIP = "skip"  # Skip the step
+    FALLBACK = "fallback"  # Use fallback step
+    IGNORE = "ignore"  # Ignore error and continue
+    ROLLBACK = "rollback"  # Rollback changes
+
+
+class JobTriggerType(str, enum.Enum):
+    """Types of job triggers for scheduled operations."""
+    CRON = "cron"
+    INTERVAL = "interval"
+    DATE = "date"
+
+
+class ScheduledJobStatus(str, enum.Enum):
+    """Scheduled job execution status."""
+    SCHEDULED = "scheduled"
+    RUNNING = "running"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    MISSED = "missed"
+    PAUSED = "paused"
