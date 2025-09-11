@@ -1810,6 +1810,21 @@ class FreeCADDocumentManager:
                     f"Kurtarma başarısız: {str(e)}"
                 )
     
+    def get_document_handle(self, document_id: str) -> Optional[Any]:
+        """
+        Get the FreeCAD document handle for a document.
+        
+        This is a public method to access document handles without
+        accessing private _doc_handles attribute directly.
+        
+        Args:
+            document_id: The document ID
+            
+        Returns:
+            FreeCAD document handle if available, None otherwise
+        """
+        return self._doc_handles.get(document_id)
+    
     def get_document_status(self, document_id: str) -> Dict[str, Any]:
         """Get comprehensive document status."""
         if document_id not in self.documents:
