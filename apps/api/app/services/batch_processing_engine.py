@@ -328,7 +328,8 @@ class BatchProcessingEngine:
     def __init__(
         self,
         redis_client: Optional[aioredis.Redis] = None,
-        max_workers: Optional[int] = None
+        max_workers: Optional[int] = None,
+        chunk_size: int = 10
     ):
         """
         Initialize batch processing engine.
@@ -336,14 +337,83 @@ class BatchProcessingEngine:
         Args:
             redis_client: Redis client for progress tracking
             max_workers: Maximum number of workers
+            chunk_size: Default chunk size for batch processing
         """
         self.redis = redis_client
         self.progress_tracker = ProgressTracker(redis_client)
         self.result_aggregator = ResultAggregator()
         self.max_workers = max_workers or os.cpu_count() or 4
+        self.chunk_size = chunk_size
         self._process_pool: Optional[ProcessPoolExecutor] = None
         self._thread_pool: Optional[ThreadPoolExecutor] = None
         self._semaphores: Dict[str, asyncio.Semaphore] = {}
+        self._shutdown_event = asyncio.Event()
+    
+    def __enter__(self):
+        """Context manager entry."""
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit with cleanup."""
+        self.shutdown()
+    
+    async def __aenter__(self):
+        """Async context manager entry."""
+        return self
+    
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        """Async context manager exit with cleanup."""
+        await self.shutdown_async()
+    
+    def shutdown(self) -> None:
+        """Synchronously shutdown all executors and cleanup resources."""
+        try:
+            if self._process_pool:
+                self._process_pool.shutdown(wait=True, cancel_futures=True)
+                self._process_pool = None
+                logger.info("Process pool executor kapatıldı")
+            
+            if self._thread_pool:
+                self._thread_pool.shutdown(wait=True, cancel_futures=True)
+                self._thread_pool = None
+                logger.info("Thread pool executor kapatıldı")
+            
+            self._semaphores.clear()
+            self._shutdown_event.set()
+            
+        except Exception as e:
+            logger.error(f"Executor kapatma hatası: {e}")
+    
+    async def shutdown_async(self) -> None:
+        """Asynchronously shutdown all executors and cleanup resources."""
+        try:
+            # Set shutdown event
+            self._shutdown_event.set()
+            
+            # Shutdown executors in background thread to avoid blocking
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, self.shutdown)
+            
+        except Exception as e:
+            logger.error(f"Async executor kapatma hatası: {e}")
+    
+    def _get_process_pool(self) -> ProcessPoolExecutor:
+        """Get or create process pool executor."""
+        if self._process_pool is None:
+            self._process_pool = ProcessPoolExecutor(
+                max_workers=self.max_workers,
+                mp_context=multiprocessing.get_context('spawn')
+            )
+        return self._process_pool
+    
+    def _get_thread_pool(self) -> ThreadPoolExecutor:
+        """Get or create thread pool executor."""
+        if self._thread_pool is None:
+            self._thread_pool = ThreadPoolExecutor(
+                max_workers=self.max_workers * 2,
+                thread_name_prefix="batch_worker"
+            )
+        return self._thread_pool
     
     async def process_batch(
         self,
@@ -639,14 +709,12 @@ class BatchProcessingEngine:
                     loop = asyncio.get_event_loop()
                     if options.use_process_pool:
                         # For CPU-intensive tasks
-                        if not self._process_pool:
-                            self._process_pool = ProcessPoolExecutor(max_workers=self.max_workers)
-                        result = await loop.run_in_executor(self._process_pool, operation, item.data)
+                        pool = self._get_process_pool()
+                        result = await loop.run_in_executor(pool, operation, item.data)
                     else:
                         # For I/O-bound tasks
-                        if not self._thread_pool:
-                            self._thread_pool = ThreadPoolExecutor(max_workers=self.max_workers * 2)
-                        result = await loop.run_in_executor(self._thread_pool, operation, item.data)
+                        pool = self._get_thread_pool()
+                        result = await loop.run_in_executor(pool, operation, item.data)
                 
                 # Update item status
                 item.status = BatchItemStatus.COMPLETED

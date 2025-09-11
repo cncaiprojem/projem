@@ -10,6 +10,7 @@ Provides SQLAlchemy models for:
 from __future__ import annotations
 
 import json
+import re
 from datetime import UTC, datetime
 from typing import Any, Dict, List, Optional
 
@@ -216,7 +217,6 @@ class WorkflowDefinition(Base, TimestampMixin):
     @validates("version")
     def validate_version(self, key: str, value: str) -> str:
         """Validate version format."""
-        import re
         if not re.match(r"^\d+\.\d+\.\d+$", value):
             raise ValueError("Geçersiz versiyon formatı (örn: 1.0.0)")
         return value

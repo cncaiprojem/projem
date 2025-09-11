@@ -161,8 +161,19 @@ class ScheduledJobResponse(BaseModel):
 # Initialize services
 batch_engine = BatchProcessingEngine()
 workflow_engine = WorkflowEngine()
-scheduler = ScheduledOperations()
+# Scheduler will be initialized in lifespan events to avoid startup at module level
+scheduler: Optional[ScheduledOperations] = None
 batch_operations = BatchOperations()
+
+
+def get_scheduler() -> ScheduledOperations:
+    """Get or initialize the scheduler."""
+    global scheduler
+    if scheduler is None:
+        scheduler = ScheduledOperations()
+        if not scheduler.is_running():
+            scheduler.start()
+    return scheduler
 
 
 @router.post("/jobs", response_model=BatchJobResponse, status_code=status.HTTP_201_CREATED)
@@ -579,7 +590,7 @@ async def create_scheduled_job(
             )
             
             # Schedule job
-            job_id = scheduler.schedule_job(job_config)
+            job_id = get_scheduler().schedule_job(job_config)
             
             # Save to database
             scheduled_job = ScheduledJob(
@@ -690,7 +701,7 @@ async def delete_scheduled_job(
         )
     
     # Remove from scheduler
-    scheduler.remove_job(job_id)
+    get_scheduler().remove_job(job_id)
     
     # Delete from database
     await db.delete(scheduled_job)
@@ -724,5 +735,5 @@ async def execute_workflow_async(
     logger.info(f"Executing workflow {workflow_id} (execution {workflow_exec_id})")
 
 
-# Initialize scheduler on startup
-scheduler.start()
+# Scheduler is now initialized lazily via get_scheduler() to avoid module-level startup
+# This prevents issues with process spawning and ensures proper lifecycle management

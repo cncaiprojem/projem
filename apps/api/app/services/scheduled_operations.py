@@ -424,9 +424,8 @@ class ScheduledOperations:
             }
             
             try:
-                # Get all model files
-                # TODO: Get from database or file system
-                model_paths = []  # This would be populated from actual source
+                # Get all model files from database or storage
+                model_paths = await self.get_all_models()
                 
                 results["total_models"] = len(model_paths)
                 
@@ -627,6 +626,52 @@ class ScheduledOperations:
         
         # Return most recent first
         return sorted(history, key=lambda x: x.start_time, reverse=True)[:limit]
+    
+    async def get_all_models(self) -> List[str]:
+        """
+        Get all model file paths from database or storage.
+        
+        Returns:
+            List of model file paths
+        """
+        try:
+            # Import here to avoid circular dependencies
+            from ..models import Model
+            from ..core.dependencies import get_db
+            from sqlalchemy import select
+            from sqlalchemy.ext.asyncio import AsyncSession
+            
+            model_paths = []
+            
+            # Get database session
+            async for db_session in get_db():
+                try:
+                    # Query all active models from database
+                    query = select(Model).where(
+                        Model.status.in_(["completed", "optimized", "active"])
+                    )
+                    result = await db_session.execute(query)
+                    models = result.scalars().all()
+                    
+                    # Extract file paths from models
+                    for model in models:
+                        if model.file_path:
+                            model_paths.append(model.file_path)
+                        elif model.s3_key:
+                            # For S3-stored models, use the S3 key as path
+                            model_paths.append(f"s3://{model.s3_bucket}/{model.s3_key}")
+                    
+                    logger.info(f"Toplam {len(model_paths)} model bulundu")
+                    
+                finally:
+                    await db_session.close()
+            
+            return model_paths
+            
+        except Exception as e:
+            logger.error(f"Model listesi alma hatası: {e}")
+            # Return empty list on error to allow operation to continue
+            return []
     
     def _job_executed(self, event: JobExecutionEvent) -> None:
         """Handle successful job execution."""
