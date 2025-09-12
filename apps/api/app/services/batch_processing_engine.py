@@ -221,13 +221,9 @@ class ProgressTracker:
                         # Decode and parse value
                         if isinstance(v, bytes):
                             v_str = v.decode()
-                            # Try to parse as JSON
+                            # Try to parse as JSON with simple try/except
                             try:
-                                # Check if it looks like JSON (starts with {, [, or is a quoted string)
-                                if v_str and (v_str[0] in '{["' or v_str in ('true', 'false', 'null') or v_str.replace('.', '', 1).replace('-', '', 1).isdigit()):
-                                    result[key] = json.loads(v_str)
-                                else:
-                                    result[key] = v_str
+                                result[key] = json.loads(v_str)
                             except (json.JSONDecodeError, ValueError):
                                 # If JSON parsing fails, use as string
                                 result[key] = v_str

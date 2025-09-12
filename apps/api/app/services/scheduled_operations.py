@@ -621,34 +621,29 @@ class ScheduledOperations:
         try:
             # Import here to avoid circular dependencies
             from ..models import Model
-            from ..core.dependencies import get_db
+            from ..db import AsyncSessionLocal
             from sqlalchemy import select
-            from sqlalchemy.ext.asyncio import AsyncSession
             
             model_paths = []
             
-            # Get database session
-            async for db_session in get_db():
-                try:
-                    # Query all active models from database
-                    query = select(Model).where(
-                        Model.status.in_(["completed", "optimized", "active"])
-                    )
-                    result = await db_session.execute(query)
-                    models = result.scalars().all()
-                    
-                    # Extract file paths from models
-                    for model in models:
-                        if model.file_path:
-                            model_paths.append(model.file_path)
-                        elif model.s3_key:
-                            # For S3-stored models, use the S3 key as path
-                            model_paths.append(f"s3://{model.s3_bucket}/{model.s3_key}")
-                    
-                    logger.info(f"Toplam {len(model_paths)} model bulundu")
-                    
-                finally:
-                    await db_session.close()
+            # Use AsyncSessionLocal directly for background tasks
+            async with AsyncSessionLocal() as db_session:
+                # Query all active models from database
+                query = select(Model).where(
+                    Model.status.in_(["completed", "optimized", "active"])
+                )
+                result = await db_session.execute(query)
+                models = result.scalars().all()
+                
+                # Extract file paths from models
+                for model in models:
+                    if model.file_path:
+                        model_paths.append(model.file_path)
+                    elif model.s3_key:
+                        # For S3-stored models, use the S3 key as path
+                        model_paths.append(f"s3://{model.s3_bucket}/{model.s3_key}")
+                
+                logger.info(f"Toplam {len(model_paths)} model bulundu")
             
             return model_paths
             
