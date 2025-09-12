@@ -320,6 +320,13 @@ class User(Base, TimestampMixin):
         cascade="all, delete-orphan"
     )
     
+    # Batch processing relationships
+    batch_jobs: Mapped[List["BatchJob"]] = relationship(
+        "BatchJob",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    
     # Indexes and constraints
     __table_args__ = (
         Index('idx_users_phone', 'phone', postgresql_where='phone IS NOT NULL'),

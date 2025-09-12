@@ -34,6 +34,7 @@ from .tool import Tool
 from .oidc_account import OIDCAccount
 from .magic_link import MagicLink
 from .mfa_backup_code import MFABackupCode
+from .batch_processing import BatchJob, QualityCheck, WorkflowExecution
 
 # Import enums for external use
 from .enums import *
@@ -81,6 +82,11 @@ __all__ = [
     "ErpMesSync",
     "AuditLog",
     "SecurityEvent",
+    
+    # Batch Processing
+    "BatchJob",
+    "QualityCheck",
+    "WorkflowExecution",
 ]
 
 # All Task Master ERD models are now included in the main __all__ list above
