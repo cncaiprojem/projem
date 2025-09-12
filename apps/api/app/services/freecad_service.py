@@ -1663,18 +1663,29 @@ result = {{
 print(json.dumps(result))
 """
                 
-                # Execute FreeCAD operation using existing infrastructure
-                with SessionLocal() as db:
-                    result = self.execute_freecad_operation(
-                        db=db,
-                        user_id=1,  # System user for batch operations
-                        operation_type=operation,
-                        script_content=script_content,
-                        parameters=parameters,
-                        output_formats=[],
-                        job_id=job_id,
-                        correlation_id=correlation_id
-                    )
+                # Execute FreeCAD operation in thread pool to avoid blocking
+                def _run_sync_operation():
+                    """Run synchronous FreeCAD operation in thread pool."""
+                    from ..db import SessionLocal
+                    with SessionLocal() as db:
+                        return self.execute_freecad_operation(
+                            db=db,
+                            user_id=1,  # System user for batch operations
+                            operation_type=operation,
+                            script_content=script_content,
+                            parameters=parameters,
+                            output_formats=[],
+                            job_id=job_id,
+                            correlation_id=correlation_id
+                        )
+                
+                # Use asyncio.to_thread for Python 3.9+ or run_in_executor for older versions
+                import sys
+                if sys.version_info >= (3, 9):
+                    result = await asyncio.to_thread(_run_sync_operation)
+                else:
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(None, _run_sync_operation)
                 
                 span.set_attribute("result.success", result.success)
                 

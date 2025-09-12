@@ -790,6 +790,7 @@ async def process_batch_job(
                 await db.commit()
             elif operation == "freecad_process":
                 # FreeCAD processing batch operation
+                # Process all items first, then commit once
                 for item in batch_job.items:
                     try:
                         # Process each item with FreeCAD
@@ -810,7 +811,9 @@ async def process_batch_job(
                         batch_job.failed_items += 1
                     
                     batch_job.processed_items += 1
-                    await db.commit()
+                
+                # Single commit after processing all items
+                await db.commit()
             
             else:
                 # Generic batch processing

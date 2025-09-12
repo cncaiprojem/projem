@@ -538,10 +538,14 @@ class BatchOperations:
                     "object_count": len(fc_doc.Objects)
                 })
             
-        except ImportError:
-            # FreeCAD not available, use simplified check
-            issues.append("FreeCAD modülü yüklenemedi, basitleştirilmiş kontrol yapılıyor")
-            passed = True  # Don't fail if FreeCAD not available
+        except ImportError as e:
+            # FreeCAD not available - fail the check with specific error
+            logger.error(f"FreeCAD import failed for geometry check: {e}")
+            issues.append(f"FreeCAD modülü yüklenemedi: {str(e)}")
+            issues.append("Geometri kontrolü için FreeCAD kurulumu gereklidir")
+            passed = False  # Fail the check when FreeCAD is not available
+            metadata["freecad_available"] = False
+            metadata["import_error"] = str(e)
         except Exception as e:
             issues.append(f"Geometri kontrol hatası: {str(e)}")
             passed = False

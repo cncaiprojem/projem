@@ -19,6 +19,7 @@ import uuid
 from collections import defaultdict, deque
 from datetime import UTC, datetime
 from enum import Enum
+from functools import lru_cache
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from pydantic import BaseModel, Field, field_validator
@@ -595,6 +596,8 @@ class WorkflowEngine:
         self.executions: Dict[str, WorkflowExecution] = {}
         self.step_executor = StepExecutor()
         self.condition_evaluator = ConditionEvaluator()
+        self._workflow_cache = {}  # Cache for validated workflow objects
+        self._cache_max_size = 100  # Maximum cache size
     
     def validate_workflow_dag(self, workflow: Workflow) -> bool:
         """
@@ -680,6 +683,9 @@ class WorkflowEngine:
             # Store workflow
             self.workflows[workflow.id] = workflow
             
+            # Add to cache for fast access
+            self._add_to_cache(workflow.id, workflow)
+            
             logger.info(f"İş akışı tanımlandı: {workflow.name} ({workflow.id})")
             
             workflow_counter.labels(
@@ -689,6 +695,34 @@ class WorkflowEngine:
             
             return workflow
     
+    def _add_to_cache(self, workflow_id: str, workflow: Workflow) -> None:
+        """Add workflow to cache with LRU eviction."""
+        # If cache is at max size, remove oldest item
+        if len(self._workflow_cache) >= self._cache_max_size:
+            # Remove the first (oldest) item
+            oldest_key = next(iter(self._workflow_cache))
+            del self._workflow_cache[oldest_key]
+            logger.debug(f"Evicted workflow from cache: {oldest_key}")
+        
+        # Add to cache
+        self._workflow_cache[workflow_id] = workflow
+        logger.debug(f"Added workflow to cache: {workflow_id}")
+    
+    def _get_from_cache(self, workflow_id: str) -> Optional[Workflow]:
+        """Get workflow from cache if available."""
+        if workflow_id in self._workflow_cache:
+            # Move to end (most recently used)
+            workflow = self._workflow_cache.pop(workflow_id)
+            self._workflow_cache[workflow_id] = workflow
+            logger.debug(f"Retrieved workflow from cache: {workflow_id}")
+            return workflow
+        return None
+    
+    def _clear_cache(self) -> None:
+        """Clear the workflow cache."""
+        self._workflow_cache.clear()
+        logger.info("Workflow cache cleared")
+    
     async def execute_workflow(
         self,
         workflow_id: str,
@@ -697,7 +731,15 @@ class WorkflowEngine:
     ) -> WorkflowExecution:
         """Execute a workflow."""
         with create_span("execute_workflow") as span:
-            workflow = self.workflows.get(workflow_id)
+            # Try to get from cache first
+            workflow = self._get_from_cache(workflow_id)
+            if not workflow:
+                # Fall back to main storage
+                workflow = self.workflows.get(workflow_id)
+                if workflow:
+                    # Add to cache for next time
+                    self._add_to_cache(workflow_id, workflow)
+            
             if not workflow:
                 raise ValueError(f"İş akışı bulunamadı: {workflow_id}")
             
