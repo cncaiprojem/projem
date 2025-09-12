@@ -770,18 +770,20 @@ async def process_batch_job(
                     options=options
                 )
                 
-                # DATA INTEGRITY FIX: Use ID mapping instead of zip() to prevent data corruption
+                # DATA INTEGRITY FIX: Use ID mapping from results to prevent data corruption
                 # Create a mapping of item_id to result for safe matching
                 result_map = {}
-                for idx, result in enumerate(results):
-                    if idx < len(batch_job.items):
-                        # Map by position initially, but should be improved to use unique IDs
-                        result_map[batch_job.items[idx].item_id] = result
+                for result in results:
+                    if hasattr(result, 'item_id') and result.item_id:
+                        result_map[result.item_id] = result
                 
                 # Update batch items with results using ID mapping
                 for item in batch_job.items:
-                    if item.item_id in result_map:
-                        result = result_map[item.item_id]
+                    # Find result by matching the item_id from the data
+                    item_data_id = item.data.get("item_id") if item.data else None
+                    
+                    if item_data_id and item_data_id in result_map:
+                        result = result_map[item_data_id]
                         item.status = BatchItemStatus.COMPLETED if result.success else BatchItemStatus.FAILED
                         item.output_data = result.dict()
                         item.processing_time_ms = result.conversion_time_ms if hasattr(result, 'conversion_time_ms') else None
@@ -798,18 +800,20 @@ async def process_batch_job(
                     options=options
                 )
                 
-                # DATA INTEGRITY FIX: Use ID mapping instead of zip() to prevent data corruption
+                # DATA INTEGRITY FIX: Use ID mapping from reports to prevent data corruption
                 # Create a mapping of item_id to report for safe matching
                 report_map = {}
-                for idx, report in enumerate(reports):
-                    if idx < len(batch_job.items):
-                        # Map by position initially, but should be improved to use unique IDs
-                        report_map[batch_job.items[idx].item_id] = report
+                for report in reports:
+                    if hasattr(report, 'item_id') and report.item_id:
+                        report_map[report.item_id] = report
                 
                 # Update batch items with results using ID mapping
                 for item in batch_job.items:
-                    if item.item_id in report_map:
-                        report = report_map[item.item_id]
+                    # Find report by matching the item_id from the data
+                    item_data_id = item.data.get("item_id") if item.data else None
+                    
+                    if item_data_id and item_data_id in report_map:
+                        report = report_map[item_data_id]
                         item.status = BatchItemStatus.COMPLETED if report.overall_passed else BatchItemStatus.FAILED
                         item.output_data = report.dict()
                     else:
@@ -852,11 +856,23 @@ async def process_batch_job(
                     options=options or BatchOptions()
                 )
                 
-                # Update batch job items
-                for item, result in zip(batch_job.items, results.items):
-                    item.status = BatchItemStatus[result.status.value.upper()]
-                    item.output_data = result.result if result.result else None
-                    item.error = result.error
+                # Update batch job items - safely handle results
+                if hasattr(results, 'results') and isinstance(results.results, list):
+                    # Map results back to items using safe iteration
+                    for idx, item in enumerate(batch_job.items):
+                        if idx < len(results.results):
+                            result = results.results[idx]
+                            if hasattr(result, 'status'):
+                                item.status = BatchItemStatus.COMPLETED if result else BatchItemStatus.FAILED
+                            item.output_data = result if result else None
+                        else:
+                            item.status = BatchItemStatus.FAILED
+                            item.error = "No result returned"
+                else:
+                    # Fallback for unexpected result format
+                    for item in batch_job.items:
+                        item.status = BatchItemStatus.FAILED
+                        item.error = "Unexpected result format"
                 await db.commit()
             
             # Update batch job completion

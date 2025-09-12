@@ -54,6 +54,7 @@ class QualityCheckType(str, Enum):
 
 class ConversionResult(BaseModel):
     """Result of format conversion."""
+    item_id: Optional[str] = Field(default=None, description="Unique item ID for mapping")
     input_file: str = Field(description="Giriş dosyası")
     output_file: str = Field(description="Çıkış dosyası")
     source_format: str = Field(description="Kaynak format")
@@ -115,6 +116,7 @@ class QualityCheckResult(BaseModel):
 
 class QualityReport(BaseModel):
     """Quality report for a model."""
+    item_id: Optional[str] = Field(default=None, description="Unique item ID for mapping")
     model_id: str = Field(description="Model ID")
     check_results: List[QualityCheckResult] = Field(default_factory=list)
     overall_passed: bool = Field(default=True)
@@ -182,19 +184,23 @@ class BatchOperations:
             options = options or BatchOptions()
             results = []
             
-            # Create batch items
+            # Create batch items with unique IDs
             batch_items = []
+            item_id_map = {}  # Map item IDs to original model paths
             for model_path in models:
                 output_path = output_dir / f"{model_path.stem}.{target_format}" if output_dir else \
                              model_path.with_suffix(f".{target_format}")
                 
-                batch_items.append(BatchItem(
+                item = BatchItem(
                     data={
+                        "item_id": str(uuid.uuid4()),  # Generate unique ID
                         "input": str(model_path),
                         "output": str(output_path),
                         "format": target_format
                     }
-                ))
+                )
+                batch_items.append(item)
+                item_id_map[item.data["item_id"]] = model_path
             
             # Define conversion operation
             async def convert_single(data: Dict[str, Any]) -> ConversionResult:
@@ -211,6 +217,7 @@ class BatchOperations:
                     duration_ms = (datetime.now(UTC) - start_time).total_seconds() * 1000
                     
                     return ConversionResult(
+                        item_id=data.get("item_id"),  # Include item ID for mapping
                         input_file=data["input"],
                         output_file=data["output"],
                         source_format=Path(data["input"]).suffix[1:],
@@ -224,6 +231,7 @@ class BatchOperations:
                 except Exception as e:
                     logger.error(f"Dönüştürme hatası: {e}")
                     return ConversionResult(
+                        item_id=data.get("item_id"),  # Include item ID for mapping
                         input_file=data["input"],
                         output_file=data["output"],
                         source_format=Path(data["input"]).suffix[1:],
@@ -387,25 +395,33 @@ class BatchOperations:
             options = options or BatchOptions()
             reports = []
             
-            # Create batch items
+            # Create batch items with unique IDs
             batch_items = []
+            item_id_map = {}  # Map item IDs to original model paths
             for model_path in model_paths:
+                item_id = str(uuid.uuid4())
                 batch_items.append(BatchItem(
                     data={
+                        "item_id": item_id,  # Include unique ID
                         "model_path": str(model_path),
                         "checks": checks
                     }
                 ))
+                item_id_map[item_id] = model_path
             
             # Define quality check operation
             async def check_model(data: Dict[str, Any]) -> QualityReport:
                 model_path = Path(data["model_path"])
                 checks = data["checks"]
+                item_id = data.get("item_id")  # Get item ID
                 
                 # Load model
                 doc = await self.document_manager.open_document(str(model_path))
                 
-                report = QualityReport(model_id=model_path.stem)
+                report = QualityReport(
+                    item_id=item_id,  # Include item ID for mapping
+                    model_id=model_path.stem
+                )
                 
                 try:
                     # Run each check

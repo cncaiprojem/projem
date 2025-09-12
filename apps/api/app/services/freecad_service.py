@@ -1547,32 +1547,50 @@ class UltraEnterpriseFreeCADService:
                 
                 # Prepare FreeCAD script based on operation
                 if operation == "analyze":
-                    script_content = f"""
+                    # SECURITY FIX: Use parameters.json file instead of f-string injection
+                    script_content = """
 import FreeCAD
 import Part
+import json
+import sys
+
+# Load parameters from file
+with open('parameters.json', 'r') as f:
+    params = json.load(f)
+
+model_path = params.get('model_path')
+if not model_path:
+    print(json.dumps({'error': 'Model path not provided'}))
+    sys.exit(1)
 
 # Load document
-doc = FreeCAD.open(r"{model_path}")
+try:
+    doc = FreeCAD.open(model_path)
+except Exception as e:
+    print(json.dumps({'error': f'Failed to open model: {str(e)}'}))
+    sys.exit(1)
 
 # Analyze model
-results = {{}}
+results = {}
 for obj in doc.Objects:
     if hasattr(obj, 'Shape'):
         shape = obj.Shape
-        results[obj.Label] = {{
+        results[obj.Label] = {
             'volume': shape.Volume,
             'area': shape.Area,
             'center_of_mass': list(shape.CenterOfMass),
-            'bounding_box': {{
+            'bounding_box': {
                 'min': [shape.BoundBox.XMin, shape.BoundBox.YMin, shape.BoundBox.ZMin],
                 'max': [shape.BoundBox.XMax, shape.BoundBox.YMax, shape.BoundBox.ZMax]
-            }},
+            },
             'is_valid': shape.isValid(),
             'is_closed': shape.isClosed() if hasattr(shape, 'isClosed') else None
-        }}
+        }
 
 print(json.dumps(results))
 """
+                    # Add model_path to parameters for analyze operation
+                    parameters["model_path"] = str(model_path)
                 elif operation == "convert":
                     # SECURITY FIX: Use parameters.json file instead of f-string injection
                     script_content = """
