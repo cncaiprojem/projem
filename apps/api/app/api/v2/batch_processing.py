@@ -36,6 +36,7 @@ from ...models.batch_processing import (
 )
 from ...models.enums import (
     BatchStatus,
+    BatchItemStatus,
     ProcessingStrategy,
     WorkflowStatus,
     JobTriggerType
@@ -221,11 +222,24 @@ async def submit_batch_job(
             await db.commit()
             await db.refresh(batch_job)
             
-            # Create batch items
+            # Create and persist BatchJobItem records to database
             batch_items = []
             for item_data in request.items:
+                # Create database record for each batch item
+                batch_item_record = BatchJobItem(
+                    batch_job_id=batch_job.id,
+                    item_id=str(uuid.uuid4()),
+                    input_data=item_data,
+                    status=BatchItemStatus.PENDING
+                )
+                db.add(batch_item_record)
+                
+                # Create BatchItem for processing
                 batch_item = BatchItem(data=item_data)
                 batch_items.append(batch_item)
+            
+            # Commit all batch items to database
+            await db.commit()
             
             # Schedule background processing
             background_tasks.add_task(
@@ -757,10 +771,10 @@ async def process_batch_job(
                 
                 # Update batch items with results
                 for item, result in zip(batch_job.items, results):
-                    item.status = "completed" if result.success else "failed"
-                    item.result = json.dumps(result.dict())
-                    item.processed_at = datetime.now(UTC)
-                    
+                    item.status = BatchItemStatus.COMPLETED if result.success else BatchItemStatus.FAILED
+                    item.output_data = result.dict()
+                    item.processing_time_ms = result.conversion_time_ms if hasattr(result, 'conversion_time_ms') else None
+                await db.commit()
             elif operation == "quality_check":
                 # Quality check batch operation
                 reports = await batch_ops.batch_quality_check(
@@ -771,10 +785,9 @@ async def process_batch_job(
                 
                 # Update batch items with results
                 for item, report in zip(batch_job.items, reports):
-                    item.status = "completed" if report.overall_passed else "warning"
-                    item.result = json.dumps(report.dict())
-                    item.processed_at = datetime.now(UTC)
-                    
+                    item.status = BatchItemStatus.COMPLETED if report.overall_passed else BatchItemStatus.FAILED
+                    item.output_data = report.dict()
+                await db.commit()
             elif operation == "freecad_process":
                 # FreeCAD processing batch operation
                 for item in batch_job.items:
@@ -786,16 +799,14 @@ async def process_batch_job(
                             parameters=item.data.get("parameters", {})
                         )
                         
-                        item.status = "completed"
-                        item.result = json.dumps(result)
-                        item.processed_at = datetime.now(UTC)
+                        item.status = BatchItemStatus.COMPLETED
+                        item.output_data = result
                         batch_job.successful_items += 1
                         
                     except Exception as e:
                         logger.error(f"Error processing item {item.item_id}: {e}")
-                        item.status = "failed"
+                        item.status = BatchItemStatus.FAILED
                         item.error = str(e)
-                        item.processed_at = datetime.now(UTC)
                         batch_job.failed_items += 1
                     
                     batch_job.processed_items += 1
@@ -815,17 +826,17 @@ async def process_batch_job(
                 
                 # Update batch job items
                 for item, result in zip(batch_job.items, results.items):
-                    item.status = result.status.value
-                    item.result = json.dumps(result.result) if result.result else None
+                    item.status = BatchItemStatus[result.status.value.upper()]
+                    item.output_data = result.result if result.result else None
                     item.error = result.error
-                    item.processed_at = datetime.now(UTC)
+                await db.commit()
             
             # Update batch job completion
             batch_job.status = BatchStatus.COMPLETED
             batch_job.end_time = datetime.now(UTC)
             batch_job.processed_items = len(batch_items)
-            batch_job.successful_items = sum(1 for item in batch_job.items if item.status == "completed")
-            batch_job.failed_items = sum(1 for item in batch_job.items if item.status == "failed")
+            batch_job.successful_items = sum(1 for item in batch_job.items if item.status == BatchItemStatus.COMPLETED)
+            batch_job.failed_items = sum(1 for item in batch_job.items if item.status == BatchItemStatus.FAILED)
             
             await db.commit()
             logger.info(f"Batch job {batch_job_id} completed successfully")
@@ -846,7 +857,7 @@ async def execute_workflow_async(
     options: Optional[ExecutionOptions]
 ) -> None:
     """Execute workflow in background."""
-    from ...services.workflow_automation import WorkflowAutomation
+    from ...services.workflow_automation import WorkflowEngine, Workflow, WorkflowStep, ExecutionOptions as WfExecutionOptions
     from ...services.freecad_service import FreeCADService
     
     async with AsyncSessionLocal() as db:
@@ -864,12 +875,11 @@ async def execute_workflow_async(
                 return
             
             # Update status to running
-            workflow_exec.status = "running"
+            workflow_exec.status = WorkflowStatus.RUNNING
             workflow_exec.start_time = datetime.now(UTC)
             await db.commit()
             
-            # Initialize workflow automation
-            workflow_automation = WorkflowAutomation()
+            # Use the global workflow_engine instance (singleton)
             freecad_service = FreeCADService(db)
             
             # Register FreeCAD action handlers
@@ -888,26 +898,26 @@ async def execute_workflow_async(
                     return {"freecad_result": result}
                 return {}
             
-            # Register handlers for specific step types
-            workflow_automation.register_action_handler("freecad_process", freecad_handler)
+            # Register handlers for specific step types with the global engine
+            workflow_engine.register_action_handler("freecad_process", freecad_handler)
             
-            # Load workflow from definition
-            workflow = workflow_automation.load_workflow_from_dict({
-                "workflow_id": workflow_def.workflow_id,
-                "name": workflow_def.name,
-                "steps": workflow_def.steps,
-                "entry_point": workflow_def.entry_point
-            })
+            # Create workflow from definition
+            workflow = Workflow(
+                id=workflow_def.workflow_id,
+                name=workflow_def.name,
+                steps=[WorkflowStep(**step) for step in workflow_def.steps],
+                entry_point=workflow_def.entry_point
+            )
             
-            # Execute workflow
-            result = await workflow_automation.execute_workflow(
+            # Execute workflow using the global engine
+            result = await workflow_engine.execute_workflow(
                 workflow=workflow,
                 input_data=input_data,
-                options=options or ExecutionOptions()
+                options=options or WfExecutionOptions()
             )
             
             # Update workflow execution with results
-            workflow_exec.status = "completed" if result.success else "failed"
+            workflow_exec.status = WorkflowStatus.COMPLETED if result.success else WorkflowStatus.FAILED
             workflow_exec.end_time = datetime.now(UTC)
             workflow_exec.step_results = result.step_results
             workflow_exec.context = result.context
@@ -921,7 +931,7 @@ async def execute_workflow_async(
         except Exception as e:
             logger.error(f"Error executing workflow {workflow_exec_id}: {e}")
             if workflow_exec:
-                workflow_exec.status = "failed"
+                workflow_exec.status = WorkflowStatus.FAILED
                 workflow_exec.end_time = datetime.now(UTC)
                 workflow_exec.error = str(e)
                 await db.commit()
