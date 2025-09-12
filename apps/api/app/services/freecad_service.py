@@ -1574,34 +1574,62 @@ for obj in doc.Objects:
 print(json.dumps(results))
 """
                 elif operation == "convert":
-                    target_format = parameters.get("format", "step")
-                    output_path = parameters.get("output_path", model_path.with_suffix(f".{target_format}"))
-                    script_content = f"""
+                    # SECURITY FIX: Use parameters.json file instead of f-string injection
+                    script_content = """
 import FreeCAD
 import Part
+import json
+import sys
+from pathlib import Path
+
+# Load parameters from JSON file (passed as first argument)
+params_file = sys.argv[1] if len(sys.argv) > 1 else "parameters.json"
+with open(params_file, 'r') as f:
+    parameters = json.load(f)
+
+# Get safe parameters from JSON
+model_path = parameters.get("model_path")
+target_format = parameters.get("format", "step")
+output_path = parameters.get("output_path")
 
 # Load document
-doc = FreeCAD.open(r"{model_path}")
+doc = FreeCAD.open(model_path)
 
 # Export to target format
-if "{target_format}" == "step":
-    Part.export(doc.Objects, r"{output_path}")
-elif "{target_format}" == "stl":
+if target_format == "step":
+    Part.export(doc.Objects, output_path)
+elif target_format == "stl":
     import Mesh
-    Mesh.export(doc.Objects, r"{output_path}")
+    Mesh.export(doc.Objects, output_path)
 else:
-    Part.export(doc.Objects, r"{output_path}")
+    Part.export(doc.Objects, output_path)
 
-print(json.dumps({{'success': True, 'output': r"{output_path}"}}))
+print(json.dumps({'success': True, 'output': output_path}))
 """
+                    # Update parameters to include model_path
+                    parameters["model_path"] = str(model_path)
+                    if "output_path" not in parameters:
+                        parameters["output_path"] = str(model_path.with_suffix(f".{parameters.get('format', 'step')}"))
                 elif operation == "optimize":
-                    script_content = f"""
+                    # SECURITY FIX: Use parameters.json file instead of f-string injection
+                    script_content = """
 import FreeCAD
 import Part
 import MeshPart
+import json
+import sys
+from pathlib import Path
+
+# Load parameters from JSON file (passed as first argument)
+params_file = sys.argv[1] if len(sys.argv) > 1 else "parameters.json"
+with open(params_file, 'r') as f:
+    parameters = json.load(f)
+
+# Get safe parameters from JSON
+model_path = parameters.get("model_path")
 
 # Load document
-doc = FreeCAD.open(r"{model_path}")
+doc = FreeCAD.open(model_path)
 
 # Optimize meshes
 optimized_count = 0
@@ -1615,53 +1643,82 @@ for obj in doc.Objects:
         optimized_count += 1
 
 # Save optimized model
-output_path = r"{model_path.with_suffix('.optimized.FCStd')}"
+base_path = Path(model_path)
+output_path = str(base_path.with_suffix('.optimized.FCStd'))
 doc.saveAs(output_path)
 
-print(json.dumps({{'optimized_objects': optimized_count, 'output': output_path}}))
+print(json.dumps({'optimized_objects': optimized_count, 'output': output_path}))
 """
+                    # Update parameters to include model_path
+                    parameters["model_path"] = str(model_path)
                 elif operation == "mesh_quality":
-                    script_content = f"""
+                    # SECURITY FIX: Use parameters.json file instead of f-string injection
+                    script_content = """
 import FreeCAD
 import Mesh
 import json
+import sys
+
+# Load parameters from JSON file (passed as first argument)
+params_file = sys.argv[1] if len(sys.argv) > 1 else "parameters.json"
+with open(params_file, 'r') as f:
+    parameters = json.load(f)
+
+# Get safe parameters from JSON
+model_path = parameters.get("model_path")
 
 # Load document
-doc = FreeCAD.open(r"{model_path}")
+doc = FreeCAD.open(model_path)
 
 # Check mesh quality
-quality_results = {{}}
+quality_results = {}
 for obj in doc.Objects:
     if hasattr(obj, 'Mesh'):
         mesh = obj.Mesh
-        quality_results[obj.Label] = {{
+        quality_results[obj.Label] = {
             'face_count': mesh.CountFacets,
             'point_count': mesh.CountPoints,
             'volume': mesh.Volume,
             'has_non_manifolds': mesh.hasNonManifolds(),
             'has_self_intersections': mesh.hasSelfIntersections()
-        }}
+        }
 
 print(json.dumps(quality_results))
 """
+                    # Update parameters to include model_path
+                    parameters["model_path"] = str(model_path)
                 else:
                     # Generic operation - just load and validate
-                    script_content = f"""
+                    # SECURITY FIX: Use parameters.json file instead of f-string injection
+                    script_content = """
 import FreeCAD
 import json
+import sys
+
+# Load parameters from JSON file (passed as first argument)
+params_file = sys.argv[1] if len(sys.argv) > 1 else "parameters.json"
+with open(params_file, 'r') as f:
+    parameters = json.load(f)
+
+# Get safe parameters from JSON
+model_path = parameters.get("model_path")
+operation = parameters.get("operation", "unknown")
 
 # Load document
-doc = FreeCAD.open(r"{model_path}")
+doc = FreeCAD.open(model_path)
 
 # Basic validation
-result = {{
+result = {
     'objects': len(doc.Objects),
-    'operation': "{operation}",
+    'operation': operation,
     'success': True
-}}
+}
 
 print(json.dumps(result))
 """
+                    # Update parameters to include model_path and operation
+                    parameters["model_path"] = str(model_path)
+                    parameters["operation"] = operation
                 
                 # Execute FreeCAD operation in thread pool to avoid blocking
                 def _run_sync_operation():

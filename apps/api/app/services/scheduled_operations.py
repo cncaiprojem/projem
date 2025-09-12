@@ -712,14 +712,6 @@ class ScheduledOperations:
         logger.warning(f"İş kaçırıldı: {event.job_id}")
 
 
-# Global scheduler instance
-_scheduler_instance: Optional[ScheduledOperations] = None
-
-
-def get_scheduler() -> ScheduledOperations:
-    """Get or create global scheduler instance."""
-    global _scheduler_instance
-    if _scheduler_instance is None:
-        _scheduler_instance = ScheduledOperations()
-        _scheduler_instance.start()
-    return _scheduler_instance
+# REMOVED: Duplicate singleton pattern - use the one in batch_processing.py instead
+# The get_scheduler() function in batch_processing.py should be the single source of truth
+# to avoid conflicts and duplicate scheduler instances

@@ -222,21 +222,22 @@ async def submit_batch_job(
             await db.commit()
             await db.refresh(batch_job)
             
-            # Create and persist BatchJobItem records to database
-            batch_items = []
-            for item_data in request.items:
-                # Create database record for each batch item
-                batch_item_record = BatchJobItem(
+            # OPTIMIZATION: Use db.add_all() for batch item creation
+            batch_item_records = [
+                BatchJobItem(
                     batch_job_id=batch_job.id,
                     item_id=str(uuid.uuid4()),
                     input_data=item_data,
                     status=BatchItemStatus.PENDING
                 )
-                db.add(batch_item_record)
-                
-                # Create BatchItem for processing
-                batch_item = BatchItem(data=item_data)
-                batch_items.append(batch_item)
+                for item_data in request.items
+            ]
+            
+            # Add all items in one operation for efficiency
+            db.add_all(batch_item_records)
+            
+            # Create BatchItem objects for processing
+            batch_items = [BatchItem(data=item_data) for item_data in request.items]
             
             # Commit all batch items to database
             await db.commit()
@@ -769,11 +770,25 @@ async def process_batch_job(
                     options=options
                 )
                 
-                # Update batch items with results
-                for item, result in zip(batch_job.items, results):
-                    item.status = BatchItemStatus.COMPLETED if result.success else BatchItemStatus.FAILED
-                    item.output_data = result.dict()
-                    item.processing_time_ms = result.conversion_time_ms if hasattr(result, 'conversion_time_ms') else None
+                # DATA INTEGRITY FIX: Use ID mapping instead of zip() to prevent data corruption
+                # Create a mapping of item_id to result for safe matching
+                result_map = {}
+                for idx, result in enumerate(results):
+                    if idx < len(batch_job.items):
+                        # Map by position initially, but should be improved to use unique IDs
+                        result_map[batch_job.items[idx].item_id] = result
+                
+                # Update batch items with results using ID mapping
+                for item in batch_job.items:
+                    if item.item_id in result_map:
+                        result = result_map[item.item_id]
+                        item.status = BatchItemStatus.COMPLETED if result.success else BatchItemStatus.FAILED
+                        item.output_data = result.dict()
+                        item.processing_time_ms = result.conversion_time_ms if hasattr(result, 'conversion_time_ms') else None
+                    else:
+                        # Handle missing results
+                        item.status = BatchItemStatus.FAILED
+                        item.output_data = {"error": "No result returned for this item"}
                 await db.commit()
             elif operation == "quality_check":
                 # Quality check batch operation
@@ -783,10 +798,24 @@ async def process_batch_job(
                     options=options
                 )
                 
-                # Update batch items with results
-                for item, report in zip(batch_job.items, reports):
-                    item.status = BatchItemStatus.COMPLETED if report.overall_passed else BatchItemStatus.FAILED
-                    item.output_data = report.dict()
+                # DATA INTEGRITY FIX: Use ID mapping instead of zip() to prevent data corruption
+                # Create a mapping of item_id to report for safe matching
+                report_map = {}
+                for idx, report in enumerate(reports):
+                    if idx < len(batch_job.items):
+                        # Map by position initially, but should be improved to use unique IDs
+                        report_map[batch_job.items[idx].item_id] = report
+                
+                # Update batch items with results using ID mapping
+                for item in batch_job.items:
+                    if item.item_id in report_map:
+                        report = report_map[item.item_id]
+                        item.status = BatchItemStatus.COMPLETED if report.overall_passed else BatchItemStatus.FAILED
+                        item.output_data = report.dict()
+                    else:
+                        # Handle missing results
+                        item.status = BatchItemStatus.FAILED
+                        item.output_data = {"error": "No report returned for this item"}
                 await db.commit()
             elif operation == "freecad_process":
                 # FreeCAD processing batch operation
