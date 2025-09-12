@@ -129,7 +129,7 @@ def upgrade() -> None:
         sa.Column('input_data', postgresql.JSONB(astext_type=sa.Text()), nullable=True, server_default='{}'),
         sa.Column('context', postgresql.JSONB(astext_type=sa.Text()), nullable=True, server_default='{}'),
         sa.Column('step_results', postgresql.JSONB(astext_type=sa.Text()), nullable=True, server_default='{}'),
-        sa.Column('start_time', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=True),
+        sa.Column('start_time', sa.DateTime(timezone=True), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
         sa.Column('end_time', sa.DateTime(timezone=True), nullable=True),
         sa.Column('duration_ms', sa.Float(), nullable=True),
         sa.Column('error', sa.Text(), nullable=True),

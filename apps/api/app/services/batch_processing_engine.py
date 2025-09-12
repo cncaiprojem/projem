@@ -17,6 +17,7 @@ import hashlib
 import json
 import multiprocessing
 import os
+import random
 import time
 import uuid
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
@@ -712,8 +713,10 @@ class BatchProcessingEngine:
                 
                 if attempt < options.max_retries:
                     item.status = BatchItemStatus.RETRYING
-                    # Exponential backoff with jitter
-                    delay = (options.retry_delay_ms / 1000) * (2 ** attempt) + (0.1 * attempt)
+                    # Exponential backoff with proper jitter
+                    base_delay = (options.retry_delay_ms / 1000) * (2 ** attempt)
+                    jitter = random.uniform(0, base_delay * 0.1)  # Add up to 10% jitter
+                    delay = base_delay + jitter
                     await asyncio.sleep(delay)
                 else:
                     item.status = BatchItemStatus.FAILED

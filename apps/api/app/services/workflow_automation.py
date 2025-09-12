@@ -171,6 +171,7 @@ class ExecutionOptions(BaseModel):
     async_execution: bool = Field(default=True, description="Asenkron yürütme")
     save_intermediate: bool = Field(default=True, description="Ara sonuçları kaydet")
     parallel_limit: int = Field(default=10, ge=1, le=100, description="Maksimum paralel adım")
+    parallel_timeout: Optional[int] = Field(default=None, ge=1, le=3600, description="Paralel adım zaman aşımı (saniye)")
     retry_delay_ms: int = Field(default=1000, ge=100, le=60000, description="Tekrar gecikme süresi")
     checkpoint_enabled: bool = Field(default=True, description="Checkpoint etkin")
     dry_run: bool = Field(default=False, description="Kuru çalıştırma")
@@ -387,16 +388,19 @@ class StepExecutor:
                 handler = self.action_handlers[step_id]
                 
                 # Execute with timeout
+                # Use configurable timeout with fallback to calculated default
+                parallel_timeout = getattr(options, 'parallel_timeout', None) or (options.parallel_limit * 10)
+                
                 if asyncio.iscoroutinefunction(handler):
                     result = await asyncio.wait_for(
                         handler({**context, **input_data}),
-                        timeout=options.parallel_limit * 10  # Default timeout for parallel tasks
+                        timeout=parallel_timeout
                     )
                 else:
                     loop = asyncio.get_event_loop()
                     result = await asyncio.wait_for(
                         loop.run_in_executor(None, handler, {**context, **input_data}),
-                        timeout=options.parallel_limit * 10
+                        timeout=parallel_timeout
                     )
                 
                 return result

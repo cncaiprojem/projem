@@ -35,6 +35,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -1505,6 +1506,192 @@ class UltraEnterpriseFreeCADService:
             "errors": result.errors
         }
     
+    async def process_model(
+        self,
+        model_path: Path,
+        operation: str,
+        parameters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Process a FreeCAD model with specified operation for batch processing.
+        
+        Args:
+            model_path: Path to the FreeCAD model file
+            operation: Operation type (analyze, convert, optimize, etc.)
+            parameters: Operation-specific parameters
+            
+        Returns:
+            Dictionary with operation results
+        """
+        from ..db import SessionLocal
+        
+        parameters = parameters or {}
+        correlation_id = get_correlation_id()
+        job_id = str(uuid.uuid4())
+        
+        with create_span(
+            "process_model",
+            attributes={
+                "model.path": str(model_path),
+                "operation.type": operation,
+                "job.id": job_id
+            }
+        ) as span:
+            try:
+                # Validate model file exists
+                if not model_path.exists():
+                    raise FreeCADException(
+                        f"Model file not found: {model_path}",
+                        FreeCADErrorCode.VALIDATION_FAILED,
+                        f"Model dosyası bulunamadı: {model_path}"
+                    )
+                
+                # Prepare FreeCAD script based on operation
+                if operation == "analyze":
+                    script_content = f"""
+import FreeCAD
+import Part
+
+# Load document
+doc = FreeCAD.open(r"{model_path}")
+
+# Analyze model
+results = {{}}
+for obj in doc.Objects:
+    if hasattr(obj, 'Shape'):
+        shape = obj.Shape
+        results[obj.Label] = {{
+            'volume': shape.Volume,
+            'area': shape.Area,
+            'center_of_mass': list(shape.CenterOfMass),
+            'bounding_box': {{
+                'min': [shape.BoundBox.XMin, shape.BoundBox.YMin, shape.BoundBox.ZMin],
+                'max': [shape.BoundBox.XMax, shape.BoundBox.YMax, shape.BoundBox.ZMax]
+            }},
+            'is_valid': shape.isValid(),
+            'is_closed': shape.isClosed() if hasattr(shape, 'isClosed') else None
+        }}
+
+print(json.dumps(results))
+"""
+                elif operation == "convert":
+                    target_format = parameters.get("format", "step")
+                    output_path = parameters.get("output_path", model_path.with_suffix(f".{target_format}"))
+                    script_content = f"""
+import FreeCAD
+import Part
+
+# Load document
+doc = FreeCAD.open(r"{model_path}")
+
+# Export to target format
+if "{target_format}" == "step":
+    Part.export(doc.Objects, r"{output_path}")
+elif "{target_format}" == "stl":
+    import Mesh
+    Mesh.export(doc.Objects, r"{output_path}")
+else:
+    Part.export(doc.Objects, r"{output_path}")
+
+print(json.dumps({{'success': True, 'output': r"{output_path}"}}))
+"""
+                elif operation == "optimize":
+                    script_content = f"""
+import FreeCAD
+import Part
+import MeshPart
+
+# Load document
+doc = FreeCAD.open(r"{model_path}")
+
+# Optimize meshes
+optimized_count = 0
+for obj in doc.Objects:
+    if hasattr(obj, 'Shape'):
+        shape = obj.Shape
+        # Remove degenerate edges
+        shape.removeInternalWires(True)
+        shape.fix(0.1, 0, 1)
+        obj.Shape = shape
+        optimized_count += 1
+
+# Save optimized model
+output_path = r"{model_path.with_suffix('.optimized.FCStd')}"
+doc.saveAs(output_path)
+
+print(json.dumps({{'optimized_objects': optimized_count, 'output': output_path}}))
+"""
+                elif operation == "mesh_quality":
+                    script_content = f"""
+import FreeCAD
+import Mesh
+import json
+
+# Load document
+doc = FreeCAD.open(r"{model_path}")
+
+# Check mesh quality
+quality_results = {{}}
+for obj in doc.Objects:
+    if hasattr(obj, 'Mesh'):
+        mesh = obj.Mesh
+        quality_results[obj.Label] = {{
+            'face_count': mesh.CountFacets,
+            'point_count': mesh.CountPoints,
+            'volume': mesh.Volume,
+            'has_non_manifolds': mesh.hasNonManifolds(),
+            'has_self_intersections': mesh.hasSelfIntersections()
+        }}
+
+print(json.dumps(quality_results))
+"""
+                else:
+                    # Generic operation - just load and validate
+                    script_content = f"""
+import FreeCAD
+import json
+
+# Load document
+doc = FreeCAD.open(r"{model_path}")
+
+# Basic validation
+result = {{
+    'objects': len(doc.Objects),
+    'operation': "{operation}",
+    'success': True
+}}
+
+print(json.dumps(result))
+"""
+                
+                # Execute FreeCAD operation using existing infrastructure
+                with SessionLocal() as db:
+                    result = self.execute_freecad_operation(
+                        db=db,
+                        user_id=1,  # System user for batch operations
+                        operation_type=operation,
+                        script_content=script_content,
+                        parameters=parameters,
+                        output_formats=[],
+                        job_id=job_id,
+                        correlation_id=correlation_id
+                    )
+                
+                span.set_attribute("result.success", result.success)
+                
+                return {
+                    "success": result.success,
+                    "operation": operation,
+                    "model": str(model_path),
+                    "output": result.output,
+                    "metadata": result.metadata,
+                    "execution_time_ms": result.execution_time_ms
+                }
+                
+            except Exception as e:
+                logger.error(f"Error processing model {model_path}: {e}")
+                span.set_attribute("error", str(e))
+                raise
+    
     def shutdown(self):
         """Graceful shutdown of the service."""
         logger.info("freecad_service_shutdown_initiated")
@@ -1525,3 +1712,6 @@ class UltraEnterpriseFreeCADService:
 
 # Global service instance
 freecad_service = UltraEnterpriseFreeCADService()
+
+# Alias for backward compatibility and simpler imports
+FreeCADService = UltraEnterpriseFreeCADService

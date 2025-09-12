@@ -113,7 +113,8 @@ class BatchJob(Base, TimestampMixin):
     def validate_batch_id(self, key: str, value: str) -> str:
         """Validate batch ID format."""
         if not value or len(value) > 64:
-            raise ValueError("Batch ID geçersiz")
+            # Use error code instead of hardcoded message for localization
+            raise ValueError("INVALID_BATCH_ID")
         return value
     
     @hybrid_property
@@ -391,26 +392,27 @@ class ScheduledJobExecution(Base, TimestampMixin):
 
 
 # Event listeners for validation and auto-updates
+def update_duration_metrics(target):
+    """Update duration metrics for any model with start/end times."""
+    if target.start_time and target.end_time:
+        delta = target.end_time - target.start_time
+        target.duration_ms = delta.total_seconds() * 1000
+
+
 @event.listens_for(BatchJob, "before_insert")
 @event.listens_for(BatchJob, "before_update")
 def update_batch_job_metrics(mapper, connection, target):
     """Update batch job metrics before save."""
-    if target.start_time and target.end_time:
-        delta = target.end_time - target.start_time
-        target.duration_ms = delta.total_seconds() * 1000
+    update_duration_metrics(target)
 
 
 @event.listens_for(WorkflowExecution, "before_update")
 def update_workflow_execution_metrics(mapper, connection, target):
     """Update workflow execution metrics before save."""
-    if target.start_time and target.end_time:
-        delta = target.end_time - target.start_time
-        target.duration_ms = delta.total_seconds() * 1000
+    update_duration_metrics(target)
 
 
 @event.listens_for(ScheduledJobExecution, "before_update")
 def update_scheduled_job_execution_metrics(mapper, connection, target):
     """Update scheduled job execution metrics before save."""
-    if target.start_time and target.end_time:
-        delta = target.end_time - target.start_time
-        target.duration_ms = delta.total_seconds() * 1000
+    update_duration_metrics(target)

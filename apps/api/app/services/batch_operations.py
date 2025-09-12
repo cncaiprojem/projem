@@ -105,12 +105,119 @@ class QualityCheck(BaseModel):
     
     async def execute(self, document: Any) -> "QualityCheckResult":
         """Execute quality check on document."""
-        # This would be implemented with actual check logic
+        import FreeCAD
+        import Part
+        from ..services.freecad_document_manager import FreeCADDocumentManager
+        
+        issues = []
+        passed = True
+        metadata = {}
+        
+        try:
+            # Perform check based on type
+            if self.type == QualityCheckType.GEOMETRY:
+                # Check geometry validity
+                for obj in document.Objects:
+                    if hasattr(obj, "Shape"):
+                        shape = obj.Shape
+                        
+                        # Check for invalid geometry
+                        if not shape.isValid():
+                            issues.append(f"Geçersiz geometri: {obj.Label}")
+                            passed = False
+                        
+                        # Check for self-intersections
+                        if shape.selfIntersection():
+                            issues.append(f"Kendisiyle kesişen geometri: {obj.Label}")
+                            passed = False
+                        
+                        # Check minimum thickness if specified
+                        if "min_thickness" in self.criteria:
+                            min_thickness = self.criteria["min_thickness"]
+                            if hasattr(shape, "Thickness") and shape.Thickness < min_thickness:
+                                issues.append(f"Minimum kalınlık sağlanmıyor: {obj.Label} ({shape.Thickness}mm < {min_thickness}mm)")
+                                passed = False
+                        
+                        metadata["geometry_count"] = len(document.Objects)
+                        
+            elif self.type == QualityCheckType.TOPOLOGY:
+                # Check topology validity
+                for obj in document.Objects:
+                    if hasattr(obj, "Shape"):
+                        shape = obj.Shape
+                        
+                        # Check for non-manifold edges
+                        edges = shape.Edges
+                        for edge in edges:
+                            if len(edge.Faces) > 2:
+                                issues.append(f"Non-manifold kenar tespit edildi: {obj.Label}")
+                                passed = False
+                                break
+                        
+                        # Check for open shells
+                        if shape.ShapeType == "Shell" and not shape.isClosed():
+                            issues.append(f"Açık kabuk tespit edildi: {obj.Label}")
+                            passed = False
+                        
+                        metadata["edge_count"] = len(edges)
+                        metadata["face_count"] = len(shape.Faces)
+                        
+            elif self.type == QualityCheckType.CONSTRAINTS:
+                # Check constraints validity
+                if "max_faces" in self.criteria:
+                    total_faces = sum(len(obj.Shape.Faces) for obj in document.Objects if hasattr(obj, "Shape"))
+                    if total_faces > self.criteria["max_faces"]:
+                        issues.append(f"Maksimum yüz sayısı aşıldı: {total_faces} > {self.criteria['max_faces']}")
+                        passed = False
+                
+                if "max_vertices" in self.criteria:
+                    total_vertices = sum(len(obj.Shape.Vertexes) for obj in document.Objects if hasattr(obj, "Shape"))
+                    if total_vertices > self.criteria["max_vertices"]:
+                        issues.append(f"Maksimum köşe sayısı aşıldı: {total_vertices} > {self.criteria['max_vertices']}")
+                        passed = False
+                        
+            elif self.type == QualityCheckType.MATERIALS:
+                # Check materials assignment
+                for obj in document.Objects:
+                    if hasattr(obj, "Material") and self.criteria.get("require_material", False):
+                        if not obj.Material:
+                            issues.append(f"Malzeme atanmamış: {obj.Label}")
+                            passed = False
+                            
+            elif self.type == QualityCheckType.PERFORMANCE:
+                # Check performance metrics
+                total_triangles = 0
+                for obj in document.Objects:
+                    if hasattr(obj, "Shape"):
+                        # Estimate triangle count
+                        mesh = obj.Shape.tessellate(1.0)
+                        if mesh:
+                            total_triangles += len(mesh[1])
+                
+                metadata["total_triangles"] = total_triangles
+                
+                if "max_triangles" in self.criteria and total_triangles > self.criteria["max_triangles"]:
+                    issues.append(f"Maksimum üçgen sayısı aşıldı: {total_triangles} > {self.criteria['max_triangles']}")
+                    passed = False
+                    
+            elif self.type == QualityCheckType.STANDARDS:
+                # Check standards compliance
+                # This would check against specific industry standards
+                if "standard" in self.criteria:
+                    standard = self.criteria["standard"]
+                    # Implement standard-specific checks
+                    metadata["standard"] = standard
+                    
+        except Exception as e:
+            issues.append(f"Kontrol hatası: {str(e)}")
+            passed = False
+            
         return QualityCheckResult(
             check_name=self.name,
-            passed=True,
-            issues=[],
-            metadata={}
+            passed=passed,
+            issues=issues,
+            severity=self.severity,
+            metadata=metadata
         )
 
 
@@ -457,18 +564,19 @@ class BatchOperations:
     ) -> QualityCheckResult:
         """Execute a single quality check."""
         try:
-            if check.type == QualityCheckType.GEOMETRY:
-                return await self._check_geometry(document, check)
-            elif check.type == QualityCheckType.TOPOLOGY:
-                return await self._check_topology(document, check)
-            elif check.type == QualityCheckType.CONSTRAINTS:
-                return await self._check_constraints(document, check)
-            elif check.type == QualityCheckType.MATERIALS:
-                return await self._check_materials(document, check)
-            elif check.type == QualityCheckType.PERFORMANCE:
-                return await self._check_performance(document, check)
-            elif check.type == QualityCheckType.STANDARDS:
-                return await self._check_standards(document, check)
+            # Use dictionary mapping for cleaner code
+            check_handlers = {
+                QualityCheckType.GEOMETRY: self._check_geometry,
+                QualityCheckType.TOPOLOGY: self._check_topology,
+                QualityCheckType.CONSTRAINTS: self._check_constraints,
+                QualityCheckType.MATERIALS: self._check_materials,
+                QualityCheckType.PERFORMANCE: self._check_performance,
+                QualityCheckType.STANDARDS: self._check_standards
+            }
+            
+            handler = check_handlers.get(check.type)
+            if handler:
+                return await handler(document, check)
             else:
                 return QualityCheckResult(
                     check_name=check.name,
