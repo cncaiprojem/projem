@@ -802,15 +802,11 @@ async def process_batch_job(
                         
                         item.status = BatchItemStatus.COMPLETED
                         item.output_data = result
-                        batch_job.successful_items += 1
                         
                     except Exception as e:
                         logger.error(f"Error processing item {item.item_id}: {e}")
                         item.status = BatchItemStatus.FAILED
                         item.error = str(e)
-                        batch_job.failed_items += 1
-                    
-                    batch_job.processed_items += 1
                 
                 # Single commit after processing all items
                 await db.commit()
@@ -882,10 +878,13 @@ async def execute_workflow_async(
             workflow_exec.start_time = datetime.now(UTC)
             await db.commit()
             
-            # Use the global workflow_engine instance (singleton)
+            # Create a new WorkflowEngine instance for this execution to avoid race conditions
+            # Each execution gets its own engine instance with its own handler registry
+            execution_engine = WorkflowEngine()
+            
             freecad_service = FreeCADService(db)
             
-            # Register FreeCAD action handlers
+            # Register FreeCAD action handlers for this execution
             async def freecad_handler(context: Dict[str, Any]) -> Dict[str, Any]:
                 """Handle FreeCAD operations in workflow."""
                 model_path = context.get("model_path")
@@ -901,8 +900,8 @@ async def execute_workflow_async(
                     return {"freecad_result": result}
                 return {}
             
-            # Register handlers for specific step types with the global engine
-            workflow_engine.register_action_handler("freecad_process", freecad_handler)
+            # Register handlers for this specific execution's engine
+            execution_engine.register_action_handler("freecad_process", freecad_handler)
             
             # Create workflow from definition
             workflow = Workflow(
@@ -912,8 +911,8 @@ async def execute_workflow_async(
                 entry_point=workflow_def.entry_point
             )
             
-            # Execute workflow using the global engine
-            result = await workflow_engine.execute_workflow(
+            # Execute workflow using the execution-specific engine
+            result = await execution_engine.execute_workflow(
                 workflow=workflow,
                 input_data=input_data,
                 options=options or WfExecutionOptions()

@@ -609,9 +609,10 @@ class BatchOperations:
                     "non_manifold_edges": non_manifold_edges
                 })
                 
-        except ImportError:
-            issues.append("FreeCAD modülü yüklenemedi")
-            passed = True
+        except ImportError as e:
+            logger.error(f"FreeCAD import failed: {e}")
+            issues.append("FreeCAD modülü yüklenemedi, topoloji kontrolü atlandı")
+            passed = False
         except Exception as e:
             issues.append(f"Topoloji kontrol hatası: {str(e)}")
             passed = False
@@ -716,9 +717,10 @@ class BatchOperations:
                     "complexity_score": complexity_score
                 })
                 
-        except ImportError:
-            issues.append("FreeCAD modülü yüklenemedi")
-            passed = True
+        except ImportError as e:
+            logger.error(f"FreeCAD import failed: {e}")
+            issues.append("FreeCAD modülü yüklenemedi, performans kontrolü atlandı")
+            passed = False
         except Exception as e:
             issues.append(f"Performans kontrol hatası: {str(e)}")
             passed = False

@@ -132,10 +132,10 @@ class ProgressTracker:
         
         if self.redis:
             try:
+                # Use JSON serialization for all values to properly handle None as null
                 await self.redis.hset(
                     f"batch:progress:{batch_id}",
-                    mapping={k: json.dumps(v) if isinstance(v, (dict, list)) else str(v) 
-                            for k, v in progress_data.items()}
+                    mapping={k: json.dumps(v) for k, v in progress_data.items()}
                 )
                 await self.redis.expire(f"batch:progress:{batch_id}", 86400)  # 24 hours
             except Exception as e:
@@ -167,9 +167,9 @@ class ProgressTracker:
                 if skipped > 0:
                     await self.redis.hincrby(f"batch:progress:{batch_id}", "skipped", skipped)
                 if current_item is not None:
-                    updates["current_item"] = current_item
+                    updates["current_item"] = json.dumps(current_item)
                 if status is not None:
-                    updates["status"] = status.value
+                    updates["status"] = json.dumps(status.value)
                 
                 if updates:
                     await self.redis.hset(
@@ -219,17 +219,19 @@ class ProgressTracker:
                         # Decode key if bytes
                         key = k.decode() if isinstance(k, bytes) else k
                         
-                        # Decode and parse value
-                        if isinstance(v, bytes):
-                            v_str = v.decode()
-                            # Try to parse as JSON with simple try/except
-                            try:
-                                result[key] = json.loads(v_str)
-                            except (json.JSONDecodeError, ValueError):
-                                # If JSON parsing fails, use as string
-                                result[key] = v_str
-                        else:
-                            result[key] = v
+                        # Decode value if bytes
+                        value = v.decode() if isinstance(v, bytes) else v
+                        
+                        # All values are JSON serialized, so always parse them
+                        try:
+                            result[key] = json.loads(value)
+                        except (json.JSONDecodeError, ValueError):
+                            # Fallback for backwards compatibility with old data
+                            # This handles numeric strings that weren't JSON serialized
+                            if value.isdigit():
+                                result[key] = int(value)
+                            else:
+                                result[key] = value
                     return result
             except Exception as e:
                 logger.warning(f"Redis okuma hatası: {e}")
