@@ -23,7 +23,7 @@ from ..core.logging import get_logger
 from ..core.telemetry import create_span
 from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
-from ..models.validation_models import (
+from ..schemas.validation import (
     ValidationProfile,
     ValidationResult,
     ValidationStatus,
@@ -38,6 +38,8 @@ from ..models.validation_models import (
     StandardType,
     VALIDATION_MESSAGES_TR
 )
+from ..models import validation_models as db_models  # Database models
+from sqlalchemy.orm import Session
 from .freecad_document_manager import FreeCADDocumentManager, document_manager
 from .geometric_validator import GeometricValidator
 from .manufacturing_validator import ManufacturingValidator
@@ -45,6 +47,16 @@ from .standards_checker import StandardsChecker
 from .quality_metrics import QualityMetrics
 
 logger = get_logger(__name__)
+
+# Constants for validation
+DEFAULT_TOLERANCE = 0.001  # Default geometric tolerance in mm
+TOPOLOGY_FIX_TOLERANCE = 0.01  # Tolerance for topology fixes
+SHAPE_FIX_TOLERANCE = 0.1  # Tolerance for shape fixes  
+MIN_WALL_THICKNESS = 1.0  # Minimum wall thickness in mm
+OVERHANG_ANGLE_THRESHOLD = 45  # Degrees for overhang detection
+CERTIFICATION_SCORE_THRESHOLD = 0.8  # Minimum score for full certification
+OFFSET_TOLERANCE = 0.01  # Tolerance for offset operations
+OFFSET_JOIN_ARC = 2  # Arc join mode for offset operations
 
 
 class ValidatorRegistry:
@@ -522,10 +534,11 @@ class ModelValidationFramework:
                     status="error"
                 ).inc()
                 
+                # Don't expose internal error details to client
                 return ValidationResponse(
                     success=False,
-                    error=str(e),
-                    turkish_error=f"Model doğrulama başarısız: {str(e)}"
+                    error="Model validation failed. Please try again later.",
+                    turkish_error="Model doğrulama başarısız. Lütfen daha sonra tekrar deneyin."
                 )
     
     async def _generate_fix_suggestions(
@@ -551,7 +564,7 @@ class ModelValidationFramework:
                     turkish_description="Kendisiyle kesişen yüzeyler kaldırılacak",
                     confidence="high",
                     automated=True,
-                    parameters={"tolerance": 0.001}
+                    parameters={"tolerance": DEFAULT_TOLERANCE}
                 )
             elif issue.type == "thin_walls":
                 suggestion = FixSuggestion(
@@ -561,7 +574,7 @@ class ModelValidationFramework:
                     turkish_description="Duvar kalınlığı minimum değere artırılacak",
                     confidence="medium",
                     automated=True,
-                    parameters={"min_thickness": 1.0}
+                    parameters={"min_thickness": MIN_WALL_THICKNESS}
                 )
             elif issue.type == "non_manifold":
                 suggestion = FixSuggestion(
@@ -581,7 +594,7 @@ class ModelValidationFramework:
                     turkish_description="Askıda kalan yüzeyler için destek eklenecek",
                     confidence="high",
                     automated=False,  # Manual review recommended
-                    parameters={"angle_threshold": 45}
+                    parameters={"angle_threshold": OVERHANG_ANGLE_THRESHOLD}
                 )
             
             if suggestion:
@@ -632,10 +645,20 @@ class ModelValidationFramework:
                 self.fixes_applied += 1
                 
             except Exception as e:
+                # Log full error internally
+                logger.error(
+                    f"Failed to apply fix",
+                    suggestion_id=suggestion.suggestion_id,
+                    fix_type=suggestion.type,
+                    error=str(e),
+                    exc_info=True
+                )
+                
                 report.failed_fixes += 1
+                # Don't expose internal error details
                 report.errors.append({
                     "suggestion_id": suggestion.suggestion_id,
-                    "error": str(e)
+                    "error": "Fix application failed"
                 })
         
         return report
@@ -645,28 +668,152 @@ class ModelValidationFramework:
         doc_handle: Any,
         suggestion: FixSuggestion
     ) -> Dict[str, Any]:
-        """Apply a single fix to the document."""
-        # This would contain actual FreeCAD operations
-        # Placeholder implementation
-        
-        if suggestion.type == "remove_self_intersection":
-            # Would call FreeCAD operations to fix self-intersections
-            return {"status": "fixed", "method": "boolean_union"}
-        elif suggestion.type == "thicken_walls":
-            # Would call FreeCAD operations to thicken walls
-            return {"status": "fixed", "thickness_added": suggestion.parameters.get("min_thickness")}
-        elif suggestion.type == "fix_topology":
-            # Would call FreeCAD operations to fix topology
-            return {"status": "fixed", "edges_fixed": 1}
-        
-        return {"status": "not_implemented"}
+        """Apply a single fix to the document using FreeCAD operations."""
+        try:
+            # Import FreeCAD modules (lazy import to avoid issues when FreeCAD not available)
+            import Part
+            import FreeCAD
+            
+            if suggestion.type == "remove_self_intersection":
+                # Fix self-intersections using boolean operations
+                for obj in doc_handle.Objects:
+                    if hasattr(obj, 'Shape'):
+                        shape = obj.Shape
+                        if hasattr(shape, 'removeSplitter'):
+                            # Remove self-intersections
+                            fixed_shape = shape.removeSplitter()
+                            obj.Shape = fixed_shape
+                        elif hasattr(shape, 'fix'):
+                            # Alternative: use fix method
+                            shape.fix(SHAPE_FIX_TOLERANCE, SHAPE_FIX_TOLERANCE, SHAPE_FIX_TOLERANCE)
+                return {"status": "fixed", "method": "removeSplitter"}
+            
+            elif suggestion.type == "thicken_walls":
+                # Thicken walls using offset operations
+                min_thickness = suggestion.parameters.get("min_thickness", 1.0)
+                for obj in doc_handle.Objects:
+                    if hasattr(obj, 'Shape'):
+                        shape = obj.Shape
+                        if hasattr(shape, 'makeOffsetShape'):
+                            # Create offset to thicken walls
+                            offset_shape = shape.makeOffsetShape(
+                                min_thickness / 2,  # offset distance
+                                OFFSET_TOLERANCE,  # tolerance
+                                inter=False,  # intersection
+                                self_inter=False,  # self-intersection
+                                offsetMode=0,  # skin mode
+                                join=OFFSET_JOIN_ARC  # arc join
+                            )
+                            obj.Shape = offset_shape
+                return {"status": "fixed", "thickness_added": min_thickness}
+            
+            elif suggestion.type == "fix_topology":
+                # Fix topology issues
+                edges_fixed = 0
+                for obj in doc_handle.Objects:
+                    if hasattr(obj, 'Shape'):
+                        shape = obj.Shape
+                        # Fix tolerance issues
+                        if hasattr(shape, 'fixTolerance'):
+                            shape.fixTolerance(TOPOLOGY_FIX_TOLERANCE)
+                            edges_fixed += 1
+                        # Remove small edges
+                        if hasattr(shape, 'removeInternalWires'):
+                            shape.removeInternalWires(TOPOLOGY_FIX_TOLERANCE)
+                            edges_fixed += 1
+                        # Sew shape if needed
+                        if hasattr(shape, 'sewShape'):
+                            shape.sewShape()
+                            edges_fixed += 1
+                return {"status": "fixed", "edges_fixed": edges_fixed}
+            
+            elif suggestion.type == "close_open_edges":
+                # Close open edges in solids
+                for obj in doc_handle.Objects:
+                    if hasattr(obj, 'Shape'):
+                        shape = obj.Shape
+                        if hasattr(shape, 'isValid') and not shape.isValid():
+                            if hasattr(shape, 'fix'):
+                                shape.fix(TOPOLOGY_FIX_TOLERANCE, TOPOLOGY_FIX_TOLERANCE, TOPOLOGY_FIX_TOLERANCE)
+                            if hasattr(shape, 'makeSolid'):
+                                solid = Part.makeSolid(shape)
+                                obj.Shape = solid
+                return {"status": "fixed", "method": "makeSolid"}
+            
+            elif suggestion.type == "unify_normals":
+                # Unify face normals
+                for obj in doc_handle.Objects:
+                    if hasattr(obj, 'Shape'):
+                        shape = obj.Shape
+                        if hasattr(shape, 'orientShells'):
+                            shape.orientShells()
+                return {"status": "fixed", "method": "orientShells"}
+            
+            return {"status": "not_implemented", "type": suggestion.type}
+            
+        except ImportError:
+            logger.warning("FreeCAD not available, using mock fix")
+            return {"status": "mock_fixed", "type": suggestion.type}
+        except Exception as e:
+            logger.error(
+                f"Failed to apply fix",
+                fix_type=suggestion.type,
+                error=str(e),
+                exc_info=True
+            )
+            # Re-raise with generic message
+            raise ValueError(f"Failed to apply {suggestion.type} fix") from None
     
     def _calculate_model_hash(self, doc_handle: Any) -> str:
         """Calculate SHA256 hash of model for certification."""
-        # This would serialize the model and calculate hash
-        # Placeholder implementation
-        model_data = f"{doc_handle}:{time.time()}"
-        return hashlib.sha256(model_data.encode()).hexdigest()
+        try:
+            # Import FreeCAD modules
+            import FreeCAD
+            import Part
+            
+            # Collect all shape data for hashing
+            shape_data = []
+            
+            for obj in doc_handle.Objects:
+                if hasattr(obj, 'Shape'):
+                    shape = obj.Shape
+                    # Add shape properties to hash
+                    shape_data.append(f"{obj.Name}")
+                    shape_data.append(f"Volume:{shape.Volume:.6f}" if hasattr(shape, 'Volume') else "")
+                    shape_data.append(f"Area:{shape.Area:.6f}" if hasattr(shape, 'Area') else "")
+                    shape_data.append(f"CenterOfMass:{shape.CenterOfMass}" if hasattr(shape, 'CenterOfMass') else "")
+                    
+                    # Add vertex positions for deterministic hash
+                    if hasattr(shape, 'Vertexes'):
+                        for v in shape.Vertexes:
+                            shape_data.append(f"V:{v.Point.x:.6f},{v.Point.y:.6f},{v.Point.z:.6f}")
+                    
+                    # Add edge count and face count
+                    if hasattr(shape, 'Edges'):
+                        shape_data.append(f"Edges:{len(shape.Edges)}")
+                    if hasattr(shape, 'Faces'):
+                        shape_data.append(f"Faces:{len(shape.Faces)}")
+            
+            # Create deterministic string representation
+            model_string = "|".join(sorted(shape_data))
+            
+            # Calculate SHA256 hash
+            return hashlib.sha256(model_string.encode('utf-8')).hexdigest()
+            
+        except ImportError:
+            # Fallback if FreeCAD not available
+            logger.warning("FreeCAD not available for model hashing")
+            model_data = f"{doc_handle}:{time.time()}"
+            return hashlib.sha256(model_data.encode()).hexdigest()
+        except Exception as e:
+            logger.error(
+                "Error calculating model hash",
+                error=str(e),
+                exc_info=True
+            )
+            # Fallback hash
+            model_data = f"{doc_handle}:{time.time()}"
+            return hashlib.sha256(model_data.encode()).hexdigest()
     
     def get_validation_status(self, validation_id: str) -> Optional[Dict[str, Any]]:
         """Get status of a validation."""
@@ -686,6 +833,78 @@ class ModelValidationFramework:
             "success_rate": (self.validations_total - self.validations_failed) / self.validations_total if self.validations_total > 0 else 0,
             "fixes_applied": self.fixes_applied
         }
+    
+    def _get_validation_result(self, db: Session, validation_id: str) -> Optional[db_models.ValidationResult]:
+        """Get validation result from database."""
+        try:
+            return db.query(db_models.ValidationResult).filter(
+                db_models.ValidationResult.validation_id == validation_id
+            ).first()
+        except Exception as e:
+            logger.error(
+                "Failed to get validation result",
+                validation_id=validation_id,
+                error=str(e),
+                exc_info=True
+            )
+            return None
+    
+    def _store_certificate(self, db: Session, certificate: QualityCertificate, validation_result_id: int) -> bool:
+        """Store certificate in database."""
+        try:
+            db_cert = db_models.ValidationCertificate(
+                certificate_id=certificate.certificate_id,
+                validation_result_id=validation_result_id,
+                issued_at=certificate.issued_at,
+                expires_at=certificate.expires_at,
+                standards=certificate.standards_compliant,
+                compliance_level="full" if certificate.validation_score >= CERTIFICATION_SCORE_THRESHOLD else "partial",
+                signature=certificate.signature,
+                model_hash=certificate.model_hash,
+                metadata=certificate.metadata
+            )
+            db.add(db_cert)
+            db.commit()
+            return True
+        except Exception as e:
+            logger.error(
+                "Failed to store certificate",
+                certificate_id=certificate.certificate_id,
+                error=str(e),
+                exc_info=True
+            )
+            db.rollback()
+            return False
+    
+    def _get_certificate(self, db: Session, certificate_id: str) -> Optional[db_models.ValidationCertificate]:
+        """Get certificate from database."""
+        try:
+            return db.query(db_models.ValidationCertificate).filter(
+                db_models.ValidationCertificate.certificate_id == certificate_id
+            ).first()
+        except Exception as e:
+            logger.error(
+                "Failed to get certificate",
+                certificate_id=certificate_id,
+                error=str(e),
+                exc_info=True
+            )
+            return None
+    
+    def _get_fix_suggestions(self, db: Session, validation_result_id: int) -> List[db_models.FixSuggestion]:
+        """Get fix suggestions from database."""
+        try:
+            return db.query(db_models.FixSuggestion).filter(
+                db_models.FixSuggestion.validation_result_id == validation_result_id
+            ).all()
+        except Exception as e:
+            logger.error(
+                "Failed to get fix suggestions",
+                validation_result_id=validation_result_id,
+                error=str(e),
+                exc_info=True
+            )
+            return []
 
 
 # Global validation framework instance

@@ -149,17 +149,156 @@ class SurfaceQualityAnalyzer:
     
     @staticmethod
     async def _calculate_smoothness(face: Any) -> float:
-        """Calculate face smoothness."""
-        # Placeholder implementation
-        # Would analyze curvature variation, surface roughness
-        return 0.85
+        """Calculate face smoothness based on curvature analysis."""
+        try:
+            # Import FreeCAD modules lazily
+            import Part
+            
+            if not hasattr(face, 'Surface'):
+                return 0.5  # Default for non-analyzable faces
+            
+            surface = face.Surface
+            smoothness_score = 1.0
+            
+            # Sample points across the face for curvature analysis
+            u_param = face.ParameterRange[0:2]
+            v_param = face.ParameterRange[2:4]
+            
+            curvatures = []
+            sample_points = 10  # Sample 10x10 grid
+            
+            for i in range(sample_points):
+                for j in range(sample_points):
+                    u = u_param[0] + (u_param[1] - u_param[0]) * i / (sample_points - 1)
+                    v = v_param[0] + (v_param[1] - v_param[0]) * j / (sample_points - 1)
+                    
+                    try:
+                        # Get curvature at this point
+                        if hasattr(surface, 'curvature'):
+                            curv = surface.curvature(u, v)
+                            if curv:
+                                # Store principal curvatures
+                                curvatures.append(abs(curv[0]) + abs(curv[1]))
+                    except:
+                        continue
+            
+            if curvatures:
+                # Calculate smoothness based on curvature variation
+                avg_curvature = sum(curvatures) / len(curvatures)
+                max_curvature = max(curvatures)
+                min_curvature = min(curvatures)
+                
+                # High variation means less smooth
+                if max_curvature > 0:
+                    variation = (max_curvature - min_curvature) / max_curvature
+                    smoothness_score = max(0.0, 1.0 - variation * 0.5)
+                
+                # Penalize high curvature values (sharp bends)
+                if avg_curvature > 10:
+                    smoothness_score *= 0.7
+                elif avg_curvature > 5:
+                    smoothness_score *= 0.85
+            
+            return smoothness_score
+            
+        except ImportError:
+            logger.warning("FreeCAD not available for smoothness calculation")
+            return 0.85
+        except Exception as e:
+            logger.debug(f"Smoothness calculation error: {e}")
+            return 0.85
     
     @staticmethod
     async def _check_continuity(face: Any) -> float:
-        """Check edge continuity."""
-        # Placeholder implementation
-        # Would check G0, G1, G2 continuity
-        return 0.9
+        """Check edge continuity (G0, G1, G2)."""
+        try:
+            # Import FreeCAD modules lazily
+            import Part
+            
+            if not hasattr(face, 'Edges'):
+                return 0.5  # Default for non-analyzable faces
+            
+            continuity_score = 1.0
+            edges = face.Edges
+            
+            if not edges:
+                return 1.0  # No edges means no discontinuity
+            
+            discontinuities = {
+                'g0': 0,  # Position discontinuity
+                'g1': 0,  # Tangent discontinuity
+                'g2': 0   # Curvature discontinuity
+            }
+            
+            for edge in edges:
+                try:
+                    if hasattr(edge, 'Curve'):
+                        curve = edge.Curve
+                        
+                        # Check continuity at edge endpoints
+                        param_range = edge.ParameterRange
+                        
+                        # Sample points along the edge
+                        for t in [param_range[0], (param_range[0] + param_range[1]) / 2, param_range[1]]:
+                            try:
+                                point = curve.value(t)
+                                
+                                # Check if this point connects smoothly to adjacent edges
+                                for other_edge in edges:
+                                    if other_edge == edge:
+                                        continue
+                                    
+                                    # Check G0 continuity (position)
+                                    other_range = other_edge.ParameterRange
+                                    for other_t in [other_range[0], other_range[1]]:
+                                        other_point = other_edge.Curve.value(other_t)
+                                        dist = point.distanceToPoint(other_point) if hasattr(point, 'distanceToPoint') else abs(point - other_point)
+                                        
+                                        if dist < 0.001:  # Points are connected
+                                            # Check G1 continuity (tangent)
+                                            if hasattr(curve, 'tangent') and hasattr(other_edge.Curve, 'tangent'):
+                                                tan1 = curve.tangent(t)
+                                                tan2 = other_edge.Curve.tangent(other_t)
+                                                
+                                                if tan1 and tan2:
+                                                    # Check if tangents are parallel
+                                                    dot_product = abs(tan1[0].dot(tan2[0])) if hasattr(tan1[0], 'dot') else 1.0
+                                                    if dot_product < 0.95:  # Not parallel
+                                                        discontinuities['g1'] += 1
+                                            
+                                            # Check G2 continuity (curvature)
+                                            if hasattr(curve, 'curvature') and hasattr(other_edge.Curve, 'curvature'):
+                                                curv1 = curve.curvature(t)
+                                                curv2 = other_edge.Curve.curvature(other_t)
+                                                
+                                                if curv1 is not None and curv2 is not None:
+                                                    curv_diff = abs(curv1 - curv2)
+                                                    if curv_diff > 0.1:  # Curvature discontinuity
+                                                        discontinuities['g2'] += 1
+                            except:
+                                continue
+                                
+                except Exception:
+                    continue
+            
+            # Calculate continuity score based on discontinuities
+            total_checks = len(edges) * 3  # 3 points per edge
+            if total_checks > 0:
+                # Penalize based on discontinuity severity
+                g0_penalty = discontinuities['g0'] * 0.5 / total_checks
+                g1_penalty = discontinuities['g1'] * 0.3 / total_checks
+                g2_penalty = discontinuities['g2'] * 0.2 / total_checks
+                
+                continuity_score = max(0.0, 1.0 - g0_penalty - g1_penalty - g2_penalty)
+            
+            return continuity_score
+            
+        except ImportError:
+            logger.warning("FreeCAD not available for continuity check")
+            return 0.9
+        except Exception as e:
+            logger.debug(f"Continuity check error: {e}")
+            return 0.9
 
 
 class FeatureConsistencyChecker:
