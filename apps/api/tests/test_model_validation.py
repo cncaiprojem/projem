@@ -271,8 +271,8 @@ class TestGeometricValidator:
                 tolerances=Mock(min_wall_thickness=1.0)
             )
             
-            assert len(result.warnings) > 0
-            assert any(w.type == "thin_walls" for w in result.warnings)
+            assert len(result.issues) > 0
+            assert any(w.type == "thin_walls" for w in result.issues)
     
     def test_check_topology_valid(self, validator, mock_shape):
         """Test topology checking for valid solid."""
@@ -575,12 +575,15 @@ class TestCertificationSystem:
         """Test certificate issuance with low score."""
         validation_result.overall_score = 0.6  # Below threshold
         
-        with pytest.raises(ValueError, match="certification threshold"):
+        from fastapi import HTTPException
+        with pytest.raises(HTTPException) as exc_info:
             await cert_system.issue_certificate(
                 validation_result=validation_result,
                 standards=[StandardType.ISO_10303],
                 model_hash="test_model_hash_123"
             )
+        assert exc_info.value.status_code == 400
+        assert "certification threshold" in str(exc_info.value.detail)
     
     @pytest.mark.asyncio
     async def test_verify_certificate_valid(self, cert_system, validation_result):

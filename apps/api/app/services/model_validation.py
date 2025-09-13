@@ -17,6 +17,7 @@ from typing import Any, Dict, List, Optional, Set, Type
 from uuid import uuid4
 
 from pydantic import BaseModel
+from fastapi import HTTPException
 
 from ..core.environment import environment as settings
 from ..core.logging import get_logger
@@ -436,7 +437,7 @@ class ModelValidationFramework:
                         geometric_validator.validate,
                         doc_handle
                     )
-                    result.add_section('geometric', geometric_result)
+                    result.sections['geometric'] = geometric_result
                 
                 # Manufacturing validation would be done separately if needed
                 # Processes not passed in new signature
@@ -450,11 +451,12 @@ class ModelValidationFramework:
                                 # Convert string to StandardType enum
                                 from ..models.validation_models import StandardType
                                 standard = StandardType(standard_str)
-                                compliance_result = await standards_checker.check_compliance(
+                                compliance_result = await asyncio.to_thread(
+                                    standards_checker.check_compliance,
                                     doc_handle,
                                     standard
                                 )
-                                result.add_section(f'standards_{standard.value}', compliance_result)
+                                result.sections[f'standards_{standard.value}'] = compliance_result
                             except ValueError:
                                 logger.warning(f"Unknown standard: {standard_str}")
                                 continue
@@ -462,11 +464,18 @@ class ModelValidationFramework:
                 # Quality metrics
                 quality_metrics = self.validator_registry.get('quality')
                 if quality_metrics:
-                    metrics_result = await quality_metrics.calculate_metrics(doc_handle)
-                    result.add_section('quality', metrics_result)
+                    metrics_result = await asyncio.to_thread(
+                        quality_metrics.calculate_metrics,
+                        doc_handle
+                    )
+                    result.sections['quality'] = metrics_result
                 
                 # Calculate overall score
-                result.calculate_score()
+                if result.sections:
+                    scores = [section.score for section in result.sections.values() if hasattr(section, 'score')]
+                    result.overall_score = sum(scores) / len(scores) if scores else 0.0
+                else:
+                    result.overall_score = 0.0
                 
                 # Generate fix suggestions
                 if result.issues:
@@ -508,12 +517,15 @@ class ModelValidationFramework:
                     status="error"
                 ).inc()
                 
-                # Don't expose internal error details to client
-                return ValidationResponse(
-                    success=False,
-                    error="Model validation failed. Please try again later.",
-                    turkish_error="Model doğrulama başarısız. Lütfen daha sonra tekrar deneyin."
-                )
+                # Don't expose internal error details to client, create a failed result
+                result.status = ValidationStatus.ERROR
+                result.issues.append(ValidationIssue(
+                    type="system_error",
+                    severity=ValidationSeverity.CRITICAL,
+                    message="Model validation failed. Please try again later.",
+                    turkish_message="Model doğrulama başarısız. Lütfen daha sonra tekrar deneyin."
+                ))
+                return result
     
     async def _generate_fix_suggestions(
         self, 
@@ -799,7 +811,10 @@ class ModelValidationFramework:
                 exc_info=True
             )
             # Re-raise with generic message
-            raise ValueError(f"Failed to apply {suggestion.type} fix") from None
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to apply {suggestion.type} fix"
+            ) from None
     
     def _calculate_model_hash(self, doc_handle: Any) -> str:
         """Calculate SHA256 hash of model for certification."""
@@ -959,25 +974,25 @@ class AutoFixSuggestions:
             if issue.severity == "critical":
                 # Generate critical issue fixes
                 suggestion = FixSuggestion(
-                    fix_id=f"fix_{issue.issue_id}",
-                    issue_id=issue.issue_id,
-                    fix_type="auto",
-                    description=f"{issue.category} sorunu için otomatik düzeltme",
-                    confidence=0.8,
-                    estimated_impact="high",
-                    code_changes=None
+                    suggestion_id=f"fix_{issue.issue_id}",
+                    type="auto",
+                    description=f"{issue.type} sorunu için otomatik düzeltme",
+                    turkish_description=f"{issue.type} sorunu için otomatik düzeltme",
+                    severity=issue.severity,
+                    automated=True,
+                    confidence="high"
                 )
                 suggestions.append(suggestion)
             elif issue.severity == "warning":
                 # Generate warning fixes
                 suggestion = FixSuggestion(
-                    fix_id=f"fix_{issue.issue_id}",
-                    issue_id=issue.issue_id,
-                    fix_type="manual",
-                    description=f"{issue.category} uyarısı için önerilen düzeltme",
-                    confidence=0.6,
-                    estimated_impact="medium",
-                    code_changes=None
+                    suggestion_id=f"fix_{issue.issue_id}",
+                    type="manual",
+                    description=f"{issue.type} uyarısı için önerilen düzeltme",
+                    turkish_description=f"{issue.type} uyarısı için önerilen düzeltme",
+                    severity=issue.severity,
+                    automated=False,
+                    confidence="medium"
                 )
                 suggestions.append(suggestion)
         
@@ -995,33 +1010,34 @@ class AutoFixSuggestions:
         
         for suggestion in suggestions:
             try:
-                if suggestion.fix_type == "auto":
+                if suggestion.type == "auto":
                     # Apply automated fix (placeholder implementation)
                     # In real implementation, this would modify the FreeCAD document
                     applied_fixes.append({
-                        "fix_id": suggestion.fix_id,
+                        "fix_id": suggestion.suggestion_id,
                         "status": "success"
                     })
                 else:
                     # Manual fixes cannot be applied automatically
                     failed_fixes.append({
-                        "fix_id": suggestion.fix_id,
+                        "fix_id": suggestion.suggestion_id,
                         "reason": "Manual düzeltme otomatik olarak uygulanamaz"
                     })
             except Exception as e:
-                self.logger.error(f"Failed to apply fix {suggestion.fix_id}: {e}")
+                self.logger.error(f"Failed to apply fix {suggestion.suggestion_id}: {e}")
                 failed_fixes.append({
-                    "fix_id": suggestion.fix_id,
+                    "fix_id": suggestion.suggestion_id,
                     "reason": str(e)
                 })
         
         return FixReport(
-            report_id=f"report_{datetime.now(timezone.utc).timestamp()}",
-            timestamp=datetime.now(timezone.utc),
-            applied_fixes=applied_fixes,
-            failed_fixes=failed_fixes,
-            model_state="modified" if applied_fixes else "unchanged",
-            validation_required=bool(applied_fixes)
+            total_suggestions=len(suggestions),
+            applied_fixes=len(applied_fixes),
+            successful_fixes=len(applied_fixes),
+            failed_fixes=len(failed_fixes),
+            skipped_fixes=len(suggestions) - len(applied_fixes) - len(failed_fixes),
+            fixes=applied_fixes,
+            errors=failed_fixes
         )
 
 

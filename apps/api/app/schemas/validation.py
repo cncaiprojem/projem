@@ -98,6 +98,7 @@ class ValidationIssue(BaseModel):
     """Single validation issue."""
     model_config = ConfigDict(use_enum_values=True)
     
+    issue_id: str = Field(default_factory=lambda: str(uuid4()), description="Issue identifier")
     type: str = Field(..., description="Issue type")
     severity: ValidationSeverity = Field(..., description="Issue severity")
     message: str = Field(..., description="Issue message")
