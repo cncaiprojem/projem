@@ -1429,7 +1429,7 @@ class ManufacturingValidator:
                 return True
             
             # Check if all thicknesses are within tolerance
-            avg_thickness = sum(thicknesses) / len(thicknesses)
+            avg_thickness = sum(thicknesses) / len(thicknesses) if thicknesses else 0.0
             for thickness in thicknesses:
                 if abs(thickness - avg_thickness) / avg_thickness > tolerance:
                     return False

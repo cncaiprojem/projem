@@ -545,10 +545,10 @@ class GeometricValidator:
                                 if hasattr(edge, 'Vertexes') and len(edge.Vertexes) >= 2:
                                     v1 = edge.Vertexes[0].Point
                                     v2 = edge.Vertexes[-1].Point
-                                    edge_key = (
-                                        round(v1.x, 4), round(v1.y, 4), round(v1.z, 4),
-                                        round(v2.x, 4), round(v2.y, 4), round(v2.z, 4)
-                                    )
+                                    # Make edge key canonical by sorting vertices
+                                    vert1 = (round(v1.x, 4), round(v1.y, 4), round(v1.z, 4))
+                                    vert2 = (round(v2.x, 4), round(v2.y, 4), round(v2.z, 4))
+                                    edge_key = tuple(sorted([vert1, vert2]))
                                     edge_face_count[edge_key] += 1
                     
                     # Find edges that belong to only one face (open edges)
@@ -556,10 +556,10 @@ class GeometricValidator:
                         if hasattr(edge, 'Vertexes') and len(edge.Vertexes) >= 2:
                             v1 = edge.Vertexes[0].Point
                             v2 = edge.Vertexes[-1].Point
-                            edge_key = (
-                                round(v1.x, 4), round(v1.y, 4), round(v1.z, 4),
-                                round(v2.x, 4), round(v2.y, 4), round(v2.z, 4)
-                            )
+                            # Make edge key canonical by sorting vertices
+                            vert1 = (round(v1.x, 4), round(v1.y, 4), round(v1.z, 4))
+                            vert2 = (round(v2.x, 4), round(v2.y, 4), round(v2.z, 4))
+                            edge_key = tuple(sorted([vert1, vert2]))
                             
                             if edge_face_count[edge_key] == 1:
                                 open_edges.append({

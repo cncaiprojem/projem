@@ -65,7 +65,7 @@ def main():
     all_issues = {}
     
     for filepath in files_to_check:
-        full_path = os.path.join('C:/Users/kafge/projem', filepath)
+        full_path = os.path.join(os.getcwd(), filepath)
         if os.path.exists(full_path):
             issues = check_file_for_issues(full_path)
             if issues:

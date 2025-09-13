@@ -104,7 +104,6 @@ class ManufacturingValidation:
     """Overall manufacturing validation result."""
     process: ManufacturingProcess
     is_manufacturable: bool = True
-    feasible: bool = True  # Alias for is_manufacturable for API compatibility
     issues: List[ValidationIssue] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
     suggestions: List[str] = field(default_factory=list)
@@ -116,9 +115,10 @@ class ManufacturingValidation:
     process_recommendations: List[str] = field(default_factory=list)
     process_parameters: Dict[str, Any] = field(default_factory=dict)
     
-    def __post_init__(self):
-        """Update feasible to match is_manufacturable."""
-        self.feasible = self.is_manufacturable
+    @property
+    def feasible(self) -> bool:
+        """Alias for is_manufacturable for API compatibility."""
+        return self.is_manufacturable
 
 
 # Turkish validation messages

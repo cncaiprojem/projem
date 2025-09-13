@@ -281,7 +281,7 @@ class SurfaceQualityAnalyzer:
                                     other_range = other_edge.ParameterRange
                                     for other_t in [other_range[0], other_range[1]]:
                                         other_point = other_edge.Curve.value(other_t)
-                                        dist = point.distanceToPoint(other_point) if hasattr(point, 'distanceToPoint') else abs(point - other_point)
+                                        dist = point.distanceToPoint(other_point) if hasattr(point, 'distanceToPoint') else (point - other_point).Length
                                         
                                         if dist < 0.001:  # Points are connected
                                             # Check G1 continuity (tangent)
