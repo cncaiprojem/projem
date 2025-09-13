@@ -129,7 +129,7 @@ class SurfaceQualityAnalyzer:
     """Analyzer for surface quality."""
     
     @staticmethod
-    async def analyze_surface_quality(shape: Any) -> Dict[str, float]:
+    def analyze_surface_quality(shape: Any) -> Dict[str, float]:
         """Analyze surface quality metrics."""
         quality_metrics = {
             "smoothness": 0.0,
@@ -146,11 +146,11 @@ class SurfaceQualityAnalyzer:
                 
                 for face in shape.Faces:
                     # Calculate surface smoothness (simplified)
-                    smoothness = await SurfaceQualityAnalyzer._calculate_smoothness(face)
+                    smoothness = SurfaceQualityAnalyzer._calculate_smoothness(face)
                     smoothness_scores.append(smoothness)
                     
                     # Check edge continuity
-                    continuity = await SurfaceQualityAnalyzer._check_continuity(face)
+                    continuity = SurfaceQualityAnalyzer._check_continuity(face)
                     continuity_scores.append(continuity)
                 
                 quality_metrics["smoothness"] = sum(smoothness_scores) / max(len(smoothness_scores), 1)
@@ -175,7 +175,7 @@ class SurfaceQualityAnalyzer:
         return quality_metrics
     
     @staticmethod
-    async def _calculate_smoothness(face: Any) -> float:
+    def _calculate_smoothness(face: Any) -> float:
         """Calculate face smoothness based on curvature analysis."""
         try:
             # Import FreeCAD modules lazily
@@ -236,7 +236,7 @@ class SurfaceQualityAnalyzer:
             return 0.85
     
     @staticmethod
-    async def _check_continuity(face: Any) -> float:
+    def _check_continuity(face: Any) -> float:
         """Check edge continuity (G0, G1, G2)."""
         try:
             # Import FreeCAD modules lazily
@@ -748,7 +748,7 @@ class ParametricRobustnessChecker:
     """Checker for parametric robustness."""
     
     @staticmethod
-    async def test_robustness(doc_handle: Any) -> Dict[str, float]:
+    def test_robustness(doc_handle: Any) -> Dict[str, float]:
         """Test parametric robustness of model."""
         robustness_metrics = {
             "rebuild_stability": 0.0,
@@ -760,16 +760,16 @@ class ParametricRobustnessChecker:
         
         try:
             # Test rebuild stability
-            robustness_metrics["rebuild_stability"] = await ParametricRobustnessChecker._test_rebuild(doc_handle)
+            robustness_metrics["rebuild_stability"] = ParametricRobustnessChecker._test_rebuild(doc_handle)
             
             # Test parameter sensitivity
-            robustness_metrics["parameter_sensitivity"] = await ParametricRobustnessChecker._test_parameter_changes(doc_handle)
+            robustness_metrics["parameter_sensitivity"] = ParametricRobustnessChecker._test_parameter_changes(doc_handle)
             
             # Test constraint stability
-            robustness_metrics["constraint_stability"] = await ParametricRobustnessChecker._test_constraints(doc_handle)
+            robustness_metrics["constraint_stability"] = ParametricRobustnessChecker._test_constraints(doc_handle)
             
             # Test update reliability
-            robustness_metrics["update_reliability"] = await ParametricRobustnessChecker._test_updates(doc_handle)
+            robustness_metrics["update_reliability"] = ParametricRobustnessChecker._test_updates(doc_handle)
             
             # Calculate overall robustness
             robustness_metrics["overall_robustness"] = (
@@ -786,7 +786,7 @@ class ParametricRobustnessChecker:
         return robustness_metrics
     
     @staticmethod
-    async def _test_rebuild(doc_handle: Any) -> float:
+    def _test_rebuild(doc_handle: Any) -> float:
         """Test model rebuild stability."""
         rebuild_score = 0.95
         
@@ -827,7 +827,7 @@ class ParametricRobustnessChecker:
         return rebuild_score
     
     @staticmethod
-    async def _test_parameter_changes(doc_handle: Any) -> float:
+    def _test_parameter_changes(doc_handle: Any) -> float:
         """Test sensitivity to parameter changes."""
         sensitivity_score = 0.85
         
@@ -877,7 +877,7 @@ class ParametricRobustnessChecker:
         return sensitivity_score
     
     @staticmethod
-    async def _test_constraints(doc_handle: Any) -> float:
+    def _test_constraints(doc_handle: Any) -> float:
         """Test constraint stability."""
         constraint_score = 0.9
         
@@ -910,7 +910,7 @@ class ParametricRobustnessChecker:
         return constraint_score
     
     @staticmethod
-    async def _test_updates(doc_handle: Any) -> float:
+    def _test_updates(doc_handle: Any) -> float:
         """Test update reliability."""
         update_score = 0.88
         
@@ -1160,7 +1160,7 @@ class QualityMetrics:
         self.robustness_checker = ParametricRobustnessChecker()
         self.assembly_checker = AssemblyCompatibilityChecker()
     
-    async def calculate_metrics(self, doc_handle: Any) -> QualityMetricsReport:
+    def calculate_metrics(self, doc_handle: Any) -> QualityMetricsReport:
         """Calculate comprehensive quality metrics."""
         correlation_id = get_correlation_id()
         
@@ -1238,7 +1238,7 @@ class QualityMetrics:
                     report.geometric_complexity.value = complexity_index
                     
                     # Calculate surface quality
-                    surface_metrics = await self.surface_analyzer.analyze_surface_quality(shape)
+                    surface_metrics = self.surface_analyzer.analyze_surface_quality(shape)
                     report.surface_quality.value = surface_metrics.get("finish_quality", 0.5)
                     
                     # Check feature consistency
@@ -1246,7 +1246,7 @@ class QualityMetrics:
                     report.feature_consistency.value = consistency_metrics.get("overall_consistency", 0.7)
                     
                     # Test parametric robustness
-                    robustness_metrics = await self.robustness_checker.test_robustness(doc_handle)
+                    robustness_metrics = self.robustness_checker.test_robustness(doc_handle)
                     report.parametric_robustness.value = robustness_metrics.get("overall_robustness", 0.6)
                     
                     # Check assembly compatibility if applicable

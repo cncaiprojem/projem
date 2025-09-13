@@ -234,3 +234,104 @@ VALIDATION_MESSAGES_TR = {
     "standard_violation": "Standart ihlali",
     "certification_failed": "Sertifikasyon başarısız"
 }
+
+
+# Additional schemas for Task 7.24
+
+class ManufacturingValidationRequest(BaseModel):
+    """Request for manufacturing validation."""
+    model_config = ConfigDict(use_enum_values=True)
+    
+    document_path: str = Field(..., description="Path to CAD document")
+    process: ManufacturingProcess = Field(..., description="Manufacturing process")
+    machine_spec: Dict[str, Any] = Field(default_factory=dict, description="Machine specifications")
+    material: Optional[str] = Field(None, description="Material type")
+    quantity: int = Field(1, description="Production quantity")
+
+
+class ManufacturingValidationResponse(BaseModel):
+    """Response for manufacturing validation."""
+    model_config = ConfigDict(use_enum_values=True)
+    
+    process: ManufacturingProcess
+    is_feasible: bool
+    feasibility_score: float = Field(..., ge=0, le=1)
+    issues: List[ValidationIssue] = Field(default_factory=list)
+    cost_estimate: Optional[float] = None
+    lead_time_days: Optional[int] = None
+    recommendations: List[str] = Field(default_factory=list)
+    machine_compatibility: Dict[str, bool] = Field(default_factory=dict)
+
+
+class StandardsComplianceRequest(BaseModel):
+    """Request for standards compliance check."""
+    model_config = ConfigDict(use_enum_values=True)
+    
+    document_path: str = Field(..., description="Path to CAD document")
+    standards: List[StandardType] = Field(..., description="Standards to check")
+    strict_mode: bool = Field(False, description="Enable strict compliance")
+
+
+class ComplianceViolation(BaseModel):
+    """Details of a compliance violation."""
+    model_config = ConfigDict(use_enum_values=True)
+    
+    rule_id: str
+    rule_description: str
+    severity: ValidationSeverity
+    location: Optional[str] = None
+    measured_value: Optional[float] = None
+    expected_value: Optional[float] = None
+    turkish_description: Optional[str] = None
+
+
+class ComplianceResult(BaseModel):
+    """Result of standards compliance check."""
+    model_config = ConfigDict(use_enum_values=True)
+    
+    standard: StandardType
+    is_compliant: bool
+    compliance_score: float = Field(..., ge=0, le=1)
+    violations: List[ComplianceViolation] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
+    certificate_eligible: bool = False
+
+
+class QualityMetricsResponse(BaseModel):
+    """Response containing quality metrics."""
+    model_config = ConfigDict(use_enum_values=True)
+    
+    document_id: str
+    timestamp: datetime
+    metrics: Dict[str, float] = Field(default_factory=dict)
+    quality_score: float = Field(..., ge=0, le=100)
+    grade: str = Field(..., description="Quality grade (A-F)")
+    issues_by_category: Dict[str, int] = Field(default_factory=dict)
+    improvement_areas: List[str] = Field(default_factory=list)
+
+
+class CertificateRequest(BaseModel):
+    """Request for certificate generation."""
+    model_config = ConfigDict(use_enum_values=True)
+    
+    validation_id: str = Field(..., description="Validation result ID")
+    standards: List[StandardType] = Field(..., description="Standards for certification")
+    validity_days: int = Field(365, description="Certificate validity period")
+    metadata: Dict[str, Any] = Field(default_factory=dict)
+
+
+class CertificateVerificationRequest(BaseModel):
+    """Request for certificate verification."""
+    model_config = ConfigDict(use_enum_values=True)
+    
+    certificate_id: str = Field(..., description="Certificate ID to verify")
+    include_details: bool = Field(False, description="Include full certificate details")
+
+
+class AutoFixRequest(BaseModel):
+    """Request for automated fixes."""
+    model_config = ConfigDict(use_enum_values=True)
+    
+    document_path: str = Field(..., description="Path to CAD document")
+    fix_ids: List[str] = Field(..., description="Fix IDs to apply")
+    validate_after_fix: bool = Field(True, description="Re-validate after fixes")

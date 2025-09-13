@@ -11,7 +11,7 @@ This module provides comprehensive geometric validation for FreeCAD models inclu
 
 from __future__ import annotations
 
-import asyncio
+# asyncio removed - using sync methods for CPU-bound operations
 import math
 from typing import Any, Dict, List, Optional, Tuple
 from dataclasses import dataclass
@@ -80,7 +80,7 @@ class WallThicknessAnalyzer:
     def __init__(self, resolution: int = 100):
         self.resolution = resolution
     
-    async def analyze(self, shape: Any) -> Dict[Tuple[float, float, float], float]:
+    def analyze(self, shape: Any) -> Dict[Tuple[float, float, float], float]:
         """Analyze wall thickness across the shape."""
         thickness_map = {}
         
@@ -108,7 +108,7 @@ class WallThicknessAnalyzer:
                         z = bbox.ZMin + k * z_step
                         
                         # Cast ray in multiple directions
-                        thickness = await self._measure_thickness_at_point(
+                        thickness = self._measure_thickness_at_point(
                             shape, (x, y, z)
                         )
                         if thickness > 0:
@@ -119,7 +119,7 @@ class WallThicknessAnalyzer:
         
         return thickness_map
     
-    async def _measure_thickness_at_point(
+    def _measure_thickness_at_point(
         self, 
         shape: Any, 
         point: Tuple[float, float, float]
@@ -177,7 +177,7 @@ class GeometricValidator:
         self.basic_mode = basic_mode
         self.wall_analyzer = WallThicknessAnalyzer()
     
-    async def validate(
+    def validate(
         self, 
         doc_handle: Any,
         tolerances: Optional[GeometricTolerances] = None
@@ -205,17 +205,15 @@ class GeometricValidator:
                     return validation
                 
                 # Basic validations (always performed)
-                await self._validate_basic_geometry(shape, validation, tolerances)
+                self._validate_basic_geometry(shape, validation, tolerances)
                 
                 if not self.basic_mode:
-                    # Advanced validations
-                    await asyncio.gather(
-                        self._check_self_intersections(shape, validation),
-                        self._validate_topology(shape, validation),
-                        self._detect_thin_walls(shape, validation, tolerances),
-                        self._validate_features(shape, validation, tolerances),
-                        self._check_surface_quality(shape, validation)
-                    )
+                    # Advanced validations (run sequentially in sync mode)
+                    self._check_self_intersections(shape, validation)
+                    self._validate_topology(shape, validation)
+                    self._detect_thin_walls(shape, validation, tolerances)
+                    self._validate_features(shape, validation, tolerances)
+                    self._check_surface_quality(shape, validation)
                 
                 # Calculate geometric properties
                 self._calculate_properties(shape, validation)
@@ -292,7 +290,7 @@ class GeometricValidator:
             logger.error("Failed to extract shape", exc_info=True)
             return None
     
-    async def _validate_basic_geometry(
+    def _validate_basic_geometry(
         self,
         shape: Any,
         validation: GeometricValidation,
@@ -342,7 +340,7 @@ class GeometricValidator:
         except Exception as e:
             logger.warning(f"Basic geometry validation error: {e}")
     
-    async def _check_self_intersections(
+    def _check_self_intersections(
         self,
         shape: Any,
         validation: GeometricValidation
@@ -397,7 +395,7 @@ class GeometricValidator:
         except Exception as e:
             logger.warning(f"Self-intersection check error: {e}")
     
-    async def _validate_topology(
+    def _validate_topology(
         self,
         shape: Any,
         validation: GeometricValidation
@@ -639,7 +637,7 @@ class GeometricValidator:
         
         return inconsistent
     
-    async def _detect_thin_walls(
+    def _detect_thin_walls(
         self,
         shape: Any,
         validation: GeometricValidation,
@@ -648,7 +646,7 @@ class GeometricValidator:
         """Detect walls thinner than minimum thickness."""
         try:
             # Analyze wall thickness
-            thickness_map = await self.wall_analyzer.analyze(shape)
+            thickness_map = self.wall_analyzer.analyze(shape)
             
             thin_sections = []
             for location, thickness in thickness_map.items():
@@ -685,7 +683,7 @@ class GeometricValidator:
         except Exception as e:
             logger.warning(f"Thin wall detection error: {e}")
     
-    async def _validate_features(
+    def _validate_features(
         self,
         shape: Any,
         validation: GeometricValidation,
@@ -720,7 +718,7 @@ class GeometricValidator:
         except Exception as e:
             logger.warning(f"Feature validation error: {e}")
     
-    async def _check_surface_quality(
+    def _check_surface_quality(
         self,
         shape: Any,
         validation: GeometricValidation

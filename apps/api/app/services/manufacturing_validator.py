@@ -91,7 +91,7 @@ class ManufacturingValidator:
         self.rule_engine = rule_engine
         self.basic_mode = basic_mode
     
-    async def validate(
+    def validate(
         self,
         doc_handle: Any,
         process: ManufacturingProcess,
@@ -129,7 +129,7 @@ class ManufacturingValidator:
                     machine_spec = specification or MachineSpecification(
                         machine_type="3-axis" if process == ManufacturingProcess.CNC_MILLING else "lathe"
                     )
-                    validation.cnc_validation = await self.validate_for_cnc(
+                    validation.cnc_validation = self.validate_for_cnc(
                         shape, machine_spec, process
                     )
                     validation.is_manufacturable = validation.cnc_validation.is_machinable
@@ -143,24 +143,24 @@ class ManufacturingValidator:
                     printer_spec = specification or PrinterSpecification(
                         printer_type=process.value.replace("_3d_printing", "").upper()
                     )
-                    validation.print_validation = await self.validate_for_3d_printing(
+                    validation.print_validation = self.validate_for_3d_printing(
                         shape, printer_spec, process
                     )
                     validation.is_manufacturable = validation.print_validation.is_printable
                     validation.issues.extend(validation.print_validation.issues)
                     
                 elif process == ManufacturingProcess.INJECTION_MOLDING:
-                    validation.is_manufacturable = await self._validate_for_injection_molding(
+                    validation.is_manufacturable = self._validate_for_injection_molding(
                         shape, validation
                     )
                     
                 elif process == ManufacturingProcess.SHEET_METAL:
-                    validation.is_manufacturable = await self._validate_for_sheet_metal(
+                    validation.is_manufacturable = self._validate_for_sheet_metal(
                         shape, validation
                     )
                     
                 elif process == ManufacturingProcess.CASTING:
-                    validation.is_manufacturable = await self._validate_for_casting(
+                    validation.is_manufacturable = self._validate_for_casting(
                         shape, validation
                     )
                 else:
@@ -174,8 +174,8 @@ class ManufacturingValidator:
                 
                 # Estimate cost and lead time
                 if validation.is_manufacturable:
-                    validation.cost_estimate = await self._estimate_cost(shape, process)
-                    validation.lead_time_estimate = await self._estimate_lead_time(shape, process)
+                    validation.cost_estimate = self._estimate_cost(shape, process)
+                    validation.lead_time_estimate = self._estimate_lead_time(shape, process)
                     validation.material_recommendations = self._recommend_materials(process)
                     validation.process_recommendations = self._recommend_process_improvements(
                         validation, process
@@ -205,7 +205,7 @@ class ManufacturingValidator:
             
             return validation
     
-    async def validate_for_cnc(
+    def validate_for_cnc(
         self,
         shape: Any,
         machine_spec: MachineSpecification,
@@ -219,7 +219,7 @@ class ManufacturingValidator:
         
         try:
             # Check tool accessibility
-            accessibility = await self.check_tool_accessibility(shape, machine_spec.tool_library)
+            accessibility = self.check_tool_accessibility(shape, machine_spec.tool_library)
             validation.tool_accessibility = accessibility
             
             inaccessible_features = [f for f, accessible in accessibility.items() if not accessible]
@@ -279,7 +279,7 @@ class ManufacturingValidator:
             validation.setup_count = self._estimate_setup_count(shape, machine_spec)
             
             # Estimate machining time
-            validation.estimated_machining_time = await self._estimate_machining_time(
+            validation.estimated_machining_time = self._estimate_machining_time(
                 shape, machine_spec
             )
             
@@ -298,7 +298,7 @@ class ManufacturingValidator:
         
         return validation
     
-    async def validate_for_3d_printing(
+    def validate_for_3d_printing(
         self,
         shape: Any,
         printer_spec: PrinterSpecification,
@@ -334,7 +334,7 @@ class ManufacturingValidator:
                     ))
             
             # Detect overhangs
-            overhangs = await self.detect_overhangs(shape, printer_spec.max_overhang_angle)
+            overhangs = self.detect_overhangs(shape, printer_spec.max_overhang_angle)
             if overhangs:
                 validation.overhangs = overhangs
                 validation.support_required = True
@@ -360,7 +360,7 @@ class ManufacturingValidator:
                 ))
             
             # Check wall thickness
-            wall_ok = await self._check_wall_thickness_for_printing(
+            wall_ok = self._check_wall_thickness_for_printing(
                 shape, printer_spec.min_wall_thickness
             )
             validation.wall_thickness_ok = wall_ok
@@ -376,15 +376,15 @@ class ManufacturingValidator:
             
             # Estimate support volume if needed
             if validation.support_required:
-                validation.support_volume = await self.estimate_support_volume(
+                validation.support_volume = self.estimate_support_volume(
                     shape, overhangs, printer_spec
                 )
             
             # Estimate print time and material
-            validation.estimated_print_time = await self._estimate_print_time(
+            validation.estimated_print_time = self._estimate_print_time(
                 shape, printer_spec
             )
-            validation.estimated_material = await self._estimate_material_usage(
+            validation.estimated_material = self._estimate_material_usage(
                 shape, printer_spec
             )
             validation.layer_count = self._calculate_layer_count(shape, printer_spec)
@@ -401,7 +401,7 @@ class ManufacturingValidator:
         
         return validation
     
-    async def check_tool_accessibility(
+    def check_tool_accessibility(
         self,
         shape: Any,
         tool_library: List[Dict[str, Any]]
@@ -865,7 +865,7 @@ class ManufacturingValidator:
             logger.warning(f"Printability check error: {e}")
             return {"score": 0.5, "factors": []}
     
-    async def detect_overhangs(
+    def detect_overhangs(
         self,
         shape: Any,
         max_angle: float
@@ -975,7 +975,7 @@ class ManufacturingValidator:
         
         return trapped
     
-    async def estimate_support_volume(
+    def estimate_support_volume(
         self,
         shape: Any,
         overhangs: List[Dict[str, Any]],
@@ -999,7 +999,7 @@ class ManufacturingValidator:
             logger.warning(f"Support volume estimation error: {e}")
             return 0.0
     
-    async def _validate_for_injection_molding(
+    def _validate_for_injection_molding(
         self,
         shape: Any,
         validation: ManufacturingValidation
@@ -1046,7 +1046,7 @@ class ManufacturingValidator:
             logger.error("Injection molding validation error", exc_info=True)
             return False
     
-    async def _validate_for_sheet_metal(
+    def _validate_for_sheet_metal(
         self,
         shape: Any,
         validation: ManufacturingValidation
@@ -1082,7 +1082,7 @@ class ManufacturingValidator:
             logger.error("Sheet metal validation error", exc_info=True)
             return False
     
-    async def _validate_for_casting(
+    def _validate_for_casting(
         self,
         shape: Any,
         validation: ManufacturingValidation
@@ -1117,7 +1117,7 @@ class ManufacturingValidator:
             logger.error("Casting validation error", exc_info=True)
             return False
     
-    async def _estimate_cost(
+    def _estimate_cost(
         self,
         shape: Any,
         process: ManufacturingProcess
@@ -1156,7 +1156,7 @@ class ManufacturingValidator:
             logger.warning(f"Cost estimation error: {e}")
             return Decimal("0")
     
-    async def _estimate_lead_time(
+    def _estimate_lead_time(
         self,
         shape: Any,
         process: ManufacturingProcess
@@ -1309,7 +1309,7 @@ class ManufacturingValidator:
         else:
             return 2
     
-    async def _estimate_machining_time(
+    def _estimate_machining_time(
         self,
         shape: Any,
         machine_spec: MachineSpecification
@@ -1329,7 +1329,7 @@ class ManufacturingValidator:
         # Select appropriate tools from library
         return machine_spec.tool_library[:3]  # Simplified
     
-    async def _check_wall_thickness_for_printing(
+    def _check_wall_thickness_for_printing(
         self,
         shape: Any,
         min_thickness: float
@@ -1338,7 +1338,7 @@ class ManufacturingValidator:
         # Simplified check
         return True
     
-    async def _estimate_print_time(
+    def _estimate_print_time(
         self,
         shape: Any,
         printer_spec: PrinterSpecification
@@ -1348,7 +1348,7 @@ class ManufacturingValidator:
         print_speed = 50  # mm³/min
         return (volume / print_speed) / 60
     
-    async def _estimate_material_usage(
+    def _estimate_material_usage(
         self,
         shape: Any,
         printer_spec: PrinterSpecification

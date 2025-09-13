@@ -33,7 +33,7 @@ class StandardChecker(ABC):
     """Abstract base class for standard checkers."""
     
     @abstractmethod
-    async def check(self, doc_handle: Any) -> ComplianceResult:
+    def check(self, doc_handle: Any) -> ComplianceResult:
         """Check compliance with standard."""
         pass
     
@@ -46,7 +46,7 @@ class StandardChecker(ABC):
 class ISO10303Checker(StandardChecker):
     """ISO 10303 STEP standard checker."""
     
-    async def check(self, doc_handle: Any) -> ComplianceResult:
+    def check(self, doc_handle: Any) -> ComplianceResult:
         """Check ISO 10303 STEP compliance."""
         result = ComplianceResult(
             standard=StandardType.ISO_10303,
@@ -57,7 +57,7 @@ class ISO10303Checker(StandardChecker):
         result.checked_rules = len(rules)
         
         for rule in rules:
-            passed = await self._check_rule(doc_handle, rule)
+            passed = self._check_rule(doc_handle, rule)
             if passed:
                 result.passed_rules += 1
             else:
@@ -97,7 +97,7 @@ class ISO10303Checker(StandardChecker):
             }
         ]
     
-    async def _check_rule(self, doc_handle: Any, rule: Dict[str, Any]) -> bool:
+    def _check_rule(self, doc_handle: Any, rule: Dict[str, Any]) -> bool:
         """Check individual rule."""
         try:
             import Part
@@ -161,7 +161,7 @@ class ISO10303Checker(StandardChecker):
 class ASMEY145Checker(StandardChecker):
     """ASME Y14.5 GD&T standard checker."""
     
-    async def check(self, doc_handle: Any) -> ComplianceResult:
+    def check(self, doc_handle: Any) -> ComplianceResult:
         """Check ASME Y14.5 GD&T compliance."""
         result = ComplianceResult(
             standard=StandardType.ASME_Y14_5,
@@ -169,7 +169,7 @@ class ASMEY145Checker(StandardChecker):
         )
         
         # Check for GD&T annotations
-        gdt_features = await self._extract_gdt_features(doc_handle)
+        gdt_features = self._extract_gdt_features(doc_handle)
         
         if not gdt_features:
             result.warnings.append("No GD&T features found")
@@ -214,7 +214,7 @@ class ASMEY145Checker(StandardChecker):
             }
         ]
     
-    async def _extract_gdt_features(self, doc_handle: Any) -> List[Dict[str, Any]]:
+    def _extract_gdt_features(self, doc_handle: Any) -> List[Dict[str, Any]]:
         """Extract GD&T features from model."""
         features = []
         
@@ -312,7 +312,7 @@ class ASMEY145Checker(StandardChecker):
 class ISO2768Checker(StandardChecker):
     """ISO 2768 general tolerances checker."""
     
-    async def check(self, doc_handle: Any) -> ComplianceResult:
+    def check(self, doc_handle: Any) -> ComplianceResult:
         """Check ISO 2768 general tolerances."""
         result = ComplianceResult(
             standard=StandardType.ISO_2768,
@@ -328,7 +328,7 @@ class ISO2768Checker(StandardChecker):
         }
         
         # Check dimensions against tolerance class
-        dimensions = await self._extract_dimensions(doc_handle)
+        dimensions = self._extract_dimensions(doc_handle)
         tolerance_class = "medium"  # Default
         
         for dim in dimensions:
@@ -365,7 +365,7 @@ class ISO2768Checker(StandardChecker):
             }
         ]
     
-    async def _extract_dimensions(self, doc_handle: Any) -> List[Dict[str, Any]]:
+    def _extract_dimensions(self, doc_handle: Any) -> List[Dict[str, Any]]:
         """Extract dimensions from model."""
         dimensions = []
         
@@ -444,7 +444,7 @@ class ISO2768Checker(StandardChecker):
 class CEMarkingChecker(StandardChecker):
     """CE marking compliance checker."""
     
-    async def check(self, doc_handle: Any) -> ComplianceResult:
+    def check(self, doc_handle: Any) -> ComplianceResult:
         """Check CE marking requirements."""
         result = ComplianceResult(
             standard=StandardType.CE_MARKING,
@@ -455,7 +455,7 @@ class CEMarkingChecker(StandardChecker):
         requirements = self.get_rules()
         
         for req in requirements:
-            if await self._check_requirement(doc_handle, req):
+            if self._check_requirement(doc_handle, req):
                 result.passed_rules += 1
             else:
                 result.violations.append(ComplianceViolation(
@@ -518,7 +518,7 @@ class CEMarkingChecker(StandardChecker):
             }
         ]
     
-    async def _check_requirement(self, doc_handle: Any, requirement: Dict[str, Any]) -> bool:
+    def _check_requirement(self, doc_handle: Any, requirement: Dict[str, Any]) -> bool:
         """Check CE requirement."""
         try:
             import Part
@@ -528,37 +528,37 @@ class CEMarkingChecker(StandardChecker):
             
             if category == "safety":
                 # Check safety requirements
-                return await self._check_safety_requirements(doc_handle)
+                return self._check_safety_requirements(doc_handle)
             
             elif category == "emc":
                 # Check EMC compliance (electromagnetic compatibility)
-                return await self._check_emc_compliance(doc_handle)
+                return self._check_emc_compliance(doc_handle)
             
             elif category == "documentation":
                 # Check documentation completeness
-                return await self._check_documentation_completeness(doc_handle)
+                return self._check_documentation_completeness(doc_handle)
             
             elif category == "materials":
                 # Check hazardous materials compliance (RoHS, REACH)
-                return await self._check_materials_compliance(doc_handle)
+                return self._check_materials_compliance(doc_handle)
             
             elif category == "performance":
                 # Check performance standards
-                return await self._check_performance_standards(doc_handle)
+                return self._check_performance_standards(doc_handle)
             
             elif category == "labeling":
                 # Check labeling requirements
-                return await self._check_labeling_requirements(doc_handle)
+                return self._check_labeling_requirements(doc_handle)
             
             else:
                 # Default check
-                return await self._perform_basic_check(doc_handle)
+                return self._perform_basic_check(doc_handle)
                 
         except Exception as e:
             logger.debug(f"CE requirement check error: {category}")
             return False
     
-    async def _check_safety_requirements(self, doc_handle: Any) -> bool:
+    def _check_safety_requirements(self, doc_handle: Any) -> bool:
         """Check safety requirements for CE marking."""
         try:
             import Part
@@ -614,7 +614,7 @@ class CEMarkingChecker(StandardChecker):
         except Exception:
             return True
     
-    async def _check_emc_compliance(self, doc_handle: Any) -> bool:
+    def _check_emc_compliance(self, doc_handle: Any) -> bool:
         """Check EMC (electromagnetic compatibility) compliance."""
         try:
             import Part
@@ -665,7 +665,7 @@ class CEMarkingChecker(StandardChecker):
         except Exception:
             return True
     
-    async def _check_documentation_completeness(self, doc_handle: Any) -> bool:
+    def _check_documentation_completeness(self, doc_handle: Any) -> bool:
         """Check if model has complete documentation for CE marking."""
         try:
             doc_complete = True
@@ -708,7 +708,7 @@ class CEMarkingChecker(StandardChecker):
         except Exception:
             return False
     
-    async def _check_materials_compliance(self, doc_handle: Any) -> bool:
+    def _check_materials_compliance(self, doc_handle: Any) -> bool:
         """Check hazardous materials compliance (RoHS, REACH)."""
         try:
             materials_compliant = True
@@ -738,7 +738,7 @@ class CEMarkingChecker(StandardChecker):
         except Exception:
             return True
     
-    async def _check_performance_standards(self, doc_handle: Any) -> bool:
+    def _check_performance_standards(self, doc_handle: Any) -> bool:
         """Check performance standards for CE marking."""
         try:
             import Part
@@ -776,7 +776,7 @@ class CEMarkingChecker(StandardChecker):
         except Exception:
             return True
     
-    async def _check_labeling_requirements(self, doc_handle: Any) -> bool:
+    def _check_labeling_requirements(self, doc_handle: Any) -> bool:
         """Check CE marking labeling requirements."""
         try:
             has_labeling = False
@@ -803,7 +803,7 @@ class CEMarkingChecker(StandardChecker):
         except Exception:
             return False
     
-    async def _perform_basic_check(self, doc_handle: Any) -> bool:
+    def _perform_basic_check(self, doc_handle: Any) -> bool:
         """Perform basic CE marking check."""
         try:
             # Basic validity check
@@ -828,7 +828,7 @@ class StandardsChecker:
             StandardType.CE_MARKING: CEMarkingChecker
         }
     
-    async def check_compliance(
+    def check_compliance(
         self,
         doc_handle: Any,
         standard: StandardType
@@ -858,7 +858,7 @@ class StandardsChecker:
                 
                 # Create checker instance and run check
                 checker = checker_class()
-                result = await checker.check(doc_handle)
+                result = checker.check(doc_handle)
                 
                 metrics.standards_compliance_checks.labels(
                     standard=standard.value,
@@ -891,7 +891,7 @@ class StandardsChecker:
                 
                 return result
     
-    async def check_multiple_standards(
+    def check_multiple_standards(
         self,
         doc_handle: Any,
         standards: List[StandardType]
@@ -904,7 +904,14 @@ class StandardsChecker:
         for standard in standards:
             tasks.append(self.check_compliance(doc_handle, standard))
         
-        compliance_results = await asyncio.gather(*tasks, return_exceptions=True)
+        # Run checks sequentially in sync mode
+        compliance_results = []
+        for task in tasks:
+            try:
+                result = task()
+                compliance_results.append(result)
+            except Exception as e:
+                compliance_results.append(e)
         
         for standard, result in zip(standards, compliance_results):
             if isinstance(result, Exception):

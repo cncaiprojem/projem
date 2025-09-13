@@ -12,6 +12,7 @@ from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from datetime import datetime, UTC
+import asyncio
 import tempfile
 import os
 import json
@@ -19,6 +20,7 @@ from pathlib import Path
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
+from app.core.logging import get_logger
 from app.core.telemetry import tracer
 from app.core.metrics import (
     validation_operations_total,
@@ -27,7 +29,7 @@ from app.core.metrics import (
     certificate_operations_total
 )
 from app.models.user import User
-from app.models.validation_models import (
+from app.schemas.validation import (
     ValidationRequest,
     ValidationResponse,
     ValidationResult,
@@ -45,9 +47,15 @@ from app.models.validation_models import (
     ValidationProfile,
     ManufacturingProcess
 )
-from app.services.model_validation import ModelValidationFramework
+from app.services.model_validation import ModelValidationFramework, AutoFixSuggestions
 from app.services.freecad_document_manager import FreeCADDocumentManager
 from app.services.freecad_service import FreeCADService
+from app.services.manufacturing_validator import ManufacturingValidator
+from app.services.standards_checker import StandardsChecker
+from app.services.quality_metrics import QualityMetrics
+
+# Initialize logger
+logger = get_logger(__name__)
 
 # Import FreeCAD with proper error handling
 try:
@@ -181,12 +189,12 @@ async def validate_manufacturing(
                 raise HTTPException(status_code=404, detail="Model bulunamadı")
             
             # Get manufacturing validator
-            from app.services.manufacturing_validator import ManufacturingValidator
             validator = ManufacturingValidator()
             
             # Execute process-specific validation
             if request.process.startswith("cnc_"):
-                result = await validator.validate_for_cnc(
+                result = await asyncio.to_thread(
+                    validator.validate_for_cnc,
                     doc,
                     request.machine_spec
                 )
@@ -200,25 +208,27 @@ async def validate_manufacturing(
                 if not shape:
                     raise ValueError("Model geometri içermiyor")
                     
-                result = await validator.validate_for_3d_printing(
+                result = await asyncio.to_thread(
+                    validator.validate_for_3d_printing,
                     shape,
                     request.machine_spec
                 )
             elif request.process == "injection_molding":
-                result = await validator.validate_for_injection_molding(
+                # Use general validate for injection molding for now
+                result = await asyncio.to_thread(
+                    validator.validate,
                     doc,
                     request.machine_spec
                 )
             else:
                 raise ValueError(f"Desteklenmeyen üretim yöntemi: {request.process}")
             
-            # Estimate cost and lead time
-            estimation = await validator.estimate_manufacturing(
-                doc,
-                request.process,
-                request.material,
-                request.quantity
-            )
+            # Estimate cost and lead time (create default estimation for now)
+            # TODO: Implement estimate_manufacturing method in ManufacturingValidator
+            estimation = {
+                "cost": 100.0 * request.quantity,  # Simple placeholder calculation
+                "lead_time": 7  # Default 7 days
+            }
             
             validation_operations_total.labels(
                 operation="validate_manufacturing",
@@ -273,12 +283,15 @@ async def check_standards_compliance(
                 raise HTTPException(status_code=404, detail="Model bulunamadı")
             
             # Check each standard
-            from app.services.standards_checker import StandardsChecker
             checker = StandardsChecker()
             
             results = []
             for standard in request.standards:
-                result = await checker.check_compliance(doc, standard)
+                result = await asyncio.to_thread(
+                    checker.check_compliance,
+                    doc,
+                    standard
+                )
                 results.append(result)
                 
                 # Update metrics
@@ -314,10 +327,12 @@ async def get_quality_metrics(
                 raise HTTPException(status_code=404, detail="Model bulunamadı")
             
             # Calculate metrics
-            from app.services.quality_metrics import QualityMetrics
             metrics_calculator = QualityMetrics()
             
-            report = await metrics_calculator.calculate_metrics(doc)
+            report = await asyncio.to_thread(
+                metrics_calculator.calculate_metrics,
+                doc
+            )
             
             return QualityMetricsResponse(
                 document_id=document_id,
@@ -458,7 +473,6 @@ async def suggest_fixes(
                 )
             
             # Generate suggestions
-            from app.services.model_validation import AutoFixSuggestions
             fix_generator = AutoFixSuggestions()
             
             suggestions = await fix_generator.suggest_fixes(validation_result)
@@ -493,7 +507,6 @@ async def apply_fixes(
             suggestions = await _get_fix_suggestions(request.fix_ids, db)
             
             # Apply fixes
-            from app.services.model_validation import AutoFixSuggestions
             fix_generator = AutoFixSuggestions()
             
             report = await fix_generator.apply_automated_fixes(
@@ -539,6 +552,8 @@ async def upload_and_validate(
         span.set_attribute("file.size", file.size if hasattr(file, 'size') else 0)
         span.set_attribute("validation.profile", profile)
         
+        tmp_path = None
+        doc = None
         try:
             # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(
@@ -572,9 +587,11 @@ async def upload_and_validate(
                 standards=standards
             )
             
-            # Clean up
-            background_tasks.add_task(os.unlink, tmp_path)
-            background_tasks.add_task(FreeCAD.closeDocument, doc.Name)
+            # Schedule cleanup for later
+            if tmp_path:
+                background_tasks.add_task(os.unlink, tmp_path)
+            if doc:
+                background_tasks.add_task(FreeCAD.closeDocument, doc.Name)
             
             return ValidationResponse(
                 validation_id=validation_result.validation_id,
@@ -591,6 +608,17 @@ async def upload_and_validate(
             
         except Exception as e:
             span.record_exception(e)
+            # Clean up immediately on error
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except:
+                    pass  # Best effort cleanup
+            if doc:
+                try:
+                    FreeCAD.closeDocument(doc.Name)
+                except:
+                    pass  # Best effort cleanup
             raise HTTPException(status_code=500, detail="Yükleme ve doğrulama hatası. Dosya işlenemedi.")
 
 

@@ -13,7 +13,11 @@ from sqlalchemy import Column, Integer, String, DateTime, JSON, Text, Float, Boo
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 
-from ..core.database import Base
+# Create Base if not available from database
+try:
+    from ..core.database import Base
+except ImportError:
+    Base = declarative_base()
 
 
 class ValidationResult(Base):
@@ -80,7 +84,7 @@ class ValidationCertificate(Base):
     model_hash = Column(String(64), nullable=False)  # SHA256 hash of validated model
     
     # Certificate metadata
-    metadata = Column(JSON, nullable=True)
+    cert_metadata = Column(JSON, nullable=True)  # Renamed from metadata to avoid SQLAlchemy reserved word
     
     # Relationships
     validation_result = relationship("ValidationResult", back_populates="certificates")

@@ -4,11 +4,12 @@ Tests for Model Validation and Quality Assurance (Task 7.24)
 
 import pytest
 import json
+import asyncio
 from unittest.mock import Mock, AsyncMock, patch, MagicMock
 from datetime import datetime, UTC, timedelta
 from uuid import uuid4
 
-# Import schemas
+# Import validation schemas
 from app.schemas.validation import (
     ValidationProfile,
     ValidationResult,
@@ -19,9 +20,9 @@ from app.schemas.validation import (
     ManufacturingProcess,
     ValidationRequest,
     ValidationResponse,
-    ValidationStatus,
     ValidationSection,
-    StandardType
+    StandardType,
+    ComplianceResult
 )
 
 # Import services
@@ -416,12 +417,25 @@ class TestStandardsChecker:
     @pytest.mark.asyncio
     async def test_check_unsupported_standard(self, checker, mock_doc):
         """Test checking unsupported standard."""
-        from app.models.validation_models import StandardType
-        # Test with an invalid standard type
-        with pytest.raises(ValueError, match="Unsupported standard"):
-            # StandardType should not have INVALID_STANDARD
-            invalid_type = StandardType.ISO_9001  # Use a valid type for testing
-            await checker.check_compliance(mock_doc, "INVALID_STANDARD")
+        from app.models.validation_models import StandardType, ComplianceResult
+        from unittest.mock import MagicMock
+        
+        # Create a mock unsupported standard (one not in the checkers dict)
+        # We'll mock the checkers dict to not have ISO_9001
+        checker.checkers = {}  # Empty checkers dict
+        
+        result = await asyncio.to_thread(
+            checker.check_compliance,
+            mock_doc,
+            StandardType.ISO_9001
+        )
+        
+        # Should return ComplianceResult with violation
+        assert isinstance(result, ComplianceResult)
+        assert not result.is_compliant
+        assert result.compliance_score == 0.0
+        assert len(result.violations) == 1
+        assert result.violations[0].rule_id == "UNSUPPORTED"
     
     @pytest.mark.asyncio
     async def test_check_with_violations(self, checker, mock_doc):

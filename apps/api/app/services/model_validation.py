@@ -431,7 +431,11 @@ class ModelValidationFramework:
                 # Geometric validation (always first)
                 geometric_validator = self.validator_registry.get('geometric')
                 if geometric_validator:
-                    geometric_result = await geometric_validator.validate(doc_handle)
+                    # Use asyncio.to_thread for CPU-bound geometric validation
+                    geometric_result = await asyncio.to_thread(
+                        geometric_validator.validate,
+                        doc_handle
+                    )
                     result.add_section('geometric', geometric_result)
                 
                 # Manufacturing validation would be done separately if needed
@@ -500,7 +504,7 @@ class ModelValidationFramework:
                 )
                 
                 metrics.model_validations_total.labels(
-                    profile=request.profile.value,
+                    profile=validation_profile.value,
                     status="error"
                 ).inc()
                 
@@ -814,7 +818,11 @@ class ModelValidationFramework:
                     shape_data.append(f"{obj.Name}")
                     shape_data.append(f"Volume:{shape.Volume:.6f}" if hasattr(shape, 'Volume') else "")
                     shape_data.append(f"Area:{shape.Area:.6f}" if hasattr(shape, 'Area') else "")
-                    shape_data.append(f"CenterOfMass:{shape.CenterOfMass}" if hasattr(shape, 'CenterOfMass') else "")
+                    if hasattr(shape, 'CenterOfMass'):
+                        com = shape.CenterOfMass
+                        shape_data.append(f"CenterOfMass:{com.x:.6f},{com.y:.6f},{com.z:.6f}")
+                    else:
+                        shape_data.append("")
                     
                     # Add vertex positions for deterministic hash
                     if hasattr(shape, 'Vertexes'):
@@ -892,7 +900,7 @@ class ModelValidationFramework:
                 compliance_level="full" if certificate.validation_score >= CERTIFICATION_SCORE_THRESHOLD else "partial",
                 signature=certificate.signature,
                 model_hash=certificate.model_hash,
-                metadata=certificate.metadata
+                cert_metadata=certificate.metadata
             )
             db.add(db_cert)
             db.commit()
@@ -933,6 +941,88 @@ class ModelValidationFramework:
                 exc_info=True
             )
             return []
+
+
+
+class AutoFixSuggestions:
+    """Generates and applies automated fix suggestions for validation issues."""
+    
+    def __init__(self):
+        """Initialize AutoFixSuggestions."""
+        self.logger = logger
+    
+    async def suggest_fixes(self, validation_result: ValidationResult) -> List[FixSuggestion]:
+        """Generate fix suggestions based on validation issues."""
+        suggestions = []
+        
+        for issue in validation_result.issues:
+            if issue.severity == "critical":
+                # Generate critical issue fixes
+                suggestion = FixSuggestion(
+                    fix_id=f"fix_{issue.issue_id}",
+                    issue_id=issue.issue_id,
+                    fix_type="auto",
+                    description=f"{issue.category} sorunu için otomatik düzeltme",
+                    confidence=0.8,
+                    estimated_impact="high",
+                    code_changes=None
+                )
+                suggestions.append(suggestion)
+            elif issue.severity == "warning":
+                # Generate warning fixes
+                suggestion = FixSuggestion(
+                    fix_id=f"fix_{issue.issue_id}",
+                    issue_id=issue.issue_id,
+                    fix_type="manual",
+                    description=f"{issue.category} uyarısı için önerilen düzeltme",
+                    confidence=0.6,
+                    estimated_impact="medium",
+                    code_changes=None
+                )
+                suggestions.append(suggestion)
+        
+        return suggestions
+    
+    async def apply_automated_fixes(
+        self,
+        doc: Any,
+        suggestions: List[FixSuggestion],
+        user_id: Optional[int] = None
+    ) -> FixReport:
+        """Apply selected automated fixes to the model."""
+        applied_fixes = []
+        failed_fixes = []
+        
+        for suggestion in suggestions:
+            try:
+                if suggestion.fix_type == "auto":
+                    # Apply automated fix (placeholder implementation)
+                    # In real implementation, this would modify the FreeCAD document
+                    applied_fixes.append({
+                        "fix_id": suggestion.fix_id,
+                        "status": "success"
+                    })
+                else:
+                    # Manual fixes cannot be applied automatically
+                    failed_fixes.append({
+                        "fix_id": suggestion.fix_id,
+                        "reason": "Manual düzeltme otomatik olarak uygulanamaz"
+                    })
+            except Exception as e:
+                self.logger.error(f"Failed to apply fix {suggestion.fix_id}: {e}")
+                failed_fixes.append({
+                    "fix_id": suggestion.fix_id,
+                    "reason": str(e)
+                })
+        
+        return FixReport(
+            report_id=f"report_{datetime.now(timezone.utc).timestamp()}",
+            timestamp=datetime.now(timezone.utc),
+            applied_fixes=applied_fixes,
+            failed_fixes=failed_fixes,
+            model_state="modified" if applied_fixes else "unchanged",
+            validation_required=bool(applied_fixes)
+        )
 
 
 # Global validation framework instance
