@@ -354,12 +354,25 @@ class BatchProcessingEngine:
         """Synchronously shutdown all executors and cleanup resources."""
         try:
             if self._process_pool:
-                self._process_pool.shutdown(wait=True, cancel_futures=True)
+                # FIX: Python 3.8 compatibility - cancel_futures only available in Python 3.9+
+                # Use wait=True without cancel_futures for Python 3.8 compatibility
+                try:
+                    # Try Python 3.9+ syntax first
+                    self._process_pool.shutdown(wait=True, cancel_futures=True)
+                except TypeError:
+                    # Fall back to Python 3.8 syntax
+                    self._process_pool.shutdown(wait=True)
                 self._process_pool = None
                 logger.info("Process pool executor kapatıldı")
             
             if self._thread_pool:
-                self._thread_pool.shutdown(wait=True, cancel_futures=True)
+                # FIX: Python 3.8 compatibility - cancel_futures only available in Python 3.9+
+                try:
+                    # Try Python 3.9+ syntax first
+                    self._thread_pool.shutdown(wait=True, cancel_futures=True)
+                except TypeError:
+                    # Fall back to Python 3.8 syntax
+                    self._thread_pool.shutdown(wait=True)
                 self._thread_pool = None
                 logger.info("Thread pool executor kapatıldı")
             

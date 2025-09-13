@@ -889,7 +889,8 @@ async def process_batch_job(
                     if item.item_id in result_map:
                         result = result_map[item.item_id]
                         item.output_data = result
-                        is_success = isinstance(result, dict) and result.get("success", False) != False
+                        # FIX: Simplified boolean check for clarity
+                        is_success = result.get("success", False) if isinstance(result, dict) else False
                         item.status = BatchItemStatus.COMPLETED if is_success else BatchItemStatus.FAILED
                         if not is_success:
                             item.error = result.get("error", "FreeCAD işlem hatası")
@@ -954,7 +955,8 @@ async def process_batch_job(
             if batch_job:
                 batch_job.status = BatchStatus.FAILED
                 batch_job.end_time = datetime.now(UTC)
-                batch_job.error_message = str(e)
+                # FIX: BatchJob model uses 'errors' dict, not 'error_message'
+                batch_job.errors = {"batch_error": str(e)}
                 await db.commit()
 
 
@@ -1031,16 +1033,20 @@ async def execute_workflow_async(
             )
             
             # Update workflow execution with results
-            workflow_exec.status = WorkflowStatus.COMPLETED if result.success else WorkflowStatus.FAILED
+            # FIX: Use result.status directly instead of checking result.success attribute
+            workflow_exec.status = result.status if hasattr(result, 'status') else (
+                WorkflowStatus.COMPLETED if getattr(result, 'success', False) else WorkflowStatus.FAILED
+            )
             workflow_exec.end_time = datetime.now(UTC)
             workflow_exec.step_results = result.step_results
             workflow_exec.context = result.context
             
-            if not result.success and result.error:
+            if not getattr(result, 'success', False) and hasattr(result, 'error') and result.error:
                 workflow_exec.error = result.error
             
             await db.commit()
-            logger.info(f"Workflow execution {workflow_exec_id} completed: {result.success}")
+            # FIX: Use getattr to safely access result.success
+            logger.info(f"Workflow execution {workflow_exec_id} completed: {getattr(result, 'success', False)}")
             
         except Exception as e:
             logger.error(f"Error executing workflow {workflow_exec_id}: {e}")

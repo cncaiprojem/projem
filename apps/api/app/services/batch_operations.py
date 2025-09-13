@@ -587,12 +587,12 @@ class BatchOperations:
             
         except ImportError as e:
             # FreeCAD not available - fail the check with specific error
+            # FIX: Log full error details internally but provide generic message to user
             logger.error(f"FreeCAD import failed for geometry check: {e}")
-            issues.append(f"FreeCAD modülü yüklenemedi: {str(e)}")
-            issues.append("Geometri kontrolü için FreeCAD kurulumu gereklidir")
+            issues.append("FreeCAD modülü yüklenemedi. Geometri kontrolü için FreeCAD kurulumu gereklidir.")
             passed = False  # Fail the check when FreeCAD is not available
             metadata["freecad_available"] = False
-            metadata["import_error"] = str(e)
+            # Don't expose import error details in metadata for security
         except Exception as e:
             issues.append(f"Geometri kontrol hatası: {str(e)}")
             passed = False
