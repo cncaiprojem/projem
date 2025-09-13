@@ -479,7 +479,7 @@ class ModelValidationFramework:
                 
                 # Generate fix suggestions
                 if result.issues:
-                    result.fix_suggestions = await self._generate_fix_suggestions(result)
+                    result.fix_suggestions = self._generate_fix_suggestions(result)
                 
                 # Note: Automated fixes and certificates would be handled by the caller
                 
@@ -527,7 +527,7 @@ class ModelValidationFramework:
                 ))
                 return result
     
-    async def _generate_fix_suggestions(
+    def _generate_fix_suggestions(
         self, 
         validation_result: ValidationResult
     ) -> List[FixSuggestion]:
@@ -683,7 +683,7 @@ class ModelValidationFramework:
             try:
                 # Apply fix (would call actual FreeCAD operations)
                 # This is a placeholder - actual implementation would modify the document
-                result = await self._apply_single_fix(doc_handle, suggestion)
+                result = self._apply_single_fix(doc_handle, suggestion)
                 
                 report.applied_fixes += 1
                 report.successful_fixes += 1
@@ -713,7 +713,7 @@ class ModelValidationFramework:
         
         return report
     
-    async def _apply_single_fix(
+    def _apply_single_fix(
         self,
         doc_handle: Any,
         suggestion: FixSuggestion

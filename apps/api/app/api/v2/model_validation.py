@@ -55,6 +55,14 @@ from app.services.manufacturing_validator import ManufacturingValidator
 from app.services.standards_checker import StandardsChecker
 from app.services.quality_metrics import QualityMetrics
 
+# Database models
+from sqlalchemy import select
+from app.models.validation_models import (
+    ValidationResultModel,
+    CertificateModel,
+    FixSuggestionModel
+)
+
 # Initialize logger
 logger = get_logger(__name__)
 
@@ -153,7 +161,7 @@ async def validate_model(
                 status="error"
             ).inc()
             span.record_exception(e)
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail="Geçersiz istek. Lütfen model formatını kontrol edin.")
         except Exception as e:
             validation_operations_total.labels(
                 operation="validate",
@@ -257,7 +265,7 @@ async def validate_manufacturing(
                 status="error"
             ).inc()
             span.record_exception(e)
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail="Geçersiz istek. Lütfen parametreleri kontrol edin.")
         except Exception as e:
             validation_operations_total.labels(
                 operation="validate_manufacturing",
@@ -624,7 +632,7 @@ async def upload_and_validate(
                     FreeCAD.closeDocument(doc.Name)
                 except Exception:
                     logger.debug("Best effort document cleanup failed")
-            raise HTTPException(status_code=400, detail=str(e))
+            raise HTTPException(status_code=400, detail="Geçersiz dosya formatı. Lütfen dosya tipini kontrol edin.")
         except Exception as e:
             span.record_exception(e)
             # Clean up immediately on error
@@ -694,9 +702,6 @@ async def _get_validation_result(
 ) -> Optional[ValidationResult]:
     """Get validation result from database."""
     try:
-        from sqlalchemy import select
-        from app.models.validation_models import ValidationResultModel
-        
         stmt = select(ValidationResultModel).where(
             ValidationResultModel.validation_id == validation_id
         )
@@ -730,9 +735,6 @@ async def _store_certificate(
 ):
     """Store certificate in database."""
     try:
-        from app.models.validation_models import CertificateModel
-        import json
-        
         cert_model = CertificateModel(
             certificate_id=certificate.certificate_id,
             validation_id=certificate.validation_id,
@@ -759,10 +761,6 @@ async def _get_certificate(
 ) -> Optional[QualityCertificate]:
     """Get certificate from database."""
     try:
-        from sqlalchemy import select
-        from app.models.validation_models import CertificateModel
-        import json
-        
         stmt = select(CertificateModel).where(
             CertificateModel.certificate_id == certificate_id
         )
@@ -794,10 +792,6 @@ async def _get_fix_suggestions(
 ) -> List[FixSuggestion]:
     """Get fix suggestions by IDs."""
     try:
-        from sqlalchemy import select
-        from app.models.validation_models import FixSuggestionModel
-        import json
-        
         stmt = select(FixSuggestionModel).where(
             FixSuggestionModel.suggestion_id.in_(fix_ids)
         )
@@ -846,9 +840,6 @@ async def _revalidate_model(
         )
         
         # Store result in database
-        from app.models.validation_models import ValidationResultModel
-        import json
-        
         validation_model = ValidationResultModel(
             validation_id=result.validation_id,
             model_id=result.model_id,

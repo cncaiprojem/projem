@@ -14,6 +14,9 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
+# Import Turkish validation messages from models
+from app.models.validation_models import VALIDATION_MESSAGES_TR
+
 
 class ValidationProfile(str, Enum):
     """Validation profile enumeration."""
@@ -215,26 +218,6 @@ class ValidationResponse(BaseModel):
     
     validation_id: Optional[str] = None
     report_url: Optional[str] = None
-
-
-# Turkish validation messages
-VALIDATION_MESSAGES_TR = {
-    "self_intersection": "Model kendisiyle kesişiyor",
-    "non_manifold": "Manifold olmayan kenarlar bulundu",
-    "open_edges": "Açık kenarlar bulundu",
-    "thin_walls": "İnce duvarlar tespit edildi",
-    "small_features": "Küçük özellikler tespit edildi",
-    "sharp_corners": "Keskin köşeler bulundu",
-    "undercuts": "Alt kesimler tespit edildi",
-    "overhangs": "Sarkıntılar bulundu",
-    "tool_accessibility": "Takım erişimi sorunu",
-    "tolerance_violation": "Tolerans ihlali",
-    "surface_quality": "Yüzey kalitesi sorunu",
-    "dimension_out_of_range": "Boyut aralık dışında",
-    "material_incompatible": "Malzeme uyumsuz",
-    "standard_violation": "Standart ihlali",
-    "certification_failed": "Sertifikasyon başarısız"
-}
 
 
 # Additional schemas for Task 7.24
