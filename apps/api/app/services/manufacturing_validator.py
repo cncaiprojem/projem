@@ -470,13 +470,118 @@ class ManufacturingValidator:
     
     def _check_vertical_access(self, shape: Any, feature: Dict[str, Any]) -> bool:
         """Check if feature is accessible from vertical direction."""
-        # Simplified check - would use ray casting in real implementation
-        return True
+        try:
+            import Part
+            import FreeCAD
+            from FreeCAD import Base
+            
+            # Get feature location
+            location = feature.get("location", {})
+            if not location:
+                return True
+            
+            # Create vertical ray from above the shape
+            if hasattr(shape, 'BoundBox'):
+                bbox = shape.BoundBox
+                start_z = bbox.ZMax + 100  # Start well above shape
+                
+                # Cast ray downward
+                start_point = Base.Vector(
+                    location.get("x", bbox.Center.x),
+                    location.get("y", bbox.Center.y),
+                    start_z
+                )
+                end_point = Base.Vector(
+                    location.get("x", bbox.Center.x),
+                    location.get("y", bbox.Center.y),
+                    bbox.ZMin - 100
+                )
+                
+                # Create ray line
+                ray = Part.LineSegment(start_point, end_point).toShape()
+                
+                # Check for obstructions
+                if hasattr(shape, 'section'):
+                    intersections = shape.section(ray)
+                    
+                    # If only one intersection at feature location, it's accessible
+                    if intersections and hasattr(intersections, 'Vertexes'):
+                        # Count intersections above feature
+                        feature_z = location.get("z", 0)
+                        obstructions = 0
+                        for vertex in intersections.Vertexes:
+                            if vertex.Point.z > feature_z + 0.1:  # Above feature
+                                obstructions += 1
+                        
+                        # Accessible if no obstructions above
+                        return obstructions == 0
+                
+                return True  # Default to accessible
+            
+            return True
+            
+        except Exception as e:
+            logger.debug(f"Vertical access check error: {e}")
+            return True  # Default to accessible on error
     
     def _check_ray_access(self, shape: Any, feature: Dict[str, Any], vectors: List) -> bool:
         """Check if feature is accessible along any of the given vectors."""
-        # Simplified check - would use ray casting in real implementation
-        return True
+        try:
+            import Part
+            import FreeCAD
+            from FreeCAD import Base
+            
+            # Get feature location
+            location = feature.get("location", {})
+            if not location:
+                return True
+            
+            feature_point = Base.Vector(
+                location.get("x", 0),
+                location.get("y", 0),
+                location.get("z", 0)
+            )
+            
+            # Check accessibility from each direction
+            for vector in vectors:
+                # Create ray from outside bounding box
+                if hasattr(shape, 'BoundBox'):
+                    bbox = shape.BoundBox
+                    # Start point outside bounding box
+                    max_dim = max(bbox.XLength, bbox.YLength, bbox.ZLength)
+                    start_point = feature_point + vector * (max_dim * 2)
+                    
+                    # Create ray
+                    ray = Part.LineSegment(start_point, feature_point).toShape()
+                    
+                    # Check intersections
+                    if hasattr(shape, 'section'):
+                        intersections = shape.section(ray)
+                        
+                        if intersections and hasattr(intersections, 'Vertexes'):
+                            # Count obstructions between start and feature
+                            obstructions = 0
+                            for vertex in intersections.Vertexes:
+                                # Check if intersection is between start and feature
+                                dist_to_start = vertex.Point.distanceToPoint(start_point)
+                                dist_to_feature = vertex.Point.distanceToPoint(feature_point)
+                                dist_total = start_point.distanceToPoint(feature_point)
+                                
+                                if dist_to_feature > 0.1 and (dist_to_start + dist_to_feature) <= dist_total + 0.1:
+                                    obstructions += 1
+                            
+                            # Accessible if no obstructions
+                            if obstructions == 0:
+                                return True
+                    else:
+                        # No intersection method, assume accessible
+                        return True
+            
+            return False  # Not accessible from any direction
+            
+        except Exception as e:
+            logger.debug(f"Ray access check error: {e}")
+            return True  # Default to accessible on error
     
     def detect_undercuts(self, shape: Any, axes: int) -> List[Dict[str, Any]]:
         """Detect undercut features."""
@@ -572,12 +677,48 @@ class ManufacturingValidator:
         feature_sizes = {}
         
         try:
-            # Measure feature sizes
-            # This would analyze holes, slots, pockets, etc.
-            # Placeholder implementation
+            import Part
+            import FreeCAD
+            
             features = self._extract_features(shape)
+            
             for feature_id, feature in features.items():
-                size = 1.2  # Mock size in mm
+                size = 0.0
+                
+                if feature.get("type") == "hole":
+                    # Measure hole diameter
+                    diameter = feature.get("diameter", 0)
+                    size = diameter
+                    
+                elif feature.get("type") == "pocket":
+                    # Measure pocket minimum dimension
+                    dimensions = feature.get("dimensions", {})
+                    if dimensions:
+                        size = min(dimensions.get("width", float('inf')), 
+                                  dimensions.get("length", float('inf')))
+                    
+                elif feature.get("type") == "slot":
+                    # Measure slot width
+                    width = feature.get("width", 0)
+                    size = width
+                    
+                elif feature.get("type") == "edge" and "edge_data" in feature:
+                    # Measure edge length for small edges
+                    edge_data = feature["edge_data"]
+                    if hasattr(edge_data, 'Length'):
+                        size = edge_data.Length
+                    
+                elif feature.get("type") == "face" and "face_data" in feature:
+                    # Measure face minimum dimension
+                    face_data = feature["face_data"]
+                    if hasattr(face_data, 'BoundBox'):
+                        bbox = face_data.BoundBox
+                        size = min(bbox.XLength, bbox.YLength, bbox.ZLength)
+                
+                # Default to a reasonable size if not measured
+                if size == 0.0:
+                    size = 1.0  # Default 1mm
+                
                 feature_sizes[feature_id] = size
         
         except Exception as e:

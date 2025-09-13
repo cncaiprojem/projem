@@ -147,7 +147,7 @@ async def validate_model(
                 status="error"
             ).inc()
             span.record_exception(e)
-            raise HTTPException(status_code=500, detail=f"Doğrulama hatası: {str(e)}")
+            raise HTTPException(status_code=500, detail="Doğrulama hatası. Model dosyası kontrol edilemedi.")
 
 
 @router.post("/validate/manufacturing", response_model=ManufacturingValidationResponse)
@@ -239,7 +239,7 @@ async def validate_manufacturing(
                 status="error"
             ).inc()
             span.record_exception(e)
-            raise HTTPException(status_code=500, detail=f"Üretim doğrulama hatası: {str(e)}")
+            raise HTTPException(status_code=500, detail="Üretim doğrulama hatası. Parametre ayarlarını kontrol edin.")
 
 
 @router.post("/validate/standards", response_model=List[ComplianceResult])
@@ -286,7 +286,7 @@ async def check_standards_compliance(
             
         except Exception as e:
             span.record_exception(e)
-            raise HTTPException(status_code=500, detail=f"Standart uyumluluk hatası: {str(e)}")
+            raise HTTPException(status_code=500, detail="Standart uyumluluk hatası. Doğrulama tamamlanamadı.")
 
 
 @router.get("/metrics/{document_id}", response_model=QualityMetricsResponse)
@@ -325,7 +325,7 @@ async def get_quality_metrics(
             
         except Exception as e:
             span.record_exception(e)
-            raise HTTPException(status_code=500, detail=f"Metrik hesaplama hatası: {str(e)}")
+            raise HTTPException(status_code=500, detail="Metrik hesaplama hatası. Analiz tamamlanamadı.")
 
 
 @router.post("/certificate/issue", response_model=QualityCertificate)
@@ -382,7 +382,7 @@ async def issue_certificate(
                 status="error"
             ).inc()
             span.record_exception(e)
-            raise HTTPException(status_code=500, detail=f"Sertifika düzenleme hatası: {str(e)}")
+            raise HTTPException(status_code=500, detail="Sertifika düzenleme hatası. Gereksinimler sağlanmadı.")
 
 
 @router.post("/certificate/verify")
@@ -428,7 +428,7 @@ async def verify_certificate(
             raise
         except Exception as e:
             span.record_exception(e)
-            raise HTTPException(status_code=500, detail=f"Sertifika doğrulama hatası: {str(e)}")
+            raise HTTPException(status_code=500, detail="Sertifika doğrulama hatası. Sertifika geçersiz.")
 
 
 @router.post("/fix/suggest", response_model=List[FixSuggestion])
@@ -461,7 +461,7 @@ async def suggest_fixes(
             
         except Exception as e:
             span.record_exception(e)
-            raise HTTPException(status_code=500, detail=f"Öneri oluşturma hatası: {str(e)}")
+            raise HTTPException(status_code=500, detail="Öneri oluşturma hatası. Analiz tamamlanamadı.")
 
 
 @router.post("/fix/apply", response_model=FixReport)
@@ -515,7 +515,7 @@ async def apply_fixes(
             
         except Exception as e:
             span.record_exception(e)
-            raise HTTPException(status_code=500, detail=f"Düzeltme uygulama hatası: {str(e)}")
+            raise HTTPException(status_code=500, detail="Düzeltme uygulama hatası. İşlem gerçekleştirilemedi.")
 
 
 @router.post("/upload-and-validate")
@@ -585,15 +585,57 @@ async def upload_and_validate(
             
         except Exception as e:
             span.record_exception(e)
-            raise HTTPException(status_code=500, detail=f"Yükleme ve doğrulama hatası: {str(e)}")
+            raise HTTPException(status_code=500, detail="Yükleme ve doğrulama hatası. Dosya işlenemedi.")
 
 
 # Helper functions
 async def _store_report(report: str, user_id: int, db: AsyncSession) -> str:
     """Store validation report and return URL."""
-    # Implementation would store report in MinIO/S3
-    # and return a presigned URL
-    return f"/api/v2/reports/validation/{report.validation_id}"
+    try:
+        from app.services.storage_client import storage_client
+        import json
+        import uuid
+        from datetime import datetime
+        
+        # Generate unique report ID
+        report_id = str(uuid.uuid4())
+        timestamp = datetime.utcnow().isoformat()
+        
+        # Create report metadata
+        report_data = {
+            "report_id": report_id,
+            "user_id": user_id,
+            "timestamp": timestamp,
+            "content": report
+        }
+        
+        # Store report in MinIO
+        bucket = "validation-reports"
+        object_name = f"reports/{user_id}/{report_id}.json"
+        
+        # Ensure bucket exists
+        await storage_client.ensure_bucket_exists(bucket)
+        
+        # Upload report
+        await storage_client.upload_json(
+            bucket=bucket,
+            object_name=object_name,
+            data=report_data
+        )
+        
+        # Generate presigned URL (24 hour expiry)
+        presigned_url = await storage_client.get_presigned_url(
+            bucket=bucket,
+            object_name=object_name,
+            expiry=86400
+        )
+        
+        return presigned_url
+        
+    except Exception as e:
+        logger.error(f"Failed to store report: {e}")
+        # Return fallback URL
+        return f"/api/v2/reports/validation/error"
 
 
 async def _get_validation_result(
@@ -601,9 +643,35 @@ async def _get_validation_result(
     db: AsyncSession
 ) -> Optional[ValidationResult]:
     """Get validation result from database."""
-    # Implementation would retrieve from database
-    # For now, return mock
-    return None
+    try:
+        from sqlalchemy import select
+        from app.models.validation_models import ValidationResultModel
+        
+        stmt = select(ValidationResultModel).where(
+            ValidationResultModel.validation_id == validation_id
+        )
+        result = await db.execute(stmt)
+        validation_model = result.scalar_one_or_none()
+        
+        if validation_model:
+            # Convert database model to response model
+            return ValidationResult(
+                validation_id=validation_model.validation_id,
+                model_id=validation_model.model_id,
+                profile=validation_model.profile,
+                status=validation_model.status,
+                overall_score=validation_model.overall_score,
+                sections=json.loads(validation_model.sections_json) if validation_model.sections_json else {},
+                issues=json.loads(validation_model.issues_json) if validation_model.issues_json else [],
+                timestamp=validation_model.created_at,
+                duration_ms=validation_model.duration_ms
+            )
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Failed to get validation result: {e}")
+        return None
 
 
 async def _store_certificate(
@@ -611,8 +679,28 @@ async def _store_certificate(
     db: AsyncSession
 ):
     """Store certificate in database."""
-    # Implementation would store in database
-    pass
+    try:
+        from app.models.validation_models import CertificateModel
+        import json
+        
+        cert_model = CertificateModel(
+            certificate_id=certificate.certificate_id,
+            validation_id=certificate.validation_id,
+            model_id=certificate.model_id,
+            issued_date=certificate.issued_date,
+            expiry_date=certificate.expiry_date,
+            standards_met=json.dumps(certificate.standards_met),
+            signature=certificate.signature,
+            metadata_json=json.dumps(certificate.metadata) if certificate.metadata else None
+        )
+        
+        db.add(cert_model)
+        await db.commit()
+        
+    except Exception as e:
+        logger.error(f"Failed to store certificate: {e}")
+        await db.rollback()
+        raise
 
 
 async def _get_certificate(
@@ -620,8 +708,34 @@ async def _get_certificate(
     db: AsyncSession
 ) -> Optional[QualityCertificate]:
     """Get certificate from database."""
-    # Implementation would retrieve from database
-    return None
+    try:
+        from sqlalchemy import select
+        from app.models.validation_models import CertificateModel
+        import json
+        
+        stmt = select(CertificateModel).where(
+            CertificateModel.certificate_id == certificate_id
+        )
+        result = await db.execute(stmt)
+        cert_model = result.scalar_one_or_none()
+        
+        if cert_model:
+            return QualityCertificate(
+                certificate_id=cert_model.certificate_id,
+                validation_id=cert_model.validation_id,
+                model_id=cert_model.model_id,
+                issued_date=cert_model.issued_date,
+                expiry_date=cert_model.expiry_date,
+                standards_met=json.loads(cert_model.standards_met) if cert_model.standards_met else [],
+                signature=cert_model.signature,
+                metadata=json.loads(cert_model.metadata_json) if cert_model.metadata_json else {}
+            )
+        
+        return None
+        
+    except Exception as e:
+        logger.error(f"Failed to get certificate: {e}")
+        return None
 
 
 async def _get_fix_suggestions(
@@ -629,15 +743,81 @@ async def _get_fix_suggestions(
     db: AsyncSession
 ) -> List[FixSuggestion]:
     """Get fix suggestions by IDs."""
-    # Implementation would retrieve from database
-    return []
+    try:
+        from sqlalchemy import select
+        from app.models.validation_models import FixSuggestionModel
+        import json
+        
+        stmt = select(FixSuggestionModel).where(
+            FixSuggestionModel.suggestion_id.in_(fix_ids)
+        )
+        result = await db.execute(stmt)
+        suggestion_models = result.scalars().all()
+        
+        suggestions = []
+        for model in suggestion_models:
+            suggestions.append(FixSuggestion(
+                suggestion_id=model.suggestion_id,
+                issue_id=model.issue_id,
+                type=model.type,
+                description=model.description,
+                turkish_description=model.turkish_description,
+                confidence=model.confidence,
+                automated=model.automated,
+                parameters=json.loads(model.parameters_json) if model.parameters_json else {}
+            ))
+        
+        return suggestions
+        
+    except Exception as e:
+        logger.error(f"Failed to get fix suggestions: {e}")
+        return []
 
 
 async def _revalidate_model(
-    doc: FreeCAD.Document,
+    doc: Any,  # FreeCAD.Document
     user_id: int,
     db: AsyncSession
-):
+) -> ValidationResult:
     """Re-validate model after fixes."""
-    # Implementation would re-run validation
-    pass
+    try:
+        from app.services.model_validation import ModelValidationFramework
+        from app.schemas.validation import ValidationProfile
+        
+        # Create validation framework
+        framework = ModelValidationFramework()
+        
+        # Run comprehensive validation
+        result = await framework.validate(
+            doc_handle=doc,
+            profile=ValidationProfile.COMPREHENSIVE,
+            user_id=user_id
+        )
+        
+        # Store result in database
+        from app.models.validation_models import ValidationResultModel
+        import json
+        
+        validation_model = ValidationResultModel(
+            validation_id=result.validation_id,
+            model_id=result.model_id,
+            user_id=user_id,
+            profile=result.profile.value,
+            status=result.status.value,
+            overall_score=result.overall_score,
+            sections_json=json.dumps({
+                name: section.dict() for name, section in result.sections.items()
+            }),
+            issues_json=json.dumps([issue.dict() for issue in result.issues]),
+            duration_ms=result.duration_ms
+        )
+        
+        db.add(validation_model)
+        await db.commit()
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to revalidate model: {e}")
+        await db.rollback()
+        raise

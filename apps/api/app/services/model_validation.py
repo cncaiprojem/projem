@@ -547,57 +547,122 @@ class ModelValidationFramework:
         """Generate automated fix suggestions for issues."""
         suggestions = []
         
+        # Map issue types to fix suggestions with metadata
+        fix_mapping = {
+            "self_intersection": {
+                "type": "remove_self_intersection",
+                "description": "Remove self-intersecting faces",
+                "turkish_description": "Kendisiyle kesişen yüzeyler kaldırılacak",
+                "confidence": "high",
+                "automated": True,
+                "parameters": {"tolerance": DEFAULT_TOLERANCE}
+            },
+            "thin_walls": {
+                "type": "thicken_walls",
+                "description": "Increase wall thickness to minimum",
+                "turkish_description": "Duvar kalınlığı minimum değere artırılacak",
+                "confidence": "medium",
+                "automated": True,
+                "parameters": {"min_thickness": MIN_WALL_THICKNESS}
+            },
+            "non_manifold": {
+                "type": "fix_topology",
+                "description": "Fix non-manifold edges",
+                "turkish_description": "Manifold olmayan kenarlar düzeltilecek",
+                "confidence": "medium",
+                "automated": True,
+                "parameters": {"tolerance": TOPOLOGY_FIX_TOLERANCE}
+            },
+            "overhang": {
+                "type": "add_support",
+                "description": "Add support structures for overhangs",
+                "turkish_description": "Askıda kalan yüzeyler için destek eklenecek",
+                "confidence": "high",
+                "automated": False,  # Manual review recommended
+                "parameters": {"angle_threshold": OVERHANG_ANGLE_THRESHOLD}
+            },
+            "open_edges": {
+                "type": "close_gaps",
+                "description": "Close open edges and gaps",
+                "turkish_description": "Açık kenarlar ve boşluklar kapatılacak",
+                "confidence": "medium",
+                "automated": True,
+                "parameters": {"tolerance": DEFAULT_TOLERANCE}
+            },
+            "invalid_faces": {
+                "type": "rebuild_faces",
+                "description": "Rebuild invalid faces",
+                "turkish_description": "Geçersiz yüzeyler yeniden oluşturulacak",
+                "confidence": "low",
+                "automated": True,
+                "parameters": {"method": "triangulation"}
+            },
+            "sharp_edges": {
+                "type": "fillet_edges",
+                "description": "Add fillets to sharp edges",
+                "turkish_description": "Keskin kenarlara pah eklenecek",
+                "confidence": "medium",
+                "automated": False,
+                "parameters": {"radius": 0.5}
+            },
+            "small_features": {
+                "type": "remove_small_features",
+                "description": "Remove features below minimum size",
+                "turkish_description": "Minimum boyutun altındaki özellikler kaldırılacak",
+                "confidence": "medium",
+                "automated": True,
+                "parameters": {"min_size": 0.1}
+            }
+        }
+        
+        # Process each issue and generate appropriate suggestions
         for issue in validation_result.issues:
             # Skip info-level issues
             if issue.severity == ValidationSeverity.INFO:
                 continue
             
-            suggestion = None
+            # Look up fix configuration
+            fix_config = fix_mapping.get(issue.type)
+            if not fix_config:
+                # Try to determine fix based on issue message
+                if "thickness" in issue.message.lower():
+                    fix_config = fix_mapping.get("thin_walls")
+                elif "manifold" in issue.message.lower():
+                    fix_config = fix_mapping.get("non_manifold")
+                elif "open" in issue.message.lower() or "gap" in issue.message.lower():
+                    fix_config = fix_mapping.get("open_edges")
             
-            # Generate fix based on issue type
-            if issue.type == "self_intersection":
+            if fix_config:
+                # Adjust confidence based on severity
+                confidence = fix_config["confidence"]
+                if issue.severity == ValidationSeverity.CRITICAL:
+                    confidence = "high" if confidence != "low" else "medium"
+                elif issue.severity == ValidationSeverity.WARNING:
+                    confidence = "low" if confidence == "high" else confidence
+                
                 suggestion = FixSuggestion(
                     issue_id=issue.issue_id,
-                    type="remove_self_intersection",
-                    description="Remove self-intersecting faces",
-                    turkish_description="Kendisiyle kesişen yüzeyler kaldırılacak",
-                    confidence="high",
-                    automated=True,
-                    parameters={"tolerance": DEFAULT_TOLERANCE}
+                    type=fix_config["type"],
+                    description=fix_config["description"],
+                    turkish_description=fix_config["turkish_description"],
+                    confidence=confidence,
+                    automated=fix_config["automated"],
+                    parameters=fix_config["parameters"].copy()
                 )
-            elif issue.type == "thin_walls":
-                suggestion = FixSuggestion(
-                    issue_id=issue.issue_id,
-                    type="thicken_walls",
-                    description="Increase wall thickness to minimum",
-                    turkish_description="Duvar kalınlığı minimum değere artırılacak",
-                    confidence="medium",
-                    automated=True,
-                    parameters={"min_thickness": MIN_WALL_THICKNESS}
-                )
-            elif issue.type == "non_manifold":
-                suggestion = FixSuggestion(
-                    issue_id=issue.issue_id,
-                    type="fix_topology",
-                    description="Fix non-manifold edges",
-                    turkish_description="Manifold olmayan kenarlar düzeltilecek",
-                    confidence="medium",
-                    automated=True,
-                    parameters={}
-                )
-            elif issue.type == "overhang":
-                suggestion = FixSuggestion(
-                    issue_id=issue.issue_id,
-                    type="add_support",
-                    description="Add support structures for overhangs",
-                    turkish_description="Askıda kalan yüzeyler için destek eklenecek",
-                    confidence="high",
-                    automated=False,  # Manual review recommended
-                    parameters={"angle_threshold": OVERHANG_ANGLE_THRESHOLD}
-                )
-            
-            if suggestion:
+                
+                # Add issue-specific details to parameters
+                if hasattr(issue, 'location') and issue.location:
+                    suggestion.parameters["location"] = issue.location
+                if hasattr(issue, 'affected_entities') and issue.affected_entities:
+                    suggestion.parameters["entities"] = issue.affected_entities
+                
                 suggestions.append(suggestion)
+        
+        # Sort suggestions by confidence and automated flag
+        suggestions.sort(key=lambda s: (
+            s.automated,  # Automated fixes first
+            {"high": 3, "medium": 2, "low": 1}.get(s.confidence, 0)  # Then by confidence
+        ), reverse=True)
         
         return suggestions
     

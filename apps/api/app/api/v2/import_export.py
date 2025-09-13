@@ -282,7 +282,7 @@ async def import_file(
             logger.error(f"İçe aktarma hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"İçe aktarma başarısız: {str(e)}"
+                detail="İçe aktarma başarısız. Dosya formatını kontrol edin."
             )
         finally:
             # Ensure temp file is cleaned up - wrap in asyncio.to_thread
@@ -372,7 +372,7 @@ async def export_document(
             logger.error(f"Dışa aktarma hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Dışa aktarma başarısız: {str(e)}"
+                detail="Dışa aktarma başarısız. Lütfen tekrar deneyin."
             )
         finally:
             # Ensure temp file is cleaned up - wrap in asyncio.to_thread
@@ -483,7 +483,7 @@ async def convert_format(
             logger.error(f"Dönüştürme hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Dönüştürme başarısız: {str(e)}"
+                detail="Dönüştürme başarısız. Desteklenmeyen format."
             )
         finally:
             # Clean up temp files - wrap in asyncio.to_thread
@@ -565,13 +565,13 @@ async def batch_import(
             logger.error(f"Dosya indirme hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_502_BAD_GATEWAY,
-                detail=f"Dosya indirilemedi: {str(e)}"
+                detail="Dosya indirilemedi. Bağlantıyı kontrol edin."
             )
         except Exception as e:
             logger.error(f"Toplu içe aktarma hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Toplu içe aktarma başarısız: {str(e)}"
+                detail="Toplu içe aktarma başarısız. Dosyaları kontrol edin."
             )
         finally:
             # Clean up temporary files - wrap in asyncio.to_thread
@@ -644,7 +644,7 @@ async def batch_export(
             logger.error(f"Toplu dışa aktarma hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Toplu dışa aktarma başarısız: {str(e)}"
+                detail="Toplu dışa aktarma başarısız. Lütfen tekrar deneyin."
             )
         finally:
             # Clean up temporary output directory
@@ -687,7 +687,7 @@ async def batch_convert(
             logger.error(f"Toplu dönüştürme hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Toplu dönüştürme başarısız: {str(e)}"
+                detail="Toplu dönüştürme başarısız. Dosya formatlarını kontrol edin."
             )
 
 
@@ -931,11 +931,11 @@ async def download_converted_file(
         logger.error(f"Dosya indirme hatası: {e}")
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Dosya indirilemedi: {str(e)}"
+            detail="Dosya indirilemedi. URL'yi kontrol edin."
         )
     except Exception as e:
         logger.error(f"İndirme hatası: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"İndirme başarısız: {str(e)}"
+            detail="İndirme başarısız. Sistem hatası oluştu."
         )

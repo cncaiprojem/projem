@@ -124,10 +124,49 @@ class WallThicknessAnalyzer:
         shape: Any, 
         point: Tuple[float, float, float]
     ) -> float:
-        """Measure wall thickness at a specific point."""
-        # This would use FreeCAD's ray casting API
-        # Placeholder implementation
-        return 1.5  # mm
+        """Measure wall thickness at a specific point using ray casting."""
+        try:
+            import Part
+            import FreeCAD
+            
+            # Create point object
+            fc_point = FreeCAD.Vector(point[0], point[1], point[2])
+            
+            # Check if point is inside shape
+            if not shape.isInside(fc_point, 0.01, True):
+                return 0.0
+            
+            # Cast rays in multiple directions to find minimum thickness
+            directions = [
+                FreeCAD.Vector(1, 0, 0),   # +X
+                FreeCAD.Vector(-1, 0, 0),  # -X
+                FreeCAD.Vector(0, 1, 0),   # +Y
+                FreeCAD.Vector(0, -1, 0),  # -Y
+                FreeCAD.Vector(0, 0, 1),   # +Z
+                FreeCAD.Vector(0, 0, -1),  # -Z
+            ]
+            
+            min_thickness = float('inf')
+            
+            for direction in directions:
+                # Create ray line
+                ray_line = Part.LineSegment(fc_point, fc_point + direction * 10000)
+                
+                # Find intersections with shape
+                intersections = shape.section(ray_line.toShape())
+                
+                if intersections and hasattr(intersections, 'Vertexes'):
+                    # Calculate distances to intersection points
+                    for vertex in intersections.Vertexes:
+                        distance = fc_point.distanceToPoint(vertex.Point)
+                        if distance > 0.001:  # Ignore self-intersection
+                            min_thickness = min(min_thickness, distance)
+            
+            return min_thickness if min_thickness != float('inf') else 0.0
+            
+        except Exception as e:
+            logger.warning(f"Thickness measurement error at {point}: {e}")
+            return 0.0
 
 
 class GeometricValidator:
@@ -240,67 +279,14 @@ class GeometricValidator:
                     compound = Part.makeCompound(shapes)
                     return compound
             
-            # Fallback to mock shape if FreeCAD objects not available
+            # No shapes found in document
             if doc_handle:
-                logger.warning("No valid shapes found in document, using mock shape")
-                class MockShape:
-                    def __init__(self):
-                        self.Faces = []
-                        self.Edges = []
-                        self.Vertexes = []
-                        self.BoundBox = MockBoundBox()
-                        self.Volume = 1000.0
-                        self.Area = 600.0
-                        self.CenterOfMass = (50, 50, 50)
-                        self.ShapeType = "Solid"
-                    
-                    def hasSelfIntersections(self):
-                        return False
-                    
-                    def isValid(self):
-                        return True
-                    
-                    def check(self):
-                        return True
-                    
-                    def fix(self, precision, min_tolerance, max_tolerance):
-                        return True
-                
-                class MockBoundBox:
-                    XMin, YMin, ZMin = 0, 0, 0
-                    XMax, YMax, ZMax = 100, 100, 100
-                    XLength, YLength, ZLength = 100, 100, 100
-                
-                return MockShape()
+                logger.warning("No valid shapes found in document")
             
             return None
             
         except ImportError:
-            logger.warning("FreeCAD not available, using mock shape")
-            # Return mock shape if FreeCAD not available
-            if doc_handle:
-                class MockShape:
-                    def __init__(self):
-                        self.Faces = []
-                        self.Edges = []
-                        self.Vertexes = []
-                        self.BoundBox = type('BoundBox', (), {
-                            'XMin': 0, 'YMin': 0, 'ZMin': 0,
-                            'XMax': 100, 'YMax': 100, 'ZMax': 100,
-                            'XLength': 100, 'YLength': 100, 'ZLength': 100
-                        })()
-                        self.Volume = 1000.0
-                        self.Area = 600.0
-                        self.CenterOfMass = (50, 50, 50)
-                        self.ShapeType = "Solid"
-                    
-                    def hasSelfIntersections(self):
-                        return False
-                    
-                    def isValid(self):
-                        return True
-                
-                return MockShape()
+            logger.error("FreeCAD not available - cannot perform shape validation")
             return None
         except Exception as e:
             logger.error(f"Failed to extract shape: {e}")
@@ -553,16 +539,47 @@ class GeometricValidator:
         open_edges = []
         
         try:
-            if hasattr(shape, 'Edges'):
-                for i, edge in enumerate(shape.Edges):
-                    # Check if edge is open (belongs to only one face)
-                    # This would use FreeCAD's topology API
-                    # Placeholder logic
-                    if i % 20 == 0:  # Mock: every 20th edge
-                        open_edges.append({
-                            "edge_index": i,
-                            "length": 5.0  # mm
-                        })
+            if hasattr(shape, 'Edges') and hasattr(shape, 'Faces'):
+                try:
+                    import Part
+                    from collections import defaultdict
+                    
+                    # Build edge-to-face mapping
+                    edge_face_count = defaultdict(int)
+                    
+                    for face in shape.Faces:
+                        if hasattr(face, 'Edges'):
+                            for edge in face.Edges:
+                                # Use edge vertices as unique identifier
+                                if hasattr(edge, 'Vertexes') and len(edge.Vertexes) >= 2:
+                                    v1 = edge.Vertexes[0].Point
+                                    v2 = edge.Vertexes[-1].Point
+                                    edge_key = (
+                                        round(v1.x, 4), round(v1.y, 4), round(v1.z, 4),
+                                        round(v2.x, 4), round(v2.y, 4), round(v2.z, 4)
+                                    )
+                                    edge_face_count[edge_key] += 1
+                    
+                    # Find edges that belong to only one face (open edges)
+                    for i, edge in enumerate(shape.Edges):
+                        if hasattr(edge, 'Vertexes') and len(edge.Vertexes) >= 2:
+                            v1 = edge.Vertexes[0].Point
+                            v2 = edge.Vertexes[-1].Point
+                            edge_key = (
+                                round(v1.x, 4), round(v1.y, 4), round(v1.z, 4),
+                                round(v2.x, 4), round(v2.y, 4), round(v2.z, 4)
+                            )
+                            
+                            if edge_face_count[edge_key] == 1:
+                                open_edges.append({
+                                    "edge_index": i,
+                                    "length": edge.Length if hasattr(edge, 'Length') else 0.0,
+                                    "start": {"x": v1.x, "y": v1.y, "z": v1.z},
+                                    "end": {"x": v2.x, "y": v2.y, "z": v2.z}
+                                })
+                    
+                except ImportError:
+                    logger.debug("FreeCAD not available for open edge detection")
         
         except Exception as e:
             logger.warning(f"Open edge detection error: {e}")
@@ -575,10 +592,54 @@ class GeometricValidator:
         
         try:
             if hasattr(shape, 'Faces'):
-                # Check if adjacent faces have consistent normals
-                # This would use FreeCAD's normal calculation
-                # Placeholder logic
-                pass
+                try:
+                    import Part
+                    import FreeCAD
+                    
+                    # Check each face normal
+                    for i, face in enumerate(shape.Faces):
+                        if hasattr(face, 'Surface'):
+                            # Get face normal at center
+                            try:
+                                # Get parameter bounds
+                                u_min, u_max, v_min, v_max = face.ParameterRange
+                                u_mid = (u_min + u_max) / 2
+                                v_mid = (v_min + v_max) / 2
+                                
+                                # Get normal at center point
+                                normal = face.normalAt(u_mid, v_mid)
+                                
+                                # Check if normal is pointing outward (for solids)
+                                if hasattr(shape, 'ShapeType') and shape.ShapeType == 'Solid':
+                                    # Get point on face
+                                    point = face.valueAt(u_mid, v_mid)
+                                    # Check if normal points outward from center of mass
+                                    if hasattr(shape, 'CenterOfMass'):
+                                        center = shape.CenterOfMass
+                                        to_point = point.sub(center)
+                                        dot_product = normal.dot(to_point)
+                                        
+                                        if dot_product < 0:  # Normal points inward
+                                            inconsistent.append({
+                                                "face_index": i,
+                                                "issue": "inward_normal",
+                                                "normal": {"x": normal.x, "y": normal.y, "z": normal.z},
+                                                "location": {"x": point.x, "y": point.y, "z": point.z}
+                                            })
+                                
+                                # Check for degenerate normals
+                                if normal.Length < 0.001:
+                                    inconsistent.append({
+                                        "face_index": i,
+                                        "issue": "degenerate_normal",
+                                        "normal_length": normal.Length
+                                    })
+                                    
+                            except Exception as e:
+                                logger.debug(f"Normal calculation error for face {i}: {e}")
+                    
+                except ImportError:
+                    logger.debug("FreeCAD not available for normal checking")
         
         except Exception as e:
             logger.warning(f"Face normal check error: {e}")

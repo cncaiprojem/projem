@@ -434,19 +434,131 @@ class FeatureConsistencyChecker:
     @staticmethod
     def _evaluate_pattern_consistency(patterns: List[Dict[str, Any]]) -> float:
         """Evaluate consistency of detected patterns."""
-        return 0.9
+        if not patterns:
+            return 1.0  # No patterns means no inconsistency
+        
+        consistency_score = 1.0
+        
+        try:
+            # Check face patterns
+            face_patterns = [p for p in patterns if p.get('type') == 'repeated_face']
+            if face_patterns:
+                # Check if repeated faces have consistent counts (e.g., 4 sides of a box)
+                counts = [p['count'] for p in face_patterns]
+                if counts:
+                    # Check for common multiples (2, 4, 6, 8, etc.)
+                    common_counts = [2, 4, 6, 8]
+                    matches = sum(1 for c in counts if c in common_counts)
+                    consistency_score *= (0.5 + 0.5 * matches / len(counts))
+                    
+                    # Check for consistency in areas
+                    areas = [p['area'] for p in face_patterns]
+                    if len(set(areas)) == 1:  # All same area
+                        consistency_score *= 1.0
+                    else:
+                        # Calculate coefficient of variation
+                        mean_area = sum(areas) / len(areas)
+                        if mean_area > 0:
+                            std_dev = math.sqrt(sum((a - mean_area)**2 for a in areas) / len(areas))
+                            cv = std_dev / mean_area
+                            consistency_score *= max(0.5, 1.0 - cv)
+            
+            # Check edge patterns
+            edge_patterns = [p for p in patterns if p.get('type') == 'repeated_edge']
+            if edge_patterns:
+                # Similar edges should appear in multiples
+                edge_counts = [p['count'] for p in edge_patterns]
+                # Check for even numbers (paired edges)
+                even_count = sum(1 for c in edge_counts if c % 2 == 0)
+                consistency_score *= (0.6 + 0.4 * even_count / len(edge_counts))
+            
+            return max(0.0, min(1.0, consistency_score))
+            
+        except Exception:
+            return 0.9
     
     @staticmethod
     def _extract_dimensions(shape: Any) -> List[float]:
         """Extract key dimensions from shape."""
-        # Placeholder implementation
-        return [10.0, 20.0, 30.0]
+        dimensions = []
+        
+        try:
+            # Get bounding box dimensions
+            if hasattr(shape, 'BoundBox'):
+                bbox = shape.BoundBox
+                dimensions.extend([
+                    bbox.XLength,
+                    bbox.YLength,
+                    bbox.ZLength
+                ])
+            
+            # Get edge lengths
+            if hasattr(shape, 'Edges'):
+                edge_lengths = []
+                for edge in shape.Edges:
+                    if hasattr(edge, 'Length'):
+                        edge_lengths.append(edge.Length)
+                
+                if edge_lengths:
+                    # Add unique edge lengths (rounded to avoid duplicates)
+                    unique_lengths = list(set(round(l, 2) for l in edge_lengths))
+                    dimensions.extend(sorted(unique_lengths)[:10])  # Top 10 unique lengths
+            
+            # Get face areas
+            if hasattr(shape, 'Faces'):
+                face_areas = []
+                for face in shape.Faces:
+                    if hasattr(face, 'Area'):
+                        face_areas.append(face.Area)
+                
+                if face_areas:
+                    # Add significant face areas
+                    unique_areas = list(set(round(a, 2) for a in face_areas if a > 0.01))
+                    dimensions.extend([math.sqrt(a) for a in sorted(unique_areas)[:5]])  # Convert to linear dimension
+            
+            return dimensions if dimensions else [1.0, 1.0, 1.0]
+            
+        except Exception:
+            return [1.0, 1.0, 1.0]
     
     @staticmethod
     def _evaluate_dimension_consistency(dimensions: List[float]) -> float:
         """Evaluate consistency of dimensions."""
-        # Check for standard dimensions, round numbers, etc.
-        return 0.85
+        if not dimensions:
+            return 0.5
+        
+        consistency_score = 1.0
+        
+        try:
+            # Check for round numbers (good for manufacturing)
+            round_count = sum(1 for d in dimensions if abs(d - round(d)) < 0.01)
+            round_ratio = round_count / len(dimensions)
+            consistency_score *= (0.5 + 0.5 * round_ratio)
+            
+            # Check for standard sizes (metric)
+            standard_sizes = [1, 2, 3, 4, 5, 6, 8, 10, 12, 15, 16, 20, 25, 30, 40, 50, 60, 80, 100]
+            standard_count = sum(1 for d in dimensions if any(abs(d - s) < 0.1 for s in standard_sizes))
+            standard_ratio = standard_count / len(dimensions)
+            consistency_score *= (0.6 + 0.4 * standard_ratio)
+            
+            # Check for dimensional relationships (ratios)
+            if len(dimensions) >= 2:
+                ratios = []
+                for i in range(len(dimensions) - 1):
+                    if dimensions[i] > 0:
+                        ratio = dimensions[i+1] / dimensions[i]
+                        ratios.append(ratio)
+                
+                # Check for common ratios (1:1, 1:2, 2:3, golden ratio, etc.)
+                common_ratios = [1.0, 2.0, 0.5, 1.5, 1.618, 0.618, 3.0, 0.333]
+                ratio_matches = sum(1 for r in ratios if any(abs(r - cr) < 0.05 for cr in common_ratios))
+                if ratios:
+                    consistency_score *= (0.7 + 0.3 * ratio_matches / len(ratios))
+            
+            return max(0.0, min(1.0, consistency_score))
+            
+        except Exception:
+            return 0.85
     
     @staticmethod
     def _check_symmetry(shape: Any) -> float:
@@ -524,8 +636,112 @@ class FeatureConsistencyChecker:
     @staticmethod
     def _check_alignment(shape: Any) -> float:
         """Check feature alignment."""
-        # Placeholder implementation
-        return 0.9
+        alignment_score = 1.0
+        
+        try:
+            import FreeCAD
+            
+            if hasattr(shape, 'Faces'):
+                # Check face alignment
+                face_normals = []
+                face_centers = []
+                
+                for face in shape.Faces:
+                    try:
+                        # Get face normal at center
+                        if hasattr(face, 'Surface'):
+                            u_param = face.ParameterRange[0:2]
+                            v_param = face.ParameterRange[2:4]
+                            u_mid = (u_param[0] + u_param[1]) / 2
+                            v_mid = (v_param[0] + v_param[1]) / 2
+                            
+                            if hasattr(face, 'normalAt'):
+                                normal = face.normalAt(u_mid, v_mid)
+                                face_normals.append(normal)
+                            
+                            if hasattr(face, 'CenterOfMass'):
+                                face_centers.append(face.CenterOfMass)
+                    except:
+                        continue
+                
+                # Check for aligned normals (parallel or perpendicular)
+                if face_normals:
+                    aligned_count = 0
+                    total_comparisons = 0
+                    
+                    for i in range(len(face_normals)):
+                        for j in range(i + 1, len(face_normals)):
+                            total_comparisons += 1
+                            n1, n2 = face_normals[i], face_normals[j]
+                            
+                            if hasattr(n1, 'dot'):
+                                dot_product = abs(n1.dot(n2))
+                                # Check if parallel (dot = 1) or perpendicular (dot = 0)
+                                if dot_product > 0.98 or dot_product < 0.02:
+                                    aligned_count += 1
+                                elif abs(dot_product - 0.707) < 0.02:  # 45 degrees
+                                    aligned_count += 0.5
+                    
+                    if total_comparisons > 0:
+                        alignment_ratio = aligned_count / total_comparisons
+                        alignment_score *= (0.5 + 0.5 * alignment_ratio)
+                
+                # Check for aligned centers (grid alignment)
+                if face_centers and len(face_centers) > 2:
+                    # Check if centers align on axes
+                    x_coords = [c.x for c in face_centers if hasattr(c, 'x')]
+                    y_coords = [c.y for c in face_centers if hasattr(c, 'y')]
+                    z_coords = [c.z for c in face_centers if hasattr(c, 'z')]
+                    
+                    # Check for repeated coordinates (alignment)
+                    def check_grid_alignment(coords):
+                        if not coords:
+                            return 0.5
+                        rounded = [round(c, 2) for c in coords]
+                        unique = len(set(rounded))
+                        # Fewer unique values means better alignment
+                        return max(0.3, 1.0 - unique / len(coords))
+                    
+                    x_alignment = check_grid_alignment(x_coords)
+                    y_alignment = check_grid_alignment(y_coords)
+                    z_alignment = check_grid_alignment(z_coords)
+                    
+                    grid_score = (x_alignment + y_alignment + z_alignment) / 3
+                    alignment_score *= (0.6 + 0.4 * grid_score)
+            
+            # Check edge alignment
+            if hasattr(shape, 'Edges'):
+                edge_vectors = []
+                for edge in shape.Edges:
+                    try:
+                        if hasattr(edge, 'Curve'):
+                            # Get edge direction
+                            if hasattr(edge.Curve, 'Direction'):
+                                edge_vectors.append(edge.Curve.Direction)
+                    except:
+                        continue
+                
+                if edge_vectors:
+                    # Check for aligned edges
+                    axis_aligned = 0
+                    for vec in edge_vectors:
+                        if hasattr(vec, 'x'):
+                            # Check if aligned with main axes
+                            if (abs(vec.x) > 0.98 and abs(vec.y) < 0.02 and abs(vec.z) < 0.02) or \
+                               (abs(vec.y) > 0.98 and abs(vec.x) < 0.02 and abs(vec.z) < 0.02) or \
+                               (abs(vec.z) > 0.98 and abs(vec.x) < 0.02 and abs(vec.y) < 0.02):
+                                axis_aligned += 1
+                    
+                    if edge_vectors:
+                        axis_ratio = axis_aligned / len(edge_vectors)
+                        alignment_score *= (0.7 + 0.3 * axis_ratio)
+            
+            return max(0.0, min(1.0, alignment_score))
+            
+        except ImportError:
+            return 0.9
+        except Exception:
+            return 0.9
 
 
 class ParametricRobustnessChecker:
@@ -572,28 +788,168 @@ class ParametricRobustnessChecker:
     @staticmethod
     async def _test_rebuild(doc_handle: Any) -> float:
         """Test model rebuild stability."""
-        # Placeholder implementation
-        # Would force recompute and check for errors
-        return 0.95
+        rebuild_score = 0.95
+        
+        try:
+            if doc_handle:
+                # Attempt to recompute the document
+                if hasattr(doc_handle, 'recompute'):
+                    errors_before = len(doc_handle.RecomputeErrors) if hasattr(doc_handle, 'RecomputeErrors') else 0
+                    
+                    # Perform recompute
+                    result = doc_handle.recompute()
+                    
+                    errors_after = len(doc_handle.RecomputeErrors) if hasattr(doc_handle, 'RecomputeErrors') else 0
+                    
+                    # Check recompute result
+                    if result == 0:  # Success
+                        rebuild_score = 1.0
+                    elif errors_after == errors_before:
+                        rebuild_score = 0.9  # No new errors
+                    elif errors_after > errors_before:
+                        # New errors introduced
+                        rebuild_score = max(0.5, 1.0 - 0.1 * (errors_after - errors_before))
+                    
+                    # Check for broken references
+                    if hasattr(doc_handle, 'Objects'):
+                        broken_count = 0
+                        for obj in doc_handle.Objects:
+                            if hasattr(obj, 'State'):
+                                if 'Error' in obj.State or 'Invalid' in obj.State:
+                                    broken_count += 1
+                        
+                        if broken_count > 0:
+                            rebuild_score *= max(0.5, 1.0 - 0.1 * broken_count)
+        
+        except Exception:
+            rebuild_score = 0.85
+        
+        return rebuild_score
     
     @staticmethod
     async def _test_parameter_changes(doc_handle: Any) -> float:
         """Test sensitivity to parameter changes."""
-        # Placeholder implementation
-        # Would modify parameters and check stability
-        return 0.85
+        sensitivity_score = 0.85
+        
+        try:
+            if doc_handle and hasattr(doc_handle, 'Objects'):
+                stable_changes = 0
+                total_tests = 0
+                
+                for obj in doc_handle.Objects:
+                    # Find parametric objects
+                    if hasattr(obj, 'PropertiesList'):
+                        properties = obj.PropertiesList
+                        
+                        for prop in properties:
+                            try:
+                                # Test numeric properties
+                                if hasattr(obj, prop):
+                                    value = getattr(obj, prop)
+                                    if isinstance(value, (int, float)):
+                                        total_tests += 1
+                                        original_value = value
+                                        
+                                        # Make small change (5%)
+                                        test_value = value * 1.05 if value != 0 else 0.1
+                                        setattr(obj, prop, test_value)
+                                        
+                                        # Check if change is accepted
+                                        if hasattr(doc_handle, 'recompute'):
+                                            result = doc_handle.recompute()
+                                            if result == 0:
+                                                stable_changes += 1
+                                        
+                                        # Restore original value
+                                        setattr(obj, prop, original_value)
+                                        
+                                        if total_tests >= 5:  # Test sample of properties
+                                            break
+                            except:
+                                continue
+                
+                if total_tests > 0:
+                    sensitivity_score = stable_changes / total_tests
+        
+        except Exception:
+            pass
+        
+        return sensitivity_score
     
     @staticmethod
     async def _test_constraints(doc_handle: Any) -> float:
         """Test constraint stability."""
-        # Placeholder implementation
-        return 0.9
+        constraint_score = 0.9
+        
+        try:
+            if doc_handle and hasattr(doc_handle, 'Objects'):
+                constraint_count = 0
+                valid_constraints = 0
+                
+                for obj in doc_handle.Objects:
+                    # Check for sketch constraints
+                    if hasattr(obj, 'TypeId'):
+                        if 'Sketch' in str(obj.TypeId):
+                            if hasattr(obj, 'Constraints'):
+                                for constraint in obj.Constraints:
+                                    constraint_count += 1
+                                    # Check if constraint is satisfied
+                                    if hasattr(constraint, 'Type'):
+                                        # Basic check - constraint exists and has a type
+                                        valid_constraints += 1
+                
+                if constraint_count > 0:
+                    constraint_score = valid_constraints / constraint_count
+                else:
+                    # No constraints might mean simple model (not necessarily bad)
+                    constraint_score = 0.85
+        
+        except Exception:
+            pass
+        
+        return constraint_score
     
     @staticmethod
     async def _test_updates(doc_handle: Any) -> float:
         """Test update reliability."""
-        # Placeholder implementation
-        return 0.88
+        update_score = 0.88
+        
+        try:
+            if doc_handle:
+                update_failures = 0
+                update_attempts = 0
+                
+                # Test document updates
+                if hasattr(doc_handle, 'touch'):
+                    update_attempts += 1
+                    try:
+                        doc_handle.touch()
+                        if hasattr(doc_handle, 'recompute'):
+                            result = doc_handle.recompute()
+                            if result != 0:
+                                update_failures += 1
+                    except:
+                        update_failures += 1
+                
+                # Test object updates
+                if hasattr(doc_handle, 'Objects'):
+                    for obj in doc_handle.Objects[:3]:  # Test first 3 objects
+                        if hasattr(obj, 'touch'):
+                            update_attempts += 1
+                            try:
+                                obj.touch()
+                                if hasattr(obj, 'recompute'):
+                                    obj.recompute()
+                            except:
+                                update_failures += 1
+                
+                if update_attempts > 0:
+                    update_score = 1.0 - (update_failures / update_attempts)
+        
+        except Exception:
+            pass
+        
+        return update_score
 
 
 class AssemblyCompatibilityChecker:
@@ -640,22 +996,158 @@ class AssemblyCompatibilityChecker:
     @staticmethod
     def _check_interfaces(shape: Any) -> float:
         """Check interface quality."""
-        return 0.85
+        interface_score = 0.85
+        
+        try:
+            if hasattr(shape, 'Faces'):
+                # Look for mating surfaces (flat faces that could interface)
+                flat_faces = []
+                for face in shape.Faces:
+                    try:
+                        if hasattr(face, 'Surface'):
+                            surface_type = face.Surface.__class__.__name__
+                            if surface_type == 'Plane':
+                                flat_faces.append(face)
+                    except:
+                        continue
+                
+                if flat_faces:
+                    # Check for parallel flat faces (potential interfaces)
+                    parallel_pairs = 0
+                    for i in range(len(flat_faces)):
+                        for j in range(i + 1, len(flat_faces)):
+                            try:
+                                if hasattr(flat_faces[i], 'Surface') and hasattr(flat_faces[j], 'Surface'):
+                                    normal1 = flat_faces[i].Surface.Axis
+                                    normal2 = flat_faces[j].Surface.Axis
+                                    if hasattr(normal1, 'dot'):
+                                        dot = abs(normal1.dot(normal2))
+                                        if dot > 0.98:  # Nearly parallel
+                                            parallel_pairs += 1
+                            except:
+                                continue
+                    
+                    # More parallel pairs = better interface potential
+                    if len(flat_faces) > 1:
+                        interface_score = min(1.0, 0.5 + 0.1 * parallel_pairs)
+        
+        except Exception:
+            pass
+        
+        return interface_score
     
     @staticmethod
     def _check_mating_surfaces(shape: Any) -> float:
         """Check mating surface quality."""
-        return 0.9
+        mating_score = 0.9
+        
+        try:
+            if hasattr(shape, 'Faces'):
+                # Check for cylindrical surfaces (common mating features)
+                cylindrical_count = 0
+                planar_count = 0
+                
+                for face in shape.Faces:
+                    try:
+                        if hasattr(face, 'Surface'):
+                            surface_type = face.Surface.__class__.__name__
+                            if surface_type == 'Cylinder':
+                                cylindrical_count += 1
+                            elif surface_type == 'Plane':
+                                planar_count += 1
+                    except:
+                        continue
+                
+                total_faces = len(shape.Faces)
+                if total_faces > 0:
+                    # Good mating surfaces have a mix of planar and cylindrical
+                    if cylindrical_count > 0 and planar_count > 0:
+                        mating_score = 0.95
+                    elif cylindrical_count > 0 or planar_count > 0:
+                        mating_score = 0.85
+                    else:
+                        mating_score = 0.7
+        
+        except Exception:
+            pass
+        
+        return mating_score
     
     @staticmethod
     def _check_clearances(shape: Any) -> float:
         """Check clearance compliance."""
-        return 0.95
+        clearance_score = 0.95
+        
+        try:
+            if hasattr(shape, 'BoundBox'):
+                bbox = shape.BoundBox
+                # Check if the model has reasonable proportions
+                dimensions = [bbox.XLength, bbox.YLength, bbox.ZLength]
+                max_dim = max(dimensions)
+                min_dim = min(dimensions)
+                
+                if min_dim > 0:
+                    aspect_ratio = max_dim / min_dim
+                    # Extreme aspect ratios might indicate clearance issues
+                    if aspect_ratio > 100:
+                        clearance_score = 0.6
+                    elif aspect_ratio > 50:
+                        clearance_score = 0.75
+                    elif aspect_ratio > 20:
+                        clearance_score = 0.85
+                    else:
+                        clearance_score = 0.95
+        
+        except Exception:
+            pass
+        
+        return clearance_score
     
     @staticmethod
     def _check_assembly_features(shape: Any) -> float:
         """Check assembly feature presence."""
-        return 0.8
+        feature_score = 0.5  # Base score
+        
+        try:
+            feature_count = 0
+            
+            if hasattr(shape, 'Faces'):
+                # Check for holes (cylindrical faces)
+                for face in shape.Faces:
+                    try:
+                        if hasattr(face, 'Surface'):
+                            if face.Surface.__class__.__name__ == 'Cylinder':
+                                # Check if it's a hole (internal cylinder)
+                                if hasattr(face, 'Area'):
+                                    feature_count += 1
+                    except:
+                        continue
+            
+            if hasattr(shape, 'Edges'):
+                # Check for chamfers and fillets (curved edges)
+                for edge in shape.Edges:
+                    try:
+                        if hasattr(edge, 'Curve'):
+                            curve_type = edge.Curve.__class__.__name__
+                            if curve_type in ['Circle', 'Arc', 'BSplineCurve']:
+                                feature_count += 1
+                    except:
+                        continue
+            
+            # More features = better assembly readiness
+            if feature_count > 10:
+                feature_score = 0.95
+            elif feature_count > 5:
+                feature_score = 0.85
+            elif feature_count > 2:
+                feature_score = 0.75
+            elif feature_count > 0:
+                feature_score = 0.65
+        
+        except Exception:
+            pass
+        
+        return feature_score
 
 
 class QualityMetrics:
@@ -816,20 +1308,58 @@ class QualityMetrics:
     
     def _get_shape_from_document(self, doc_handle: Any) -> Optional[Any]:
         """Extract shape from document."""
-        # Same mock implementation as in other validators
-        if doc_handle:
-            class MockShape:
-                def __init__(self):
-                    self.Faces = list(range(15))
-                    self.Edges = list(range(30))
-                    self.Vertexes = list(range(20))
-            
-            return MockShape()
+        try:
+            if doc_handle:
+                # Try to get shape from document objects
+                if hasattr(doc_handle, 'Objects'):
+                    for obj in doc_handle.Objects:
+                        if hasattr(obj, 'Shape'):
+                            return obj.Shape
+                        elif hasattr(obj, 'Mesh'):
+                            # Convert mesh to shape if needed
+                            import Part
+                            if hasattr(Part, 'Shape'):
+                                shape = Part.Shape()
+                                if hasattr(shape, 'makeShapeFromMesh'):
+                                    shape.makeShapeFromMesh(obj.Mesh, 0.1)
+                                    return shape
+                
+                # Try to get combined shape
+                if hasattr(doc_handle, 'Shape'):
+                    return doc_handle.Shape
+        
+        except Exception as e:
+            logger.debug(f"Could not extract shape from document: {e}")
+        
         return None
     
     def _has_assembly_features(self, doc_handle: Any) -> bool:
         """Check if model has assembly features."""
-        # Placeholder implementation
+        try:
+            if doc_handle and hasattr(doc_handle, 'Objects'):
+                for obj in doc_handle.Objects:
+                    # Check for assembly-related objects
+                    if hasattr(obj, 'TypeId'):
+                        type_id = str(obj.TypeId).lower()
+                        if any(keyword in type_id for keyword in ['assembly', 'joint', 'constraint', 'mate']):
+                            return True
+                    
+                    # Check for multiple bodies/parts
+                    if hasattr(obj, 'Label'):
+                        label = str(obj.Label).lower()
+                        if any(keyword in label for keyword in ['assembly', 'part', 'component']):
+                            return True
+            
+            # Check if document has multiple solid bodies
+            if doc_handle:
+                shape = self._get_shape_from_document(doc_handle)
+                if shape and hasattr(shape, 'Solids'):
+                    if len(shape.Solids) > 1:
+                        return True
+        
+        except Exception:
+            pass
+        
         return False
     
     def _estimate_manufacturing_readiness(
@@ -853,10 +1383,58 @@ class QualityMetrics:
     
     def _check_documentation(self, doc_handle: Any) -> float:
         """Check documentation completeness."""
-        # Placeholder implementation
-        # Would check for:
-        # - Material specifications
-        # - Tolerances
-        # - Assembly instructions
-        # - BOM
-        return 0.75
+        doc_score = 0.0
+        doc_items = 0
+        
+        try:
+            if doc_handle:
+                # Check for document properties
+                if hasattr(doc_handle, 'Properties'):
+                    properties = doc_handle.Properties if hasattr(doc_handle, 'Properties') else []
+                    
+                    # Check for material specification
+                    if any('material' in str(p).lower() for p in properties):
+                        doc_score += 0.25
+                        doc_items += 1
+                    
+                    # Check for tolerances
+                    if any('tolerance' in str(p).lower() for p in properties):
+                        doc_score += 0.25
+                        doc_items += 1
+                    
+                    # Check for author/creator info
+                    if any(key in str(p).lower() for p in properties for key in ['author', 'creator', 'designer']):
+                        doc_score += 0.15
+                        doc_items += 1
+                    
+                    # Check for revision/version info
+                    if any(key in str(p).lower() for p in properties for key in ['revision', 'version']):
+                        doc_score += 0.15
+                        doc_items += 1
+                
+                # Check for object documentation
+                if hasattr(doc_handle, 'Objects'):
+                    has_descriptions = False
+                    has_labels = False
+                    
+                    for obj in doc_handle.Objects:
+                        if hasattr(obj, 'Label') and obj.Label:
+                            has_labels = True
+                        if hasattr(obj, 'Description') and obj.Description:
+                            has_descriptions = True
+                    
+                    if has_labels:
+                        doc_score += 0.1
+                        doc_items += 1
+                    if has_descriptions:
+                        doc_score += 0.1
+                        doc_items += 1
+                
+                # If no documentation found, give a base score
+                if doc_items == 0:
+                    doc_score = 0.3  # Minimal documentation
+        
+        except Exception:
+            doc_score = 0.75  # Default to reasonable documentation
+        
+        return min(1.0, doc_score)

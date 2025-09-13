@@ -81,7 +81,7 @@ class CertificationSystem:
     def __init__(self):
         pass
     
-    async def generate_certificate(self, *args, **kwargs):
+    async def issue_certificate(self, *args, **kwargs):
         return QualityCertificate(
             certificate_id=str(uuid4()),
             model_id="test",

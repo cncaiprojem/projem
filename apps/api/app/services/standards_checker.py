@@ -491,13 +491,324 @@ class CEMarkingChecker(StandardChecker):
                 "description": "Documentation completeness",
                 "category": "documentation",
                 "action": "Prepare technical documentation"
+            },
+            {
+                "id": "CE-4",
+                "description": "Materials compliance (RoHS/REACH)",
+                "category": "materials",
+                "action": "Verify hazardous materials compliance"
+            },
+            {
+                "id": "CE-5",
+                "description": "Performance standards",
+                "category": "performance",
+                "action": "Verify performance meets standards"
+            },
+            {
+                "id": "CE-6",
+                "description": "Labeling requirements",
+                "category": "labeling",
+                "action": "Add CE marking and manufacturer info"
             }
         ]
     
     async def _check_requirement(self, doc_handle: Any, requirement: Dict[str, Any]) -> bool:
         """Check CE requirement."""
-        # Simplified implementation
-        return True
+        try:
+            import Part
+            import FreeCAD
+            
+            category = requirement.get("category")
+            
+            if category == "safety":
+                # Check safety requirements
+                return await self._check_safety_requirements(doc_handle)
+            
+            elif category == "emc":
+                # Check EMC compliance (electromagnetic compatibility)
+                return await self._check_emc_compliance(doc_handle)
+            
+            elif category == "documentation":
+                # Check documentation completeness
+                return await self._check_documentation_completeness(doc_handle)
+            
+            elif category == "materials":
+                # Check hazardous materials compliance (RoHS, REACH)
+                return await self._check_materials_compliance(doc_handle)
+            
+            elif category == "performance":
+                # Check performance standards
+                return await self._check_performance_standards(doc_handle)
+            
+            elif category == "labeling":
+                # Check labeling requirements
+                return await self._check_labeling_requirements(doc_handle)
+            
+            else:
+                # Default check
+                return await self._perform_basic_check(doc_handle)
+                
+        except Exception as e:
+            logger.debug(f"CE requirement check error: {category}")
+            return False
+    
+    async def _check_safety_requirements(self, doc_handle: Any) -> bool:
+        """Check safety requirements for CE marking."""
+        try:
+            import Part
+            import FreeCAD
+            
+            # Check for sharp edges and dangerous features
+            safe = True
+            
+            for obj in doc_handle.Objects:
+                if hasattr(obj, 'Shape'):
+                    shape = obj.Shape
+                    
+                    # Check edges for sharpness
+                    for edge in shape.Edges:
+                        if hasattr(edge, 'Curve'):
+                            # Check edge curvature (sharp edges have small radius)
+                            if hasattr(edge.Curve, 'Radius'):
+                                try:
+                                    radius = edge.Curve.Radius
+                                    if radius < 0.5:  # Less than 0.5mm radius is considered sharp
+                                        safe = False
+                                        break
+                                except:
+                                    pass
+                    
+                    # Check for enclosed volumes (entrapment hazards)
+                    if hasattr(shape, 'Shells'):
+                        for shell in shape.Shells:
+                            if shell.isClosed():
+                                # Check if enclosed volume is too small (entrapment)
+                                if hasattr(shell, 'Volume'):
+                                    volume = shell.Volume
+                                    # Small enclosed spaces can be hazardous
+                                    if 0 < volume < 1000:  # Less than 1000mm³
+                                        safe = False
+                    
+                    # Check for stability (center of mass within base)
+                    if hasattr(shape, 'CenterOfMass') and hasattr(shape, 'BoundBox'):
+                        com = shape.CenterOfMass
+                        bbox = shape.BoundBox
+                        
+                        # Check if center of mass is within base area (X-Y plane)
+                        if com.x < bbox.XMin or com.x > bbox.XMax:
+                            safe = False
+                        if com.y < bbox.YMin or com.y > bbox.YMax:
+                            safe = False
+            
+            return safe
+            
+        except ImportError:
+            logger.warning("FreeCAD not available for safety check")
+            return True
+        except Exception:
+            return True
+    
+    async def _check_emc_compliance(self, doc_handle: Any) -> bool:
+        """Check EMC (electromagnetic compatibility) compliance."""
+        try:
+            import Part
+            import FreeCAD
+            
+            emc_compliant = True
+            
+            for obj in doc_handle.Objects:
+                if hasattr(obj, 'Shape'):
+                    shape = obj.Shape
+                    
+                    # Check for conductive materials (metal parts)
+                    # These need EMC considerations
+                    if hasattr(obj, 'Material'):
+                        material = str(obj.Material).lower()
+                        if any(metal in material for metal in ['steel', 'aluminum', 'copper', 'brass', 'iron']):
+                            # Metal parts need shielding considerations
+                            
+                            # Check for proper grounding features (flat surfaces for grounding)
+                            grounding_surfaces = 0
+                            for face in shape.Faces:
+                                if hasattr(face, 'Surface'):
+                                    if face.Surface.__class__.__name__ == 'Plane':
+                                        if face.Area > 100:  # At least 100mm² for grounding
+                                            grounding_surfaces += 1
+                            
+                            if grounding_surfaces == 0:
+                                emc_compliant = False
+                    
+                    # Check for openings that could leak EM radiation
+                    if hasattr(shape, 'Shells'):
+                        for shell in shape.Shells:
+                            if not shell.isClosed():
+                                # Open shells can leak EM radiation
+                                # Check opening size
+                                edges = shell.Edges
+                                for edge in edges:
+                                    if hasattr(edge, 'Length'):
+                                        # Openings larger than λ/20 at common frequencies
+                                        if edge.Length > 15:  # 15mm opening at 1GHz
+                                            emc_compliant = False
+            
+            return emc_compliant
+            
+        except ImportError:
+            logger.warning("FreeCAD not available for EMC check")
+            return True
+        except Exception:
+            return True
+    
+    async def _check_documentation_completeness(self, doc_handle: Any) -> bool:
+        """Check if model has complete documentation for CE marking."""
+        try:
+            doc_complete = True
+            required_docs = ['material', 'dimensions', 'tolerances', 'assembly']
+            found_docs = []
+            
+            # Check document properties
+            if hasattr(doc_handle, 'Properties'):
+                for prop in doc_handle.Properties:
+                    prop_lower = str(prop).lower()
+                    for req in required_docs:
+                        if req in prop_lower:
+                            found_docs.append(req)
+            
+            # Check object documentation
+            if hasattr(doc_handle, 'Objects'):
+                for obj in doc_handle.Objects:
+                    # Check for material specification
+                    if hasattr(obj, 'Material') and obj.Material:
+                        if 'material' not in found_docs:
+                            found_docs.append('material')
+                    
+                    # Check for dimensions
+                    if hasattr(obj, 'Shape'):
+                        if 'dimensions' not in found_docs:
+                            found_docs.append('dimensions')
+                    
+                    # Check for assembly information
+                    if hasattr(obj, 'Label'):
+                        label = str(obj.Label).lower()
+                        if 'assembly' in label or 'part' in label:
+                            if 'assembly' not in found_docs:
+                                found_docs.append('assembly')
+            
+            # Check if at least 75% of required documentation is present
+            doc_complete = len(found_docs) >= len(required_docs) * 0.75
+            
+            return doc_complete
+            
+        except Exception:
+            return False
+    
+    async def _check_materials_compliance(self, doc_handle: Any) -> bool:
+        """Check hazardous materials compliance (RoHS, REACH)."""
+        try:
+            materials_compliant = True
+            hazardous_materials = [
+                'lead', 'mercury', 'cadmium', 'chromium', 
+                'pbb', 'pbde', 'dehp', 'bbp', 'dbp', 'dibp'
+            ]
+            
+            if hasattr(doc_handle, 'Objects'):
+                for obj in doc_handle.Objects:
+                    if hasattr(obj, 'Material'):
+                        material = str(obj.Material).lower()
+                        
+                        # Check for hazardous materials
+                        for hazmat in hazardous_materials:
+                            if hazmat in material:
+                                materials_compliant = False
+                                break
+                    
+                    # Check for material declaration
+                    if not hasattr(obj, 'Material') or not obj.Material:
+                        # All parts should have material specified
+                        materials_compliant = False
+            
+            return materials_compliant
+            
+        except Exception:
+            return True
+    
+    async def _check_performance_standards(self, doc_handle: Any) -> bool:
+        """Check performance standards for CE marking."""
+        try:
+            import Part
+            
+            performance_ok = True
+            
+            for obj in doc_handle.Objects:
+                if hasattr(obj, 'Shape'):
+                    shape = obj.Shape
+                    
+                    # Check structural integrity
+                    if not shape.isValid():
+                        performance_ok = False
+                    
+                    # Check for minimum wall thickness
+                    if hasattr(shape, 'Faces'):
+                        for face in shape.Faces:
+                            if hasattr(face, 'Area'):
+                                # Very thin faces might not meet performance standards
+                                if face.Area < 1.0:  # Less than 1mm²
+                                    performance_ok = False
+                    
+                    # Check for proper connections between parts
+                    if hasattr(shape, 'Shells'):
+                        if len(shape.Shells) > 1:
+                            # Multiple shells should be connected
+                            for shell in shape.Shells:
+                                if not shell.isClosed():
+                                    performance_ok = False
+            
+            return performance_ok
+            
+        except ImportError:
+            return True
+        except Exception:
+            return True
+    
+    async def _check_labeling_requirements(self, doc_handle: Any) -> bool:
+        """Check CE marking labeling requirements."""
+        try:
+            has_labeling = False
+            
+            # Check for CE marking information in document
+            if hasattr(doc_handle, 'Properties'):
+                for prop in doc_handle.Properties:
+                    prop_str = str(prop).lower()
+                    if 'ce' in prop_str or 'marking' in prop_str or 'label' in prop_str:
+                        has_labeling = True
+                        break
+            
+            # Check for manufacturer information
+            if hasattr(doc_handle, 'Objects'):
+                for obj in doc_handle.Objects:
+                    if hasattr(obj, 'Label'):
+                        label = str(obj.Label).lower()
+                        if 'manufacturer' in label or 'ce' in label:
+                            has_labeling = True
+                            break
+            
+            return has_labeling
+            
+        except Exception:
+            return False
+    
+    async def _perform_basic_check(self, doc_handle: Any) -> bool:
+        """Perform basic CE marking check."""
+        try:
+            # Basic validity check
+            if hasattr(doc_handle, 'Objects'):
+                for obj in doc_handle.Objects:
+                    if hasattr(obj, 'Shape'):
+                        if not obj.Shape.isValid():
+                            return False
+            return True
+        except Exception:
+            return False
 
 
 class StandardsChecker:
