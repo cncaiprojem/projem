@@ -48,7 +48,13 @@ from app.models.validation_models import (
 from app.services.model_validation import ModelValidationFramework
 from app.services.freecad_document_manager import FreeCADDocumentManager
 from app.services.freecad_service import FreeCADService
-import FreeCAD
+
+# Import FreeCAD with proper error handling
+try:
+    import FreeCAD
+except ImportError:
+    FreeCAD = None
+    logger.warning("FreeCAD not available - validation features will be limited")
 
 router = APIRouter(prefix="/model-validation", tags=["Model Validation"])
 

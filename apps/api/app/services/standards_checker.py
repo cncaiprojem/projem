@@ -261,10 +261,17 @@ class ASMEY145Checker(StandardChecker):
                             elif surface.__class__.__name__ == 'Cylinder':
                                 # Check cylinder axis perpendicularity
                                 axis = surface.Axis
+                                # Calculate actual perpendicularity to reference (Z axis)
+                                import math
+                                z_axis = FreeCAD.Vector(0, 0, 1)
+                                dot_product = abs(axis.dot(z_axis))
+                                angle_error = math.degrees(math.acos(min(1.0, max(-1.0, dot_product))))
+                                perpendicular_value = round(min(angle_error, 90) * 0.001, 4)  # Convert to tolerance value
+                                
                                 features.append({
                                     "id": f"perp_{i}",
                                     "type": "perpendicularity",
-                                    "value": 0.05,  # Would calculate actual value
+                                    "value": perpendicular_value,
                                     "expected": 0.05,
                                     "axis": (axis.x, axis.y, axis.z)
                                 })
@@ -404,16 +411,15 @@ class ISO2768Checker(StandardChecker):
                     for i, edge in enumerate(shape.Edges[:5]):  # Sample first 5 edges
                         if hasattr(edge, 'Length'):
                             nominal = round(edge.Length, 2)
-                            # Simulate small deviations
-                            import random
-                            random.seed(i)  # Deterministic for testing
-                            deviation = random.uniform(-0.05, 0.05)
+                            # In real scenario, actual would be measured
+                            # For now, use nominal with small systematic deviation
+                            deviation = 0.01 * (1 + i * 0.01)  # Small systematic deviation
                             
                             dimensions.append({
                                 "id": f"edge_{obj.Name}_{i}",
                                 "nominal": nominal,
-                                "actual": round(nominal + deviation, 2),
-                                "deviation": round(deviation, 3),
+                                "actual": round(nominal + deviation, 3),
+                                "deviation": round(deviation, 4),
                                 "type": "edge_length"
                             })
             

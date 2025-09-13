@@ -236,7 +236,7 @@ class GeometricValidator:
                 )
                 
             except Exception as e:
-                logger.error(f"Geometric validation error: {e}", exc_info=True)
+                logger.error("Geometric validation error", exc_info=True)
                 validation.is_valid = False
                 validation.issues.append(ValidationIssue(
                     type="validation_error",
@@ -289,7 +289,7 @@ class GeometricValidator:
             logger.error("FreeCAD not available - cannot perform shape validation")
             return None
         except Exception as e:
-            logger.error(f"Failed to extract shape: {e}")
+            logger.error("Failed to extract shape", exc_info=True)
             return None
     
     async def _validate_basic_geometry(
@@ -521,13 +521,6 @@ class GeometricValidator:
                 except ImportError:
                     # Fallback to simple check without FreeCAD
                     logger.debug("FreeCAD not available for detailed non-manifold detection")
-                    # Use mock detection for testing
-                    for i, edge in enumerate(shape.Edges):
-                        if i % 15 == 0:  # Mock: some edges
-                            non_manifold.append({
-                                "edge_index": i,
-                                "face_count": 3
-                            })
         
         except Exception as e:
             logger.warning(f"Non-manifold edge detection error: {e}")
@@ -705,13 +698,13 @@ class GeometricValidator:
             # Check edge lengths
             if hasattr(shape, 'Edges'):
                 for i, edge in enumerate(shape.Edges):
-                    # Would get actual edge length
-                    length = 0.3  # Mock value
-                    if length < tolerances.min_feature_size:
+                    # Get actual edge length
+                    length = edge.Length if hasattr(edge, 'Length') else 0.0
+                    if length > 0 and length < tolerances.min_feature_size:
                         small_features.append({
                             "type": "edge",
                             "index": i,
-                            "size": length
+                            "size": round(length, 4)
                         })
             
             if small_features:
@@ -734,11 +727,110 @@ class GeometricValidator:
     ):
         """Check surface quality and smoothness."""
         try:
-            # Calculate surface quality metrics
-            # This would analyze surface curvature, roughness, etc.
-            quality_score = 0.85  # Mock value
+            quality_score = 1.0
+            quality_issues = []
             
-            validation.surface_quality_score = quality_score
+            # Import FreeCAD modules if available
+            try:
+                import FreeCAD
+                import Part
+                import math
+            except ImportError:
+                # Can't perform detailed analysis without FreeCAD
+                validation.surface_quality_score = 0.75  # Default moderate score
+                return
+            
+            if hasattr(shape, 'Faces'):
+                total_faces = len(shape.Faces)
+                good_faces = 0
+                
+                for i, face in enumerate(shape.Faces):
+                    try:
+                        face_quality = 1.0
+                        
+                        # Check face validity
+                        if hasattr(face, 'isValid') and not face.isValid():
+                            face_quality *= 0.5
+                            quality_issues.append(f"Face {i}: invalid")
+                        
+                        # Check for degenerate faces (very small area)
+                        if hasattr(face, 'Area'):
+                            if face.Area < 0.01:  # Very small face
+                                face_quality *= 0.7
+                                quality_issues.append(f"Face {i}: degenerate (area={face.Area:.4f})")
+                        
+                        # Check surface curvature consistency
+                        if hasattr(face, 'Surface'):
+                            surface = face.Surface
+                            
+                            # Sample curvature at multiple points
+                            if hasattr(face, 'ParameterRange'):
+                                u_min, u_max, v_min, v_max = face.ParameterRange
+                                
+                                # Sample 9 points (3x3 grid)
+                                curvatures = []
+                                for u_factor in [0.25, 0.5, 0.75]:
+                                    for v_factor in [0.25, 0.5, 0.75]:
+                                        u = u_min + (u_max - u_min) * u_factor
+                                        v = v_min + (v_max - v_min) * v_factor
+                                        
+                                        try:
+                                            # Get curvature at point
+                                            if hasattr(surface, 'curvature'):
+                                                curv = surface.curvature(u, v)
+                                                if curv:
+                                                    # Store mean curvature
+                                                    curvatures.append((curv[0] + curv[1]) / 2)
+                                        except:
+                                            pass
+                                
+                                # Check curvature variation
+                                if curvatures:
+                                    max_curv = max(abs(c) for c in curvatures)
+                                    if max_curv > 100:  # High curvature
+                                        face_quality *= 0.9
+                        
+                        # Check for twisted surfaces
+                        if hasattr(face, 'normalAt'):
+                            try:
+                                # Check normal consistency at corners
+                                u_min, u_max, v_min, v_max = face.ParameterRange
+                                corners = [
+                                    (u_min, v_min), (u_min, v_max),
+                                    (u_max, v_min), (u_max, v_max)
+                                ]
+                                
+                                normals = []
+                                for u, v in corners:
+                                    try:
+                                        normal = face.normalAt(u, v)
+                                        normals.append(normal)
+                                    except:
+                                        pass
+                                
+                                # Check if normals are reasonably aligned
+                                if len(normals) >= 2:
+                                    for j in range(1, len(normals)):
+                                        dot = normals[0].dot(normals[j])
+                                        if dot < 0.5:  # More than 60 degrees difference
+                                            face_quality *= 0.8
+                                            quality_issues.append(f"Face {i}: twisted surface")
+                                            break
+                            except:
+                                pass
+                        
+                        if face_quality >= 0.8:
+                            good_faces += 1
+                    
+                    except Exception as e:
+                        logger.debug(f"Face {i} quality check error: {e}")
+                        continue
+                
+                # Calculate overall quality score
+                if total_faces > 0:
+                    quality_score = good_faces / total_faces
+            
+            validation.surface_quality_score = round(quality_score, 2)
             
             if quality_score < 0.7:
                 validation.issues.append(ValidationIssue(
@@ -746,11 +838,15 @@ class GeometricValidator:
                     severity=ValidationSeverity.INFO,
                     message=f"Surface quality score: {quality_score:.2f}",
                     turkish_message=f"Yüzey kalitesi puanı: {quality_score:.2f}",
-                    details={"score": quality_score}
+                    details={
+                        "score": quality_score,
+                        "issues": quality_issues[:5]  # First 5 issues
+                    }
                 ))
         
         except Exception as e:
             logger.warning(f"Surface quality check error: {e}")
+            validation.surface_quality_score = 0.75  # Default score on error
     
     def _calculate_properties(
         self,

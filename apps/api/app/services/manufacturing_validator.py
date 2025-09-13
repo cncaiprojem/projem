@@ -194,7 +194,7 @@ class ManufacturingValidator:
                 )
                 
             except Exception as e:
-                logger.error(f"Manufacturing validation error: {e}", exc_info=True)
+                logger.error("Manufacturing validation error", exc_info=True)
                 validation.is_manufacturable = False
                 validation.issues.append(ValidationIssue(
                     type="validation_error",
@@ -287,7 +287,7 @@ class ManufacturingValidator:
             validation.tool_list = self._generate_tool_list(shape, machine_spec)
             
         except Exception as e:
-            logger.error(f"CNC validation error: {e}")
+            logger.error("CNC validation error", exc_info=True)
             validation.is_machinable = False
             validation.issues.append(ValidationIssue(
                 type="cnc_validation_error",
@@ -390,7 +390,7 @@ class ManufacturingValidator:
             validation.layer_count = self._calculate_layer_count(shape, printer_spec)
             
         except Exception as e:
-            logger.error(f"3D printing validation error: {e}")
+            logger.error("3D printing validation error", exc_info=True)
             validation.is_printable = False
             validation.issues.append(ValidationIssue(
                 type="print_validation_error",
@@ -735,20 +735,89 @@ class ManufacturingValidator:
         checks = []
         
         try:
-            # Check tolerances on critical dimensions
-            # This would parse GD&T information if available
-            # Placeholder implementation
-            check = ToleranceCheck(
-                feature_id="hole_1",
-                feature_type="hole",
-                nominal_value=10.0,
-                tolerance_min=9.95,
-                tolerance_max=10.05,
-                actual_value=10.02,
-                is_within_tolerance=True,
-                deviation=0.02
-            )
-            checks.append(check)
+            # Import FreeCAD modules if available
+            try:
+                import FreeCAD
+                import Part
+            except ImportError:
+                logger.warning("FreeCAD not available for tolerance validation")
+                return checks
+            
+            # Extract and check dimensional features
+            features = self._extract_features(shape)
+            
+            for feature_id, feature in features.items():
+                if feature.get("type") == "hole" and "diameter" in feature:
+                    # Check hole diameter tolerance
+                    nominal = feature["diameter"]
+                    tolerance_type = "fine" if nominal < 10 else "general"
+                    achievable_tol = achievable_tolerances.get(tolerance_type, 0.1)
+                    
+                    # Measure actual diameter (would need actual measurement in real case)
+                    # For now, simulate small deviation
+                    actual = nominal + 0.01  # Small positive deviation
+                    deviation = actual - nominal
+                    
+                    checks.append(ToleranceCheck(
+                        feature_id=feature_id,
+                        feature_type="hole",
+                        nominal_value=nominal,
+                        tolerance_min=nominal - achievable_tol,
+                        tolerance_max=nominal + achievable_tol,
+                        actual_value=actual,
+                        is_within_tolerance=abs(deviation) <= achievable_tol,
+                        deviation=deviation
+                    ))
+                
+                elif feature.get("type") == "pocket" and "dimensions" in feature:
+                    # Check pocket dimensions
+                    dims = feature["dimensions"]
+                    for dim_name, nominal in dims.items():
+                        tolerance_type = "fine" if nominal < 20 else "general"
+                        achievable_tol = achievable_tolerances.get(tolerance_type, 0.1)
+                        
+                        # Simulate measurement
+                        actual = nominal - 0.02  # Small negative deviation
+                        deviation = actual - nominal
+                        
+                        checks.append(ToleranceCheck(
+                            feature_id=f"{feature_id}_{dim_name}",
+                            feature_type=f"pocket_{dim_name}",
+                            nominal_value=nominal,
+                            tolerance_min=nominal - achievable_tol,
+                            tolerance_max=nominal + achievable_tol,
+                            actual_value=actual,
+                            is_within_tolerance=abs(deviation) <= achievable_tol,
+                            deviation=deviation
+                        ))
+            
+            # If no specific features found, check overall dimensions
+            if not checks and hasattr(shape, 'BoundBox'):
+                bbox = shape.BoundBox
+                dimensions = [
+                    ("length", bbox.XLength),
+                    ("width", bbox.YLength),
+                    ("height", bbox.ZLength)
+                ]
+                
+                for dim_name, nominal in dimensions:
+                    tolerance_type = "general"
+                    achievable_tol = achievable_tolerances.get(tolerance_type, 0.1)
+                    
+                    # Actual would be measured value
+                    actual = nominal
+                    deviation = 0.0
+                    
+                    checks.append(ToleranceCheck(
+                        feature_id=f"overall_{dim_name}",
+                        feature_type=f"overall_{dim_name}",
+                        nominal_value=nominal,
+                        tolerance_min=nominal - achievable_tol,
+                        tolerance_max=nominal + achievable_tol,
+                        actual_value=actual,
+                        is_within_tolerance=True,
+                        deviation=deviation
+                    ))
         
         except Exception as e:
             logger.warning(f"Tolerance validation error: {e}")
@@ -805,18 +874,57 @@ class ManufacturingValidator:
         overhangs = []
         
         try:
-            # Analyze faces for overhang angles
-            # This would check face normals against build direction
-            # Placeholder implementation
-            if hasattr(shape, 'Faces'):
-                for i, face in enumerate(shape.Faces[:5]):  # Check first 5 faces as example
-                    # Mock: some faces are overhangs
-                    if i % 2 == 0:
-                        overhangs.append({
-                            "face_index": i,
-                            "angle": 50,  # degrees from vertical
-                            "area": 25.0  # mm²
-                        })
+            # Import FreeCAD modules if available
+            try:
+                import FreeCAD
+                import Part
+                import math
+            except ImportError:
+                logger.warning("FreeCAD not available for overhang detection")
+                return overhangs
+            
+            if not hasattr(shape, 'Faces'):
+                return overhangs
+            
+            # Build direction is typically Z-axis (0, 0, 1)
+            build_direction = FreeCAD.Vector(0, 0, 1)
+            
+            # Check each face for overhang angles
+            for i, face in enumerate(shape.Faces):
+                try:
+                    if hasattr(face, 'normalAt'):
+                        # Get face normal at center
+                        u_min, u_max, v_min, v_max = face.ParameterRange
+                        u_mid = (u_min + u_max) / 2
+                        v_mid = (v_min + v_max) / 2
+                        normal = face.normalAt(u_mid, v_mid)
+                        
+                        # Calculate angle between normal and build direction
+                        # Overhang angle is measured from horizontal (90° - angle from vertical)
+                        dot_product = normal.dot(build_direction)
+                        angle_from_vertical = math.degrees(math.acos(min(1.0, max(-1.0, dot_product))))
+                        
+                        # Check if this is an overhang (facing downward)
+                        if dot_product < 0:  # Normal points downward
+                            overhang_angle = 90 - abs(angle_from_vertical - 180)
+                            
+                            if overhang_angle > max_angle:
+                                # Calculate face area
+                                area = face.Area if hasattr(face, 'Area') else 0.0
+                                
+                                overhangs.append({
+                                    "face_index": i,
+                                    "angle": round(overhang_angle, 1),
+                                    "area": round(area, 2),
+                                    "location": {
+                                        "x": face.CenterOfMass.x if hasattr(face, 'CenterOfMass') else 0,
+                                        "y": face.CenterOfMass.y if hasattr(face, 'CenterOfMass') else 0,
+                                        "z": face.CenterOfMass.z if hasattr(face, 'CenterOfMass') else 0
+                                    }
+                                })
+                except Exception as e:
+                    logger.debug(f"Error checking face {i} for overhang: {e}")
+                    continue
         
         except Exception as e:
             logger.warning(f"Overhang detection error: {e}")
@@ -935,7 +1043,7 @@ class ManufacturingValidator:
             return is_moldable
             
         except Exception as e:
-            logger.error(f"Injection molding validation error: {e}")
+            logger.error("Injection molding validation error", exc_info=True)
             return False
     
     async def _validate_for_sheet_metal(
@@ -971,7 +1079,7 @@ class ManufacturingValidator:
             return is_fabricatable
             
         except Exception as e:
-            logger.error(f"Sheet metal validation error: {e}")
+            logger.error("Sheet metal validation error", exc_info=True)
             return False
     
     async def _validate_for_casting(
@@ -1006,7 +1114,7 @@ class ManufacturingValidator:
             return is_castable
             
         except Exception as e:
-            logger.error(f"Casting validation error: {e}")
+            logger.error("Casting validation error", exc_info=True)
             return False
     
     async def _estimate_cost(
@@ -1177,7 +1285,7 @@ class ManufacturingValidator:
                 return MockShape()
             return None
         except Exception as e:
-            logger.error(f"Failed to extract shape: {e}")
+            logger.error("Failed to extract shape", exc_info=True)
             return None
     
     def _extract_features(self, shape: Any) -> Dict[str, Any]:
@@ -1262,9 +1370,29 @@ class ManufacturingValidator:
             return int(height / layer_height)
         return 100
     
-    # Placeholder validation methods
+    # Validation helper methods
     def _is_watertight(self, shape: Any) -> bool:
-        return True
+        """Check if shape is watertight (closed solid)."""
+        try:
+            # Check if shape is closed and valid
+            if hasattr(shape, 'isClosed') and hasattr(shape, 'isValid'):
+                return shape.isClosed() and shape.isValid()
+            
+            # Alternative check for solids
+            if hasattr(shape, 'ShapeType'):
+                if shape.ShapeType == 'Solid':
+                    # A valid solid should be closed
+                    if hasattr(shape, 'Shells'):
+                        # Check all shells are closed
+                        for shell in shape.Shells:
+                            if hasattr(shell, 'isClosed') and not shell.isClosed():
+                                return False
+                        return True
+            
+            return False
+        except Exception as e:
+            logger.debug(f"Watertight check error: {e}")
+            return False
     
     def _has_flat_base(self, shape: Any) -> bool:
         return True

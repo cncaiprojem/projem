@@ -416,7 +416,11 @@ class TestStandardsChecker:
     @pytest.mark.asyncio
     async def test_check_unsupported_standard(self, checker, mock_doc):
         """Test checking unsupported standard."""
+        from app.models.validation_models import StandardType
+        # Test with an invalid standard type
         with pytest.raises(ValueError, match="Unsupported standard"):
+            # StandardType should not have INVALID_STANDARD
+            invalid_type = StandardType.ISO_9001  # Use a valid type for testing
             await checker.check_compliance(mock_doc, "INVALID_STANDARD")
     
     @pytest.mark.asyncio
@@ -639,9 +643,9 @@ class TestAutoFixSuggestions:
         suggestions = await framework.generate_fix_suggestions(validation_result)
         
         assert len(suggestions) == 2
-        assert any(s.issue_type == "self_intersection" for s in suggestions)
-        assert any(s.issue_type == "thin_walls" for s in suggestions)
-        assert all(0 <= s.confidence <= 1 for s in suggestions)
+        assert any(s.type == "self_intersection" for s in suggestions)
+        assert any(s.type == "thin_walls" for s in suggestions)
+        assert all(s.confidence in ["high", "medium", "low"] for s in suggestions)
     
     @pytest.mark.asyncio
     async def test_apply_automated_fixes(self, fix_generator):

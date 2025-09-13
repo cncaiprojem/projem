@@ -398,36 +398,32 @@ class ModelValidationFramework:
     
     async def validate_model(
         self,
-        request: ValidationRequest
-    ) -> ValidationResponse:
+        doc: Any,
+        validation_profile: ValidationProfile = ValidationProfile.STANDARD,
+        standards: Optional[List[str]] = None,
+        correlation_id: Optional[str] = None
+    ) -> ValidationResult:
         """Execute comprehensive model validation."""
-        correlation_id = get_correlation_id()
+        if not correlation_id:
+            correlation_id = get_correlation_id()
         start_time = time.time()
         
         with create_span("model_validation", correlation_id=correlation_id) as span:
-            span.set_attribute("model.id", request.model_id)
-            span.set_attribute("validation.profile", request.profile.value)
+            span.set_attribute("validation.profile", validation_profile.value)
             
             try:
-                # Get document handle
-                doc_handle = self.document_manager.get_document_handle(request.model_id)
-                if not doc_handle:
-                    logger.error(f"Document handle not found for model {request.model_id}")
-                    return ValidationResponse(
-                        success=False,
-                        error="Model not found",
-                        turkish_error="Model bulunamadı"
-                    )
+                # Use provided doc handle directly
+                doc_handle = doc
                 
                 # Create validation result
                 result = ValidationResult(
-                    model_id=request.model_id,
-                    profile=request.profile,
-                    metadata=request.metadata or {}
+                    model_id="doc",  # Use generic ID since we have doc directly
+                    profile=validation_profile,
+                    metadata={}
                 )
                 
                 # Get validators for profile
-                validators = self.validator_registry.get_validators_for_profile(request.profile)
+                validators = self.validator_registry.get_validators_for_profile(validation_profile)
                 
                 # Execute validations in parallel where possible
                 validation_tasks = []
@@ -438,27 +434,26 @@ class ModelValidationFramework:
                     geometric_result = await geometric_validator.validate(doc_handle)
                     result.add_section('geometric', geometric_result)
                 
-                # Manufacturing validation if requested
-                if request.processes:
-                    manufacturing_validator = self.validator_registry.get('manufacturing')
-                    if manufacturing_validator:
-                        for process in request.processes:
-                            mfg_result = await manufacturing_validator.validate(
-                                doc_handle, 
-                                process
-                            )
-                            result.add_section(f'manufacturing_{process.value}', mfg_result)
+                # Manufacturing validation would be done separately if needed
+                # Processes not passed in new signature
                 
                 # Standards compliance if requested
-                if request.standards:
+                if standards:
                     standards_checker = self.validator_registry.get('standards')
                     if standards_checker:
-                        for standard in request.standards:
-                            compliance_result = await standards_checker.check_compliance(
-                                doc_handle,
-                                standard
-                            )
-                            result.add_section(f'standards_{standard.value}', compliance_result)
+                        for standard_str in standards:
+                            try:
+                                # Convert string to StandardType enum
+                                from ..models.validation_models import StandardType
+                                standard = StandardType(standard_str)
+                                compliance_result = await standards_checker.check_compliance(
+                                    doc_handle,
+                                    standard
+                                )
+                                result.add_section(f'standards_{standard.value}', compliance_result)
+                            except ValueError:
+                                logger.warning(f"Unknown standard: {standard_str}")
+                                continue
                 
                 # Quality metrics
                 quality_metrics = self.validator_registry.get('quality')
@@ -473,24 +468,7 @@ class ModelValidationFramework:
                 if result.issues:
                     result.fix_suggestions = await self._generate_fix_suggestions(result)
                 
-                # Apply automated fixes if requested
-                fix_report = None
-                if request.auto_fix and result.fix_suggestions:
-                    fix_report = await self._apply_automated_fixes(
-                        doc_handle,
-                        result.fix_suggestions
-                    )
-                
-                # Generate certificate if requested and eligible
-                certificate = None
-                if request.generate_certificate and result.overall_score >= 0.8:
-                    model_hash = self._calculate_model_hash(doc_handle)
-                    certificate = self.certification_system.issue_certificate(
-                        result,
-                        request.standards or [],
-                        model_hash
-                    )
-                    result.certificate = certificate
+                # Note: Automated fixes and certificates would be handled by the caller
                 
                 # Set duration
                 result.duration_ms = int((time.time() - start_time) * 1000)
@@ -501,30 +479,23 @@ class ModelValidationFramework:
                     self.validations_failed += 1
                 
                 metrics.model_validations_total.labels(
-                    profile=request.profile.value,
+                    profile=validation_profile.value,
                     status=result.status.value
                 ).inc()
                 
                 logger.info(
                     f"Model validation completed",
-                    model_id=request.model_id,
-                    profile=request.profile.value,
+                    profile=validation_profile.value,
                     status=result.status.value,
                     score=result.overall_score,
                     duration_ms=result.duration_ms
                 )
                 
-                return ValidationResponse(
-                    success=True,
-                    result=result,
-                    fix_report=fix_report,
-                    certificate=certificate
-                )
+                return result
                 
             except Exception as e:
                 logger.error(
-                    f"Model validation failed",
-                    model_id=request.model_id,
+                    "Model validation failed",
                     exc_info=True
                 )
                 
