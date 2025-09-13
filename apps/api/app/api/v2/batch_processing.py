@@ -937,9 +937,10 @@ async def process_batch_job(
                         # For generic processing, use the item_id directly
                         if item.item_id in result_map:
                             result = result_map[item.item_id]
-                            if hasattr(result, 'status'):
-                                item.status = BatchItemStatus.COMPLETED if result else BatchItemStatus.FAILED
-                            item.output_data = result if result else None
+                            # Items in result_map are successful by definition
+                            # No need to check hasattr(result, 'status') for generic operations
+                            item.status = BatchItemStatus.COMPLETED
+                            item.output_data = result
                         else:
                             item.status = BatchItemStatus.FAILED
                             item.error = "İşlem sonucu bulunamadı"
