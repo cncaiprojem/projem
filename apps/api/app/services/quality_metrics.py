@@ -102,8 +102,9 @@ class ComplexityAnalyzer:
                         else:
                             # Default to curved if we can't determine
                             curved_faces += 1
-                    except Exception:
+                    except Exception as e:
                         # On error, assume curved
+                        logger.debug(f"Face analysis error: {e}")
                         curved_faces += 1
                 
                 metrics["curvature_complexity"] = curved_faces / max(metrics["face_count"], 1)
@@ -206,7 +207,8 @@ class SurfaceQualityAnalyzer:
                             if curv:
                                 # Store principal curvatures
                                 curvatures.append(abs(curv[0]) + abs(curv[1]))
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Sampling error: {e}")
                         continue
             
             if curvatures:
@@ -228,8 +230,8 @@ class SurfaceQualityAnalyzer:
             
             return smoothness_score
             
-        except ImportError:
-            logger.warning("FreeCAD not available for smoothness calculation")
+        except ImportError as e:
+            logger.warning(f"FreeCAD not available for smoothness calculation: {e}")
             return 0.85
         except Exception as e:
             logger.debug(f"Smoothness calculation error: {e}")
@@ -302,10 +304,12 @@ class SurfaceQualityAnalyzer:
                                                     curv_diff = abs(curv1 - curv2)
                                                     if curv_diff > 0.1:  # Curvature discontinuity
                                                         discontinuities['g2'] += 1
-                            except Exception:
+                            except Exception as e:
+                                logger.debug(f"Inner loop error: {e}")
                                 continue
                                 
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Processing error: {e}")
                     continue
             
             # Calculate continuity score based on discontinuities
@@ -320,8 +324,8 @@ class SurfaceQualityAnalyzer:
             
             return continuity_score
             
-        except ImportError:
-            logger.warning("FreeCAD not available for continuity check")
+        except ImportError as e:
+            logger.warning(f"FreeCAD not available for continuity check: {e}")
             return 0.9
         except Exception as e:
             logger.debug(f"Continuity check error: {e}")
@@ -474,7 +478,8 @@ class FeatureConsistencyChecker:
             
             return max(0.0, min(1.0, consistency_score))
             
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Pattern consistency evaluation error: {e}")
             return 0.9
     
     @staticmethod
@@ -518,7 +523,8 @@ class FeatureConsistencyChecker:
             
             return dimensions if dimensions else [1.0, 1.0, 1.0]
             
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Dimension extraction error: {e}")
             return [1.0, 1.0, 1.0]
     
     @staticmethod
@@ -557,7 +563,8 @@ class FeatureConsistencyChecker:
             
             return max(0.0, min(1.0, consistency_score))
             
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Dimension consistency evaluation error: {e}")
             return 0.85
     
     @staticmethod
@@ -588,8 +595,8 @@ class FeatureConsistencyChecker:
                         vol_diff = abs(shape.Volume - mirror_x.Volume) / max(shape.Volume, 0.001)
                         if vol_diff < 0.01:  # Less than 1% difference
                             symmetry_axes.append('X')
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Symmetry check error: {e}")
                 
                 # Y-axis symmetry
                 try:
@@ -598,8 +605,8 @@ class FeatureConsistencyChecker:
                         vol_diff = abs(shape.Volume - mirror_y.Volume) / max(shape.Volume, 0.001)
                         if vol_diff < 0.01:
                             symmetry_axes.append('Y')
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Symmetry check error: {e}")
                 
                 # Z-axis symmetry
                 try:
@@ -608,8 +615,8 @@ class FeatureConsistencyChecker:
                         vol_diff = abs(shape.Volume - mirror_z.Volume) / max(shape.Volume, 0.001)
                         if vol_diff < 0.01:
                             symmetry_axes.append('Z')
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Symmetry check error: {e}")
                 
                 # Calculate symmetry score based on number of symmetry axes
                 symmetry_score = len(symmetry_axes) / 3.0
@@ -624,8 +631,8 @@ class FeatureConsistencyChecker:
                 else:
                     symmetry_score = 0.3  # Some partial symmetry
                     
-        except ImportError:
-            logger.warning("FreeCAD not available for symmetry check")
+        except ImportError as e:
+            logger.warning(f"FreeCAD not available for symmetry check: {e}")
             symmetry_score = 0.8
         except Exception as e:
             logger.debug("Symmetry check error")
@@ -661,7 +668,8 @@ class FeatureConsistencyChecker:
                             
                             if hasattr(face, 'CenterOfMass'):
                                 face_centers.append(face.CenterOfMass)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Sampling error: {e}")
                         continue
                 
                 # Check for aligned normals (parallel or perpendicular)
@@ -718,7 +726,8 @@ class FeatureConsistencyChecker:
                             # Get edge direction
                             if hasattr(edge.Curve, 'Direction'):
                                 edge_vectors.append(edge.Curve.Direction)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Sampling error: {e}")
                         continue
                 
                 if edge_vectors:
@@ -738,9 +747,11 @@ class FeatureConsistencyChecker:
             
             return max(0.0, min(1.0, alignment_score))
             
-        except ImportError:
+        except ImportError as e:
+            logger.debug(f"FreeCAD import error for alignment check: {e}")
             return 0.9
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Alignment check error: {e}")
             return 0.9
 
 
@@ -821,7 +832,8 @@ class ParametricRobustnessChecker:
                         if broken_count > 0:
                             rebuild_score *= max(0.5, 1.0 - 0.1 * broken_count)
         
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Rebuild test error: {e}")
             rebuild_score = 0.85
         
         return rebuild_score
@@ -865,14 +877,15 @@ class ParametricRobustnessChecker:
                                         
                                         if total_tests >= 5:  # Test sample of properties
                                             break
-                            except Exception:
+                            except Exception as e:
+                                logger.debug(f"Inner loop error: {e}")
                                 continue
                 
                 if total_tests > 0:
                     sensitivity_score = stable_changes / total_tests
         
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Check error: {e}")
         
         return sensitivity_score
     
@@ -904,8 +917,8 @@ class ParametricRobustnessChecker:
                     # No constraints might mean simple model (not necessarily bad)
                     constraint_score = 0.85
         
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Check error: {e}")
         
         return constraint_score
     
@@ -928,7 +941,8 @@ class ParametricRobustnessChecker:
                             result = doc_handle.recompute()
                             if result != 0:
                                 update_failures += 1
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Document update error: {e}")
                         update_failures += 1
                 
                 # Test object updates
@@ -940,14 +954,15 @@ class ParametricRobustnessChecker:
                                 obj.touch()
                                 if hasattr(obj, 'recompute'):
                                     obj.recompute()
-                            except Exception:
+                            except Exception as e:
+                                logger.debug(f"Object update error: {e}")
                                 update_failures += 1
                 
                 if update_attempts > 0:
                     update_score = 1.0 - (update_failures / update_attempts)
         
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Check error: {e}")
         
         return update_score
 
@@ -1008,7 +1023,8 @@ class AssemblyCompatibilityChecker:
                             surface_type = face.Surface.__class__.__name__
                             if surface_type == 'Plane':
                                 flat_faces.append(face)
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Sampling error: {e}")
                         continue
                 
                 if flat_faces:
@@ -1024,15 +1040,16 @@ class AssemblyCompatibilityChecker:
                                         dot = abs(normal1.dot(normal2))
                                         if dot > 0.98:  # Nearly parallel
                                             parallel_pairs += 1
-                            except Exception:
+                            except Exception as e:
+                                logger.debug(f"Inner loop error: {e}")
                                 continue
                     
                     # More parallel pairs = better interface potential
                     if len(flat_faces) > 1:
                         interface_score = min(1.0, 0.5 + 0.1 * parallel_pairs)
         
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Check error: {e}")
         
         return interface_score
     
@@ -1055,7 +1072,8 @@ class AssemblyCompatibilityChecker:
                                 cylindrical_count += 1
                             elif surface_type == 'Plane':
                                 planar_count += 1
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Sampling error: {e}")
                         continue
                 
                 total_faces = len(shape.Faces)
@@ -1068,8 +1086,8 @@ class AssemblyCompatibilityChecker:
                     else:
                         mating_score = 0.7
         
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Check error: {e}")
         
         return mating_score
     
@@ -1098,8 +1116,8 @@ class AssemblyCompatibilityChecker:
                     else:
                         clearance_score = 0.95
         
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Check error: {e}")
         
         return clearance_score
     
@@ -1120,7 +1138,8 @@ class AssemblyCompatibilityChecker:
                                 # Check if it's a hole (internal cylinder)
                                 if hasattr(face, 'Area'):
                                     feature_count += 1
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Sampling error: {e}")
                         continue
             
             if hasattr(shape, 'Edges'):
@@ -1131,7 +1150,8 @@ class AssemblyCompatibilityChecker:
                             curve_type = edge.Curve.__class__.__name__
                             if curve_type in ['Circle', 'Arc', 'BSplineCurve']:
                                 feature_count += 1
-                    except Exception:
+                    except Exception as e:
+                        logger.debug(f"Sampling error: {e}")
                         continue
             
             # More features = better assembly readiness
@@ -1144,8 +1164,8 @@ class AssemblyCompatibilityChecker:
             elif feature_count > 0:
                 feature_score = 0.65
         
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Check error: {e}")
         
         return feature_score
 
@@ -1357,8 +1377,8 @@ class QualityMetrics:
                     if len(shape.Solids) > 1:
                         return True
         
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Check error: {e}")
         
         return False
     
@@ -1434,7 +1454,8 @@ class QualityMetrics:
                 if doc_items == 0:
                     doc_score = 0.3  # Minimal documentation
         
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Documentation check error: {e}")
             doc_score = 0.75  # Default to reasonable documentation
         
         return min(1.0, doc_score)

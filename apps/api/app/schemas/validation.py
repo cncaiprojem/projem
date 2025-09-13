@@ -258,10 +258,13 @@ class ManufacturingValidationResponse(BaseModel):
     is_feasible: bool
     feasibility_score: float = Field(..., ge=0, le=1)
     issues: List[ValidationIssue] = Field(default_factory=list)
+    warnings: List[str] = Field(default_factory=list)
+    suggestions: List[str] = Field(default_factory=list)
     cost_estimate: Optional[float] = None
     lead_time_days: Optional[int] = None
     recommendations: List[str] = Field(default_factory=list)
-    machine_compatibility: Dict[str, bool] = Field(default_factory=dict)
+    machine_compatibility: Dict[str, Any] = Field(default_factory=dict)  # Changed to Any to support nested structures
+    process_parameters: Dict[str, Any] = Field(default_factory=dict)
 
 
 class StandardsComplianceRequest(BaseModel):
@@ -304,10 +307,12 @@ class QualityMetricsResponse(BaseModel):
     
     document_id: str
     timestamp: datetime
-    metrics: Dict[str, float] = Field(default_factory=dict)
+    metrics: Dict[str, Any] = Field(default_factory=dict)  # Changed to Any to support nested objects
     quality_score: float = Field(..., ge=0, le=100)
     grade: str = Field(..., description="Quality grade (A-F)")
-    issues_by_category: Dict[str, int] = Field(default_factory=dict)
+    complexity: Optional[float] = Field(None, description="Complexity score")
+    manufacturing_readiness: Optional[float] = Field(None, description="Manufacturing readiness score")
+    issues_by_category: Dict[str, List[str]] = Field(default_factory=dict)  # Changed to List[str]
     improvement_areas: List[str] = Field(default_factory=list)
 
 

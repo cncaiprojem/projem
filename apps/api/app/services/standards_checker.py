@@ -246,7 +246,8 @@ class ASMEY145Checker(StandardChecker):
                                             # Calculate distance from point to plane
                                             dist = abs(surface.distanceToPlane(point))
                                             max_deviation = max(max_deviation, dist)
-                                        except Exception:
+                                        except Exception as e:
+                                            logger.debug(f"Face sampling error: {e}")
                                             continue
                                 
                                 features.append({
@@ -609,10 +610,11 @@ class CEMarkingChecker(StandardChecker):
             
             return safe
             
-        except ImportError:
-            logger.warning("FreeCAD not available for safety check")
+        except ImportError as e:
+            logger.warning(f"FreeCAD not available for safety check: {e}")
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Safety check error: {e}")
             return True
     
     def _check_emc_compliance(self, doc_handle: Any) -> bool:
@@ -660,10 +662,11 @@ class CEMarkingChecker(StandardChecker):
             
             return emc_compliant
             
-        except ImportError:
-            logger.warning("FreeCAD not available for EMC check")
+        except ImportError as e:
+            logger.warning(f"FreeCAD not available for EMC check: {e}")
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"EMC check error: {e}")
             return True
     
     def _check_documentation_completeness(self, doc_handle: Any) -> bool:
@@ -706,7 +709,8 @@ class CEMarkingChecker(StandardChecker):
             
             return doc_complete
             
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Documentation completeness check error: {e}")
             return False
     
     def _check_materials_compliance(self, doc_handle: Any) -> bool:
@@ -736,7 +740,8 @@ class CEMarkingChecker(StandardChecker):
             
             return materials_compliant
             
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Materials compliance check error: {e}")
             return True
     
     def _check_performance_standards(self, doc_handle: Any) -> bool:
@@ -772,9 +777,11 @@ class CEMarkingChecker(StandardChecker):
             
             return performance_ok
             
-        except ImportError:
+        except ImportError as e:
+            logger.debug(f"FreeCAD import error for performance check: {e}")
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Performance standards check error: {e}")
             return True
     
     def _check_labeling_requirements(self, doc_handle: Any) -> bool:
@@ -801,7 +808,8 @@ class CEMarkingChecker(StandardChecker):
             
             return has_labeling
             
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Labeling requirements check error: {e}")
             return False
     
     def _perform_basic_check(self, doc_handle: Any) -> bool:
@@ -814,7 +822,8 @@ class CEMarkingChecker(StandardChecker):
                         if not obj.Shape.isValid():
                             return False
             return True
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Basic CE check error: {e}")
             return False
 
 

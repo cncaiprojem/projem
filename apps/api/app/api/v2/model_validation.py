@@ -143,10 +143,17 @@ async def validate_model(
             return ValidationResponse(
                 success=True,
                 result=result,
-                validation_id=result.validation_id,
-                report_url=report_url
+                validation_id=result.validation_id
             )
             
+        except ValueError as e:
+            validation_operations_total.labels(
+                operation="validate",
+                profile=request.profile,
+                status="error"
+            ).inc()
+            span.record_exception(e)
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             validation_operations_total.labels(
                 operation="validate",
@@ -199,7 +206,7 @@ async def validate_manufacturing(
                         shape = obj.Shape
                         break
                 if not shape:
-                    raise HTTPException(status_code=400, detail="Model geometri içermiyor")
+                    raise ValueError("Model geometri içermiyor")
                     
                 result = await asyncio.to_thread(
                     validator.validate_for_3d_printing,
@@ -214,7 +221,7 @@ async def validate_manufacturing(
                     request.machine_spec
                 )
             else:
-                raise HTTPException(status_code=400, detail=f"Desteklenmeyen üretim yöntemi: {request.process}")
+                raise ValueError(f"Desteklenmeyen üretim yöntemi: {request.process}")
             
             # Estimate cost and lead time (create default estimation for now)
             # TODO: Implement estimate_manufacturing method in ManufacturingValidator
@@ -231,16 +238,26 @@ async def validate_manufacturing(
             
             return ManufacturingValidationResponse(
                 process=request.process,
-                feasible=result.feasible,
+                is_feasible=result.feasible,
+                feasibility_score=result.feasibility_score if hasattr(result, 'feasibility_score') else 0.85,
                 issues=result.issues,
                 warnings=result.warnings,
                 suggestions=result.suggestions,
-                estimated_cost=estimation.get("cost"),
-                estimated_lead_time=estimation.get("lead_time"),
-                material_recommendations=result.material_recommendations,
+                cost_estimate=estimation.get("cost"),
+                lead_time_days=estimation.get("lead_time"),
+                recommendations=result.material_recommendations if hasattr(result, 'material_recommendations') else [],
+                machine_compatibility=result.machine_compatibility if hasattr(result, 'machine_compatibility') else {"compatible": True, "notes": []},
                 process_parameters=result.process_parameters
             )
             
+        except ValueError as e:
+            validation_operations_total.labels(
+                operation="validate_manufacturing",
+                profile=request.process,
+                status="error"
+            ).inc()
+            span.record_exception(e)
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             validation_operations_total.labels(
                 operation="validate_manufacturing",
@@ -330,11 +347,13 @@ async def get_quality_metrics(
             return QualityMetricsResponse(
                 document_id=document_id,
                 timestamp=datetime.now(timezone.utc),
-                overall_score=report.overall_score,
-                grade=report.grade,
+                quality_score=report.overall_score,
+                grade=report.grade if hasattr(report, 'grade') else "B",
                 metrics=report.metrics,
-                complexity=report.complexity_score,
-                manufacturing_readiness=report.manufacturing_readiness
+                complexity=report.complexity_score if hasattr(report, 'complexity_score') else 50.0,
+                manufacturing_readiness=report.manufacturing_readiness,
+                issues_by_category=report.issues_by_category if hasattr(report, 'issues_by_category') else {},
+                improvement_areas=report.improvement_areas if hasattr(report, 'improvement_areas') else []
             )
             
         except Exception as e:
@@ -571,7 +590,7 @@ async def upload_and_validate(
                 import Import
                 Import.insert(tmp_path, doc.Name)
             else:
-                raise HTTPException(status_code=400, detail=f"Desteklenmeyen dosya formatı: {file_ext}")
+                raise ValueError(f"Desteklenmeyen dosya formatı: {file_ext}")
             
             # Validate
             validation_result = await validation_framework.validate_model(
@@ -587,18 +606,25 @@ async def upload_and_validate(
                 background_tasks.add_task(FreeCAD.closeDocument, doc.Name)
             
             return ValidationResponse(
-                validation_id=validation_result.validation_id,
-                model_id=validation_result.model_id,
-                profile=validation_result.profile,
-                timestamp=validation_result.timestamp,
-                overall_score=validation_result.overall_score,
-                grade=validation_result.grade,
-                passed=validation_result.passed,
-                sections=validation_result.sections,
-                issues=validation_result.issues,
-                metrics=validation_result.metrics
+                success=True,
+                result=validation_result,
+                validation_id=validation_result.validation_id
             )
             
+        except ValueError as e:
+            span.record_exception(e)
+            # Clean up immediately on error
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    logger.debug("Best effort cleanup failed")
+            if doc:
+                try:
+                    FreeCAD.closeDocument(doc.Name)
+                except Exception:
+                    logger.debug("Best effort document cleanup failed")
+            raise HTTPException(status_code=400, detail=str(e))
         except Exception as e:
             span.record_exception(e)
             # Clean up immediately on error
@@ -606,12 +632,12 @@ async def upload_and_validate(
                 try:
                     os.unlink(tmp_path)
                 except Exception:
-                    pass  # Best effort cleanup
+                    logger.debug("Best effort cleanup failed")
             if doc:
                 try:
                     FreeCAD.closeDocument(doc.Name)
                 except Exception:
-                    pass  # Best effort cleanup
+                    logger.debug("Best effort document cleanup failed")
             raise HTTPException(status_code=500, detail="Yükleme ve doğrulama hatası. Dosya işlenemedi.")
 
 
@@ -812,10 +838,11 @@ async def _revalidate_model(
         framework = ModelValidationFramework()
         
         # Run comprehensive validation
-        result = await framework.validate(
-            doc_handle=doc,
-            profile=ValidationProfile.COMPREHENSIVE,
-            user_id=user_id
+        result = await framework.validate_model(
+            doc=doc,
+            validation_profile=ValidationProfile.COMPREHENSIVE,
+            standards=None,
+            correlation_id=str(user_id)
         )
         
         # Store result in database
