@@ -246,7 +246,7 @@ class ASMEY145Checker(StandardChecker):
                                             # Calculate distance from point to plane
                                             dist = abs(surface.distanceToPlane(point))
                                             max_deviation = max(max_deviation, dist)
-                                        except:
+                                        except Exception:
                                             continue
                                 
                                 features.append({
@@ -581,7 +581,8 @@ class CEMarkingChecker(StandardChecker):
                                     if radius < 0.5:  # Less than 0.5mm radius is considered sharp
                                         safe = False
                                         break
-                                except:
+                                except Exception as e:
+                                    logger.debug(f"Error checking edge radius: {e}")
                                     pass
                     
                     # Check for enclosed volumes (entrapment hazards)

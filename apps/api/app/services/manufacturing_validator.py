@@ -21,7 +21,7 @@ from ..core.logging import get_logger
 from ..core.telemetry import create_span
 from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
-from ..models.validation_models import (
+from ..models.manufacturing_models import (
     ManufacturingValidation,
     ManufacturingProcess,
     CNCValidation,
@@ -1403,23 +1403,150 @@ class ManufacturingValidator:
     def _has_thin_features(self, shape: Any, min_size: float) -> bool:
         return False
     
-    def _has_uniform_wall_thickness(self, shape: Any) -> bool:
-        return True
+    def _has_uniform_wall_thickness(self, shape: Any, tolerance: float = 0.1) -> bool:
+        """Check if shape has uniform wall thickness."""
+        try:
+            import FreeCAD
+            import Part
+            
+            if not hasattr(shape, 'Faces'):
+                return False
+            
+            # Get all faces and analyze thickness variations
+            faces = shape.Faces
+            if len(faces) < 2:
+                return True  # Single face, no thickness to check
+            
+            thicknesses = []
+            for i, face1 in enumerate(faces):
+                for face2 in faces[i+1:]:
+                    # Calculate distance between face centers
+                    dist = face1.CenterOfMass.distanceToPoint(face2.CenterOfMass)
+                    if dist > 0.01:  # Ignore very close faces
+                        thicknesses.append(dist)
+            
+            if not thicknesses:
+                return True
+            
+            # Check if all thicknesses are within tolerance
+            avg_thickness = sum(thicknesses) / len(thicknesses)
+            for thickness in thicknesses:
+                if abs(thickness - avg_thickness) / avg_thickness > tolerance:
+                    return False
+            
+            return True
+        except Exception as e:
+            logger.warning(f"Error checking wall thickness: {e}")
+            return True  # Assume OK if can't check
     
-    def _has_draft_angles(self, shape: Any) -> bool:
-        return True
+    def _has_draft_angles(self, shape: Any, min_angle: float = 1.0) -> bool:
+        """Check if vertical faces have draft angles for molding."""
+        try:
+            import FreeCAD
+            import Part
+            import math
+            
+            if not hasattr(shape, 'Faces'):
+                return False
+            
+            z_axis = FreeCAD.Vector(0, 0, 1)
+            
+            for face in shape.Faces:
+                if hasattr(face, 'Surface'):
+                    # Check if face is planar
+                    if isinstance(face.Surface, Part.Plane):
+                        normal = face.normalAt(0, 0)
+                        # Calculate angle between normal and Z axis
+                        angle = math.degrees(normal.getAngle(z_axis))
+                        
+                        # Check if face is nearly vertical (within draft angle range)
+                        if 85 <= angle <= 95:  # Nearly vertical
+                            # This face should have draft angle
+                            if abs(90 - angle) < min_angle:
+                                return False  # Not enough draft
+            
+            return True
+        except Exception as e:
+            logger.warning(f"Error checking draft angles: {e}")
+            return True  # Assume OK if can't check
     
     def _has_complex_undercuts(self, shape: Any) -> bool:
-        return False
+        """Check if shape has complex undercuts that would prevent molding."""
+        try:
+            import FreeCAD
+            import Part
+            
+            if not hasattr(shape, 'Faces'):
+                return False
+            
+            # Check for faces that would create undercuts in Z direction
+            z_axis = FreeCAD.Vector(0, 0, 1)
+            undercut_count = 0
+            
+            for face in shape.Faces:
+                if hasattr(face, 'normalAt'):
+                    normal = face.normalAt(0.5, 0.5)  # Get normal at face center
+                    # Check if face normal points downward (potential undercut)
+                    if normal.z < -0.1:  # Pointing downward
+                        undercut_count += 1
+            
+            # More than 2 undercuts is considered complex
+            return undercut_count > 2
+        except Exception as e:
+            logger.warning(f"Error checking undercuts: {e}")
+            return False  # Assume no complex undercuts if can't check
     
     def _has_constant_thickness(self, shape: Any) -> bool:
         return True
     
-    def _check_bend_radius(self, shape: Any) -> bool:
-        return True
+    def _check_bend_radius(self, shape: Any, min_bend_radius: float = 1.0) -> bool:
+        """Check if bend radii are acceptable for sheet metal."""
+        try:
+            import FreeCAD
+            import Part
+            
+            if not hasattr(shape, 'Edges'):
+                return True
+            
+            for edge in shape.Edges:
+                # Check if edge is circular (bend)
+                if hasattr(edge, 'Curve'):
+                    curve = edge.Curve
+                    if isinstance(curve, Part.Circle) or isinstance(curve, Part.Arc):
+                        radius = curve.Radius
+                        if radius < min_bend_radius:
+                            return False  # Bend radius too small
+            
+            return True
+        except Exception as e:
+            logger.warning(f"Error checking bend radius: {e}")
+            return True  # Assume OK if can't check
     
     def _has_proper_gating_location(self, shape: Any) -> bool:
-        return True
+        """Check if shape has proper locations for injection molding gates."""
+        try:
+            import FreeCAD
+            import Part
+            
+            if not hasattr(shape, 'Faces'):
+                return False
+            
+            # Find the largest flat face (potential gating location)
+            largest_flat_face = None
+            max_area = 0
+            
+            for face in shape.Faces:
+                if hasattr(face, 'Surface') and isinstance(face.Surface, Part.Plane):
+                    area = face.Area
+                    if area > max_area:
+                        max_area = area
+                        largest_flat_face = face
+            
+            # Need at least one flat face for gating
+            return largest_flat_face is not None and max_area > 10.0  # Minimum 10mm² for gate
+        except Exception as e:
+            logger.warning(f"Error checking gating location: {e}")
+            return True  # Assume OK if can't check
     
     def _detect_hot_spots(self, shape: Any) -> List[Dict[str, Any]]:
         return []

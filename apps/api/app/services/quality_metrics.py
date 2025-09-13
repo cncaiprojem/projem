@@ -102,7 +102,7 @@ class ComplexityAnalyzer:
                         else:
                             # Default to curved if we can't determine
                             curved_faces += 1
-                    except:
+                    except Exception:
                         # On error, assume curved
                         curved_faces += 1
                 
@@ -206,7 +206,7 @@ class SurfaceQualityAnalyzer:
                             if curv:
                                 # Store principal curvatures
                                 curvatures.append(abs(curv[0]) + abs(curv[1]))
-                    except:
+                    except Exception:
                         continue
             
             if curvatures:
@@ -302,7 +302,7 @@ class SurfaceQualityAnalyzer:
                                                     curv_diff = abs(curv1 - curv2)
                                                     if curv_diff > 0.1:  # Curvature discontinuity
                                                         discontinuities['g2'] += 1
-                            except:
+                            except Exception:
                                 continue
                                 
                 except Exception:
@@ -588,7 +588,7 @@ class FeatureConsistencyChecker:
                         vol_diff = abs(shape.Volume - mirror_x.Volume) / max(shape.Volume, 0.001)
                         if vol_diff < 0.01:  # Less than 1% difference
                             symmetry_axes.append('X')
-                except:
+                except Exception:
                     pass
                 
                 # Y-axis symmetry
@@ -598,7 +598,7 @@ class FeatureConsistencyChecker:
                         vol_diff = abs(shape.Volume - mirror_y.Volume) / max(shape.Volume, 0.001)
                         if vol_diff < 0.01:
                             symmetry_axes.append('Y')
-                except:
+                except Exception:
                     pass
                 
                 # Z-axis symmetry
@@ -608,7 +608,7 @@ class FeatureConsistencyChecker:
                         vol_diff = abs(shape.Volume - mirror_z.Volume) / max(shape.Volume, 0.001)
                         if vol_diff < 0.01:
                             symmetry_axes.append('Z')
-                except:
+                except Exception:
                     pass
                 
                 # Calculate symmetry score based on number of symmetry axes
@@ -661,7 +661,7 @@ class FeatureConsistencyChecker:
                             
                             if hasattr(face, 'CenterOfMass'):
                                 face_centers.append(face.CenterOfMass)
-                    except:
+                    except Exception:
                         continue
                 
                 # Check for aligned normals (parallel or perpendicular)
@@ -718,7 +718,7 @@ class FeatureConsistencyChecker:
                             # Get edge direction
                             if hasattr(edge.Curve, 'Direction'):
                                 edge_vectors.append(edge.Curve.Direction)
-                    except:
+                    except Exception:
                         continue
                 
                 if edge_vectors:
@@ -865,7 +865,7 @@ class ParametricRobustnessChecker:
                                         
                                         if total_tests >= 5:  # Test sample of properties
                                             break
-                            except:
+                            except Exception:
                                 continue
                 
                 if total_tests > 0:
@@ -928,7 +928,7 @@ class ParametricRobustnessChecker:
                             result = doc_handle.recompute()
                             if result != 0:
                                 update_failures += 1
-                    except:
+                    except Exception:
                         update_failures += 1
                 
                 # Test object updates
@@ -940,7 +940,7 @@ class ParametricRobustnessChecker:
                                 obj.touch()
                                 if hasattr(obj, 'recompute'):
                                     obj.recompute()
-                            except:
+                            except Exception:
                                 update_failures += 1
                 
                 if update_attempts > 0:
@@ -1008,7 +1008,7 @@ class AssemblyCompatibilityChecker:
                             surface_type = face.Surface.__class__.__name__
                             if surface_type == 'Plane':
                                 flat_faces.append(face)
-                    except:
+                    except Exception:
                         continue
                 
                 if flat_faces:
@@ -1024,7 +1024,7 @@ class AssemblyCompatibilityChecker:
                                         dot = abs(normal1.dot(normal2))
                                         if dot > 0.98:  # Nearly parallel
                                             parallel_pairs += 1
-                            except:
+                            except Exception:
                                 continue
                     
                     # More parallel pairs = better interface potential
@@ -1055,7 +1055,7 @@ class AssemblyCompatibilityChecker:
                                 cylindrical_count += 1
                             elif surface_type == 'Plane':
                                 planar_count += 1
-                    except:
+                    except Exception:
                         continue
                 
                 total_faces = len(shape.Faces)
@@ -1120,7 +1120,7 @@ class AssemblyCompatibilityChecker:
                                 # Check if it's a hole (internal cylinder)
                                 if hasattr(face, 'Area'):
                                     feature_count += 1
-                    except:
+                    except Exception:
                         continue
             
             if hasattr(shape, 'Edges'):
@@ -1131,7 +1131,7 @@ class AssemblyCompatibilityChecker:
                             curve_type = edge.Curve.__class__.__name__
                             if curve_type in ['Circle', 'Arc', 'BSplineCurve']:
                                 feature_count += 1
-                    except:
+                    except Exception:
                         continue
             
             # More features = better assembly readiness

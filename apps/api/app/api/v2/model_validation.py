@@ -11,11 +11,12 @@ Provides REST API for:
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile, BackgroundTasks, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from datetime import datetime, UTC
+from datetime import datetime, UTC, timezone
 import asyncio
 import tempfile
 import os
 import json
+import uuid
 from pathlib import Path
 
 from app.core.database import get_db
@@ -140,18 +141,10 @@ async def validate_model(
                 )
             
             return ValidationResponse(
+                success=True,
+                result=result,
                 validation_id=result.validation_id,
-                model_id=result.model_id,
-                profile=result.profile,
-                timestamp=result.timestamp,
-                overall_score=result.overall_score,
-                grade=result.grade,
-                passed=result.passed,
-                sections=result.sections,
-                issues=result.issues,
-                metrics=result.metrics,
-                report_url=report_url,
-                correlation_id=result.correlation_id
+                report_url=report_url
             )
             
         except Exception as e:
@@ -206,7 +199,7 @@ async def validate_manufacturing(
                         shape = obj.Shape
                         break
                 if not shape:
-                    raise ValueError("Model geometri içermiyor")
+                    raise HTTPException(status_code=400, detail="Model geometri içermiyor")
                     
                 result = await asyncio.to_thread(
                     validator.validate_for_3d_printing,
@@ -221,7 +214,7 @@ async def validate_manufacturing(
                     request.machine_spec
                 )
             else:
-                raise ValueError(f"Desteklenmeyen üretim yöntemi: {request.process}")
+                raise HTTPException(status_code=400, detail=f"Desteklenmeyen üretim yöntemi: {request.process}")
             
             # Estimate cost and lead time (create default estimation for now)
             # TODO: Implement estimate_manufacturing method in ManufacturingValidator
@@ -336,7 +329,7 @@ async def get_quality_metrics(
             
             return QualityMetricsResponse(
                 document_id=document_id,
-                timestamp=datetime.now(UTC),
+                timestamp=datetime.now(timezone.utc),
                 overall_score=report.overall_score,
                 grade=report.grade,
                 metrics=report.metrics,
@@ -578,7 +571,7 @@ async def upload_and_validate(
                 import Import
                 Import.insert(tmp_path, doc.Name)
             else:
-                raise ValueError(f"Desteklenmeyen dosya formatı: {file_ext}")
+                raise HTTPException(status_code=400, detail=f"Desteklenmeyen dosya formatı: {file_ext}")
             
             # Validate
             validation_result = await validation_framework.validate_model(
@@ -612,12 +605,12 @@ async def upload_and_validate(
             if tmp_path and os.path.exists(tmp_path):
                 try:
                     os.unlink(tmp_path)
-                except:
+                except Exception:
                     pass  # Best effort cleanup
             if doc:
                 try:
                     FreeCAD.closeDocument(doc.Name)
-                except:
+                except Exception:
                     pass  # Best effort cleanup
             raise HTTPException(status_code=500, detail="Yükleme ve doğrulama hatası. Dosya işlenemedi.")
 
@@ -627,9 +620,6 @@ async def _store_report(report: str, user_id: int, db: AsyncSession) -> str:
     """Store validation report and return URL."""
     try:
         from app.services.storage_client import storage_client
-        import json
-        import uuid
-        from datetime import datetime
         
         # Generate unique report ID
         report_id = str(uuid.uuid4())
