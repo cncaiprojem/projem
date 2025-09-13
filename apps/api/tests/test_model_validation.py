@@ -20,14 +20,16 @@ from app.schemas.validation import (
     ValidationRequest,
     ValidationResponse,
     ValidationStatus,
-    ValidationSection
+    ValidationSection,
+    StandardType
 )
 
 # Import services
 from app.services.model_validation import (
     ModelValidationFramework,
     ValidatorRegistry,
-    validation_framework
+    validation_framework,
+    AutoFixSuggestions
 )
 from app.services.geometric_validator import GeometricValidator
 from app.services.manufacturing_validator import ManufacturingValidator
@@ -263,7 +265,7 @@ class TestGeometricValidator:
                 )
             ]
             
-            result = await validator.validate_geometry(
+            result = await validator.validate(
                 mock_shape,
                 tolerances=Mock(min_wall_thickness=1.0)
             )
@@ -330,7 +332,8 @@ class TestManufacturingValidator:
     @pytest.mark.asyncio
     async def test_validate_for_cnc(self, validator, mock_doc, machine_spec):
         """Test CNC validation."""
-        result = await validator.validate_for_cnc(mock_doc, machine_spec)
+        shape = mock_doc.Objects[0].Shape
+        result = await validator.validate_for_cnc(shape, machine_spec, ManufacturingProcess.CNC_MILLING)
         
         assert result.feasible
         assert "tool_access" in result.sections
@@ -403,7 +406,7 @@ class TestStandardsChecker:
                 recommendations=["Use standard naming convention"]
             )
             
-            result = await checker.check_compliance(mock_doc, "ISO 10303")
+            result = await checker.check_compliance(mock_doc, StandardType.ISO_10303)
             
             assert result.standard == "ISO 10303"
             assert result.compliant
@@ -537,8 +540,8 @@ class TestCertificationSystem:
         """Test certificate issuance."""
         certificate = await cert_system.issue_certificate(
             validation_result=validation_result,
-            standards=["ISO 10303", "ASME Y14.5"],
-            issuer="Test Engineer"
+            standards=[StandardType.ISO_10303, StandardType.ASME_Y14_5],
+            model_hash="test_model_hash_123"
         )
         
         assert isinstance(certificate, QualityCertificate)
@@ -557,8 +560,8 @@ class TestCertificationSystem:
         with pytest.raises(ValueError, match="certification threshold"):
             await cert_system.issue_certificate(
                 validation_result=validation_result,
-                standards=["ISO 10303"],
-                issuer="Test Engineer"
+                standards=[StandardType.ISO_10303],
+                model_hash="test_model_hash_123"
             )
     
     @pytest.mark.asyncio
@@ -632,7 +635,8 @@ class TestAutoFixSuggestions:
     @pytest.mark.asyncio
     async def test_suggest_fixes(self, fix_generator, validation_result):
         """Test fix suggestion generation."""
-        suggestions = await fix_generator.suggest_fixes(validation_result)
+        framework = ModelValidationFramework()
+        suggestions = await framework.generate_fix_suggestions(validation_result)
         
         assert len(suggestions) == 2
         assert any(s.issue_type == "self_intersection" for s in suggestions)

@@ -551,11 +551,11 @@ async def upload_and_validate(
             if file_ext in ['.fcstd', '.FCStd']:
                 FreeCAD.openDocument(tmp_path)
             elif file_ext in ['.step', '.stp', '.STEP', '.STP']:
-                import ImportGui
-                ImportGui.insert(tmp_path, doc.Name)
+                import Import
+                Import.insert(tmp_path, doc.Name)
             elif file_ext in ['.iges', '.igs', '.IGES', '.IGS']:
-                import ImportGui
-                ImportGui.insert(tmp_path, doc.Name)
+                import Import
+                Import.insert(tmp_path, doc.Name)
             else:
                 raise ValueError(f"Desteklenmeyen dosya formatı: {file_ext}")
             

@@ -202,8 +202,8 @@ class GeometricValidator:
                 validation.issues.append(ValidationIssue(
                     type="validation_error",
                     severity=ValidationSeverity.ERROR,
-                    message=f"Validation error: {str(e)}",
-                    turkish_message=f"Doğrulama hatası: {str(e)}"
+                    message="Validation error occurred",
+                    turkish_message="Doğrulama hatası oluştu"
                 ))
             
             return validation
@@ -481,7 +481,7 @@ class GeometricValidator:
         
         except Exception as e:
             logger.warning(f"Topology check error: {e}")
-            check.add_error("check_failed", str(e))
+            check.add_error("check_failed", "Topology check failed")
         
         return check
     

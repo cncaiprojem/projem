@@ -525,7 +525,6 @@ class ModelValidationFramework:
                 logger.error(
                     f"Model validation failed",
                     model_id=request.model_id,
-                    error=str(e),
                     exc_info=True
                 )
                 
@@ -650,7 +649,6 @@ class ModelValidationFramework:
                     f"Failed to apply fix",
                     suggestion_id=suggestion.suggestion_id,
                     fix_type=suggestion.type,
-                    error=str(e),
                     exc_info=True
                 )
                 
@@ -758,7 +756,6 @@ class ModelValidationFramework:
             logger.error(
                 f"Failed to apply fix",
                 fix_type=suggestion.type,
-                error=str(e),
                 exc_info=True
             )
             # Re-raise with generic message
@@ -808,7 +805,6 @@ class ModelValidationFramework:
         except Exception as e:
             logger.error(
                 "Error calculating model hash",
-                error=str(e),
                 exc_info=True
             )
             # Fallback hash
@@ -844,7 +840,6 @@ class ModelValidationFramework:
             logger.error(
                 "Failed to get validation result",
                 validation_id=validation_id,
-                error=str(e),
                 exc_info=True
             )
             return None
@@ -870,7 +865,6 @@ class ModelValidationFramework:
             logger.error(
                 "Failed to store certificate",
                 certificate_id=certificate.certificate_id,
-                error=str(e),
                 exc_info=True
             )
             db.rollback()
@@ -886,7 +880,6 @@ class ModelValidationFramework:
             logger.error(
                 "Failed to get certificate",
                 certificate_id=certificate_id,
-                error=str(e),
                 exc_info=True
             )
             return None
@@ -901,7 +894,6 @@ class ModelValidationFramework:
             logger.error(
                 "Failed to get fix suggestions",
                 validation_result_id=validation_result_id,
-                error=str(e),
                 exc_info=True
             )
             return []

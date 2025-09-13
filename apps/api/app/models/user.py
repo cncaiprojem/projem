@@ -320,6 +320,13 @@ class User(Base, TimestampMixin):
         cascade="all, delete-orphan"
     )
     
+    # Task 7.24: Model validation relationships
+    validation_results: Mapped[List["ValidationResult"]] = relationship(
+        "ValidationResult",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    
     # Indexes and constraints
     __table_args__ = (
         Index('idx_users_phone', 'phone', postgresql_where='phone IS NOT NULL'),

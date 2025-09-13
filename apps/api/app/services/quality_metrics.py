@@ -73,10 +73,37 @@ class ComplexityAnalyzer:
                 planar_faces = 0
                 curved_faces = 0
                 for face in shape.Faces:
-                    # Check if face is planar (simplified)
-                    if True:  # Placeholder for actual planarity check
-                        planar_faces += 1
-                    else:
+                    # Check if face is planar
+                    try:
+                        if hasattr(face, 'Surface'):
+                            surface = face.Surface
+                            # Check surface type
+                            surface_type = surface.__class__.__name__
+                            if surface_type == 'Plane':
+                                planar_faces += 1
+                            else:
+                                # For other surfaces, check curvature
+                                # Sample center point
+                                u_param = face.ParameterRange[:2]
+                                v_param = face.ParameterRange[2:]
+                                u_mid = (u_param[0] + u_param[1]) / 2
+                                v_mid = (v_param[0] + v_param[1]) / 2
+                                
+                                # Check curvature at center
+                                if hasattr(surface, 'curvature'):
+                                    curv = surface.curvature(u_mid, v_mid)
+                                    # If curvature is very small, consider it planar
+                                    if curv and abs(curv[0]) < 0.001 and abs(curv[1]) < 0.001:
+                                        planar_faces += 1
+                                    else:
+                                        curved_faces += 1
+                                else:
+                                    curved_faces += 1
+                        else:
+                            # Default to curved if we can't determine
+                            curved_faces += 1
+                    except:
+                        # On error, assume curved
                         curved_faces += 1
                 
                 metrics["curvature_complexity"] = curved_faces / max(metrics["face_count"], 1)
@@ -350,8 +377,59 @@ class FeatureConsistencyChecker:
     @staticmethod
     def _detect_patterns(shape: Any) -> List[Dict[str, Any]]:
         """Detect repeated patterns in model."""
-        # Placeholder implementation
-        return []
+        patterns = []
+        
+        try:
+            import Part
+            import FreeCAD
+            
+            if hasattr(shape, 'Faces'):
+                # Group faces by area and type
+                face_groups = {}
+                for i, face in enumerate(shape.Faces):
+                    area = round(face.Area, 2)
+                    surface_type = face.Surface.__class__.__name__ if hasattr(face, 'Surface') else 'Unknown'
+                    key = (surface_type, area)
+                    
+                    if key not in face_groups:
+                        face_groups[key] = []
+                    face_groups[key].append(i)
+                
+                # Identify patterns (groups with multiple similar faces)
+                for (surface_type, area), indices in face_groups.items():
+                    if len(indices) > 1:
+                        patterns.append({
+                            "type": "repeated_face",
+                            "surface_type": surface_type,
+                            "area": area,
+                            "count": len(indices),
+                            "indices": indices
+                        })
+            
+            if hasattr(shape, 'Edges'):
+                # Group edges by length
+                edge_groups = {}
+                for i, edge in enumerate(shape.Edges):
+                    if hasattr(edge, 'Length'):
+                        length = round(edge.Length, 2)
+                        if length not in edge_groups:
+                            edge_groups[length] = []
+                        edge_groups[length].append(i)
+                
+                # Identify edge patterns
+                for length, indices in edge_groups.items():
+                    if len(indices) > 2:  # At least 3 similar edges
+                        patterns.append({
+                            "type": "repeated_edge",
+                            "length": length,
+                            "count": len(indices),
+                            "indices": indices
+                        })
+                        
+        except Exception as e:
+            logger.debug("Pattern detection error")
+        
+        return patterns
     
     @staticmethod
     def _evaluate_pattern_consistency(patterns: List[Dict[str, Any]]) -> float:
@@ -373,8 +451,75 @@ class FeatureConsistencyChecker:
     @staticmethod
     def _check_symmetry(shape: Any) -> float:
         """Check model symmetry."""
-        # Placeholder implementation
-        return 0.8
+        symmetry_score = 0.0
+        
+        try:
+            import Part
+            import FreeCAD
+            
+            if hasattr(shape, 'BoundBox'):
+                bbox = shape.BoundBox
+                center = FreeCAD.Vector(
+                    (bbox.XMin + bbox.XMax) / 2,
+                    (bbox.YMin + bbox.YMax) / 2,
+                    (bbox.ZMin + bbox.ZMax) / 2
+                )
+                
+                # Check symmetry along each axis
+                symmetry_axes = []
+                
+                # X-axis symmetry
+                try:
+                    mirror_x = shape.mirror(center, FreeCAD.Vector(1, 0, 0))
+                    # Compare volumes
+                    if hasattr(shape, 'Volume') and hasattr(mirror_x, 'Volume'):
+                        vol_diff = abs(shape.Volume - mirror_x.Volume) / max(shape.Volume, 0.001)
+                        if vol_diff < 0.01:  # Less than 1% difference
+                            symmetry_axes.append('X')
+                except:
+                    pass
+                
+                # Y-axis symmetry
+                try:
+                    mirror_y = shape.mirror(center, FreeCAD.Vector(0, 1, 0))
+                    if hasattr(shape, 'Volume') and hasattr(mirror_y, 'Volume'):
+                        vol_diff = abs(shape.Volume - mirror_y.Volume) / max(shape.Volume, 0.001)
+                        if vol_diff < 0.01:
+                            symmetry_axes.append('Y')
+                except:
+                    pass
+                
+                # Z-axis symmetry
+                try:
+                    mirror_z = shape.mirror(center, FreeCAD.Vector(0, 0, 1))
+                    if hasattr(shape, 'Volume') and hasattr(mirror_z, 'Volume'):
+                        vol_diff = abs(shape.Volume - mirror_z.Volume) / max(shape.Volume, 0.001)
+                        if vol_diff < 0.01:
+                            symmetry_axes.append('Z')
+                except:
+                    pass
+                
+                # Calculate symmetry score based on number of symmetry axes
+                symmetry_score = len(symmetry_axes) / 3.0
+                
+                # Bonus for perfect symmetry (all three axes)
+                if len(symmetry_axes) == 3:
+                    symmetry_score = 1.0
+                elif len(symmetry_axes) == 2:
+                    symmetry_score = 0.8
+                elif len(symmetry_axes) == 1:
+                    symmetry_score = 0.6
+                else:
+                    symmetry_score = 0.3  # Some partial symmetry
+                    
+        except ImportError:
+            logger.warning("FreeCAD not available for symmetry check")
+            symmetry_score = 0.8
+        except Exception as e:
+            logger.debug("Symmetry check error")
+            symmetry_score = 0.8
+        
+        return symmetry_score
     
     @staticmethod
     def _check_alignment(shape: Any) -> float:

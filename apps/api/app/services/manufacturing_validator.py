@@ -199,8 +199,8 @@ class ManufacturingValidator:
                 validation.issues.append(ValidationIssue(
                     type="validation_error",
                     severity=ValidationSeverity.ERROR,
-                    message=f"Manufacturing validation error: {str(e)}",
-                    turkish_message=f"Üretim doğrulama hatası: {str(e)}"
+                    message="Manufacturing validation error occurred",
+                    turkish_message="Üretim doğrulama hatası oluştu"
                 ))
             
             return validation
@@ -292,8 +292,8 @@ class ManufacturingValidator:
             validation.issues.append(ValidationIssue(
                 type="cnc_validation_error",
                 severity=ValidationSeverity.ERROR,
-                message=str(e),
-                turkish_message=f"CNC doğrulama hatası: {str(e)}"
+                message="CNC validation error occurred",
+                turkish_message="CNC doğrulama hatası oluştu"
             ))
         
         return validation
@@ -395,8 +395,8 @@ class ManufacturingValidator:
             validation.issues.append(ValidationIssue(
                 type="print_validation_error",
                 severity=ValidationSeverity.ERROR,
-                message=str(e),
-                turkish_message=f"3D baskı doğrulama hatası: {str(e)}"
+                message="3D printing validation error occurred",
+                turkish_message="3D baskı doğrulama hatası oluştu"
             ))
         
         return validation
