@@ -289,7 +289,7 @@ async def submit_batch_job(
             logger.error(f"Toplu işlem gönderme hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Toplu işlem gönderilemedi: {str(e)}"
+                detail="Toplu işlem gönderilemedi. Sistem yöneticisine başvurun."
             )
 
 
@@ -481,7 +481,7 @@ async def create_workflow(
             logger.error(f"İş akışı oluşturma hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"İş akışı oluşturulamadı: {str(e)}"
+                detail="İş akışı oluşturulamadı. Lütfen tekrar deneyin."
             )
 
 
@@ -664,7 +664,7 @@ async def create_scheduled_job(
             logger.error(f"Zamanlanmış iş oluşturma hatası: {e}")
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Zamanlanmış iş oluşturulamadı: {str(e)}"
+                detail="Zamanlanmış iş oluşturulamadı. Lütfen parametreleri kontrol edin."
             )
 
 
