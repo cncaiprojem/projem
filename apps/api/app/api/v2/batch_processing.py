@@ -224,21 +224,37 @@ async def submit_batch_job(
             await db.refresh(batch_job)
             
             # OPTIMIZATION: Use db.add_all() for batch item creation
-            batch_item_records = [
-                BatchJobItem(
-                    batch_job_id=batch_job.id,
-                    item_id=str(uuid.uuid4()),
-                    input_data=item_data,
-                    status=BatchItemStatus.PENDING
+            # CRITICAL FIX: Use consistent IDs for both DB and memory objects
+            batch_item_records = []
+            batch_items = []
+            
+            for item_data in request.items:
+                # Generate ONE ID to use for both DB and memory objects
+                item_id = str(uuid.uuid4())
+                
+                # Add item_id to data for tracking throughout the pipeline
+                item_data_with_id = {**item_data, "item_id": item_id}
+                
+                # Create DB record with the same ID
+                batch_item_records.append(
+                    BatchJobItem(
+                        batch_job_id=batch_job.id,
+                        item_id=item_id,  # Use the same ID
+                        input_data=item_data_with_id,
+                        status=BatchItemStatus.PENDING
+                    )
                 )
-                for item_data in request.items
-            ]
+                
+                # Create BatchItem with the same ID for processing
+                batch_items.append(
+                    BatchItem(
+                        id=item_id,  # Pass the same ID explicitly
+                        data=item_data_with_id
+                    )
+                )
             
             # Add all items in one operation for efficiency
             db.add_all(batch_item_records)
-            
-            # Create BatchItem objects for processing
-            batch_items = [BatchItem(data=item_data) for item_data in request.items]
             
             # Commit all batch items to database
             await db.commit()
@@ -765,8 +781,16 @@ async def process_batch_job(
             # Process based on operation type
             if operation == "convert":
                 # Format conversion batch operation
+                # Pass items with their IDs to maintain consistency
+                models_with_ids = [
+                    {
+                        "item_id": item.id,  # Use the BatchItem's ID
+                        "input": item.data["input"]
+                    }
+                    for item in batch_items
+                ]
                 results = await batch_ops.batch_convert_format(
-                    models=[Path(item.data["input"]) for item in batch_items],
+                    models=models_with_ids,
                     target_format=batch_items[0].data.get("format", "step"),
                     options=options
                 )
@@ -795,8 +819,16 @@ async def process_batch_job(
                 await db.commit()
             elif operation == "quality_check":
                 # Quality check batch operation
+                # Pass items with their IDs to maintain consistency
+                models_with_ids = [
+                    {
+                        "item_id": item.id,  # Use the BatchItem's ID
+                        "path": item.data["model"]
+                    }
+                    for item in batch_items
+                ]
                 reports = await batch_ops.batch_quality_check(
-                    models=[Path(item.data["model"]) for item in batch_items],
+                    model_paths=models_with_ids,
                     checks=batch_items[0].data.get("checks", []),
                     options=options
                 )

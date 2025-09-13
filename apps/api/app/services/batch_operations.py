@@ -184,23 +184,35 @@ class BatchOperations:
             options = options or BatchOptions()
             results = []
             
-            # Create batch items with unique IDs
+            # Create batch items - preserve existing IDs if provided
             batch_items = []
             item_id_map = {}  # Map item IDs to original model paths
-            for model_path in models:
+            
+            for i, model_path in enumerate(models):
                 output_path = output_dir / f"{model_path.stem}.{target_format}" if output_dir else \
                              model_path.with_suffix(f".{target_format}")
                 
+                # Check if models are provided as BatchItem objects with IDs
+                if isinstance(model_path, dict) and "item_id" in model_path:
+                    # Use existing item_id if provided
+                    item_id = model_path["item_id"]
+                    actual_path = Path(model_path.get("input", model_path.get("path", "")))
+                else:
+                    # Generate new ID only if not provided
+                    item_id = str(uuid.uuid4())
+                    actual_path = model_path
+                
                 item = BatchItem(
+                    id=item_id,  # Use the consistent ID
                     data={
-                        "item_id": str(uuid.uuid4()),  # Generate unique ID
-                        "input": str(model_path),
+                        "item_id": item_id,  # Store ID in data for tracking
+                        "input": str(actual_path),
                         "output": str(output_path),
                         "format": target_format
                     }
                 )
                 batch_items.append(item)
-                item_id_map[item.data["item_id"]] = model_path
+                item_id_map[item_id] = actual_path
             
             # Define conversion operation
             async def convert_single(data: Dict[str, Any]) -> ConversionResult:
@@ -299,11 +311,19 @@ class BatchOperations:
             base_doc = await self.document_manager.open_document(str(base_model_path))
             base_model_id = base_doc.id
             
-            # Create batch items
+            # Create batch items with consistent IDs
             batch_items = []
-            for param_set in parameter_sets:
+            for i, param_set in enumerate(parameter_sets):
+                # Check if param_set includes an item_id
+                if isinstance(param_set, dict) and "item_id" in param_set:
+                    item_id = param_set["item_id"]
+                else:
+                    item_id = str(uuid.uuid4())
+                
                 batch_items.append(BatchItem(
+                    id=item_id,  # Use the consistent ID
                     data={
+                        "item_id": item_id,  # Store ID for tracking
                         "base_model_id": base_model_id,
                         "param_set": param_set,
                         "output_dir": str(output_dir)
@@ -395,19 +415,30 @@ class BatchOperations:
             options = options or BatchOptions()
             reports = []
             
-            # Create batch items with unique IDs
+            # Create batch items - preserve existing IDs if provided
             batch_items = []
             item_id_map = {}  # Map item IDs to original model paths
+            
             for model_path in model_paths:
-                item_id = str(uuid.uuid4())
+                # Check if model_path is provided with an ID
+                if isinstance(model_path, dict) and "item_id" in model_path:
+                    # Use existing item_id if provided
+                    item_id = model_path["item_id"]
+                    actual_path = Path(model_path.get("path", model_path.get("input", "")))
+                else:
+                    # Generate new ID only if not provided
+                    item_id = str(uuid.uuid4())
+                    actual_path = model_path
+                
                 batch_items.append(BatchItem(
+                    id=item_id,  # Use the consistent ID
                     data={
                         "item_id": item_id,  # Include unique ID
-                        "model_path": str(model_path),
+                        "model_path": str(actual_path),
                         "checks": checks
                     }
                 ))
-                item_id_map[item_id] = model_path
+                item_id_map[item_id] = actual_path
             
             # Define quality check operation
             async def check_model(data: Dict[str, Any]) -> QualityReport:
