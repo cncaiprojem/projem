@@ -781,10 +781,10 @@ async def process_batch_job(
             # Process based on operation type
             if operation == "convert":
                 # Format conversion batch operation
-                # Pass items with their IDs to maintain consistency
+                # Pass items with their IDs to maintain consistency (CRITICAL FIX)
                 models_with_ids = [
                     {
-                        "item_id": item.id,  # Use the BatchItem's ID
+                        "item_id": item.id,  # BatchItem.id matches BatchJobItem.item_id (set during creation)
                         "input": item.data["input"]
                     }
                     for item in batch_items
@@ -809,11 +809,10 @@ async def process_batch_job(
                 
                 # Update batch items with results using ID mapping
                 for item in batch_job.items:
-                    # Find result by matching the item_id from the data
-                    item_data_id = item.data.get("item_id") if item.data else None
-                    
-                    if item_data_id and item_data_id in result_map:
-                        result = result_map[item_data_id]
+                    # Use the item_id field directly from BatchJobItem (CRITICAL FIX)
+                    # BatchJobItem has item_id as a column, not in data/input_data
+                    if item.item_id in result_map:
+                        result = result_map[item.item_id]
                         item.status = BatchItemStatus.COMPLETED if result.success else BatchItemStatus.FAILED
                         item.output_data = result.dict()
                         item.processing_time_ms = result.conversion_time_ms if hasattr(result, 'conversion_time_ms') else None
@@ -824,10 +823,10 @@ async def process_batch_job(
                 await db.commit()
             elif operation == "quality_check":
                 # Quality check batch operation
-                # Pass items with their IDs to maintain consistency
+                # Pass items with their IDs to maintain consistency (CRITICAL FIX)
                 models_with_ids = [
                     {
-                        "item_id": item.id,  # Use the BatchItem's ID
+                        "item_id": item.id,  # BatchItem.id matches BatchJobItem.item_id (set during creation)
                         "path": item.data["model"]
                     }
                     for item in batch_items
@@ -852,11 +851,10 @@ async def process_batch_job(
                 
                 # Update batch items with results using ID mapping
                 for item in batch_job.items:
-                    # Find report by matching the item_id from the data
-                    item_data_id = item.data.get("item_id") if item.data else None
-                    
-                    if item_data_id and item_data_id in report_map:
-                        report = report_map[item_data_id]
+                    # Use the item_id field directly from BatchJobItem (CRITICAL FIX)
+                    # BatchJobItem has item_id as a column, not in data/input_data
+                    if item.item_id in report_map:
+                        report = report_map[item.item_id]
                         item.status = BatchItemStatus.COMPLETED if report.overall_passed else BatchItemStatus.FAILED
                         item.output_data = report.dict()
                     else:
@@ -869,16 +867,20 @@ async def process_batch_job(
                 # Define async function for parallel batch processing
                 async def _process_freecad_item(item_data: Dict[str, Any]) -> Dict[str, Any]:
                     """Process single FreeCAD item with freecad_service."""
+                    # Extract item_id from the data for result tracking
+                    item_id = item_data.get("item_id")
                     try:
                         result = await freecad_service.process_model(
                             model_path=Path(item_data["model"]),
                             operation=item_data.get("operation", "analyze"),
                             parameters=item_data.get("parameters", {})
                         )
-                        return result
+                        # Include item_id in successful result for ID-based mapping
+                        return {"item_id": item_id, **result} if item_id else result
                     except Exception as e:
-                        logger.error(f"FreeCAD processing error: {e}")
-                        return {"success": False, "error": str(e)}
+                        logger.error(f"FreeCAD processing error for item {item_id}: {e}")
+                        # Include item_id in error result for ID-based mapping
+                        return {"item_id": item_id, "success": False, "error": str(e)}
                 
                 # Leverage batch engine for parallel execution
                 results = await batch_engine.process_batch(
@@ -887,12 +889,14 @@ async def process_batch_job(
                     options=options or BatchOptions()
                 )
                 
-                # Map results using item IDs for data integrity
+                # Map results using item IDs for data integrity (CRITICAL FIX)
+                # Use ID from result data instead of index-based mapping to prevent data corruption
                 result_map = {}
                 if hasattr(results, 'results') and isinstance(results.results, list):
-                    for idx, result in enumerate(results.results):
-                        if idx < len(batch_items) and hasattr(batch_items[idx], 'id'):
-                            result_map[batch_items[idx].id] = result
+                    for result in results.results:
+                        # Extract item_id from the result itself (added by _process_freecad_item)
+                        if isinstance(result, dict) and result.get("item_id"):
+                            result_map[result["item_id"]] = result
                 
                 # Update batch job items with results
                 for item in batch_job.items:
@@ -915,7 +919,17 @@ async def process_batch_job(
                 # Generic batch processing
                 async def process_item(item_data: Dict[str, Any]) -> Dict[str, Any]:
                     # Process individual item based on operation
-                    return {"processed": True, "data": item_data}
+                    # Extract item_id for result tracking (CRITICAL for data integrity)
+                    item_id = item_data.get("item_id")
+                    try:
+                        # Process the item (placeholder for actual processing logic)
+                        result = {"processed": True, "data": item_data}
+                        # Include item_id in result for ID-based mapping
+                        return {"item_id": item_id, **result} if item_id else result
+                    except Exception as e:
+                        logger.error(f"Generic processing error for item {item_id}: {e}")
+                        # Include item_id in error result for ID-based mapping
+                        return {"item_id": item_id, "processed": False, "error": str(e)}
                 
                 results = await batch_engine.process_batch(
                     items=batch_items,
@@ -925,22 +939,25 @@ async def process_batch_job(
                 
                 # DATA INTEGRITY FIX: Use ID-based mapping for generic batch processing
                 if hasattr(results, 'results') and isinstance(results.results, list):
-                    # Create a mapping of item_id to result for safe matching
+                    # Create a mapping of item_id to result for safe matching (CRITICAL FIX)
+                    # Extract item_id from result data instead of using index-based mapping
                     result_map = {}
-                    for idx, result in enumerate(results.results):
-                        # Get the corresponding item's ID from the batch_items list
-                        if idx < len(batch_items) and hasattr(batch_items[idx], 'id'):
-                            result_map[batch_items[idx].id] = result
+                    for result in results.results:
+                        # Extract item_id from the result itself (added by process_item)
+                        if isinstance(result, dict) and result.get("item_id"):
+                            result_map[result["item_id"]] = result
                     
                     # Update batch items with results using ID mapping
                     for item in batch_job.items:
-                        # For generic processing, use the item_id directly
+                        # Use the item_id for matching results
                         if item.item_id in result_map:
                             result = result_map[item.item_id]
-                            # Items in result_map are successful by definition
-                            # No need to check hasattr(result, 'status') for generic operations
-                            item.status = BatchItemStatus.COMPLETED
+                            # Check if processing was successful
+                            is_success = result.get("processed", False) if isinstance(result, dict) else False
+                            item.status = BatchItemStatus.COMPLETED if is_success else BatchItemStatus.FAILED
                             item.output_data = result
+                            if not is_success:
+                                item.error = result.get("error", "İşlem başarısız")
                         else:
                             item.status = BatchItemStatus.FAILED
                             item.error = "İşlem sonucu bulunamadı"
