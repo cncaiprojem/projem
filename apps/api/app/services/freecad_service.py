@@ -1743,9 +1743,11 @@ print(json.dumps(result))
                     """Run synchronous FreeCAD operation in thread pool."""
                     from ..db import SessionLocal
                     with SessionLocal() as db:
+                        # Use configured system user ID instead of hardcoded value
+                        from ..core.environment import environment
                         return self.execute_freecad_operation(
                             db=db,
-                            user_id=1,  # System user for batch operations
+                            user_id=environment.SYSTEM_USER_ID,  # Configurable system user for batch operations
                             operation_type=operation,
                             script_content=script_content,
                             parameters=parameters,

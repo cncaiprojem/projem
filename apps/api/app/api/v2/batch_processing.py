@@ -21,7 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, and_, or_, func
 from pydantic import BaseModel, Field
 
-from ...core.dependencies import get_current_user, get_db
+from ...middleware.jwt_middleware import get_current_user
+from ...db import get_db
 from ...core.logging import get_logger
 from ...core.telemetry import create_span
 from ...core.database import AsyncSessionLocal
@@ -856,23 +857,31 @@ async def process_batch_job(
                     options=options or BatchOptions()
                 )
                 
-                # Update batch job items - safely handle results
+                # DATA INTEGRITY FIX: Use ID-based mapping for generic batch processing
                 if hasattr(results, 'results') and isinstance(results.results, list):
-                    # Map results back to items using safe iteration
-                    for idx, item in enumerate(batch_job.items):
-                        if idx < len(results.results):
-                            result = results.results[idx]
+                    # Create a mapping of item_id to result for safe matching
+                    result_map = {}
+                    for idx, result in enumerate(results.results):
+                        # Get the corresponding item's ID from the batch_items list
+                        if idx < len(batch_items) and hasattr(batch_items[idx], 'id'):
+                            result_map[batch_items[idx].id] = result
+                    
+                    # Update batch items with results using ID mapping
+                    for item in batch_job.items:
+                        # For generic processing, use the item_id directly
+                        if item.item_id in result_map:
+                            result = result_map[item.item_id]
                             if hasattr(result, 'status'):
                                 item.status = BatchItemStatus.COMPLETED if result else BatchItemStatus.FAILED
                             item.output_data = result if result else None
                         else:
                             item.status = BatchItemStatus.FAILED
-                            item.error = "No result returned"
+                            item.error = "İşlem sonucu bulunamadı"
                 else:
                     # Fallback for unexpected result format
                     for item in batch_job.items:
                         item.status = BatchItemStatus.FAILED
-                        item.error = "Unexpected result format"
+                        item.error = "Beklenmeyen sonuç formatı"
                 await db.commit()
             
             # Update batch job completion
@@ -956,9 +965,12 @@ async def execute_workflow_async(
                 entry_point=workflow_def.entry_point
             )
             
-            # Execute workflow using the execution-specific engine
+            # Register workflow in the engine first, then execute
+            await execution_engine.define_workflow(workflow)
+            
+            # Execute workflow using the execution-specific engine with correct parameter
             result = await execution_engine.execute_workflow(
-                workflow=workflow,
+                workflow_id=workflow.id,  # Use workflow_id, not workflow
                 input_data=input_data,
                 options=options or WfExecutionOptions()
             )
