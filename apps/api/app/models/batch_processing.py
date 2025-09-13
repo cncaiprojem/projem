@@ -146,6 +146,7 @@ class BatchJobItem(Base, TimestampMixin):
     __tablename__ = "batch_job_items"
     __table_args__ = (
         Index("ix_batch_job_items_batch_status", "batch_job_id", "status"),
+        UniqueConstraint('batch_job_id', 'item_id', name='uq_batch_job_item_id'),
         {"comment": "Individual items in batch processing jobs"}
     )
     

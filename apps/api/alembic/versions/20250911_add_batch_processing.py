@@ -80,6 +80,7 @@ def upgrade() -> None:
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
         sa.ForeignKeyConstraint(['batch_job_id'], ['batch_jobs.id'], ondelete='CASCADE'),
         sa.PrimaryKeyConstraint('id'),
+        sa.UniqueConstraint('batch_job_id', 'item_id', name='uq_batch_job_item_id'),
         comment='Individual items in batch processing jobs'
     )
     

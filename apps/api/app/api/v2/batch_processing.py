@@ -855,24 +855,47 @@ async def process_batch_job(
                         item.output_data = {"error": "No report returned for this item"}
                 await db.commit()
             elif operation == "freecad_process":
-                # FreeCAD processing batch operation
-                # Process all items first, then commit once
-                for item in batch_job.items:
+                # FreeCAD processing batch operation using parallel processing
+                # Define async function for parallel batch processing
+                async def _process_freecad_item(item_data: Dict[str, Any]) -> Dict[str, Any]:
+                    """Process single FreeCAD item with freecad_service."""
                     try:
-                        # Process each item with FreeCAD
                         result = await freecad_service.process_model(
-                            model_path=Path(item.data["model"]),
-                            operation=item.data.get("operation", "analyze"),
-                            parameters=item.data.get("parameters", {})
+                            model_path=Path(item_data["model"]),
+                            operation=item_data.get("operation", "analyze"),
+                            parameters=item_data.get("parameters", {})
                         )
-                        
-                        item.status = BatchItemStatus.COMPLETED
-                        item.output_data = result
-                        
+                        return result
                     except Exception as e:
-                        logger.error(f"Error processing item {item.item_id}: {e}")
+                        logger.error(f"FreeCAD processing error: {e}")
+                        return {"success": False, "error": str(e)}
+                
+                # Leverage batch engine for parallel execution
+                results = await batch_engine.process_batch(
+                    items=batch_items,
+                    operation=_process_freecad_item,
+                    options=options or BatchOptions()
+                )
+                
+                # Map results using item IDs for data integrity
+                result_map = {}
+                if hasattr(results, 'results') and isinstance(results.results, list):
+                    for idx, result in enumerate(results.results):
+                        if idx < len(batch_items) and hasattr(batch_items[idx], 'id'):
+                            result_map[batch_items[idx].id] = result
+                
+                # Update batch job items with results
+                for item in batch_job.items:
+                    if item.item_id in result_map:
+                        result = result_map[item.item_id]
+                        item.output_data = result
+                        is_success = isinstance(result, dict) and result.get("success", False) != False
+                        item.status = BatchItemStatus.COMPLETED if is_success else BatchItemStatus.FAILED
+                        if not is_success:
+                            item.error = result.get("error", "FreeCAD işlem hatası")
+                    else:
                         item.status = BatchItemStatus.FAILED
-                        item.error = str(e)
+                        item.error = "İşlem sonucu bulunamadı"
                 
                 # Single commit after processing all items
                 await db.commit()
