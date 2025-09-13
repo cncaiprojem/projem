@@ -15,12 +15,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user, get_db
-from app.core.telemetry import create_span
-from app.core import metrics
-from app.middleware.correlation_middleware import get_correlation_id
-from app.models.user import User
-from app.models.version_control import (
+from ...middleware.jwt_middleware import get_current_user
+from ...db import get_db
+from ...core.telemetry import create_span
+from ...core import metrics
+from ...middleware.correlation_middleware import get_correlation_id
+from ...models.user import User
+from ...models.version_control import (
     Branch,
     CheckoutResult,
     CommitDiff,
@@ -32,9 +33,9 @@ from app.models.version_control import (
     Tag,
     VERSION_CONTROL_TR,
 )
-from app.services.model_version_control import ModelVersionControl, ModelVersionControlError
-from app.services.vcs_repository_registry import get_vcs_registry, VCSRepositoryRegistryError
-from app.utils.vcs_error_handler import handle_vcs_errors
+from ...services.model_version_control import ModelVersionControl, ModelVersionControlError
+from ...services.vcs_repository_registry import get_vcs_registry, VCSRepositoryRegistryError
+from ...utils.vcs_error_handler import handle_vcs_errors
 
 router = APIRouter(prefix="/version-control", tags=["version-control"])
 logger = structlog.get_logger(__name__)
