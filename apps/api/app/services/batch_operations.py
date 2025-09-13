@@ -17,7 +17,7 @@ import uuid
 from datetime import UTC, datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Union
 
 from pydantic import BaseModel, Field
 
@@ -160,7 +160,7 @@ class BatchOperations:
     
     async def batch_convert_format(
         self,
-        models: List[Path],
+        models: Union[List[Path], List[Dict[str, Any]]],
         target_format: str,
         options: Optional[BatchOptions] = None,
         output_dir: Optional[Path] = None
@@ -189,9 +189,6 @@ class BatchOperations:
             item_id_map = {}  # Map item IDs to original model paths
             
             for i, model_path in enumerate(models):
-                output_path = output_dir / f"{model_path.stem}.{target_format}" if output_dir else \
-                             model_path.with_suffix(f".{target_format}")
-                
                 # Check if models are provided as BatchItem objects with IDs
                 if isinstance(model_path, dict) and "item_id" in model_path:
                     # Use existing item_id if provided
@@ -201,6 +198,10 @@ class BatchOperations:
                     # Generate new ID only if not provided
                     item_id = str(uuid.uuid4())
                     actual_path = model_path
+                
+                # Calculate output path using actual_path instead of model_path
+                output_path = output_dir / f"{actual_path.stem}.{target_format}" if output_dir else \
+                             actual_path.with_suffix(f".{target_format}")
                 
                 item = BatchItem(
                     id=item_id,  # Use the consistent ID
@@ -393,7 +394,7 @@ class BatchOperations:
     
     async def batch_quality_check(
         self,
-        model_paths: List[Path],
+        model_paths: Union[List[Path], List[Dict[str, Any]]],
         checks: List[QualityCheck],
         options: Optional[BatchOptions] = None
     ) -> List[QualityReport]:

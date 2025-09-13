@@ -776,7 +776,7 @@ async def process_batch_job(
             # Initialize services
             batch_engine = BatchProcessingEngine()
             batch_ops = BatchOperations()
-            freecad_service = FreeCADService(db)
+            freecad_service = FreeCADService()
             
             # Process based on operation type
             if operation == "convert":
@@ -789,9 +789,14 @@ async def process_batch_job(
                     }
                     for item in batch_items
                 ]
+                # Handle empty batch case safely
+                target_format = "step"  # Default format
+                if batch_items:
+                    target_format = batch_items[0].data.get("format", "step")
+                
                 results = await batch_ops.batch_convert_format(
                     models=models_with_ids,
-                    target_format=batch_items[0].data.get("format", "step"),
+                    target_format=target_format,
                     options=options
                 )
                 
@@ -827,9 +832,14 @@ async def process_batch_job(
                     }
                     for item in batch_items
                 ]
+                # Handle empty batch case safely
+                checks = []  # Default empty checks
+                if batch_items:
+                    checks = batch_items[0].data.get("checks", [])
+                
                 reports = await batch_ops.batch_quality_check(
                     model_paths=models_with_ids,
-                    checks=batch_items[0].data.get("checks", []),
+                    checks=checks,
                     options=options
                 )
                 
@@ -993,7 +1003,7 @@ async def execute_workflow_async(
             # Each execution gets its own engine instance with its own handler registry
             execution_engine = WorkflowEngine()
             
-            freecad_service = FreeCADService(db)
+            freecad_service = FreeCADService()
             
             # Register FreeCAD action handlers for this execution
             async def freecad_handler(context: Dict[str, Any]) -> Dict[str, Any]:
