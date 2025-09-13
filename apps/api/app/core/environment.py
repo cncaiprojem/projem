@@ -106,6 +106,11 @@ class UltraEnterpriseEnvironment(BaseSettings):
     API_PORT: int = Field(default=8000, description="API server port")
     WEB_PORT: int = Field(default=3000, description="Web server port")
     
+    SYSTEM_USER_ID: int = Field(
+        default=1,
+        description="System user ID for automated operations (batch processing, etc.)"
+    )
+    
     # ===================================================================
     # DATABASE CONFIGURATION
     # ===================================================================

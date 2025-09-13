@@ -35,6 +35,7 @@ import subprocess
 import tempfile
 import threading
 import time
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from decimal import Decimal
@@ -1505,6 +1506,280 @@ class UltraEnterpriseFreeCADService:
             "errors": result.errors
         }
     
+    async def process_model(
+        self,
+        model_path: Path,
+        operation: str,
+        parameters: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Process a FreeCAD model with specified operation for batch processing.
+        
+        Args:
+            model_path: Path to the FreeCAD model file
+            operation: Operation type (analyze, convert, optimize, etc.)
+            parameters: Operation-specific parameters
+            
+        Returns:
+            Dictionary with operation results
+        """
+        from ..db import SessionLocal
+        
+        parameters = parameters or {}
+        correlation_id = get_correlation_id()
+        job_id = str(uuid.uuid4())
+        
+        with create_span(
+            "process_model",
+            attributes={
+                "model.path": str(model_path),
+                "operation.type": operation,
+                "job.id": job_id
+            }
+        ) as span:
+            try:
+                # Validate model file exists
+                if not model_path.exists():
+                    raise FreeCADException(
+                        f"Model file not found: {model_path}",
+                        FreeCADErrorCode.VALIDATION_FAILED,
+                        f"Model dosyası bulunamadı: {model_path}"
+                    )
+                
+                # Prepare FreeCAD script based on operation
+                if operation == "analyze":
+                    # SECURITY FIX: Use parameters.json file instead of f-string injection
+                    script_content = """
+import FreeCAD
+import Part
+import json
+import sys
+
+# Load parameters from file
+with open('parameters.json', 'r') as f:
+    params = json.load(f)
+
+model_path = params.get('model_path')
+if not model_path:
+    print(json.dumps({'error': 'Model path not provided'}))
+    sys.exit(1)
+
+# Load document
+try:
+    doc = FreeCAD.open(model_path)
+except Exception as e:
+    print(json.dumps({'error': f'Failed to open model: {str(e)}'}))
+    sys.exit(1)
+
+# Analyze model
+results = {}
+for obj in doc.Objects:
+    if hasattr(obj, 'Shape'):
+        shape = obj.Shape
+        results[obj.Label] = {
+            'volume': shape.Volume,
+            'area': shape.Area,
+            'center_of_mass': list(shape.CenterOfMass),
+            'bounding_box': {
+                'min': [shape.BoundBox.XMin, shape.BoundBox.YMin, shape.BoundBox.ZMin],
+                'max': [shape.BoundBox.XMax, shape.BoundBox.YMax, shape.BoundBox.ZMax]
+            },
+            'is_valid': shape.isValid(),
+            'is_closed': shape.isClosed() if hasattr(shape, 'isClosed') else None
+        }
+
+print(json.dumps(results))
+"""
+                    # Add model_path to parameters for analyze operation
+                    parameters["model_path"] = str(model_path)
+                elif operation == "convert":
+                    # SECURITY FIX: Use parameters.json file instead of f-string injection
+                    script_content = """
+import FreeCAD
+import Part
+import json
+import sys
+from pathlib import Path
+
+# Load parameters from JSON file (passed as first argument)
+params_file = sys.argv[1] if len(sys.argv) > 1 else "parameters.json"
+with open(params_file, 'r') as f:
+    parameters = json.load(f)
+
+# Get safe parameters from JSON
+model_path = parameters.get("model_path")
+target_format = parameters.get("format", "step")
+output_path = parameters.get("output_path")
+
+# Load document
+doc = FreeCAD.open(model_path)
+
+# Export to target format
+if target_format == "step":
+    Part.export(doc.Objects, output_path)
+elif target_format == "stl":
+    import Mesh
+    Mesh.export(doc.Objects, output_path)
+else:
+    Part.export(doc.Objects, output_path)
+
+print(json.dumps({'success': True, 'output': output_path}))
+"""
+                    # Update parameters to include model_path
+                    parameters["model_path"] = str(model_path)
+                    if "output_path" not in parameters:
+                        parameters["output_path"] = str(model_path.with_suffix(f".{parameters.get('format', 'step')}"))
+                elif operation == "optimize":
+                    # SECURITY FIX: Use parameters.json file instead of f-string injection
+                    script_content = """
+import FreeCAD
+import Part
+import MeshPart
+import json
+import sys
+from pathlib import Path
+
+# Load parameters from JSON file (passed as first argument)
+params_file = sys.argv[1] if len(sys.argv) > 1 else "parameters.json"
+with open(params_file, 'r') as f:
+    parameters = json.load(f)
+
+# Get safe parameters from JSON
+model_path = parameters.get("model_path")
+
+# Load document
+doc = FreeCAD.open(model_path)
+
+# Optimize meshes
+optimized_count = 0
+for obj in doc.Objects:
+    if hasattr(obj, 'Shape'):
+        shape = obj.Shape
+        # Remove degenerate edges
+        shape.removeInternalWires(True)
+        shape.fix(0.1, 0, 1)
+        obj.Shape = shape
+        optimized_count += 1
+
+# Save optimized model
+base_path = Path(model_path)
+output_path = str(base_path.with_suffix('.optimized.FCStd'))
+doc.saveAs(output_path)
+
+print(json.dumps({'optimized_objects': optimized_count, 'output': output_path}))
+"""
+                    # Update parameters to include model_path
+                    parameters["model_path"] = str(model_path)
+                elif operation == "mesh_quality":
+                    # SECURITY FIX: Use parameters.json file instead of f-string injection
+                    script_content = """
+import FreeCAD
+import Mesh
+import json
+import sys
+
+# Load parameters from JSON file (passed as first argument)
+params_file = sys.argv[1] if len(sys.argv) > 1 else "parameters.json"
+with open(params_file, 'r') as f:
+    parameters = json.load(f)
+
+# Get safe parameters from JSON
+model_path = parameters.get("model_path")
+
+# Load document
+doc = FreeCAD.open(model_path)
+
+# Check mesh quality
+quality_results = {}
+for obj in doc.Objects:
+    if hasattr(obj, 'Mesh'):
+        mesh = obj.Mesh
+        quality_results[obj.Label] = {
+            'face_count': mesh.CountFacets,
+            'point_count': mesh.CountPoints,
+            'volume': mesh.Volume,
+            'has_non_manifolds': mesh.hasNonManifolds(),
+            'has_self_intersections': mesh.hasSelfIntersections()
+        }
+
+print(json.dumps(quality_results))
+"""
+                    # Update parameters to include model_path
+                    parameters["model_path"] = str(model_path)
+                else:
+                    # Generic operation - just load and validate
+                    # SECURITY FIX: Use parameters.json file instead of f-string injection
+                    script_content = """
+import FreeCAD
+import json
+import sys
+
+# Load parameters from JSON file (passed as first argument)
+params_file = sys.argv[1] if len(sys.argv) > 1 else "parameters.json"
+with open(params_file, 'r') as f:
+    parameters = json.load(f)
+
+# Get safe parameters from JSON
+model_path = parameters.get("model_path")
+operation = parameters.get("operation", "unknown")
+
+# Load document
+doc = FreeCAD.open(model_path)
+
+# Basic validation
+result = {
+    'objects': len(doc.Objects),
+    'operation': operation,
+    'success': True
+}
+
+print(json.dumps(result))
+"""
+                    # Update parameters to include model_path and operation
+                    parameters["model_path"] = str(model_path)
+                    parameters["operation"] = operation
+                
+                # Execute FreeCAD operation in thread pool to avoid blocking
+                def _run_sync_operation():
+                    """Run synchronous FreeCAD operation in thread pool."""
+                    from ..db import SessionLocal
+                    with SessionLocal() as db:
+                        # Use configured system user ID instead of hardcoded value
+                        from ..core.environment import environment
+                        return self.execute_freecad_operation(
+                            db=db,
+                            user_id=environment.SYSTEM_USER_ID,  # Configurable system user for batch operations
+                            operation_type=operation,
+                            script_content=script_content,
+                            parameters=parameters,
+                            output_formats=[],
+                            job_id=job_id,
+                            correlation_id=correlation_id
+                        )
+                
+                # Use asyncio.to_thread for Python 3.9+ or run_in_executor for older versions
+                import sys
+                if sys.version_info >= (3, 9):
+                    result = await asyncio.to_thread(_run_sync_operation)
+                else:
+                    loop = asyncio.get_event_loop()
+                    result = await loop.run_in_executor(None, _run_sync_operation)
+                
+                span.set_attribute("result.success", result.success)
+                
+                return {
+                    "success": result.success,
+                    "operation": operation,
+                    "model": str(model_path),
+                    "output": result.output,
+                    "metadata": result.metadata,
+                    "execution_time_ms": result.execution_time_ms
+                }
+                
+            except Exception as e:
+                logger.error(f"Error processing model {model_path}: {e}")
+                span.set_attribute("error", str(e))
+                raise
+    
     def shutdown(self):
         """Graceful shutdown of the service."""
         logger.info("freecad_service_shutdown_initiated")
@@ -1525,3 +1800,6 @@ class UltraEnterpriseFreeCADService:
 
 # Global service instance
 freecad_service = UltraEnterpriseFreeCADService()
+
+# Alias for backward compatibility and simpler imports
+FreeCADService = UltraEnterpriseFreeCADService
