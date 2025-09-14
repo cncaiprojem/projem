@@ -976,51 +976,100 @@ class AutoFixSuggestions:
         
         This method delegates to the more comprehensive implementation.
         """
-        # Use the comprehensive implementation from ModelValidationService
-        service = ModelValidationService()
-        return service._generate_fix_suggestions(validation_result)
+        # Use the comprehensive implementation from ModelValidationFramework
+        framework = ModelValidationFramework()
+        return framework._generate_fix_suggestions(validation_result)
     
     def apply_automated_fixes(
         self,
         doc: Any,
         suggestions: List[FixSuggestion],
-        user_id: Optional[int] = None
+        user_id: Optional[int] = None,
+        auto_approve: bool = False
     ) -> FixReport:
-        """Apply selected automated fixes to the model."""
-        applied_fixes = []
-        failed_fixes = []
+        """Apply selected automated fixes to the model.
+        
+        Args:
+            doc: FreeCAD document to apply fixes to
+            suggestions: List of fix suggestions to apply
+            user_id: Optional user ID for tracking
+            auto_approve: If True, apply high-confidence fixes automatically
+            
+        Returns:
+            FixReport with results of fix application
+        """
+        # Use the comprehensive implementation from ModelValidationFramework
+        framework = ModelValidationFramework()
+        
+        # Filter suggestions based on auto_approve setting
+        filtered_suggestions = []
+        skipped_manual = []
         
         for suggestion in suggestions:
-            try:
-                if suggestion.type == "auto":
-                    # Apply automated fix (placeholder implementation)
-                    # In real implementation, this would modify the FreeCAD document
-                    applied_fixes.append({
-                        "fix_id": suggestion.suggestion_id,
-                        "status": "success"
-                    })
-                else:
-                    # Manual fixes cannot be applied automatically
-                    failed_fixes.append({
-                        "fix_id": suggestion.suggestion_id,
-                        "reason": "Manual düzeltme otomatik olarak uygulanamaz"
-                    })
-            except Exception as e:
-                self.logger.error(f"Failed to apply fix {suggestion.suggestion_id}: {e}")
-                failed_fixes.append({
-                    "fix_id": suggestion.suggestion_id,
-                    "reason": str(e)
+            # Check if this is an automated fix
+            if not suggestion.automated:
+                # Manual fixes cannot be applied automatically
+                skipped_manual.append({
+                    "suggestion_id": suggestion.suggestion_id,
+                    "reason": "Manual düzeltme otomatik olarak uygulanamaz"
                 })
+                continue
+                
+            # Check confidence level if auto_approve is False
+            if not auto_approve and suggestion.confidence == "low":
+                skipped_manual.append({
+                    "suggestion_id": suggestion.suggestion_id,
+                    "reason": "Düşük güvenilirlik - manuel onay gerekli"
+                })
+                continue
+                
+            filtered_suggestions.append(suggestion)
         
-        return FixReport(
-            total_suggestions=len(suggestions),
-            applied_fixes=len(applied_fixes),
-            successful_fixes=len(applied_fixes),
-            failed_fixes=len(failed_fixes),
-            skipped_fixes=len(suggestions) - len(applied_fixes) - len(failed_fixes),
-            fixes=applied_fixes,
-            errors=failed_fixes
-        )
+        # Apply the filtered suggestions using the framework's implementation
+        try:
+            # Use async to sync conversion for the async method
+            import asyncio
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Call the framework's implementation
+            report = loop.run_until_complete(
+                framework._apply_automated_fixes(doc, filtered_suggestions)
+            )
+            
+            # Add skipped manual fixes to the report
+            report.skipped_fixes += len(skipped_manual)
+            for skipped in skipped_manual:
+                report.errors.append(skipped)
+            
+            # Update total suggestions count
+            report.total_suggestions = len(suggestions)
+            
+            # Log the operation if user_id is provided
+            if user_id:
+                self.logger.info(
+                    f"User {user_id} applied {report.applied_fixes} fixes, "
+                    f"skipped {report.skipped_fixes}, failed {report.failed_fixes}"
+                )
+            
+            return report
+            
+        except Exception as e:
+            self.logger.error(f"Failed to apply automated fixes: {e}", exc_info=True)
+            
+            # Return error report
+            return FixReport(
+                total_suggestions=len(suggestions),
+                applied_fixes=0,
+                successful_fixes=0,
+                failed_fixes=len(suggestions),
+                skipped_fixes=0,
+                fixes=[],
+                errors=[{
+                    "error": "Fix uygulama başarısız oldu",
+                    "detail": str(e)
+                }]
+            )
 
 
 # Global validation framework instance
