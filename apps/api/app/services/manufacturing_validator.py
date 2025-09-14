@@ -48,6 +48,10 @@ MATERIAL_DENSITY_PLASTIC = 1.2  # g/cm³
 MATERIAL_COST_ALUMINUM = Decimal("3.5")  # $/kg
 MATERIAL_COST_STEEL = Decimal("1.2")  # $/kg
 MATERIAL_COST_PLASTIC = Decimal("2.0")  # $/kg
+
+# Default material properties for generic materials
+DEFAULT_GENERIC_DENSITY = 2.0  # g/cm³
+DEFAULT_GENERIC_COST_PER_KG = 2.0  # $/kg
 CNC_MACHINE_RATE = Decimal("60")  # $/hour
 PRINTER_MACHINE_RATE = Decimal("20")  # $/hour
 SETUP_TIME_CNC = Decimal("0.5")  # hours
@@ -1320,7 +1324,7 @@ class ManufacturingValidator:
             return (Decimal(str(MATERIAL_DENSITY_STEEL)), MATERIAL_COST_STEEL)
         else:
             # Generic material
-            return (Decimal("2.0"), Decimal("2.0"))
+            return (Decimal(str(DEFAULT_GENERIC_DENSITY)), Decimal(str(DEFAULT_GENERIC_COST_PER_KG)))
     
     def _estimate_lead_time(
         self,

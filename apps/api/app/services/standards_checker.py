@@ -307,7 +307,9 @@ class ASMEY145Checker(StandardChecker):
     
     def _validate_gdt_feature(self, feature: Dict[str, Any]) -> bool:
         """Validate GD&T feature."""
-        return feature.get("value") == feature.get("expected")
+        # GD&T validation: measured deviation must be within (≤) tolerance
+        # value is the measured deviation, expected is the allowed tolerance
+        return feature.get("value") <= feature.get("expected")
 
 
 class ISO2768Checker(StandardChecker):

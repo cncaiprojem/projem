@@ -68,6 +68,14 @@ from app.models.validation_models import (
 # Initialize logger
 logger = get_logger(__name__)
 
+# Quantity discount thresholds and rates
+QUANTITY_LARGE = 100
+QUANTITY_MEDIUM = 50
+QUANTITY_SMALL = 10
+DISCOUNT_LARGE = 0.85
+DISCOUNT_MEDIUM = 0.9
+DISCOUNT_SMALL = 0.95
+
 # Import FreeCAD with proper error handling
 try:
     import FreeCAD
@@ -241,12 +249,12 @@ async def validate_manufacturing(
             
             # Scale cost by quantity with volume discounts
             quantity_discount = 1.0
-            if request.quantity > 100:
-                quantity_discount = 0.85  # 15% discount for 100+
-            elif request.quantity > 50:
-                quantity_discount = 0.9   # 10% discount for 50+
-            elif request.quantity > 10:
-                quantity_discount = 0.95  # 5% discount for 10+
+            if request.quantity > QUANTITY_LARGE:
+                quantity_discount = DISCOUNT_LARGE  # 15% discount for 100+
+            elif request.quantity > QUANTITY_MEDIUM:
+                quantity_discount = DISCOUNT_MEDIUM   # 10% discount for 50+
+            elif request.quantity > QUANTITY_SMALL:
+                quantity_discount = DISCOUNT_SMALL  # 5% discount for 10+
             
             estimation = {
                 "cost": float(unit_cost) * request.quantity * quantity_discount,

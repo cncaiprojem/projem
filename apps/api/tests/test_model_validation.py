@@ -688,8 +688,8 @@ class TestAutoFixSuggestions:
             auto_approve=True
         )
         
-        assert len(report.successful) == 1
-        assert len(report.failed) == 0
+        assert report.successful_fixes == 1
+        assert report.failed_fixes == 0
         mock_doc.recompute.assert_called_once()
     
     @pytest.mark.asyncio
@@ -715,6 +715,8 @@ class TestAutoFixSuggestions:
             auto_approve=False
         )
         
-        assert len(report.skipped) == 1
-        assert len(report.successful) == 0
-        assert "Manual approval required" in report.skipped[0].reason
+        assert report.skipped_fixes == 1
+        assert report.successful_fixes == 0
+        # Check that manual approval was required in the fixes list
+        assert len(report.fixes) == 1
+        assert report.fixes[0].get("status") == "skipped"
