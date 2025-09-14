@@ -554,7 +554,8 @@ class ISO2768Checker(StandardChecker):
                                 segment_length = point.distanceToPoint(prev_point)
                                 total_length += segment_length
                             prev_point = point
-                        except:
+                        except Exception as e:
+                            logger.debug(f"Point sampling error at parameter {param}: {e}")
                             continue
                     
                     if total_length > 0:
@@ -568,7 +569,8 @@ class ISO2768Checker(StandardChecker):
             # Fallback to Length property
             try:
                 return edge.Length
-            except:
+            except Exception as length_error:
+                logger.debug(f"Failed to get edge Length property: {length_error}")
                 return 0.0
 
 

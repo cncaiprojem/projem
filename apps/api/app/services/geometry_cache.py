@@ -33,10 +33,10 @@ def geometry_hash(shape: Any) -> str:
         # Create a hash from shape properties
         hasher = hashlib.sha256()
         
-        # Add basic properties
-        hasher.update(str(shape.Volume).encode())
-        hasher.update(str(shape.Area).encode())
-        hasher.update(str(shape.Mass).encode())
+        # Add basic properties with locale-independent formatting
+        hasher.update(f"{shape.Volume:.8f}".encode())
+        hasher.update(f"{shape.Area:.8f}".encode())
+        hasher.update(f"{shape.Mass:.8f}".encode())
         
         # Add bounding box
         bbox = shape.BoundBox

@@ -22,16 +22,10 @@ except ImportError:
     Base = declarative_base()
 
 
-# Import dataclasses from schemas
+# Import dataclasses from schemas - only import what's actually used
 from ..schemas.validation_schemas import (
-    ValidationSeverity,
     StandardType,
-    ValidationIssue,
-    GeometricValidation,
-    QualityMetricsReport,
-    QualityMetric,
-    ComplianceResult,
-    ComplianceViolation
+    ComplianceResult
 )
 
 
