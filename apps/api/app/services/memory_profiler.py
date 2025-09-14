@@ -629,15 +629,35 @@ class AdvancedMemoryProfiler:
         return recommendations
 
     def _estimate_heap_fragmentation(self) -> float:
-        """Estimate heap fragmentation (simplified)."""
-        # This is a simplified estimation
-        # Real implementation would need platform-specific code
+        """Estimate heap fragmentation."""
+        import psutil
+        import sys
+
+        # Get process memory info
+        process = psutil.Process()
+        memory_info = process.memory_info()
+
+        # Calculate fragmentation based on RSS vs heap size
+        # This is a more accurate estimation
         gc.collect()
 
-        # Use GC stats as a proxy
-        garbage_ratio = len(gc.garbage) / max(sum(gc.get_count()), 1)
+        # Get Python heap size (approximate)
+        python_objects_size = sum(sys.getsizeof(obj) for obj in gc.get_objects()[:1000])  # Sample
 
-        return min(garbage_ratio, 1.0)
+        # Get resident set size
+        rss = memory_info.rss
+
+        # Calculate fragmentation ratio
+        if rss > 0 and python_objects_size > 0:
+            # Higher ratio means more fragmentation
+            fragmentation = 1.0 - (python_objects_size / rss)
+            fragmentation = max(0.0, min(1.0, fragmentation))  # Clamp to [0, 1]
+        else:
+            # Fallback to GC-based estimation
+            garbage_ratio = len(gc.garbage) / max(sum(gc.get_count()), 1)
+            fragmentation = min(garbage_ratio, 1.0)
+
+        return fragmentation
 
     def _calculate_memory_trend(self) -> Dict[str, Any]:
         """Calculate memory usage trend."""
@@ -722,5 +742,5 @@ memory_profiler = AdvancedMemoryProfiler(
     enable_continuous_monitoring=False,  # Disabled by default for performance
     snapshot_interval_seconds=60,
     max_snapshots=100,
-    leak_detection_threshold_mb=10.0
+    leak_detection_threshold_mb=50.0  # Consistent with constructor default
 )

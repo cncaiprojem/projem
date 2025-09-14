@@ -18,7 +18,14 @@ from .enums import UserRole, Locale
 
 if TYPE_CHECKING:
     from .ai_suggestions import AISuggestion
-    from .performance_profile import PerformanceProfile, OptimizationPlan
+    from .performance_profile import (
+        PerformanceProfile, OptimizationPlan, MemorySnapshot,
+        OperationMetrics, PerformanceBaseline
+    )
+    from .session import Session
+    from .license import License
+    from .job import Job
+    from .notification import Notification
 
 
 class User(Base, TimestampMixin):
@@ -279,6 +286,33 @@ class User(Base, TimestampMixin):
     jobs: Mapped[List["Job"]] = relationship(
         "Job",
         back_populates="user"
+    )
+    # Task 7.25: Performance profiling relationships
+    performance_profiles: Mapped[List["PerformanceProfile"]] = relationship(
+        "PerformanceProfile",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    optimization_plans: Mapped[List["OptimizationPlan"]] = relationship(
+        "OptimizationPlan",
+        foreign_keys="[OptimizationPlan.user_id]",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    memory_snapshots: Mapped[List["MemorySnapshot"]] = relationship(
+        "MemorySnapshot",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    operation_metrics: Mapped[List["OperationMetrics"]] = relationship(
+        "OperationMetrics",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+    performance_baselines: Mapped[List["PerformanceBaseline"]] = relationship(
+        "PerformanceBaseline",
+        back_populates="user",
+        cascade="all, delete-orphan"
     )
     notifications: Mapped[List["Notification"]] = relationship(
         "Notification",

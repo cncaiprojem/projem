@@ -275,7 +275,7 @@ class MemorySnapshot(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     # Relationships
-    user = relationship("User")
+    user = relationship("User", back_populates="memory_snapshots")
 
     # Indexes
     __table_args__ = (
@@ -328,7 +328,7 @@ class OperationMetrics(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    user = relationship("User")
+    user = relationship("User", back_populates="operation_metrics")
 
     # Indexes
     __table_args__ = (
@@ -375,7 +375,7 @@ class PerformanceBaseline(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     # Relationships
-    user = relationship("User")
+    user = relationship("User", back_populates="performance_baselines")
 
     # Indexes and constraints
     __table_args__ = (

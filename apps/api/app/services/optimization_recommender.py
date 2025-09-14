@@ -365,8 +365,8 @@ class OptimizationRecommender:
         # Check for memory issues that might benefit from architectural changes
         memory_issues = [
             issue for issue in self.base_profiler.detect_performance_issues()
-            if issue.issue_type.value in ["memory_leak", "memory_fragmentation"]
-        ]
+            if issue.issue_type in [PerformanceIssueType.MEMORY_LEAK, PerformanceIssueType.MEMORY_FRAGMENTATION]
+        }
 
         if memory_issues:
             recommendations.append(OptimizationRecommendation(
@@ -477,8 +477,17 @@ class OptimizationRecommender:
             gpu_issues = self.gpu_monitor.check_gpu_health()
             for issue in gpu_issues:
                 if issue.get("severity") in ["critical", "warning"]:
+                    # Map GPU issue to appropriate type based on the issue
+                    gpu_issue_type = PerformanceIssueType.GPU_UNDERUTILIZATION
+                    if "temperature" in issue["issue"].lower() or "overheat" in issue["issue"].lower():
+                        gpu_issue_type = PerformanceIssueType.GPU_OVERHEATING
+                    elif "memory" in issue["issue"].lower():
+                        gpu_issue_type = PerformanceIssueType.GPU_MEMORY_FULL
+                    elif "driver" in issue["issue"].lower():
+                        gpu_issue_type = PerformanceIssueType.GPU_DRIVER_ERROR
+
                     all_issues.append(PerformanceIssue(
-                        issue_type=PerformanceIssueType.GPU_UNDERUTILIZATION,
+                        issue_type=gpu_issue_type,
                         severity=OptimizationPriority.HIGH if issue["severity"] == "critical" else OptimizationPriority.MEDIUM,
                         description=issue["issue"],
                         description_tr=issue.get("issue_tr", issue["issue"]),
@@ -503,7 +512,7 @@ class OptimizationRecommender:
 
         # Generate recommendations for each issue type
         for issue_type, type_issues in issues_by_type.items():
-            if issue_type == "slow_function":
+            if issue_type == PerformanceIssueType.SLOW_FUNCTION:
                 for issue in type_issues[:3]:  # Top 3 slow functions
                     recommendations.append(self._create_performance_recommendation(
                         title=f"Optimize {issue.location}",
@@ -528,7 +537,7 @@ class OptimizationRecommender:
                         metrics_before=issue.metrics
                     ))
 
-            elif issue_type == "memory_leak":
+            elif issue_type == PerformanceIssueType.MEMORY_LEAK:
                 # Combine all memory leaks into one recommendation
                 total_growth = sum(issue.metrics.get("growth_rate", 0) for issue in type_issues)
                 recommendations.append(self._create_memory_recommendation(
