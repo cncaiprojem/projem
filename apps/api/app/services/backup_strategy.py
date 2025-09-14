@@ -469,11 +469,16 @@ class EncryptionHandler:
         # Generate from environment or default
         password = getattr(settings, "BACKUP_ENCRYPTION_KEY", "default-backup-key-change-me!")
 
-        # Generate a random salt for each key (security best practice)
-        # In production, this salt should be stored with the encrypted data
-        salt = os.urandom(16)  # 16 bytes of cryptographically secure random data
+        # Use a deterministic salt from settings for consistency across restarts
+        # This ensures encrypted data remains recoverable after service restarts
+        # In production, use a secure, static salt configured in environment
+        salt_string = getattr(settings, "BACKUP_ENCRYPTION_SALT", "freecad-backup-salt-2024")
 
-        # Store salt for later use (would need to persist this with the encrypted data)
+        # Create deterministic salt from the configuration
+        # Hash the salt string to ensure consistent 16-byte value
+        salt = hashlib.sha256(salt_string.encode()).digest()[:16]
+
+        # Store salt for later use (persisted via settings)
         self._encryption_salt = salt
 
         kdf = PBKDF2(
@@ -597,7 +602,7 @@ class BackupStrategy:
                 data=encrypted_data,
                 path=metadata.storage_path,
                 tier=initial_tier,
-                metadata=metadata.dict()
+                metadata=metadata.model_dump()
             )
 
             if not success:
@@ -622,16 +627,27 @@ class BackupStrategy:
 
             return metadata
 
-    async def restore_backup(self, backup_id: str) -> bytes:
+    async def restore_backup(self, backup_id: str, source_id: Optional[str] = None) -> bytes:
         """Restore backup from storage."""
         correlation_id = get_correlation_id()
 
         with create_span("backup_strategy_restore", correlation_id=correlation_id) as span:
             span.set_attribute("backup_id", backup_id)
 
-            # Find backup metadata (would query from DB)
-            # For now, construct path
-            path = backup_id  # Simplified
+            # Construct proper storage path
+            # Path format should be: {source_id}/{backup_id}
+            if source_id:
+                path = f"{source_id}/{backup_id}"
+            else:
+                # Extract source_id from backup_id if not provided
+                # Backup ID format: backup_{source_id}_{timestamp}
+                parts = backup_id.split('_')
+                if len(parts) >= 3 and parts[0] == "backup":
+                    source_id = parts[1]
+                    path = f"{source_id}/{backup_id}"
+                else:
+                    # Fallback to just backup_id
+                    path = backup_id
 
             # Retrieve from storage
             encrypted_data = await self.storage.retrieve(path)
@@ -639,11 +655,18 @@ class BackupStrategy:
             # Decrypt
             compressed_data = self.encryption.decrypt(encrypted_data)
 
-            # Decompress (need to know algorithm from metadata)
-            # For now, try auto-detect
-            data = compressed_data  # Would decompress based on metadata
+            # Decompress - detect algorithm and decompress
+            # Try each compression algorithm in order of likelihood
+            data = compressed_data
+            if compressed_data != encrypted_data:  # Data was encrypted, might also be compressed
+                try:
+                    # Try auto-detection of compression
+                    data = self.compression.decompress(compressed_data, CompressionAlgorithm.AUTO)
+                except Exception:
+                    # If auto-detection fails, data might not be compressed
+                    data = compressed_data
 
-            logger.info("Yedekleme geri yüklendi", backup_id=backup_id, size=len(data))
+            logger.info("Yedekleme geri yüklendi", backup_id=backup_id, path=path, size=len(data))
 
             metrics.backup_restored_total.inc()
 

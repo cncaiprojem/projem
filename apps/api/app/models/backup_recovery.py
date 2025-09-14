@@ -4,7 +4,7 @@ Task 7.26: Database Models for Backup and Recovery
 SQLAlchemy models for backup, recovery, and disaster management.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -76,7 +76,7 @@ class BackupSnapshot(Base):
     metadata = Column(JSON, default=dict)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     expires_at = Column(DateTime(timezone=True))
 
     # Foreign keys
@@ -128,7 +128,7 @@ class RecoveryOperation(Base):
     # Timestamps
     started_at = Column(DateTime(timezone=True))
     completed_at = Column(DateTime(timezone=True))
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Foreign keys
     backup_id = Column(Integer, ForeignKey("backup_snapshots.id"))
@@ -175,7 +175,7 @@ class DisasterEvent(Base):
     notifications_sent = Column(JSON, default=list)
 
     # Timestamps
-    detected_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    detected_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
     recovery_started_at = Column(DateTime(timezone=True))
     recovery_completed_at = Column(DateTime(timezone=True))
 
@@ -269,7 +269,7 @@ class ModelRecoveryReport(Base):
     warnings = Column(JSON, default=list)
 
     # Timestamps
-    recovery_timestamp = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
+    recovery_timestamp = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
 
     # Foreign keys
     recovery_operation_id = Column(Integer, ForeignKey("recovery_operations.id"))

@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -466,8 +467,8 @@ class DisasterRecoveryOrchestrator:
         with create_span("disaster_detection", correlation_id=correlation_id) as span:
             span.set_attribute("disaster_type", disaster_type.value)
 
-            # Create disaster event
-            event_id = f"disaster_{int(time.time() * 1000)}"
+            # Create disaster event with UUID for uniqueness
+            event_id = f"disaster_{uuid.uuid4().hex}"
             event = DisasterEvent(
                 event_id=event_id,
                 disaster_type=disaster_type,

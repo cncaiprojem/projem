@@ -47,7 +47,7 @@ from ....schemas.backup_recovery import (
     HealthCheckResponse
 )
 from ....services.backup_strategy import backup_strategy
-from ....services.incremental_backup import incremental_manager
+from ....services.incremental_backup import incremental_manager, BackupType
 from ....services.disaster_recovery import dr_orchestrator, DisasterType, RecoveryPriority
 from ....services.point_in_time_recovery import pitr_manager, RecoveryMode, RecoveryRequest
 from ....services.model_recovery_service import model_recovery_service
@@ -267,7 +267,7 @@ async def delete_backup(
     try:
         await backup_strategy.storage.delete(backup.storage_path)
     except Exception as e:
-        logger.warning(f"Storage silme başarısız ancak DB kaydı silindi: {backup_id}", error=str(e))
+        logger.warning(f"Storage silme başarısız ancak DB kaydı silindi: {backup_id}", exc_info=True)
 
     logger.info(f"Yedekleme silindi: {backup_id}")
 
@@ -348,9 +348,18 @@ async def report_disaster(
     """
     Report a disaster event.
     """
+    # Validate and convert disaster type with error handling
+    try:
+        disaster_type_enum = DisasterType(disaster.disaster_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Geçersiz felaket türü: {disaster.disaster_type}"
+        )
+
     # Detect disaster
     event = await dr_orchestrator.detect_disaster(
-        disaster_type=DisasterType(disaster.disaster_type),
+        disaster_type=disaster_type_enum,
         description=disaster.description
     )
 
@@ -433,7 +442,7 @@ async def recover_model(
         corruption_severity=report.corruption.severity if report.corruption else None,
         affected_features=report.corruption.affected_features if report.corruption else [],
         recovery_strategy=report.plan.strategy.value if report.plan else None,
-        recovery_steps=[step.dict() for step in report.plan.steps] if report.plan else [],
+        recovery_steps=[step.model_dump() for step in report.plan.steps] if report.plan else [],
         success=report.success,
         recovered_features=report.recovered_features,
         lost_features=report.lost_features,
@@ -523,13 +532,13 @@ async def get_backup_status(
     total_backups = db.query(BackupSnapshotModel).count()
     total_size = db.query(func.sum(BackupSnapshotModel.size_bytes)).scalar() or 0
 
-    # Get backup counts by type
+    # Get backup counts by type using BackupType enum
     backups_by_type = {}
-    for backup_type in ["full", "incremental", "differential", "synthetic"]:
+    for backup_type in BackupType:
         count = db.query(BackupSnapshotModel).filter(
-            BackupSnapshotModel.backup_type == backup_type
+            BackupSnapshotModel.backup_type == backup_type.value
         ).count()
-        backups_by_type[backup_type] = count
+        backups_by_type[backup_type.value] = count
 
     # Get backup counts by tier
     backups_by_tier = {}

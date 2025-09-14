@@ -50,7 +50,7 @@ class BackupPolicyUpdate(BaseModel):
     retention_days: Optional[int] = Field(None, ge=1, le=3650)
     retention_versions: Optional[int] = Field(None, ge=1, le=1000)
     legal_hold_until: Optional[datetime] = None
-    priority: Optional[SeverityLevel] = None
+    priority: Optional[str] = None  # Fixed: SeverityLevel type hint replaced with Optional[str]
     tags: Optional[List[str]] = None
 
 
@@ -222,7 +222,7 @@ class BackupScheduleUpdate(BaseModel):
     name: Optional[str] = None
     cron_expression: Optional[str] = None
     enabled: Optional[bool] = None
-    priority: Optional[SeverityLevel] = None
+    priority: Optional[str] = None  # Fixed: SeverityLevel type hint replaced with Optional[str]
     tags: Optional[List[str]] = None
 
 

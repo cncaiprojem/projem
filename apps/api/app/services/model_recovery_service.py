@@ -743,8 +743,10 @@ class ModelRecoveryService:
                     # Find and restore latest backup through public API
                     try:
                         # Get backups for document (would need public method)
-                        # For now, attempt to find backup through storage
-                        latest_metadata = await backup_strategy.restore_backup(document_id)
+                        # For now, generate the backup_id from document_id
+                        # In production, this would query the database for the latest backup
+                        backup_id = f"backup_{document_id}_latest"
+                        latest_metadata = await backup_strategy.restore_backup(backup_id)
                         return latest_metadata is not None
                     except Exception as e:
                         logger.error("Son yedek bulunamadı", document_id=document_id, error=str(e))

@@ -561,7 +561,7 @@ class IncrementalBackupManager:
     async def _persist_snapshot(self, snapshot: BackupSnapshot):
         """Persist snapshot metadata to Redis."""
         key = f"snapshot:{snapshot.snapshot_id}"
-        data = snapshot.dict()
+        data = snapshot.model_dump()
 
         await state_manager.add_memory_snapshot({
             "snapshot_id": snapshot.snapshot_id,
