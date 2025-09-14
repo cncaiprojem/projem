@@ -121,4 +121,3 @@ class ManufacturingValidation:
         return self.is_manufacturable
 
 
-# Import centralized Turkish validation messages

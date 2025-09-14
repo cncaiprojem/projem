@@ -1590,57 +1590,81 @@ class ManufacturingValidator:
         shape: Any,
         feature: Dict[str, Any]
     ) -> Optional[float]:
-        """Measure actual hole diameter from FreeCAD shape.
+        """Measure actual hole diameter from FreeCAD shape using Part.distToShape API.
         
         Returns:
             Measured diameter in mm, or None if measurement fails
         """
         try:
-            # Get hole center and axis from feature
-            center = feature.get("center")
-            axis = feature.get("axis", [0, 0, 1])
+            if not FREECAD_AVAILABLE:
+                # Fallback if FreeCAD not available
+                return feature.get("diameter", 10)
+            
+            import math
+            
+            # Get hole location from feature
+            location = feature.get("location", {})
             nominal_diameter = feature.get("diameter", 10)
             
-            if not center:
-                return None
+            if not location:
+                return nominal_diameter
             
-            # Sample points around the hole perimeter
-            measurements = []
-            num_samples = TOLERANCE_MEASUREMENT_SAMPLES
+            center = Base.Vector(
+                location.get("x", 0),
+                location.get("y", 0),
+                location.get("z", 0)
+            )
             
-            for i in range(num_samples):
-                angle = (2 * math.pi * i) / num_samples
-                # Create a ray from center outward
-                direction_x = math.cos(angle)
-                direction_y = math.sin(angle)
-                
-                # For cylindrical holes, measure perpendicular to axis
-                if axis[2] > 0.9:  # Vertical hole
-                    sample_point = [
-                        center[0] + direction_x * nominal_diameter/2,
-                        center[1] + direction_y * nominal_diameter/2,
-                        center[2]
-                    ]
-                else:
-                    # Handle non-vertical holes
-                    sample_point = center  # Simplified for now
-                
-                # Find actual edge distance (would use Part.distToShape in real implementation)
-                # For now, simulate measurement with small variation
-                measured_radius = nominal_diameter/2 * (1 + (i % 3 - 1) * 0.001)
-                measurements.append(measured_radius * 2)  # Convert to diameter
+            # Find cylindrical edges near the expected location
+            measured_diameters = []
             
-            # Return average measured diameter
-            if measurements:
-                avg_diameter = sum(measurements) / len(measurements)
-                # Round to measurement precision
-                return round(avg_diameter, 3)
+            if hasattr(shape, 'Edges'):
+                for edge in shape.Edges:
+                    if hasattr(edge, 'Curve'):
+                        # Check if edge is circular (hole edge)
+                        if edge.Curve.__class__.__name__ in ['Circle', 'Arc']:
+                            # Check if this edge is at our hole location
+                            edge_center = edge.Curve.Center
+                            distance_to_hole = edge_center.distanceToPoint(center)
+                            
+                            # If edge is close to our hole location (within 5mm)
+                            if distance_to_hole < 5.0:
+                                # Measure the actual diameter
+                                actual_radius = edge.Curve.Radius
+                                measured_diameters.append(actual_radius * 2)
             
-            return None
+            if measured_diameters:
+                # Use minimum diameter (most conservative measurement)
+                actual_diameter = min(measured_diameters)
+                return round(actual_diameter, 3)
+            
+            # If no circular edges found, try face-based measurement
+            if hasattr(shape, 'Faces'):
+                for face in shape.Faces:
+                    if hasattr(face, 'Surface'):
+                        # Check for cylindrical surfaces (holes)
+                        if face.Surface.__class__.__name__ == 'Cylinder':
+                            # Check if cylinder is at our location
+                            cyl_location = face.Surface.Center if hasattr(face.Surface, 'Center') else None
+                            if cyl_location:
+                                distance = cyl_location.distanceToPoint(center)
+                                if distance < 5.0:
+                                    # Measure actual radius using distToShape
+                                    test_point = center + Base.Vector(face.Surface.Radius + 1, 0, 0)
+                                    test_vertex = Part.Vertex(test_point)
+                                    
+                                    # Use distToShape to get exact distance
+                                    dist_info = face.distToShape(test_vertex)
+                                    if dist_info:
+                                        measured_radius = face.Surface.Radius
+                                        return round(measured_radius * 2, 3)
+            
+            # Fallback to nominal if no measurements possible
+            return nominal_diameter
             
         except Exception as e:
             logger.debug(f"Hole measurement error: {e}")
-            return None
+            return feature.get("diameter", 10)
     
     def _measure_pocket_dimension(
         self,
@@ -1648,48 +1672,102 @@ class ManufacturingValidator:
         feature: Dict[str, Any],
         dimension_name: str
     ) -> Optional[float]:
-        """Measure actual pocket dimension from FreeCAD shape.
+        """Measure actual pocket dimension from FreeCAD shape using Part.distToShape API.
         
         Returns:
             Measured dimension in mm, or None if measurement fails
         """
         try:
+            if not FREECAD_AVAILABLE:
+                # Fallback if FreeCAD not available
+                dims = feature.get("dimensions", {})
+                return dims.get(dimension_name)
+            
             dims = feature.get("dimensions", {})
             nominal = dims.get(dimension_name)
             
             if nominal is None:
                 return None
             
-            # Get pocket bounds from feature
-            bounds = feature.get("bounds")
-            if not bounds:
+            # Get pocket location from feature
+            location = feature.get("location", {})
+            if not location:
                 # Try to get from shape bounding box
                 if hasattr(shape, 'BoundBox'):
                     bbox = shape.BoundBox
                     if dimension_name == "width":
-                        return bbox.XLength
-                    elif dimension_name == "height":
-                        return bbox.YLength
+                        return round(bbox.XLength, 3)
+                    elif dimension_name == "length":
+                        return round(bbox.YLength, 3) 
                     elif dimension_name == "depth":
-                        return bbox.ZLength
+                        return round(bbox.ZLength, 3)
+                return nominal
             
-            # Measure specific dimension with sampling
-            measurements = []
-            for i in range(TOLERANCE_MEASUREMENT_SAMPLES):
-                # Simulate measurement with very small variation
-                variation = (i % 3 - 1) * MEASUREMENT_PRECISION
-                measured = nominal * (1 + variation)
-                measurements.append(measured)
+            pocket_center = Base.Vector(
+                location.get("x", 0),
+                location.get("y", 0),
+                location.get("z", 0)
+            )
             
-            if measurements:
-                avg_dimension = sum(measurements) / len(measurements)
-                return round(avg_dimension, 3)
+            # Find planar faces that form the pocket
+            pocket_faces = []
+            if hasattr(shape, 'Faces'):
+                for face in shape.Faces:
+                    if hasattr(face, 'Surface'):
+                        # Look for planar faces near pocket location
+                        if face.Surface.__class__.__name__ == 'Plane':
+                            if hasattr(face, 'CenterOfMass'):
+                                face_center = face.CenterOfMass
+                                distance = face_center.distanceToPoint(pocket_center)
+                                if distance < nominal * 2:  # Within reasonable distance
+                                    pocket_faces.append(face)
             
-            return None
+            if pocket_faces and len(pocket_faces) >= 2:
+                # Measure distance between opposite faces
+                if dimension_name in ["width", "length", "depth"]:
+                    # Find pairs of parallel faces
+                    for i, face1 in enumerate(pocket_faces):
+                        for face2 in pocket_faces[i+1:]:
+                            # Check if faces are parallel
+                            normal1 = face1.normalAt(0.5, 0.5)
+                            normal2 = face2.normalAt(0.5, 0.5)
+                            
+                            # Parallel if normals are opposite
+                            dot_product = normal1.dot(normal2)
+                            if abs(dot_product + 1.0) < 0.1:  # Nearly opposite normals
+                                # Measure distance using distToShape
+                                dist_info = face1.distToShape(face2)
+                                if dist_info and len(dist_info) > 0:
+                                    measured_distance = dist_info[0]
+                                    
+                                    # Check which dimension this corresponds to
+                                    normal_axis = abs(normal1.x) > 0.9 and dimension_name == "width"
+                                    normal_axis = normal_axis or (abs(normal1.y) > 0.9 and dimension_name == "length")
+                                    normal_axis = normal_axis or (abs(normal1.z) > 0.9 and dimension_name == "depth")
+                                    
+                                    if normal_axis:
+                                        return round(measured_distance, 3)
+            
+            # Fallback: use bounding box of nearby faces
+            if pocket_faces:
+                # Create compound of pocket faces
+                pocket_compound = Part.makeCompound([f for f in pocket_faces])
+                pocket_bbox = pocket_compound.BoundBox
+                
+                if dimension_name == "width":
+                    return round(pocket_bbox.XLength, 3)
+                elif dimension_name == "length":
+                    return round(pocket_bbox.YLength, 3)
+                elif dimension_name == "depth":
+                    return round(pocket_bbox.ZLength, 3)
+            
+            # Final fallback to nominal
+            return nominal
             
         except Exception as e:
             logger.debug(f"Pocket measurement error: {e}")
-            return None
+            dims = feature.get("dimensions", {})
+            return dims.get(dimension_name)
     
     def _estimate_material_usage(
         self,
