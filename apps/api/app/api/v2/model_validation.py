@@ -241,7 +241,7 @@ async def validate_manufacturing(
                     request.machine_spec
                 )
             else:
-                raise HTTPException(status_code=400, detail=f"Desteklenmeyen üretim yöntemi: {request.process}")
+                raise HTTPException(status_code=400, detail="Desteklenmeyen üretim yöntemi")
             
             # Estimate cost and lead time using real geometry-based calculation
             unit_cost = result.cost_estimate if hasattr(result, 'cost_estimate') else validator._estimate_cost(shape, request.process)
