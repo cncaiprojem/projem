@@ -27,6 +27,13 @@ from ..models.validation_models import (
 
 logger = get_logger(__name__)
 
+# Standards Checking Constants
+DEFAULT_FLATNESS_TOLERANCE = 0.1  # mm
+DEFAULT_PERPENDICULARITY_TOLERANCE = 0.05  # mm
+COMPLIANCE_CERTIFICATE_THRESHOLD = 0.95  # 95% compliance required for certificate
+COMPLIANCE_DEFAULT_SCORE = 0.5  # Default score when checks fail
+PERPENDICULARITY_CONVERSION_FACTOR = 0.001  # Convert angle error to tolerance
+
 
 class StandardChecker(ABC):
     """Abstract base class for standard checkers."""
@@ -69,7 +76,7 @@ class ISO10303Checker(StandardChecker):
         
         result.compliance_score = result.passed_rules / result.checked_rules if result.checked_rules > 0 else 0
         result.is_compliant = len(result.violations) == 0
-        result.certificate_eligible = result.compliance_score >= 0.95
+        result.certificate_eligible = result.compliance_score >= COMPLIANCE_CERTIFICATE_THRESHOLD
         
         return result
     
@@ -172,7 +179,7 @@ class ASMEY145Checker(StandardChecker):
         
         if not gdt_features:
             result.warnings.append("No GD&T features found")
-            result.compliance_score = 0.5
+            result.compliance_score = COMPLIANCE_DEFAULT_SCORE
         else:
             # Validate GD&T features
             for feature in gdt_features:
@@ -253,7 +260,7 @@ class ASMEY145Checker(StandardChecker):
                                     "id": f"flat_{i}",
                                     "type": "flatness",
                                     "value": round(max_deviation, 4),
-                                    "expected": 0.1,  # Default tolerance
+                                    "expected": DEFAULT_FLATNESS_TOLERANCE,
                                     "face_index": i
                                 })
                             
@@ -266,13 +273,13 @@ class ASMEY145Checker(StandardChecker):
                                 z_axis = FreeCAD.Vector(0, 0, 1)
                                 dot_product = abs(axis.dot(z_axis))
                                 angle_error = math.degrees(math.acos(min(1.0, max(-1.0, dot_product))))
-                                perpendicular_value = round(min(angle_error, 90) * 0.001, 4)  # Convert to tolerance value
+                                perpendicular_value = round(min(angle_error, 90) * PERPENDICULARITY_CONVERSION_FACTOR, 4)
                                 
                                 features.append({
                                     "id": f"perp_{i}",
                                     "type": "perpendicularity",
                                     "value": perpendicular_value,
-                                    "expected": 0.05,
+                                    "expected": DEFAULT_PERPENDICULARITY_TOLERANCE,
                                     "axis": (axis.x, axis.y, axis.z)
                                 })
                     

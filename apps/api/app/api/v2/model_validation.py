@@ -235,11 +235,22 @@ async def validate_manufacturing(
             else:
                 raise ValueError(f"Desteklenmeyen üretim yöntemi: {request.process}")
             
-            # Estimate cost and lead time (create default estimation for now)
-            # TODO: Implement estimate_manufacturing method in ManufacturingValidator
+            # Estimate cost and lead time using real geometry-based calculation
+            unit_cost = result.cost_estimate if hasattr(result, 'cost_estimate') else validator._estimate_cost(shape, request.process)
+            unit_lead_time = result.lead_time_estimate if hasattr(result, 'lead_time_estimate') else validator._estimate_lead_time(shape, request.process)
+            
+            # Scale cost by quantity with volume discounts
+            quantity_discount = 1.0
+            if request.quantity > 100:
+                quantity_discount = 0.85  # 15% discount for 100+
+            elif request.quantity > 50:
+                quantity_discount = 0.9   # 10% discount for 50+
+            elif request.quantity > 10:
+                quantity_discount = 0.95  # 5% discount for 10+
+            
             estimation = {
-                "cost": 100.0 * request.quantity,  # Simple placeholder calculation
-                "lead_time": 7  # Default 7 days
+                "cost": float(unit_cost) * request.quantity * quantity_discount,
+                "lead_time": unit_lead_time + (request.quantity // 100)  # Add days for large batches
             }
             
             validation_operations_total.labels(
@@ -818,19 +829,32 @@ async def _get_fix_suggestions(
 async def _revalidate_model(
     doc: Any,  # FreeCAD.Document
     user_id: int,
-    db: AsyncSession
+    db: AsyncSession,
+    original_profile: Optional[ValidationProfile] = None,
+    original_standards: Optional[List[str]] = None
 ) -> ValidationResult:
-    """Re-validate model after fixes."""
+    """Re-validate model after fixes using original validation parameters.
+    
+    Args:
+        doc: FreeCAD document to validate
+        user_id: User ID for tracking
+        db: Database session
+        original_profile: Original validation profile used (default: COMPREHENSIVE)
+        original_standards: Original standards checked (default: None)
+    """
     try:
+        # Use original validation parameters or defaults
+        profile = original_profile or ValidationProfile.COMPREHENSIVE
+        standards = original_standards
         
         # Create validation framework
         framework = ModelValidationFramework()
         
-        # Run comprehensive validation
+        # Run validation with same parameters as original
         result = await framework.validate_model(
             doc=doc,
-            validation_profile=ValidationProfile.COMPREHENSIVE,
-            standards=None,
+            validation_profile=profile,
+            standards=standards,
             correlation_id=str(user_id)
         )
         

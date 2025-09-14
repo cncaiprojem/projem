@@ -29,15 +29,23 @@ from ..utils.freecad_utils import get_shape_from_document
 
 logger = get_logger(__name__)
 
+# Geometric Validation Constants
+VERTEX_ROUNDING_PRECISION = 4  # Decimal places for vertex coordinate rounding
+MIN_WALL_THICKNESS_DEFAULT = 1.0  # mm
+MIN_FEATURE_SIZE_DEFAULT = 0.5  # mm
+MAX_EDGE_LENGTH_DEFAULT = 1000.0  # mm
+SURFACE_DEVIATION_TOLERANCE_DEFAULT = 0.01  # mm
+ANGLE_TOLERANCE_DEFAULT = 0.1  # degrees
+
 
 @dataclass
 class GeometricTolerances:
     """Geometric tolerances for validation."""
-    min_wall_thickness: float = 1.0  # mm
-    min_feature_size: float = 0.5  # mm
-    max_edge_length: float = 1000.0  # mm
-    surface_deviation_tolerance: float = 0.01  # mm
-    angle_tolerance: float = 0.1  # degrees
+    min_wall_thickness: float = MIN_WALL_THICKNESS_DEFAULT
+    min_feature_size: float = MIN_FEATURE_SIZE_DEFAULT
+    max_edge_length: float = MAX_EDGE_LENGTH_DEFAULT
+    surface_deviation_tolerance: float = SURFACE_DEVIATION_TOLERANCE_DEFAULT
+    angle_tolerance: float = ANGLE_TOLERANCE_DEFAULT
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> GeometricTolerances:

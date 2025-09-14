@@ -27,6 +27,19 @@ from ..utils.freecad_utils import get_shape_from_document
 
 logger = get_logger(__name__)
 
+# Quality Metrics Constants
+FACE_COMPLEXITY_WEIGHT = 0.3
+EDGE_COMPLEXITY_WEIGHT = 0.2
+VERTEX_COMPLEXITY_WEIGHT = 0.1
+FEATURE_COMPLEXITY_WEIGHT = 0.4
+COMPLEXITY_NORMALIZATION_FACTOR = 10
+SMOOTHNESS_VARIATION_FACTOR = 0.5  # Factor for smoothness score reduction
+CONTINUITY_SCORE_PLANAR = 0.7  # Score multiplier for planar faces
+CONTINUITY_SCORE_CURVED = 0.85  # Score multiplier for curved faces
+QUALITY_SMOOTHNESS_WEIGHT = 0.4
+QUALITY_CONTINUITY_WEIGHT = 0.4
+QUALITY_DEFECT_WEIGHT = 0.2
+
 
 class ComplexityAnalyzer:
     """Analyzer for geometric complexity."""
@@ -41,15 +54,15 @@ class ComplexityAnalyzer:
         """Calculate overall complexity index."""
         # Weighted complexity calculation
         complexity = (
-            face_count * 0.3 +
-            edge_count * 0.2 +
-            vertex_count * 0.1 +
-            feature_count * 0.4
+            face_count * FACE_COMPLEXITY_WEIGHT +
+            edge_count * EDGE_COMPLEXITY_WEIGHT +
+            vertex_count * VERTEX_COMPLEXITY_WEIGHT +
+            feature_count * FEATURE_COMPLEXITY_WEIGHT
         )
         
         # Normalize to 0-100 scale
         # Assuming 1000 total elements is very complex
-        normalized = min(complexity / 10, 100)
+        normalized = min(complexity / COMPLEXITY_NORMALIZATION_FACTOR, 100)
         
         return normalized
     
