@@ -341,6 +341,36 @@ ai_adapter_request_duration = Histogram(
     registry=REGISTRY
 )
 
+# Task 7.25: Performance Profiling Metrics
+performance_profile_duration_seconds = Histogram(
+    'performance_profile_duration_seconds',
+    'Duration of performance profiling sessions',
+    ['profile_type', 'operation'],
+    buckets=MEDIUM_OPERATION_BUCKETS,
+    registry=REGISTRY
+)
+
+performance_memory_usage_mb = Gauge(
+    'performance_memory_usage_mb',
+    'Memory usage during performance profiling',
+    ['operation'],
+    registry=REGISTRY
+)
+
+gpu_utilization_percent = Gauge(
+    'gpu_utilization_percent',
+    'GPU utilization percentage',
+    ['device_id', 'device_name'],
+    registry=REGISTRY
+)
+
+gpu_memory_used_mb = Gauge(
+    'gpu_memory_used_mb',
+    'GPU memory usage in MB',
+    ['device_id', 'device_name'],
+    registry=REGISTRY
+)
+
 # Task 7.3: Normalization and validation metrics
 freecad_normalization_total = Counter(
     'freecad_normalization_total',

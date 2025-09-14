@@ -371,7 +371,7 @@ class ModelValidationFramework:
     """Main model validation framework."""
     
     def __init__(self, document_manager: Optional[FreeCADDocumentManager] = None):
-        self.document_manager = document_manager or document_manager
+        self.document_manager = document_manager
         self.validator_registry = ValidatorRegistry()
         self.rule_engine = RuleEngine()
         self.report_generator = ValidationReportGenerator()
