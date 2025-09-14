@@ -4,8 +4,10 @@ Task 7.26: API Endpoints for Backup and Recovery
 FastAPI endpoints for backup, recovery, and disaster management operations.
 """
 
-from datetime import datetime
+import uuid
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from sqlalchemy import func
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status, BackgroundTasks
 from sqlalchemy.orm import Session
@@ -66,9 +68,8 @@ async def create_backup_policy(
     """
     Create a new backup retention policy.
     """
-    # Generate unique policy ID
-    import time
-    policy_id = f"policy_{int(time.time() * 1000)}"
+    # Generate unique policy ID using UUID for safety
+    policy_id = f"policy_{uuid.uuid4().hex}"
 
     db_policy = BackupPolicyModel(
         policy_id=policy_id,
@@ -258,12 +259,15 @@ async def delete_backup(
             detail="Yedekleme bulunamadı"
         )
 
-    # Delete from storage
-    await backup_strategy.storage.delete(backup.storage_path)
-
-    # Delete from database
+    # Delete from database first for atomicity
     db.delete(backup)
     db.commit()
+
+    # Then attempt to delete from storage (non-critical)
+    try:
+        await backup_strategy.storage.delete(backup.storage_path)
+    except Exception as e:
+        logger.warning(f"Storage silme başarısız ancak DB kaydı silindi: {backup_id}", error=str(e))
 
     logger.info(f"Yedekleme silindi: {backup_id}")
 
@@ -279,8 +283,8 @@ async def initiate_recovery(
     """
     Initiate recovery operation.
     """
-    import time
-    operation_id = f"recovery_{int(time.time() * 1000)}"
+    # Generate unique operation ID using UUID
+    operation_id = f"recovery_{uuid.uuid4().hex}"
 
     # Create recovery operation record
     db_operation = RecoveryOperationModel(
@@ -292,7 +296,7 @@ async def initiate_recovery(
         target_transaction_id=recovery_request.target_transaction_id,
         status="pending",
         initiated_by_id=current_user.id,
-        created_at=datetime.utcnow()
+        created_at=datetime.now(timezone.utc)
     )
 
     db.add(db_operation)
@@ -460,7 +464,8 @@ async def batch_backup(
     """
     Create backups for multiple sources.
     """
-    task_id = f"batch_backup_{int(time.time() * 1000)}"
+    # Generate unique task ID using UUID
+    task_id = f"batch_backup_{uuid.uuid4().hex}"
 
     # Start batch backup in background
     background_tasks.add_task(
@@ -487,7 +492,8 @@ async def batch_recovery(
     """
     Recover multiple sources.
     """
-    task_id = f"batch_recovery_{int(time.time() * 1000)}"
+    # Generate unique task ID using UUID
+    task_id = f"batch_recovery_{uuid.uuid4().hex}"
 
     # Start batch recovery in background
     background_tasks.add_task(
@@ -515,7 +521,7 @@ async def get_backup_status(
     """
     # Get backup statistics
     total_backups = db.query(BackupSnapshotModel).count()
-    total_size = db.query(BackupSnapshotModel.size_bytes).scalar() or 0
+    total_size = db.query(func.sum(BackupSnapshotModel.size_bytes)).scalar() or 0
 
     # Get backup counts by type
     backups_by_type = {}
@@ -606,7 +612,7 @@ async def get_health_status(
         health_checks.append(HealthCheckResponse(
             component=check.component,
             status=status,
-            last_check=datetime.utcnow(),
+            last_check=datetime.now(timezone.utc),
             failure_count=dr_orchestrator.health_monitor.failure_counts.get(check_id, 0),
             success_count=dr_orchestrator.health_monitor.success_counts.get(check_id, 0),
             details={"check_type": check.check_type, "critical": check.critical}

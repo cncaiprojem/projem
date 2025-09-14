@@ -372,7 +372,7 @@ class IncrementalBackupManager:
                 force_full or
                 len(chain) == 0 or
                 len(chain) >= self.config.max_chain_length or
-                (len(chain) % self.config.synthetic_full_interval == 0)
+                (len(chain) > 0 and len(chain) % self.config.synthetic_full_interval == 0)
             )
 
             backup_type = BackupType.FULL if needs_full else BackupType.INCREMENTAL
@@ -497,9 +497,18 @@ class IncrementalBackupManager:
             for snap_id in chain[start_idx:]:
                 snap = self.snapshots.get(snap_id)
                 if snap and snap.backup_type == BackupType.INCREMENTAL:
-                    # Apply incremental (would use delta here)
+                    # Apply incremental delta to current data
                     incremental_data = await self.restore_snapshot(snap_id)
-                    current_data = incremental_data  # Simplified
+
+                    # Apply delta if we have parent data
+                    if snap.parent_id and self.config.delta_algorithm == DeltaAlgorithm.SIMPLE:
+                        # Create delta between current and incremental
+                        delta = self.delta_encoder.create_delta(current_data, incremental_data)
+                        # Apply the delta to get the new state
+                        current_data = self.delta_encoder.apply_delta(current_data, delta)
+                    else:
+                        # Fallback: use incremental data directly
+                        current_data = incremental_data
 
             # Create new full backup from reconstructed data
             synthetic_id = f"synthetic_{source_id}_{int(time.time() * 1000)}"

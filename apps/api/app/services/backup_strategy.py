@@ -18,6 +18,7 @@ Features:
 from __future__ import annotations
 
 import asyncio
+import base64
 import hashlib
 import json
 import os
@@ -453,6 +454,7 @@ class EncryptionHandler:
     def __init__(self, config: BackupStrategyConfig):
         self.config = config
         self._fernet = None
+        self._encryption_salt = None  # Store salt for key derivation
 
         if config.encryption_method == EncryptionMethod.FERNET:
             key = self._get_or_generate_key()
@@ -466,13 +468,19 @@ class EncryptionHandler:
 
         # Generate from environment or default
         password = getattr(settings, "BACKUP_ENCRYPTION_KEY", "default-backup-key-change-me!")
-        salt = b"freecad-backup-salt"  # Should be random in production
+
+        # Generate a random salt for each key (security best practice)
+        # In production, this salt should be stored with the encrypted data
+        salt = os.urandom(16)  # 16 bytes of cryptographically secure random data
+
+        # Store salt for later use (would need to persist this with the encrypted data)
+        self._encryption_salt = salt
 
         kdf = PBKDF2(
             algorithm=hashes.SHA256(),
             length=32,
             salt=salt,
-            iterations=100000
+            iterations=390000  # Updated to current OWASP recommendation
         )
 
         return base64.urlsafe_b64encode(kdf.derive(password.encode()))

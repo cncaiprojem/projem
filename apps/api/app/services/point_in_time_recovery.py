@@ -308,14 +308,14 @@ class WALManager:
 
     async def cleanup_old_segments(self):
         """Clean up old WAL segments."""
-        cutoff_time = datetime.now() - timedelta(days=self.config.wal_retention_days)
+        cutoff_time = datetime.now(timezone.utc) - timedelta(days=self.config.wal_retention_days)
 
         for segment_file in self.wal_dir.glob("wal_*.log*"):
             try:
                 # Parse timestamp from filename
                 timestamp_str = segment_file.stem.split('_')[1]
                 timestamp = int(timestamp_str) / 1000
-                segment_time = datetime.fromtimestamp(timestamp)
+                segment_time = datetime.fromtimestamp(timestamp, timezone.utc)
 
                 if segment_time < cutoff_time:
                     segment_file.unlink()

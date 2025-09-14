@@ -40,8 +40,8 @@ class BackupPolicy(Base):
     compliance_mode = Column(Boolean, default=False)
     priority = Column(String(20), default="medium")
     tags = Column(JSON, default=list)
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
     created_by_id = Column(Integer, ForeignKey("users.id"))
 
     # Relationships
@@ -223,8 +223,8 @@ class BackupSchedule(Base):
     tags = Column(JSON, default=list)
 
     # Timestamps
-    created_at = Column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow)
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), nullable=False)
+    updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
 
     # Foreign keys
     policy_id = Column(Integer, ForeignKey("backup_policies.id"))

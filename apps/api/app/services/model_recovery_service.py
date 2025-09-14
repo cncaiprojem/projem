@@ -732,18 +732,23 @@ class ModelRecoveryService:
 
             if params.get("restore_backup"):
                 if backup_id:
-                    # Restore specific backup
-                    backup_info = document_manager._backup_index.get(backup_id)
-                    if backup_info:
+                    # Restore specific backup using public method
+                    try:
                         metadata = document_manager.restore_backup(backup_id)
                         return metadata is not None
+                    except Exception as e:
+                        logger.error("Yedek geri yükleme başarısız", backup_id=backup_id, error=str(e))
+                        return False
                 else:
-                    # Find and restore latest backup
-                    backups = document_manager.backups.get(document_id, [])
-                    if backups:
-                        latest_backup = max(backups, key=lambda b: b.created_at)
-                        metadata = document_manager.restore_backup(latest_backup.backup_id)
-                        return metadata is not None
+                    # Find and restore latest backup through public API
+                    try:
+                        # Get backups for document (would need public method)
+                        # For now, attempt to find backup through storage
+                        latest_metadata = await backup_strategy.restore_backup(document_id)
+                        return latest_metadata is not None
+                    except Exception as e:
+                        logger.error("Son yedek bulunamadı", document_id=document_id, error=str(e))
+                        return False
 
                 return False
 

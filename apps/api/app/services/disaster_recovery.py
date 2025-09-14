@@ -232,6 +232,7 @@ class HealthMonitor:
         self.failure_counts: Dict[str, int] = {}
         self.success_counts: Dict[str, int] = {}
         self._monitoring_task = None
+        self._monitoring_lock = asyncio.Lock()  # Add lock for race condition prevention
         self._http_client = httpx.AsyncClient(timeout=config.health_check_timeout_seconds)
 
     def add_health_check(self, check: HealthCheck):
@@ -305,24 +306,26 @@ class HealthMonitor:
 
     async def start_monitoring(self):
         """Start health monitoring loop."""
-        if self._monitoring_task:
-            return
+        async with self._monitoring_lock:
+            if self._monitoring_task:
+                return
 
-        self._monitoring_task = asyncio.create_task(self._monitoring_loop())
-        logger.info("Sağlık izleme başlatıldı")
+            self._monitoring_task = asyncio.create_task(self._monitoring_loop())
+            logger.info("Sağlık izleme başlatıldı")
 
     async def stop_monitoring(self):
         """Stop health monitoring."""
-        if self._monitoring_task:
-            self._monitoring_task.cancel()
-            try:
-                await self._monitoring_task
-            except asyncio.CancelledError:
-                pass
-            self._monitoring_task = None
-            logger.info("Sağlık izleme durduruldu")
+        async with self._monitoring_lock:
+            if self._monitoring_task:
+                self._monitoring_task.cancel()
+                try:
+                    await self._monitoring_task
+                except asyncio.CancelledError:
+                    pass
+                self._monitoring_task = None
+                logger.info("Sağlık izleme durduruldu")
 
-        await self._http_client.aclose()
+            await self._http_client.aclose()
 
     async def _monitoring_loop(self):
         """Health monitoring loop."""
