@@ -17,6 +17,7 @@ import tempfile
 import os
 import json
 import uuid
+import shutil
 from pathlib import Path
 
 from app.core.database import get_db
@@ -54,6 +55,7 @@ from app.services.freecad_service import FreeCADService
 from app.services.manufacturing_validator import ManufacturingValidator
 from app.services.standards_checker import StandardsChecker
 from app.services.quality_metrics import QualityMetrics
+from app.services.storage_client import storage_client
 
 # Database models
 from sqlalchemy import select
@@ -69,8 +71,10 @@ logger = get_logger(__name__)
 # Import FreeCAD with proper error handling
 try:
     import FreeCAD
+    import Import
 except ImportError:
     FreeCAD = None
+    Import = None
     logger.warning("FreeCAD not available - validation features will be limited")
 
 router = APIRouter(prefix="/model-validation", tags=["Model Validation"])
@@ -495,7 +499,7 @@ async def suggest_fixes(
             # Generate suggestions
             fix_generator = AutoFixSuggestions()
             
-            suggestions = await fix_generator.suggest_fixes(validation_result)
+            suggestions = fix_generator.suggest_fixes(validation_result)
             
             return suggestions
             
@@ -529,7 +533,7 @@ async def apply_fixes(
             # Apply fixes
             fix_generator = AutoFixSuggestions()
             
-            report = await fix_generator.apply_automated_fixes(
+            report = fix_generator.apply_automated_fixes(
                 doc=doc,
                 suggestions=suggestions,
                 auto_approve=request.auto_approve
@@ -575,13 +579,13 @@ async def upload_and_validate(
         tmp_path = None
         doc = None
         try:
-            # Save uploaded file temporarily
+            # Save uploaded file temporarily using streaming to avoid memory issues
             with tempfile.NamedTemporaryFile(
                 delete=False,
                 suffix=Path(file.filename).suffix
             ) as tmp_file:
-                content = await file.read()
-                tmp_file.write(content)
+                # Use streaming copy instead of loading entire file into memory
+                await asyncio.to_thread(shutil.copyfileobj, file.file, tmp_file)
                 tmp_path = tmp_file.name
             
             # Load into FreeCAD
@@ -592,10 +596,8 @@ async def upload_and_validate(
             if file_ext in ['.fcstd', '.FCStd']:
                 FreeCAD.openDocument(tmp_path)
             elif file_ext in ['.step', '.stp', '.STEP', '.STP']:
-                import Import
                 Import.insert(tmp_path, doc.Name)
             elif file_ext in ['.iges', '.igs', '.IGES', '.IGS']:
-                import Import
                 Import.insert(tmp_path, doc.Name)
             else:
                 raise ValueError(f"Desteklenmeyen dosya formatı: {file_ext}")
@@ -653,7 +655,6 @@ async def upload_and_validate(
 async def _store_report(report: str, user_id: int, db: AsyncSession) -> str:
     """Store validation report and return URL."""
     try:
-        from app.services.storage_client import storage_client
         
         # Generate unique report ID
         report_id = str(uuid.uuid4())
@@ -825,8 +826,6 @@ async def _revalidate_model(
 ) -> ValidationResult:
     """Re-validate model after fixes."""
     try:
-        from app.services.model_validation import ModelValidationFramework
-        from app.schemas.validation import ValidationProfile
         
         # Create validation framework
         framework = ModelValidationFramework()

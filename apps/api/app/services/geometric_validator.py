@@ -77,7 +77,8 @@ class TopologyCheck:
 class WallThicknessAnalyzer:
     """Analyzer for wall thickness using ray casting."""
     
-    def __init__(self, resolution: int = 100):
+    def __init__(self, resolution: int = 20):
+        """Initialize with reasonable resolution (20x20x20 = 8K points instead of 100x100x100 = 1M points)."""
         self.resolution = resolution
     
     def analyze(self, shape: Any) -> Dict[Tuple[float, float, float], float]:
@@ -90,10 +91,19 @@ class WallThicknessAnalyzer:
             if not bbox:
                 return thickness_map
             
-            # Create sampling grid
-            x_samples = self.resolution
-            y_samples = self.resolution
-            z_samples = self.resolution
+            # Create sampling grid with adaptive resolution based on size
+            # Use lower resolution for larger models to avoid excessive computation
+            max_dim = max(bbox.XLength, bbox.YLength, bbox.ZLength)
+            if max_dim > 1000:  # Large model (> 1m)
+                effective_resolution = min(self.resolution, 10)
+            elif max_dim > 500:  # Medium model (> 500mm)
+                effective_resolution = min(self.resolution, 15)
+            else:  # Small model
+                effective_resolution = self.resolution
+            
+            x_samples = effective_resolution
+            y_samples = effective_resolution
+            z_samples = effective_resolution
             
             x_step = bbox.XLength / x_samples if x_samples > 0 else 1
             y_step = bbox.YLength / y_samples if y_samples > 0 else 1

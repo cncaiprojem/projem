@@ -121,19 +121,5 @@ class ManufacturingValidation:
         return self.is_manufacturable
 
 
-# Turkish validation messages
-VALIDATION_MESSAGES_TR = {
-    "self_intersection": "Model kendisiyle kesişiyor",
-    "non_manifold": "Manifold olmayan kenarlar bulundu",
-    "open_edges": "Açık kenarlar bulundu",
-    "thin_walls": "İnce duvarlar tespit edildi",
-    "small_features": "Küçük özellikler tespit edildi",
-    "sharp_corners": "Keskin köşeler bulundu",
-    "overhangs": "Fazla sarkma tespit edildi",
-    "undercuts": "Alt kesimler bulundu",
-    "tolerance_violation": "Tolerans ihlali tespit edildi",
-    "no_geometry": "Geometri bulunamadı",
-    "inaccessible_features": "Erişilemeyen özellikler bulundu",
-    "material_incompatible": "Malzeme uyumsuz",
-    "unsupported_process": "Desteklenmeyen üretim süreci",
-}
+# Import centralized Turkish validation messages
+from ..constants.messages import VALIDATION_MESSAGES_TR

@@ -1244,45 +1244,14 @@ class ManufacturingValidator:
                     compound = Part.makeCompound(shapes)
                     return compound
             
-            # Fallback to mock shape if FreeCAD objects not available
+            # No valid shapes found
             if doc_handle:
-                logger.warning("No valid shapes found in document, using mock shape")
-                class MockShape:
-                    def __init__(self):
-                        self.Faces = list(range(10))
-                        self.Edges = list(range(20))
-                        self.Volume = 5000.0
-                        self.Area = 1000.0
-                        self.BoundBox = MockBoundBox()
-                        self.ShapeType = "Solid"
-                
-                class MockBoundBox:
-                    XMin, YMin, ZMin = 0, 0, 0
-                    XMax, YMax, ZMax = 100, 100, 50
-                    XLength, YLength, ZLength = 100, 100, 50
-                
-                return MockShape()
+                logger.warning("No valid shapes found in document")
             
             return None
             
         except ImportError:
-            logger.warning("FreeCAD not available, using mock shape")
-            # Return mock shape if FreeCAD not available
-            if doc_handle:
-                class MockShape:
-                    def __init__(self):
-                        self.Faces = list(range(10))
-                        self.Edges = list(range(20))
-                        self.Volume = 5000.0
-                        self.Area = 1000.0
-                        self.BoundBox = type('BoundBox', (), {
-                            'XMin': 0, 'YMin': 0, 'ZMin': 0,
-                            'XMax': 100, 'YMax': 100, 'ZMax': 50,
-                            'XLength': 100, 'YLength': 100, 'ZLength': 50
-                        })()
-                        self.ShapeType = "Solid"
-                
-                return MockShape()
+            logger.warning("FreeCAD not available")
             return None
         except Exception as e:
             logger.error("Failed to extract shape", exc_info=True)

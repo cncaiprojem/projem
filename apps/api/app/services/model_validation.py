@@ -966,7 +966,7 @@ class AutoFixSuggestions:
         """Initialize AutoFixSuggestions."""
         self.logger = logger
     
-    async def suggest_fixes(self, validation_result: ValidationResult) -> List[FixSuggestion]:
+    def suggest_fixes(self, validation_result: ValidationResult) -> List[FixSuggestion]:
         """Generate fix suggestions based on validation issues."""
         suggestions = []
         
@@ -998,7 +998,7 @@ class AutoFixSuggestions:
         
         return suggestions
     
-    async def apply_automated_fixes(
+    def apply_automated_fixes(
         self,
         doc: Any,
         suggestions: List[FixSuggestion],

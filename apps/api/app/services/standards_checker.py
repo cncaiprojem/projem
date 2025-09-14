@@ -909,16 +909,11 @@ class StandardsChecker:
         """Check compliance with multiple standards."""
         results = {}
         
-        # Run checks in parallel
-        tasks = []
-        for standard in standards:
-            tasks.append(self.check_compliance(doc_handle, standard))
-        
-        # Run checks sequentially in sync mode
+        # Run checks sequentially
         compliance_results = []
-        for task in tasks:
+        for standard in standards:
             try:
-                result = task()
+                result = self.check_compliance(doc_handle, standard)
                 compliance_results.append(result)
             except Exception as e:
                 compliance_results.append(e)
