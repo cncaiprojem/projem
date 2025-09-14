@@ -11,8 +11,6 @@ Provides REST API and WebSocket endpoints for:
 """
 
 from typing import List, Optional, Dict, Any
-from collections import deque
-import time as time_module
 from fastapi import APIRouter, Depends, HTTPException, WebSocket, WebSocketDisconnect, BackgroundTasks, Query
 from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,6 +22,7 @@ import os
 import tempfile
 from pathlib import Path
 import time
+import re
 
 from app.core.database import get_db
 from app.core.auth import get_current_user
@@ -86,7 +85,6 @@ class ConnectionManager:
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self._monitoring_task: Optional[asyncio.Task] = None
-        self._operation_history: deque = deque(maxlen=100)  # Track last 100 operations
         self._last_metrics_time = time.time()
 
     async def connect(self, websocket: WebSocket):
@@ -188,13 +186,17 @@ class ConnectionManager:
                 await asyncio.sleep(5)
 
     def _calculate_operations_per_second(self) -> float:
-        """Calculate operations per second from recent history."""
-        if not self._operation_history:
+        """Calculate operations per second from recent history in Redis."""
+        # Get recent operations from Redis state manager
+        recent_ops = state_manager.get_recent_operations(seconds=60)
+
+        if not recent_ops:
             return 0.0
 
         current_time = time.time()
-        recent_ops = [op for op in self._operation_history
-                     if current_time - op['timestamp'] <= 60]  # Last minute
+        # Filter operations within last minute
+        recent_ops = [op for op in recent_ops
+                     if current_time - op.get('timestamp', 0) <= 60]
 
         if not recent_ops:
             return 0.0
@@ -203,13 +205,15 @@ class ConnectionManager:
         return len(recent_ops) / max(time_span, 1.0)
 
     def _calculate_avg_response_time(self) -> float:
-        """Calculate average response time in milliseconds."""
-        if not self._operation_history:
-            return 0.0
+        """Calculate average response time in milliseconds from Redis."""
+        # Get recent operations from Redis state manager
+        recent_ops = state_manager.get_recent_operations(seconds=300)  # Last 5 minutes
 
-        recent_ops = list(self._operation_history)[-20:]  # Last 20 operations
         if not recent_ops:
             return 0.0
+
+        # Get last 20 operations
+        recent_ops = recent_ops[-20:] if len(recent_ops) > 20 else recent_ops
 
         durations = [op.get('duration_ms', 0) for op in recent_ops if 'duration_ms' in op]
         if not durations:
@@ -218,13 +222,15 @@ class ConnectionManager:
         return sum(durations) / len(durations)
 
     def _calculate_error_rate(self) -> float:
-        """Calculate error rate from recent operations."""
-        if not self._operation_history:
-            return 0.0
+        """Calculate error rate from recent operations in Redis."""
+        # Get recent operations from Redis state manager
+        recent_ops = state_manager.get_recent_operations(seconds=600)  # Last 10 minutes
 
-        recent_ops = list(self._operation_history)[-50:]  # Last 50 operations
         if not recent_ops:
             return 0.0
+
+        # Get last 50 operations
+        recent_ops = recent_ops[-50:] if len(recent_ops) > 50 else recent_ops
 
         errors = sum(1 for op in recent_ops if not op.get('success', True))
         return (errors / len(recent_ops)) * 100.0
@@ -272,11 +278,8 @@ async def start_profiling(
                     detail="GPU monitoring not available"
                 )
 
-        # Store in Redis-based state manager
+        # Store only in Redis-based state manager for multi-worker consistency
         state_manager.add_active_profiler(profile_id, profile_data)
-
-        # Also store locally for backward compatibility
-        performance_profiler._active_profilers[profile_id] = profile_data
 
         # Enable continuous monitoring if requested
         if request.enable_continuous:
@@ -381,14 +384,19 @@ async def profile_operation(
             request.operation_name,
             request.metadata
         ) as operation:
-            # Simulate some work to properly test profiling
-            import time
-            time.sleep(0.01)  # Minimal delay to simulate operation
+            # Real operation profiling - geometry stats will be collected automatically
+            pass
 
-            # Set some mock geometry statistics for testing
-            operation.object_count = 10
-            operation.vertex_count = 100
-            operation.face_count = 50
+        # Store operation in Redis for metrics calculation
+        operation_data = {
+            'operation_id': operation.operation_id,
+            'operation_type': request.operation_type.value,
+            'duration_ms': operation.duration_seconds * 1000,
+            'success': operation.success,
+            'timestamp': time.time(),
+            'user_id': current_user.id
+        }
+        state_manager.add_operation_history(operation_data)
 
         # Return metrics
         return OperationMetricsResponse(
@@ -810,22 +818,32 @@ async def export_profiles(
     # Get profiles to export
     profiles = performance_profiler.get_recent_profiles(request.profile_type, limit=1000)
 
-    # Filter by date if specified
+    # Filter by date if specified with error handling
     if request.start_date:
-        profiles = [
-            p for p in profiles
-            if p.get("start_time") and
-            (datetime.fromisoformat(p.get("start_time")) >= request.start_date
-             if isinstance(p.get("start_time"), str) else False)
-        ]
+        filtered_profiles = []
+        for p in profiles:
+            if p.get("start_time"):
+                try:
+                    start_time = datetime.fromisoformat(p.get("start_time")) if isinstance(p.get("start_time"), str) else p.get("start_time")
+                    if start_time >= request.start_date:
+                        filtered_profiles.append(p)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Invalid start_time format in profile: {e}")
+                    continue
+        profiles = filtered_profiles
 
     if request.end_date:
-        profiles = [
-            p for p in profiles
-            if p.get("start_time") and
-            (datetime.fromisoformat(p.get("start_time")) <= request.end_date
-             if isinstance(p.get("start_time"), str) else False)
-        ]
+        filtered_profiles = []
+        for p in profiles:
+            if p.get("start_time"):
+                try:
+                    start_time = datetime.fromisoformat(p.get("start_time")) if isinstance(p.get("start_time"), str) else p.get("start_time")
+                    if start_time <= request.end_date:
+                        filtered_profiles.append(p)
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Invalid start_time format in profile: {e}")
+                    continue
+        profiles = filtered_profiles
 
     # Create export file
     export_dir = Path(tempfile.gettempdir()) / "performance_exports"
@@ -909,7 +927,6 @@ async def download_export(
     Dışa aktarılan profilleri indirir.
     """
     # Validate export_id to prevent path traversal
-    import re
     if not re.fullmatch(r'^export_[a-f0-9]{8}$', export_id):
         raise HTTPException(status_code=400, detail="Invalid export ID format")
 

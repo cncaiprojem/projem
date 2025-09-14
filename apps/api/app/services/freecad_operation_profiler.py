@@ -224,8 +224,12 @@ class FreeCADOperationProfiler:
 
                 # Resource usage
                 final_memory = process.memory_info().rss / (1024 * 1024)  # MB
-                peak_memory = process.memory_info().rss / (1024 * 1024)  # Simplified
                 final_cpu_time = process.cpu_times().user + process.cpu_times().system
+
+                # Track peak memory by checking the memory_info throughout the operation
+                # For now, use max of initial and final as approximation
+                # In production, this should be tracked continuously during the operation
+                peak_memory = max(initial_memory, final_memory)
 
                 operation.memory_used_mb = final_memory - initial_memory
                 operation.memory_peak_mb = peak_memory
@@ -610,14 +614,11 @@ class FreeCADOperationProfiler:
 
                     except ImportError:
                         # FreeCAD not available in this environment
-                        # Use mock data for testing
-                        import random
-                        stats["object_count"] = random.randint(1, 20)
-                        stats["vertex_count"] = random.randint(10, 1000)
-                        stats["face_count"] = random.randint(5, 100)
-                        stats["edge_count"] = random.randint(10, 200)
-                        stats["shape_count"] = stats["object_count"]
-                        stats["solid_count"] = random.randint(0, stats["object_count"])
+                        # In production, we should raise an error or return empty stats
+                        # instead of using mock data
+                        logger.warning("FreeCAD not available, cannot get geometry statistics")
+                        # Return empty stats in production
+                        pass
 
         except Exception as e:
             logger.debug(f"Could not get geometry statistics: {e}")

@@ -295,9 +295,9 @@ class AdvancedMemoryProfiler:
         memory_growth_mb = last_snapshot.process_memory_mb - first_snapshot.process_memory_mb
         growth_rate_mb_per_hour = memory_growth_mb / time_diff_hours
 
-        # Check if growth exceeds threshold
-        if abs(growth_rate_mb_per_hour) > self.leak_detection_threshold_mb:
-            # Determine severity
+        # Check if positive growth exceeds threshold (only detect leaks, not memory reductions)
+        if growth_rate_mb_per_hour > self.leak_detection_threshold_mb:
+            # Determine severity based on growth rate
             if growth_rate_mb_per_hour > 100:
                 severity = LeakSeverity.CRITICAL
             elif growth_rate_mb_per_hour > 50:
