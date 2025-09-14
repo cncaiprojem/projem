@@ -243,6 +243,7 @@ async def validate_manufacturing(
                 result = await asyncio.to_thread(
                     validator.validate,
                     doc,
+                    request.process,  # Add the missing process parameter
                     request.machine_spec
                 )
             else:
@@ -613,15 +614,16 @@ async def upload_and_validate(
                 tmp_path = tmp_file.name
             
             # Load into FreeCAD
-            doc = FreeCAD.newDocument("UploadedModel")
+            doc = None
             
             # Import based on file type
             file_ext = Path(file.filename).suffix.lower()
             if file_ext in ['.fcstd', '.FCStd']:
-                FreeCAD.openDocument(tmp_path)
-            elif file_ext in ['.step', '.stp', '.STEP', '.STP']:
-                Import.insert(tmp_path, doc.Name)
-            elif file_ext in ['.iges', '.igs', '.IGES', '.IGS']:
+                # For FCStd files, open the document directly and assign it
+                doc = FreeCAD.openDocument(tmp_path)
+            elif file_ext in ['.step', '.stp', '.STEP', '.STP', '.iges', '.igs', '.IGES', '.IGS']:
+                # For STEP/IGES files, create new document and import
+                doc = FreeCAD.newDocument("UploadedModel")
                 Import.insert(tmp_path, doc.Name)
             else:
                 raise ValueError("Desteklenmeyen dosya formatı")
@@ -666,7 +668,7 @@ def _cleanup_resources(tmp_path: Optional[str], doc: Optional[Any]) -> None:
     
     if doc:
         try:
-            import FreeCAD
+            # Use the module-level FreeCAD import
             FreeCAD.closeDocument(doc.Name)
         except Exception:
             logger.debug("Best effort document cleanup failed")
