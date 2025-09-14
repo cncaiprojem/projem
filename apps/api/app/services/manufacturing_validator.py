@@ -761,12 +761,10 @@ class ManufacturingValidator:
                     checks.append(ToleranceCheck(
                         feature_id=feature_id,
                         feature_type="hole",
-                        nominal_value=nominal,
-                        tolerance_min=nominal - achievable_tol,
-                        tolerance_max=nominal + achievable_tol,
-                        actual_value=actual,
+                        specified_tolerance=achievable_tol,
+                        achievable_tolerance=achievable_tol,
                         is_within_tolerance=abs(deviation) <= achievable_tol,
-                        deviation=deviation
+                        recommendation=f"Delik çapı toleransı: ±{achievable_tol:.3f}mm" if abs(deviation) <= achievable_tol else f"Tolerans dışı: {deviation:.3f}mm sapma"
                     ))
                 
                 elif feature.get("type") == "pocket" and "dimensions" in feature:
@@ -783,12 +781,10 @@ class ManufacturingValidator:
                         checks.append(ToleranceCheck(
                             feature_id=f"{feature_id}_{dim_name}",
                             feature_type=f"pocket_{dim_name}",
-                            nominal_value=nominal,
-                            tolerance_min=nominal - achievable_tol,
-                            tolerance_max=nominal + achievable_tol,
-                            actual_value=actual,
+                            specified_tolerance=achievable_tol,
+                            achievable_tolerance=achievable_tol,
                             is_within_tolerance=abs(deviation) <= achievable_tol,
-                            deviation=deviation
+                            recommendation=f"Cep {dim_name} toleransı: ±{achievable_tol:.3f}mm" if abs(deviation) <= achievable_tol else f"Tolerans dışı: {deviation:.3f}mm sapma"
                         ))
             
             # If no specific features found, check overall dimensions
@@ -811,12 +807,10 @@ class ManufacturingValidator:
                     checks.append(ToleranceCheck(
                         feature_id=f"overall_{dim_name}",
                         feature_type=f"overall_{dim_name}",
-                        nominal_value=nominal,
-                        tolerance_min=nominal - achievable_tol,
-                        tolerance_max=nominal + achievable_tol,
-                        actual_value=actual,
+                        specified_tolerance=achievable_tol,
+                        achievable_tolerance=achievable_tol,
                         is_within_tolerance=True,
-                        deviation=deviation
+                        recommendation=f"Genel {dim_name} toleransı: ±{achievable_tol:.3f}mm"
                     ))
         
         except Exception as e:

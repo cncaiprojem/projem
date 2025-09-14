@@ -22,8 +22,7 @@ from ..models.validation_models import (
     ComplianceResult,
     ComplianceViolation,
     StandardType,
-    ValidationSeverity,
-    VALIDATION_MESSAGES_TR
+    ValidationSeverity
 )
 
 logger = get_logger(__name__)
@@ -288,20 +287,14 @@ class ASMEY145Checker(StandardChecker):
                                 "expected": obj.Name
                             })
             
-            # If no features found, return default set
+            # If no features found, return empty list
             if not features:
-                features = [
-                    {"id": "1", "type": "flatness", "value": 0.1, "expected": 0.1},
-                    {"id": "2", "type": "perpendicularity", "value": 0.05, "expected": 0.05}
-                ]
+                features = []
                 
         except Exception as e:
-            logger.debug("GD&T extraction error")
-            # Return default features on error
-            features = [
-                {"id": "1", "type": "flatness", "value": 0.1, "expected": 0.1},
-                {"id": "2", "type": "perpendicularity", "value": 0.05, "expected": 0.05}
-            ]
+            logger.debug(f"GD&T extraction error: {e}")
+            # Return empty list on error
+            features = []
         
         return features
     
