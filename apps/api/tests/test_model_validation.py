@@ -672,13 +672,14 @@ class TestAutoFixSuggestions:
         
         suggestions = [
             FixSuggestion(
-                id=str(uuid4()),
-                issue_type="thin_walls",
+                suggestion_id=str(uuid4()),
+                issue_id=str(uuid4()),
+                type="thin_walls",
                 description="Kalınlığı artır",
-                description_tr="Kalınlığı artır",
-                confidence=0.95,
-                estimated_impact="low",
-                apply=AsyncMock(return_value={"success": True})
+                turkish_description="Kalınlığı artır",
+                confidence="high",  # Use string value instead of float
+                automated=True,
+                parameters={"min_thickness": 1.0}
             )
         ]
         
@@ -699,13 +700,14 @@ class TestAutoFixSuggestions:
         
         suggestions = [
             FixSuggestion(
-                id=str(uuid4()),
-                issue_type="complex_issue",
+                suggestion_id=str(uuid4()),
+                issue_id=str(uuid4()),
+                type="complex_issue",
                 description="Complex fix",
-                description_tr="Karmaşık düzeltme",
-                confidence=0.7,  # Below auto-approve threshold
-                estimated_impact="high",
-                apply=AsyncMock()
+                turkish_description="Karmaşık düzeltme",
+                confidence="low",  # Low confidence requires manual approval
+                automated=True,
+                parameters={}
             )
         ]
         

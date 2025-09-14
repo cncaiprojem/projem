@@ -1363,8 +1363,9 @@ class ManufacturingValidator:
         # Check if material is specified in request
         if material_spec:
             material_type = material_spec.get('type', '').lower()
-            custom_density = material_spec.get('density')
-            custom_cost = material_spec.get('cost_per_kg')
+            # Check both naming conventions for density and cost
+            custom_density = material_spec.get('custom_density') or material_spec.get('density')
+            custom_cost = material_spec.get('custom_cost_per_kg') or material_spec.get('cost_per_kg')
             
             # Use custom values if provided
             if custom_density and custom_cost:

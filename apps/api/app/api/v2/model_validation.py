@@ -270,7 +270,24 @@ async def validate_manufacturing(
             
             # Estimate cost and lead time using real geometry-based calculation
             # Extract material spec from request if available
-            material_spec = request.machine_spec.get('material') if request.machine_spec else None
+            material_spec = None
+            if request.machine_spec:
+                # Handle both string and dict material specs
+                material_from_spec = request.machine_spec.get('material')
+                if material_from_spec:
+                    if isinstance(material_from_spec, str):
+                        # Convert string to dict format for consistency
+                        material_spec = {'type': material_from_spec}
+                    else:
+                        material_spec = material_from_spec
+            
+            # Also check direct material field on request
+            if hasattr(request, 'material') and request.material:
+                if isinstance(request.material, str):
+                    material_spec = {'type': request.material}
+                else:
+                    material_spec = request.material
+            
             unit_cost = result.cost_estimate if hasattr(result, 'cost_estimate') else validator._estimate_cost(shape, request.process, material_spec)
             unit_lead_time = result.lead_time_estimate if hasattr(result, 'lead_time_estimate') else validator._estimate_lead_time(shape, request.process)
             
@@ -903,9 +920,10 @@ async def _revalidate_model(
             status=result.status.value,
             overall_score=result.overall_score,
             sections_json=json.dumps({
-                name: section.dict() for name, section in result.sections.items()
+                name: section.dict() if hasattr(section, 'dict') else str(section)
+                for name, section in result.sections.items()
             }),
-            issues_json=json.dumps([issue.dict() for issue in result.issues]),
+            issues_json=json.dumps([issue.dict() if hasattr(issue, 'dict') else str(issue) for issue in result.issues]),
             duration_ms=result.duration_ms
         )
         
