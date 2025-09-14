@@ -123,7 +123,7 @@ class ConnectionManager:
             # Start Redis subscriber task (receives metrics from all workers)
             self._subscriber_task = asyncio.create_task(self._subscribe_to_redis())
 
-    def disconnect(self, websocket: WebSocket):
+    async def disconnect(self, websocket: WebSocket):
         """Remove WebSocket connection and cleanup if last client."""
         if websocket in self.active_connections:
             self.active_connections.remove(websocket)
@@ -136,38 +136,45 @@ class ConnectionManager:
         if len(self.active_connections) == 0:
             if self._monitoring_task:
                 self._monitoring_task.cancel()
+                try:
+                    await self._monitoring_task
+                except asyncio.CancelledError:
+                    pass
                 self._monitoring_task = None
 
             if self._subscriber_task:
                 self._subscriber_task.cancel()
+                try:
+                    await self._subscriber_task
+                except asyncio.CancelledError:
+                    pass
                 self._subscriber_task = None
 
             # Cleanup Redis subscriber
             if self._pubsub:
                 try:
-                    self._pubsub.close()
+                    await self._pubsub.close()
                 except Exception as e:
                     logger.error(f"Error closing pubsub: {e}")
-                self._pubsub = None
+                finally:
+                    self._pubsub = None
 
             if self._subscriber_client:
                 try:
-                    self._subscriber_client.close()
+                    await self._subscriber_client.close()
                 except Exception as e:
                     logger.error(f"Error closing subscriber client: {e}")
-                self._subscriber_client = None
+                finally:
+                    self._subscriber_client = None
 
             # Cleanup publisher pool
             if self._publisher_pool:
                 try:
-                    # Properly disconnect async pool
-                    import asyncio
-                    loop = asyncio.get_event_loop()
-                    if not loop.is_closed():
-                        asyncio.create_task(self._publisher_pool.disconnect())
+                    await self._publisher_pool.disconnect()
                 except Exception as e:
                     logger.error(f"Error closing publisher pool: {e}")
-                self._publisher_pool = None
+                finally:
+                    self._publisher_pool = None
 
     async def _subscribe_to_redis(self):
         """
@@ -236,7 +243,7 @@ class ConnectionManager:
 
         # Remove disconnected clients
         for conn in disconnected:
-            self.disconnect(conn)
+            await self.disconnect(conn)
 
     async def publish_metrics(self, message: PerformanceMetricsMessage):
         """
@@ -1179,5 +1186,5 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json(status)
 
     except WebSocketDisconnect:
-        manager.disconnect(websocket)
+        await manager.disconnect(websocket)
         logger.info("WebSocket client disconnected")
