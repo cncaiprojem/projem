@@ -980,7 +980,7 @@ class AutoFixSuggestions:
         framework = ModelValidationFramework()
         return framework._generate_fix_suggestions(validation_result)
     
-    def apply_automated_fixes(
+    async def apply_automated_fixes(
         self,
         doc: Any,
         suggestions: List[FixSuggestion],
@@ -1027,15 +1027,8 @@ class AutoFixSuggestions:
         
         # Apply the filtered suggestions using the framework's implementation
         try:
-            # Use async to sync conversion for the async method
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            
-            # Call the framework's implementation
-            report = loop.run_until_complete(
-                framework._apply_automated_fixes(doc, filtered_suggestions)
-            )
+            # Direct async call since this method is now async
+            report = await framework._apply_automated_fixes(doc, filtered_suggestions)
             
             # Add skipped manual fixes to the report
             report.skipped_fixes += len(skipped_manual)

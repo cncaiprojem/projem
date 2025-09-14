@@ -1332,77 +1332,54 @@ class ManufacturingValidator:
         return False
     
     def _has_uniform_wall_thickness(self, shape: Any, tolerance: float = 0.1) -> bool:
-        """Check if shape has uniform wall thickness using ray casting approach."""
+        """Check if shape has uniform wall thickness using ray casting approach.
+        
+        This method reuses the robust WallThicknessAnalyzer from geometric_validator.py
+        to avoid code duplication and improve accuracy.
+        """
         try:
-            import FreeCAD
-            import Part
+            # Import and use the existing WallThicknessAnalyzer
+            from app.services.geometric_validator import WallThicknessAnalyzer
             
             if not hasattr(shape, 'Faces') or not hasattr(shape, 'Solids'):
                 return True  # Can't check non-solid shapes
             
-            # For solid shapes, use a sampling approach
+            # For solid shapes, use the wall thickness analyzer
             if len(shape.Solids) == 0:
                 return True  # Not a solid
             
-            # Sample points on outer faces and measure thickness
-            thicknesses = []
-            sampled_faces = []
+            # Use the WallThicknessAnalyzer with reasonable resolution
+            analyzer = WallThicknessAnalyzer(resolution=20)
+            thickness_map = analyzer.analyze(shape)
             
-            # Get bounding box for shape
+            if not thickness_map:
+                return True  # Could not measure, assume OK
+            
+            # Get all thickness values
+            thicknesses = list(thickness_map.values())
+            
+            # Filter out invalid measurements (0 or very large values)
             if hasattr(shape, 'BoundBox'):
-                bbox = shape.BoundBox
-                diagonal = bbox.DiagonalLength
-                min_thickness = diagonal * 0.001  # Minimum meaningful thickness
-                
-                # Sample a subset of faces
-                faces = shape.Faces
-                num_samples = min(10, len(faces))  # Sample up to 10 faces
-                import random
-                if len(faces) > num_samples:
-                    sampled_faces = random.sample(faces, num_samples)
-                else:
-                    sampled_faces = faces
-                
-                for face in sampled_faces:
-                    if hasattr(face, 'CenterOfMass') and hasattr(face, 'normalAt'):
-                        try:
-                            # Get face center and normal
-                            center = face.CenterOfMass
-                            u, v = face.Surface.parameter(center) if hasattr(face, 'Surface') else (0.5, 0.5)
-                            normal = face.normalAt(u, v)
-                            
-                            # Cast ray inward from face center
-                            ray_start = center
-                            ray_dir = normal.multiply(-1)  # Inward direction
-                            
-                            # Simple thickness estimation: find opposite face
-                            # This is a simplified approach - proper implementation would use ray-shape intersection
-                            for other_face in faces:
-                                if other_face != face and hasattr(other_face, 'CenterOfMass'):
-                                    # Check if the other face is roughly opposite
-                                    other_center = other_face.CenterOfMass
-                                    dist_vector = other_center.sub(center)
-                                    
-                                    # Check if faces are roughly parallel and opposite
-                                    if dist_vector.Length > min_thickness:
-                                        dot_product = ray_dir.dot(dist_vector.normalize())
-                                        if dot_product > 0.7:  # Faces are roughly aligned
-                                            thicknesses.append(dist_vector.Length)
-                                            break
-                        except Exception:
-                            continue  # Skip problematic faces
+                max_valid = shape.BoundBox.DiagonalLength
+                thicknesses = [t for t in thicknesses if 0.001 < t < max_valid]
             
             if not thicknesses:
-                return True  # Could not measure, assume OK
+                return True  # No valid measurements
             
             # Check uniformity
             avg_thickness = sum(thicknesses) / len(thicknesses)
+            
+            # Check if all thicknesses are within tolerance
             for thickness in thicknesses:
                 if abs(thickness - avg_thickness) / avg_thickness > tolerance:
                     return False
             
             return True
             
+        except ImportError:
+            # Fallback if import fails
+            logger.warning("Could not import WallThicknessAnalyzer, using simplified check")
+            return True  # Assume OK if can't import
         except Exception as e:
             logger.warning(f"Error checking wall thickness: {e}")
             return True  # Assume OK if can't check
@@ -1439,30 +1416,52 @@ class ManufacturingValidator:
             return True  # Assume OK if can't check
     
     def _has_complex_undercuts(self, shape: Any) -> bool:
-        """Check if shape has complex undercuts that would prevent molding."""
+        """Check if shape has complex undercuts that would prevent molding.
+        
+        This method uses the more robust detect_undercuts method logic
+        to properly identify undercuts based on machining axis accessibility.
+        """
         try:
-            import FreeCAD
-            import Part
+            # Use the existing robust detect_undercuts method
+            # Assume 3-axis for injection molding (single pull direction)
+            undercuts = self.detect_undercuts(shape, axes=3)
             
-            if not hasattr(shape, 'Faces'):
-                return False
+            # Consider it complex if we have more than 2 undercuts
+            # or if any undercut has a significant angle
+            if len(undercuts) > 2:
+                return True
             
-            # Check for faces that would create undercuts in Z direction
-            z_axis = FreeCAD.Vector(0, 0, 1)
-            undercut_count = 0
+            # Check for severe undercuts (angle > 45 degrees)
+            for undercut in undercuts:
+                if undercut.get('angle', 0) > 45:
+                    return True
             
-            for face in shape.Faces:
-                if hasattr(face, 'normalAt'):
-                    normal = face.normalAt(0.5, 0.5)  # Get normal at face center
-                    # Check if face normal points downward (potential undercut)
-                    if normal.z < -0.1:  # Pointing downward
-                        undercut_count += 1
+            return False
             
-            # More than 2 undercuts is considered complex
-            return undercut_count > 2
         except Exception as e:
             logger.warning(f"Error checking undercuts: {e}")
-            return False  # Assume no complex undercuts if can't check
+            # Fallback to simplified check
+            try:
+                import FreeCAD
+                
+                if not hasattr(shape, 'Faces'):
+                    return False
+                
+                # Simple fallback: count downward-facing surfaces
+                undercut_count = 0
+                for face in shape.Faces:
+                    if hasattr(face, 'normalAt'):
+                        try:
+                            normal = face.normalAt(0.5, 0.5)
+                            if normal.z < -0.1:  # Pointing downward
+                                undercut_count += 1
+                        except:
+                            continue
+                
+                return undercut_count > 2
+                
+            except:
+                return False  # Assume no complex undercuts if can't check
     
     def _has_constant_thickness(self, shape: Any) -> bool:
         return True

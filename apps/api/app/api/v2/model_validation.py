@@ -533,7 +533,7 @@ async def apply_fixes(
             # Apply fixes
             fix_generator = AutoFixSuggestions()
             
-            report = fix_generator.apply_automated_fixes(
+            report = await fix_generator.apply_automated_fixes(
                 doc=doc,
                 suggestions=suggestions,
                 auto_approve=request.auto_approve

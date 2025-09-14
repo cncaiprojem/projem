@@ -7,7 +7,7 @@ All critical schema validation errors and code quality issues have been successf
 
 ### 1. ValueError to HTTPException Conversions (3 occurrences)
 **Fixed in:** `apps/api/app/api/v2/model_validation.py`
-- Line 202: "Model geometri içermiyor" 
+- Line 202: "Model geometri içermiyor"
 - Line 217: "Desteklenmeyen üretim yöntemi"
 - Line 574: "Desteklenmeyen dosya formatı"
 
