@@ -21,6 +21,7 @@ import hashlib
 import json
 import struct
 import time
+import uuid
 from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -380,8 +381,8 @@ class IncrementalBackupManager:
 
             span.set_attribute("backup_type", backup_type.value)
 
-            # Create snapshot
-            snapshot_id = f"snap_{source_id}_{int(time.time() * 1000)}"
+            # Create snapshot with UUID
+            snapshot_id = f"snap_{source_id}_{uuid.uuid4().hex}"
             snapshot = BackupSnapshot(
                 snapshot_id=snapshot_id,
                 parent_id=parent_id,
@@ -510,8 +511,8 @@ class IncrementalBackupManager:
                         # Fallback: use incremental data directly
                         current_data = incremental_data
 
-            # Create new full backup from reconstructed data
-            synthetic_id = f"synthetic_{source_id}_{int(time.time() * 1000)}"
+            # Create new full backup from reconstructed data with UUID
+            synthetic_id = f"synthetic_{source_id}_{uuid.uuid4().hex}"
             synthetic_snapshot = BackupSnapshot(
                 snapshot_id=synthetic_id,
                 backup_type=BackupType.SYNTHETIC,

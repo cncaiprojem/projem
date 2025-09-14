@@ -627,27 +627,61 @@ class BackupStrategy:
 
             return metadata
 
-    async def restore_backup(self, backup_id: str, source_id: Optional[str] = None) -> bytes:
-        """Restore backup from storage."""
+    async def restore_backup(
+        self,
+        backup_id: str,
+        source_id: Optional[str] = None,
+        metadata: Optional[BackupMetadata] = None
+    ) -> bytes:
+        """
+        Restore backup from storage.
+
+        Args:
+            backup_id: Unique backup identifier
+            source_id: Optional source document/model ID
+            metadata: Optional backup metadata. If not provided, will be retrieved from database.
+
+        Returns:
+            Restored data bytes
+        """
         correlation_id = get_correlation_id()
 
         with create_span("backup_strategy_restore", correlation_id=correlation_id) as span:
             span.set_attribute("backup_id", backup_id)
 
-            # Construct proper storage path
-            # Path format should be: {source_id}/{backup_id}
-            if source_id:
-                path = f"{source_id}/{backup_id}"
-            else:
-                # Extract source_id from backup_id if not provided
-                # Backup ID format: backup_{source_id}_{timestamp}
-                parts = backup_id.split('_')
-                if len(parts) >= 3 and parts[0] == "backup":
-                    source_id = parts[1]
-                    path = f"{source_id}/{backup_id}"
-                else:
-                    # Fallback to just backup_id
-                    path = backup_id
+            # If metadata not provided, try to retrieve it from database
+            if metadata is None:
+                metadata = await self.get_backup_metadata(backup_id)
+                if metadata is None:
+                    # If still no metadata, construct path from backup_id
+                    # Path format should be: {source_id}/{backup_id}
+                    if source_id:
+                        path = f"{source_id}/{backup_id}"
+                    else:
+                        # Extract source_id from backup_id if not provided
+                        # Backup ID format: backup_{source_id}_{timestamp}
+                        parts = backup_id.split('_')
+                        if len(parts) >= 3 and parts[0] == "backup":
+                            source_id = parts[1]
+                            path = f"{source_id}/{backup_id}"
+                        else:
+                            # Fallback to just backup_id
+                            path = backup_id
+
+                    # Create minimal metadata for backward compatibility
+                    metadata = BackupMetadata(
+                        backup_id=backup_id,
+                        source_id=source_id or "unknown",
+                        storage_path=path,
+                        compression_algorithm=CompressionAlgorithm.NONE,
+                        encryption_method=self.config.encryption_method,
+                        storage_tier=StorageTier.HOT,
+                        size_bytes=0,
+                        checksum=""
+                    )
+
+            # Use metadata's storage path
+            path = metadata.storage_path
 
             # Retrieve from storage
             encrypted_data = await self.storage.retrieve(path)
@@ -655,22 +689,84 @@ class BackupStrategy:
             # Decrypt
             compressed_data = self.encryption.decrypt(encrypted_data)
 
-            # Decompress - detect algorithm and decompress
-            # Try each compression algorithm in order of likelihood
-            data = compressed_data
-            if compressed_data != encrypted_data:  # Data was encrypted, might also be compressed
-                try:
-                    # Try auto-detection of compression
-                    data = self.compression.decompress(compressed_data, CompressionAlgorithm.AUTO)
-                except Exception:
-                    # If auto-detection fails, data might not be compressed
-                    data = compressed_data
+            # Decompress using the correct algorithm from metadata
+            if metadata.compression_algorithm != CompressionAlgorithm.NONE:
+                data = self.compression.decompress(compressed_data, metadata.compression_algorithm)
+            else:
+                # No compression was applied
+                data = compressed_data
 
-            logger.info("Yedekleme geri yüklendi", backup_id=backup_id, path=path, size=len(data))
+            logger.info(
+                "Yedekleme geri yüklendi",
+                backup_id=backup_id,
+                path=path,
+                size=len(data),
+                compression=metadata.compression_algorithm.value
+            )
 
             metrics.backup_restored_total.inc()
 
             return data
+
+    async def get_backup_metadata(self, backup_id: str) -> Optional[BackupMetadata]:
+        """
+        Retrieve backup metadata from database.
+
+        Args:
+            backup_id: Unique backup identifier
+
+        Returns:
+            BackupMetadata if found, None otherwise
+        """
+        try:
+            # Import here to avoid circular dependency
+            from ..db.session import SessionLocal
+            from ..models.backup_recovery import BackupSnapshot as BackupSnapshotModel
+
+            # Create database session
+            db = SessionLocal()
+            try:
+                backup = db.query(BackupSnapshotModel).filter(
+                    BackupSnapshotModel.backup_id == backup_id
+                ).first()
+
+                if backup:
+                    return BackupMetadata(
+                        backup_id=backup.backup_id,
+                        source_id=backup.source_id,
+                        backup_type=backup.backup_type,
+                        size_bytes=backup.size_bytes,
+                        compressed_size_bytes=backup.compressed_size_bytes,
+                        checksum=backup.checksum,
+                        encryption_method=EncryptionMethod(backup.encryption_method),
+                        compression_algorithm=CompressionAlgorithm(backup.compression_algorithm),
+                        storage_tier=StorageTier(backup.storage_tier),
+                        storage_path=backup.storage_path,
+                        created_at=backup.created_at,
+                        last_accessed=backup.last_accessed or backup.created_at,
+                        retention_policy_id=str(backup.policy_id) if backup.policy_id else None,
+                        tags={},
+                        verification_status=backup.verification_status,
+                        verification_date=backup.verification_date
+                    )
+                return None
+            finally:
+                db.close()
+
+        except ImportError:
+            # If database dependencies not available, return None
+            logger.warning(
+                "Database dependencies not available for metadata retrieval",
+                backup_id=backup_id
+            )
+            return None
+        except Exception as e:
+            logger.error(
+                "Failed to retrieve backup metadata from database",
+                backup_id=backup_id,
+                error=str(e)
+            )
+            return None
 
     async def verify_backup(self, metadata: BackupMetadata) -> bool:
         """Verify backup integrity."""

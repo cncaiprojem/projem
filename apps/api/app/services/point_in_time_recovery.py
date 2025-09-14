@@ -20,6 +20,7 @@ import asyncio
 import hashlib
 import json
 import time
+import uuid
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -279,8 +280,8 @@ class WALManager:
 
     async def _create_segment(self):
         """Create new WAL segment."""
-        timestamp = int(time.time() * 1000)
-        segment_name = f"wal_{timestamp}.log"
+        segment_id = uuid.uuid4().hex
+        segment_name = f"wal_{segment_id}.log"
         self.current_segment = self.wal_dir / segment_name
         self.segment_size = 0
 
@@ -337,7 +338,7 @@ class CheckpointManager:
 
     async def create_checkpoint(self, state: Dict[str, Any]) -> RecoveryPoint:
         """Create checkpoint from current state."""
-        checkpoint_id = f"ckpt_{int(time.time() * 1000)}"
+        checkpoint_id = f"ckpt_{uuid.uuid4().hex}"
 
         # Calculate checksum
         state_json = json.dumps(state, sort_keys=True)
@@ -474,7 +475,7 @@ class PointInTimeRecovery:
         user_id: Optional[str] = None
     ) -> str:
         """Log transaction to WAL."""
-        transaction_id = f"txn_{int(time.time() * 1000)}_{object_id}"
+        transaction_id = f"txn_{uuid.uuid4().hex}_{object_id}"
 
         # Calculate checksum
         operation_str = json.dumps(operation, sort_keys=True)
@@ -517,7 +518,7 @@ class PointInTimeRecovery:
         with create_span("pitr_recovery", correlation_id=correlation_id) as span:
             span.set_attribute("recovery_mode", request.mode.value)
 
-            request_id = f"recovery_{int(time.time() * 1000)}"
+            request_id = f"recovery_{uuid.uuid4().hex}"
             start_time = time.time()
             result = RecoveryResult(
                 request_id=request_id,

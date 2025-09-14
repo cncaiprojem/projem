@@ -149,7 +149,7 @@ async def update_backup_policy(
             detail="Yedekleme politikası bulunamadı"
         )
 
-    update_data = policy_update.dict(exclude_unset=True)
+    update_data = policy_update.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(policy, field, value)
 

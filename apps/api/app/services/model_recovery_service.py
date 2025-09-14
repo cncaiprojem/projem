@@ -740,14 +740,45 @@ class ModelRecoveryService:
                         logger.error("Yedek geri yükleme başarısız", backup_id=backup_id, error=str(e))
                         return False
                 else:
-                    # Find and restore latest backup through public API
+                    # Find and restore latest backup through database query
                     try:
-                        # Get backups for document (would need public method)
-                        # For now, generate the backup_id from document_id
-                        # In production, this would query the database for the latest backup
-                        backup_id = f"backup_{document_id}_latest"
-                        latest_metadata = await backup_strategy.restore_backup(backup_id)
-                        return latest_metadata is not None
+                        # Query database for the latest backup for this document
+                        from ..db.session import SessionLocal
+                        from ..models.backup_recovery import BackupSnapshot as BackupSnapshotModel
+
+                        db = SessionLocal()
+                        try:
+                            # Find the most recent backup for this document
+                            latest_backup = db.query(BackupSnapshotModel).filter(
+                                BackupSnapshotModel.source_id == document_id
+                            ).order_by(
+                                BackupSnapshotModel.created_at.desc()
+                            ).first()
+
+                            if latest_backup:
+                                # Restore the latest backup
+                                backup_data = await backup_strategy.restore_backup(
+                                    backup_id=latest_backup.backup_id,
+                                    source_id=document_id
+                                )
+                                return backup_data is not None
+                            else:
+                                logger.warning(
+                                    "No backups found for document",
+                                    document_id=document_id
+                                )
+                                # If no backups exist, raise NotImplementedError with clear message
+                                raise NotImplementedError(
+                                    f"No backups found for document {document_id}. "
+                                    "Backup creation functionality needs to be implemented "
+                                    "before recovery can work."
+                                )
+                        finally:
+                            db.close()
+
+                    except NotImplementedError:
+                        # Re-raise NotImplementedError
+                        raise
                     except Exception as e:
                         logger.error("Son yedek bulunamadı", document_id=document_id, error=str(e))
                         return False
