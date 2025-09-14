@@ -96,6 +96,9 @@ class ConnectionManager:
         self._subscriber_task: Optional[asyncio.Task] = None
         self._last_metrics_time = time.time()
 
+        # Add lock for thread-safe connection management
+        self._lock = asyncio.Lock()
+
         # Redis Pub/Sub channels
         self.METRICS_CHANNEL = "performance:metrics"
         self.ALERTS_CHANNEL = "performance:alerts"
@@ -108,73 +111,89 @@ class ConnectionManager:
     async def connect(self, websocket: WebSocket):
         """Accept WebSocket connection and start monitoring/subscribing if first client."""
         await websocket.accept()
-        self.active_connections.append(websocket)
 
-        # Log connection with worker info
-        logger.info(f"WebSocket client connected",
-                   worker_id=os.getpid(),
-                   total_connections=len(self.active_connections))
+        # Use lock to ensure thread-safe connection management
+        async with self._lock:
+            self.active_connections.append(websocket)
+            connection_count = len(self.active_connections)
 
-        # Start monitoring and subscribing if this is the first connection
-        if len(self.active_connections) == 1:
-            # Start local monitoring task (generates metrics)
-            self._monitoring_task = asyncio.create_task(self._monitor_performance())
+            # Log connection with worker info
+            logger.info(f"WebSocket client connected",
+                       worker_id=os.getpid(),
+                       total_connections=connection_count)
 
-            # Start Redis subscriber task (receives metrics from all workers)
-            self._subscriber_task = asyncio.create_task(self._subscribe_to_redis())
+            # Start monitoring and subscribing if this is the first connection
+            if connection_count == 1:
+                # Start local monitoring task (generates metrics)
+                self._monitoring_task = asyncio.create_task(self._monitor_performance())
+
+                # Start Redis subscriber task (receives metrics from all workers)
+                self._subscriber_task = asyncio.create_task(self._subscribe_to_redis())
 
     async def disconnect(self, websocket: WebSocket):
         """Remove WebSocket connection and cleanup if last client."""
-        if websocket in self.active_connections:
-            self.active_connections.remove(websocket)
+        # Use lock to ensure thread-safe connection management
+        async with self._lock:
+            if websocket in self.active_connections:
+                self.active_connections.remove(websocket)
 
-        logger.info(f"WebSocket client disconnected",
-                   worker_id=os.getpid(),
-                   remaining_connections=len(self.active_connections))
+            connection_count = len(self.active_connections)
 
-        # Stop monitoring and subscribing if no connections
-        if len(self.active_connections) == 0:
-            if self._monitoring_task:
-                self._monitoring_task.cancel()
-                try:
-                    await self._monitoring_task
-                except asyncio.CancelledError:
-                    pass
+            logger.info(f"WebSocket client disconnected",
+                       worker_id=os.getpid(),
+                       remaining_connections=connection_count)
+
+            # Stop monitoring and subscribing if no connections
+            if connection_count == 0:
+                # Store references to tasks before clearing them
+                monitoring_task = self._monitoring_task
+                subscriber_task = self._subscriber_task
+                pubsub = self._pubsub
+                subscriber_client = self._subscriber_client
+                publisher_pool = self._publisher_pool
+
+                # Clear references immediately to prevent race conditions
                 self._monitoring_task = None
+                self._subscriber_task = None
+                self._pubsub = None
+                self._subscriber_client = None
+                self._publisher_pool = None
 
-            if self._subscriber_task:
-                self._subscriber_task.cancel()
+        # Cleanup outside the lock to avoid blocking
+        if connection_count == 0:
+            if monitoring_task:
+                monitoring_task.cancel()
                 try:
-                    await self._subscriber_task
+                    await monitoring_task
                 except asyncio.CancelledError:
                     pass
-                self._subscriber_task = None
+
+            if subscriber_task:
+                subscriber_task.cancel()
+                try:
+                    await subscriber_task
+                except asyncio.CancelledError:
+                    pass
 
             # Cleanup Redis subscriber
-            if self._pubsub:
+            if pubsub:
                 try:
-                    await self._pubsub.close()
+                    await pubsub.close()
                 except Exception as e:
                     logger.error(f"Error closing pubsub: {e}")
-                finally:
-                    self._pubsub = None
 
-            if self._subscriber_client:
+            if subscriber_client:
                 try:
-                    await self._subscriber_client.close()
+                    await subscriber_client.close()
                 except Exception as e:
                     logger.error(f"Error closing subscriber client: {e}")
-                finally:
-                    self._subscriber_client = None
 
             # Cleanup publisher pool
-            if self._publisher_pool:
+            if publisher_pool:
                 try:
-                    await self._publisher_pool.disconnect()
+                    await publisher_pool.disconnect()
                 except Exception as e:
                     logger.error(f"Error closing publisher pool: {e}")
-                finally:
-                    self._publisher_pool = None
 
     async def _subscribe_to_redis(self):
         """
@@ -436,6 +455,35 @@ class ConnectionManager:
 manager = ConnectionManager()
 
 
+# Helper function for safe datetime parsing
+def _safe_datetime_parse(value: Any, default: datetime) -> datetime:
+    """
+    Safely parse a datetime value.
+
+    Args:
+        value: The value to parse (could be string, datetime, or None)
+        default: Default datetime to use if parsing fails
+
+    Returns:
+        Parsed datetime or default
+    """
+    if value is None:
+        return default
+
+    if isinstance(value, datetime):
+        return value
+
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value)
+        except (ValueError, TypeError) as e:
+            logger.warning(f"Failed to parse datetime: {e}, using default")
+            return default
+
+    logger.warning(f"Invalid datetime type: {type(value)}, using default")
+    return default
+
+
 # Profiling endpoints
 
 @router.post("/profile/start", response_model=Dict[str, str])
@@ -525,7 +573,7 @@ async def stop_profiling(
 
             return PerformanceReportResponse(
                 report_id=report["report_id"],
-                generated_at=datetime.fromisoformat(report["generated_at"]) if report.get("generated_at") else datetime.now(timezone.utc),
+                generated_at=_safe_datetime_parse(report.get("generated_at"), datetime.now(timezone.utc)),
                 performance_score=report["performance_score"],
                 issues_count=report["issues_count"],
                 issues_by_type=report["issues_by_type"],
@@ -705,7 +753,7 @@ async def get_memory_report(
 
     return MemoryReportResponse(
         report_id=report["report_id"],
-        generated_at=datetime.fromisoformat(report["generated_at"]),
+        generated_at=_safe_datetime_parse(report.get("generated_at"), datetime.now(timezone.utc)),
         current_memory_mb=report["current_memory_mb"],
         memory_trend=report["memory_trend"],
         detected_leaks=[
@@ -774,7 +822,7 @@ async def get_gpu_metrics(
     recommendations = gpu_monitor.get_optimization_recommendations()
 
     return GPUSummaryResponse(
-        timestamp=datetime.fromisoformat(summary["timestamp"]),
+        timestamp=_safe_datetime_parse(summary.get("timestamp"), datetime.now(timezone.utc)),
         devices=summary["devices"],
         health_issues=health_issues,
         optimization_recommendations=recommendations
@@ -1024,11 +1072,20 @@ async def export_profiles(
         for p in profiles:
             if p.get("start_time"):
                 try:
-                    start_time = datetime.fromisoformat(p.get("start_time")) if isinstance(p.get("start_time"), str) else p.get("start_time")
+                    start_time_raw = p.get("start_time")
+                    if isinstance(start_time_raw, str):
+                        start_time = datetime.fromisoformat(start_time_raw)
+                    elif isinstance(start_time_raw, datetime):
+                        start_time = start_time_raw
+                    else:
+                        # Default to current time if invalid
+                        start_time = datetime.now(timezone.utc)
+                        logger.warning(f"Invalid start_time type in profile, using current time")
+
                     if start_time >= request.start_date:
                         filtered_profiles.append(p)
                 except (ValueError, TypeError) as e:
-                    logger.warning(f"Invalid start_time format in profile: {e}")
+                    logger.warning(f"Invalid start_time format in profile: {e}, skipping profile")
                     continue
         profiles = filtered_profiles
 
@@ -1037,11 +1094,20 @@ async def export_profiles(
         for p in profiles:
             if p.get("start_time"):
                 try:
-                    start_time = datetime.fromisoformat(p.get("start_time")) if isinstance(p.get("start_time"), str) else p.get("start_time")
+                    start_time_raw = p.get("start_time")
+                    if isinstance(start_time_raw, str):
+                        start_time = datetime.fromisoformat(start_time_raw)
+                    elif isinstance(start_time_raw, datetime):
+                        start_time = start_time_raw
+                    else:
+                        # Default to current time if invalid
+                        start_time = datetime.now(timezone.utc)
+                        logger.warning(f"Invalid start_time type in profile, using current time")
+
                     if start_time <= request.end_date:
                         filtered_profiles.append(p)
                 except (ValueError, TypeError) as e:
-                    logger.warning(f"Invalid start_time format in profile: {e}")
+                    logger.warning(f"Invalid start_time format in profile: {e}, skipping profile")
                     continue
         profiles = filtered_profiles
 

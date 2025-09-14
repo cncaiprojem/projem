@@ -317,11 +317,40 @@ class FreeCADOperationProfiler:
                 # Convert dicts back to OperationMetrics objects
                 workflow.operations = []
                 for op_dict in new_operation_dicts:
+                    # Safe datetime deserialization
+                    try:
+                        start_time_raw = op_dict.get('start_time')
+                        if isinstance(start_time_raw, str):
+                            start_time = datetime.fromisoformat(start_time_raw)
+                        elif isinstance(start_time_raw, datetime):
+                            start_time = start_time_raw
+                        else:
+                            start_time = datetime.now(timezone.utc)
+                            logger.warning(f"Invalid start_time in operation {op_dict.get('operation_id')}, using current time")
+                    except (ValueError, TypeError):
+                        start_time = datetime.now(timezone.utc)
+                        logger.warning(f"Failed to parse start_time in operation {op_dict.get('operation_id')}, using current time")
+
+                    try:
+                        end_time_raw = op_dict.get('end_time')
+                        if end_time_raw:
+                            if isinstance(end_time_raw, str):
+                                end_time = datetime.fromisoformat(end_time_raw)
+                            elif isinstance(end_time_raw, datetime):
+                                end_time = end_time_raw
+                            else:
+                                end_time = None
+                        else:
+                            end_time = None
+                    except (ValueError, TypeError):
+                        end_time = None
+                        logger.warning(f"Failed to parse end_time in operation {op_dict.get('operation_id')}")
+
                     op = OperationMetrics(
                         operation_id=op_dict.get('operation_id', ''),
                         operation_type=FreeCADOperationType[op_dict.get('operation_type', 'DOCUMENT_CREATE').upper()],
-                        start_time=datetime.fromisoformat(op_dict.get('start_time', datetime.now(timezone.utc).isoformat())),
-                        end_time=datetime.fromisoformat(op_dict.get('end_time', datetime.now(timezone.utc).isoformat())) if op_dict.get('end_time') else None,
+                        start_time=start_time,
+                        end_time=end_time,
                         duration_seconds=op_dict.get('duration_seconds', 0),
                         cpu_time_seconds=op_dict.get('cpu_time_seconds', 0),
                         memory_used_mb=op_dict.get('memory_used_mb', 0),
@@ -387,11 +416,40 @@ class FreeCADOperationProfiler:
 
         for op_dict in all_operations_data:
             if op_dict.get('metadata', {}).get('document_id') == document_id:
+                # Safe datetime deserialization
+                try:
+                    start_time_raw = op_dict.get('start_time')
+                    if isinstance(start_time_raw, str):
+                        start_time = datetime.fromisoformat(start_time_raw)
+                    elif isinstance(start_time_raw, datetime):
+                        start_time = start_time_raw
+                    else:
+                        start_time = datetime.now(timezone.utc)
+                        logger.warning(f"Invalid start_time in operation {op_dict.get('operation_id')}, using current time")
+                except (ValueError, TypeError):
+                    start_time = datetime.now(timezone.utc)
+                    logger.warning(f"Failed to parse start_time in operation {op_dict.get('operation_id')}, using current time")
+
+                try:
+                    end_time_raw = op_dict.get('end_time')
+                    if end_time_raw:
+                        if isinstance(end_time_raw, str):
+                            end_time = datetime.fromisoformat(end_time_raw)
+                        elif isinstance(end_time_raw, datetime):
+                            end_time = end_time_raw
+                        else:
+                            end_time = None
+                    else:
+                        end_time = None
+                except (ValueError, TypeError):
+                    end_time = None
+                    logger.warning(f"Failed to parse end_time in operation {op_dict.get('operation_id')}")
+
                 op = OperationMetrics(
                     operation_id=op_dict.get('operation_id', ''),
                     operation_type=FreeCADOperationType[op_dict.get('operation_type', 'DOCUMENT_CREATE').upper()],
-                    start_time=datetime.fromisoformat(op_dict.get('start_time', datetime.now(timezone.utc).isoformat())),
-                    end_time=datetime.fromisoformat(op_dict.get('end_time', datetime.now(timezone.utc).isoformat())) if op_dict.get('end_time') else None,
+                    start_time=start_time,
+                    end_time=end_time,
                     duration_seconds=op_dict.get('duration_seconds', 0),
                     cpu_time_seconds=op_dict.get('cpu_time_seconds', 0),
                     memory_used_mb=op_dict.get('memory_used_mb', 0),
@@ -463,12 +521,41 @@ class FreeCADOperationProfiler:
         operations = []
 
         for op_dict in all_operations_data:
+            # Safe datetime deserialization
+            try:
+                start_time_raw = op_dict.get('start_time')
+                if isinstance(start_time_raw, str):
+                    start_time = datetime.fromisoformat(start_time_raw)
+                elif isinstance(start_time_raw, datetime):
+                    start_time = start_time_raw
+                else:
+                    start_time = datetime.now(timezone.utc)
+                    logger.warning(f"Invalid start_time in operation {op_dict.get('operation_id')}, using current time")
+            except (ValueError, TypeError):
+                start_time = datetime.now(timezone.utc)
+                logger.warning(f"Failed to parse start_time in operation {op_dict.get('operation_id')}, using current time")
+
+            try:
+                end_time_raw = op_dict.get('end_time')
+                if end_time_raw:
+                    if isinstance(end_time_raw, str):
+                        end_time = datetime.fromisoformat(end_time_raw)
+                    elif isinstance(end_time_raw, datetime):
+                        end_time = end_time_raw
+                    else:
+                        end_time = None
+                else:
+                    end_time = None
+            except (ValueError, TypeError):
+                end_time = None
+                logger.warning(f"Failed to parse end_time in operation {op_dict.get('operation_id')}")
+
             # Convert dict back to OperationMetrics
             op = OperationMetrics(
                 operation_id=op_dict.get('operation_id', ''),
                 operation_type=FreeCADOperationType[op_dict.get('operation_type', 'DOCUMENT_CREATE').upper()],
-                start_time=datetime.fromisoformat(op_dict.get('start_time', datetime.now(timezone.utc).isoformat())),
-                end_time=datetime.fromisoformat(op_dict.get('end_time', datetime.now(timezone.utc).isoformat())) if op_dict.get('end_time') else None,
+                start_time=start_time,
+                end_time=end_time,
                 duration_seconds=op_dict.get('duration_seconds', 0),
                 cpu_time_seconds=op_dict.get('cpu_time_seconds', 0),
                 memory_used_mb=op_dict.get('memory_used_mb', 0),
@@ -535,11 +622,40 @@ class FreeCADOperationProfiler:
 
         for op_dict in all_operations_data:
             if op_dict.get('operation_type', '').upper() == operation_type.value.upper() and op_dict.get('success', True):
+                # Safe datetime deserialization
+                try:
+                    start_time_raw = op_dict.get('start_time')
+                    if isinstance(start_time_raw, str):
+                        start_time = datetime.fromisoformat(start_time_raw)
+                    elif isinstance(start_time_raw, datetime):
+                        start_time = start_time_raw
+                    else:
+                        start_time = datetime.now(timezone.utc)
+                        logger.warning(f"Invalid start_time in operation {op_dict.get('operation_id')}, using current time")
+                except (ValueError, TypeError):
+                    start_time = datetime.now(timezone.utc)
+                    logger.warning(f"Failed to parse start_time in operation {op_dict.get('operation_id')}, using current time")
+
+                try:
+                    end_time_raw = op_dict.get('end_time')
+                    if end_time_raw:
+                        if isinstance(end_time_raw, str):
+                            end_time = datetime.fromisoformat(end_time_raw)
+                        elif isinstance(end_time_raw, datetime):
+                            end_time = end_time_raw
+                        else:
+                            end_time = None
+                    else:
+                        end_time = None
+                except (ValueError, TypeError):
+                    end_time = None
+                    logger.warning(f"Failed to parse end_time in operation {op_dict.get('operation_id')}")
+
                 op = OperationMetrics(
                     operation_id=op_dict.get('operation_id', ''),
                     operation_type=operation_type,
-                    start_time=datetime.fromisoformat(op_dict.get('start_time', datetime.now(timezone.utc).isoformat())),
-                    end_time=datetime.fromisoformat(op_dict.get('end_time', datetime.now(timezone.utc).isoformat())) if op_dict.get('end_time') else None,
+                    start_time=start_time,
+                    end_time=end_time,
                     duration_seconds=op_dict.get('duration_seconds', 0),
                     cpu_time_seconds=op_dict.get('cpu_time_seconds', 0),
                     memory_used_mb=op_dict.get('memory_used_mb', 0),

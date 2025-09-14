@@ -286,10 +286,19 @@ class AdvancedMemoryProfiler:
         # Get recent snapshots
         recent_snapshots = []
         for s_data in snapshots_data:
-            timestamp_str = s_data.get('timestamp')
-            if timestamp_str:
+            timestamp_raw = s_data.get('timestamp')
+            if timestamp_raw:
                 try:
-                    timestamp = datetime.fromisoformat(timestamp_str)
+                    # Safe datetime deserialization
+                    if isinstance(timestamp_raw, str):
+                        timestamp = datetime.fromisoformat(timestamp_raw)
+                    elif isinstance(timestamp_raw, datetime):
+                        timestamp = timestamp_raw
+                    else:
+                        # Skip if invalid type
+                        logger.warning(f"Invalid timestamp type in snapshot {s_data.get('snapshot_id')}, skipping")
+                        continue
+
                     if timestamp > cutoff_time:
                         # Convert dict back to MemorySnapshot
                         snapshot = MemorySnapshot(
@@ -302,7 +311,8 @@ class AdvancedMemoryProfiler:
                             object_counts=s_data.get('object_counts', {})
                         )
                         recent_snapshots.append(snapshot)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Failed to parse timestamp in snapshot: {e}, skipping")
                     continue
 
         if len(recent_snapshots) < 2:
@@ -695,10 +705,19 @@ class AdvancedMemoryProfiler:
 
         recent_snapshots = []
         for s_data in snapshots_data:
-            timestamp_str = s_data.get('timestamp')
-            if timestamp_str:
+            timestamp_raw = s_data.get('timestamp')
+            if timestamp_raw:
                 try:
-                    timestamp = datetime.fromisoformat(timestamp_str)
+                    # Safe datetime deserialization
+                    if isinstance(timestamp_raw, str):
+                        timestamp = datetime.fromisoformat(timestamp_raw)
+                    elif isinstance(timestamp_raw, datetime):
+                        timestamp = timestamp_raw
+                    else:
+                        # Skip if invalid type
+                        logger.warning(f"Invalid timestamp type in snapshot {s_data.get('snapshot_id')}, skipping")
+                        continue
+
                     # Create minimal snapshot for trend calculation
                     snapshot = MemorySnapshot(
                         snapshot_id=s_data.get('snapshot_id', ''),
@@ -710,7 +729,8 @@ class AdvancedMemoryProfiler:
                         object_counts=s_data.get('object_counts', {})
                     )
                     recent_snapshots.append(snapshot)
-                except (ValueError, TypeError):
+                except (ValueError, TypeError) as e:
+                    logger.warning(f"Failed to parse timestamp in snapshot for trend calculation: {e}, skipping")
                     continue
 
         if len(recent_snapshots) < 2:
