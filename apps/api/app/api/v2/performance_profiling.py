@@ -78,52 +78,239 @@ logger = get_logger(__name__)
 router = APIRouter(prefix="/api/v2/performance", tags=["performance"])
 
 
-# WebSocket connection manager
+# WebSocket connection manager with Redis Pub/Sub for multi-worker support
 class ConnectionManager:
-    """Manages WebSocket connections for real-time monitoring."""
+    """
+    Manages WebSocket connections for real-time monitoring with Redis Pub/Sub.
+
+    Architecture:
+    - Each worker maintains local WebSocket connections
+    - Metrics/alerts are published to Redis channels
+    - All workers subscribe to channels and forward to their local clients
+    - Ensures all clients receive updates regardless of which worker generated them
+    """
 
     def __init__(self):
         self.active_connections: List[WebSocket] = []
         self._monitoring_task: Optional[asyncio.Task] = None
+        self._subscriber_task: Optional[asyncio.Task] = None
         self._last_metrics_time = time.time()
 
+        # Redis Pub/Sub channels
+        self.METRICS_CHANNEL = "performance:metrics"
+        self.ALERTS_CHANNEL = "performance:alerts"
+
+        # Redis connection pools
+        self._publisher_pool = None  # Lazy-initialized async pool for publishing
+        self._subscriber_client = None  # Separate connection for subscribing (required by Redis Pub/Sub)
+        self._pubsub = None
+
     async def connect(self, websocket: WebSocket):
+        """Accept WebSocket connection and start monitoring/subscribing if first client."""
         await websocket.accept()
         self.active_connections.append(websocket)
 
-        # Start monitoring if this is the first connection
+        # Log connection with worker info
+        logger.info(f"WebSocket client connected",
+                   worker_id=os.getpid(),
+                   total_connections=len(self.active_connections))
+
+        # Start monitoring and subscribing if this is the first connection
         if len(self.active_connections) == 1:
+            # Start local monitoring task (generates metrics)
             self._monitoring_task = asyncio.create_task(self._monitor_performance())
 
+            # Start Redis subscriber task (receives metrics from all workers)
+            self._subscriber_task = asyncio.create_task(self._subscribe_to_redis())
+
     def disconnect(self, websocket: WebSocket):
-        self.active_connections.remove(websocket)
+        """Remove WebSocket connection and cleanup if last client."""
+        if websocket in self.active_connections:
+            self.active_connections.remove(websocket)
 
-        # Stop monitoring if no connections
-        if len(self.active_connections) == 0 and self._monitoring_task:
-            self._monitoring_task.cancel()
-            self._monitoring_task = None
+        logger.info(f"WebSocket client disconnected",
+                   worker_id=os.getpid(),
+                   remaining_connections=len(self.active_connections))
 
-    async def send_metrics(self, message: PerformanceMetricsMessage):
-        """Send metrics to all connected clients."""
-        message_dict = message.dict()
-        # Create a copy of connections to avoid RuntimeError during iteration
+        # Stop monitoring and subscribing if no connections
+        if len(self.active_connections) == 0:
+            if self._monitoring_task:
+                self._monitoring_task.cancel()
+                self._monitoring_task = None
+
+            if self._subscriber_task:
+                self._subscriber_task.cancel()
+                self._subscriber_task = None
+
+            # Cleanup Redis subscriber
+            if self._pubsub:
+                try:
+                    self._pubsub.close()
+                except Exception as e:
+                    logger.error(f"Error closing pubsub: {e}")
+                self._pubsub = None
+
+            if self._subscriber_client:
+                try:
+                    self._subscriber_client.close()
+                except Exception as e:
+                    logger.error(f"Error closing subscriber client: {e}")
+                self._subscriber_client = None
+
+            # Cleanup publisher pool
+            if self._publisher_pool:
+                try:
+                    # Properly disconnect async pool
+                    import asyncio
+                    loop = asyncio.get_event_loop()
+                    if not loop.is_closed():
+                        asyncio.create_task(self._publisher_pool.disconnect())
+                except Exception as e:
+                    logger.error(f"Error closing publisher pool: {e}")
+                self._publisher_pool = None
+
+    async def _subscribe_to_redis(self):
+        """
+        Subscribe to Redis channels and forward messages to local WebSocket clients.
+        Runs as long as there are active connections.
+        """
+        import redis.asyncio as redis_async
+
+        try:
+            # Create dedicated connection for subscribing
+            self._subscriber_client = redis_async.Redis.from_url(
+                state_manager.redis_url,
+                decode_responses=False
+            )
+
+            self._pubsub = self._subscriber_client.pubsub()
+
+            # Subscribe to channels
+            await self._pubsub.subscribe(self.METRICS_CHANNEL, self.ALERTS_CHANNEL)
+
+            logger.info(f"Redis Pub/Sub subscriber started",
+                       worker_id=os.getpid(),
+                       channels=[self.METRICS_CHANNEL, self.ALERTS_CHANNEL])
+
+            # Listen for messages
+            async for message in self._pubsub.listen():
+                if message['type'] == 'message':
+                    try:
+                        # Deserialize message
+                        data = json.loads(message['data'].decode('utf-8'))
+                        channel = message['channel'].decode('utf-8')
+
+                        # Forward to local WebSocket clients
+                        await self._broadcast_to_local_clients(data, channel)
+
+                    except json.JSONDecodeError as e:
+                        logger.error(f"Failed to decode message: {e}")
+                    except Exception as e:
+                        logger.error(f"Error processing pub/sub message: {e}")
+
+        except asyncio.CancelledError:
+            logger.info("Redis subscriber task cancelled", worker_id=os.getpid())
+            raise
+        except Exception as e:
+            logger.error(f"Redis subscriber error: {e}", worker_id=os.getpid())
+            # Reconnect after error
+            await asyncio.sleep(5)
+            if self.active_connections:
+                self._subscriber_task = asyncio.create_task(self._subscribe_to_redis())
+
+    async def _broadcast_to_local_clients(self, data: dict, channel: str):
+        """Broadcast message to all local WebSocket clients."""
+        if not self.active_connections:
+            return
+
+        # Create a copy to avoid modification during iteration
         connections = list(self.active_connections)
+        disconnected = []
+
         for connection in connections:
             try:
-                await connection.send_json(message_dict)
+                await connection.send_json(data)
             except Exception as e:
-                logger.error(f"Error sending metrics: {e}")
+                logger.error(f"Error sending to WebSocket client: {e}")
+                disconnected.append(connection)
+
+        # Remove disconnected clients
+        for conn in disconnected:
+            self.disconnect(conn)
+
+    async def publish_metrics(self, message: PerformanceMetricsMessage):
+        """
+        Publish metrics to Redis channel for all workers to receive.
+        This replaces the old send_metrics method.
+        """
+        try:
+            message_dict = message.dict()
+            message_dict['worker_id'] = os.getpid()  # Include source worker ID
+
+            # Publish to Redis channel
+            await self._execute_redis_publish(
+                self.METRICS_CHANNEL,
+                json.dumps(message_dict, default=str)
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to publish metrics: {e}")
+
+    async def publish_alert(self, alert: PerformanceAlertMessage):
+        """
+        Publish alert to Redis channel for all workers to receive.
+        This replaces the old send_alert method.
+        """
+        try:
+            alert_dict = alert.dict()
+            alert_dict['worker_id'] = os.getpid()  # Include source worker ID
+
+            # Publish to Redis channel
+            await self._execute_redis_publish(
+                self.ALERTS_CHANNEL,
+                json.dumps(alert_dict, default=str)
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to publish alert: {e}")
+
+    async def _execute_redis_publish(self, channel: str, message: str):
+        """Execute Redis publish with error handling."""
+        try:
+            import redis.asyncio as redis_async
+
+            # Initialize publisher pool if needed (lazy initialization)
+            if self._publisher_pool is None:
+                self._publisher_pool = redis_async.ConnectionPool.from_url(
+                    state_manager.redis_url,
+                    max_connections=10,
+                    decode_responses=False
+                )
+
+            # Use pooled connection for publishing
+            async_client = redis_async.Redis(connection_pool=self._publisher_pool)
+
+            # Publish message
+            await async_client.publish(channel, message.encode('utf-8'))
+
+        except Exception as e:
+            logger.error(f"Redis publish failed: {e}", channel=channel)
+            raise
+
+    # Compatibility methods for backward compatibility
+    async def send_metrics(self, message: PerformanceMetricsMessage):
+        """
+        Send metrics to all connected clients (backward compatibility).
+        Now publishes to Redis instead of direct sending.
+        """
+        await self.publish_metrics(message)
 
     async def send_alert(self, alert: PerformanceAlertMessage):
-        """Send alert to all connected clients."""
-        alert_dict = alert.dict()
-        # Create a copy of connections to avoid RuntimeError during iteration
-        connections = list(self.active_connections)
-        for connection in connections:
-            try:
-                await connection.send_json(alert_dict)
-            except Exception as e:
-                logger.error(f"Error sending alert: {e}")
+        """
+        Send alert to all connected clients (backward compatibility).
+        Now publishes to Redis instead of direct sending.
+        """
+        await self.publish_alert(alert)
 
     async def _monitor_performance(self):
         """Background task to monitor performance and send updates."""
