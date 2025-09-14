@@ -18,6 +18,7 @@ from .enums import UserRole, Locale
 
 if TYPE_CHECKING:
     from .ai_suggestions import AISuggestion
+    from .performance_profile import PerformanceProfile, OptimizationPlan
 
 
 class User(Base, TimestampMixin):
@@ -326,7 +327,21 @@ class User(Base, TimestampMixin):
         back_populates="user",
         cascade="all, delete-orphan"
     )
-    
+
+    # Task 7.25: Performance profiling relationships
+    performance_profiles: Mapped[List["PerformanceProfile"]] = relationship(
+        "PerformanceProfile",
+        back_populates="user",
+        cascade="all, delete-orphan"
+    )
+
+    optimization_plans: Mapped[List["OptimizationPlan"]] = relationship(
+        "OptimizationPlan",
+        back_populates="user",
+        foreign_keys="OptimizationPlan.user_id",
+        cascade="all, delete-orphan"
+    )
+
     # Indexes and constraints
     __table_args__ = (
         Index('idx_users_phone', 'phone', postgresql_where='phone IS NOT NULL'),

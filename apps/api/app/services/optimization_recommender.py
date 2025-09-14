@@ -25,7 +25,7 @@ from ..core.telemetry import create_span
 from ..middleware.correlation_middleware import get_correlation_id
 
 # Import profilers
-from .performance_profiler import PerformanceProfiler, performance_profiler, PerformanceIssue, OptimizationPriority
+from .performance_profiler import PerformanceProfiler, performance_profiler, PerformanceIssue, PerformanceIssueType, OptimizationPriority
 from .freecad_operation_profiler import FreeCADOperationProfiler, freecad_operation_profiler
 from .memory_profiler import AdvancedMemoryProfiler, memory_profiler
 from .gpu_monitor import GPUMonitor, gpu_monitor
@@ -461,7 +461,7 @@ class OptimizationRecommender:
         memory_leaks = self.memory_profiler.detect_memory_leaks()
         for leak in memory_leaks:
             all_issues.append(PerformanceIssue(
-                issue_type="memory_leak",
+                issue_type=PerformanceIssueType.MEMORY_LEAK,
                 severity=OptimizationPriority.CRITICAL if leak.severity.value == "critical" else OptimizationPriority.HIGH,
                 description=f"Memory leak: {leak.growth_rate_mb_per_hour:.1f}MB/hour growth",
                 description_tr=f"Bellek sızıntısı: {leak.growth_rate_mb_per_hour:.1f}MB/saat büyüme",
@@ -478,7 +478,7 @@ class OptimizationRecommender:
             for issue in gpu_issues:
                 if issue.get("severity") in ["critical", "warning"]:
                     all_issues.append(PerformanceIssue(
-                        issue_type="gpu_issue",
+                        issue_type=PerformanceIssueType.GPU_UNDERUTILIZATION,
                         severity=OptimizationPriority.HIGH if issue["severity"] == "critical" else OptimizationPriority.MEDIUM,
                         description=issue["issue"],
                         description_tr=issue.get("issue_tr", issue["issue"]),

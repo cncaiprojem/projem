@@ -137,7 +137,7 @@ class FreeCADOperationProfiler:
             document_manager: FreeCAD document manager instance
             base_profiler: Base performance profiler for low-level metrics
         """
-        self.document_manager = document_manager or document_manager
+        self.document_manager = document_manager
         self.base_profiler = base_profiler or performance_profiler
 
         # Operation tracking

@@ -82,6 +82,20 @@ class RecommendationCategorySchema(str, Enum):
     COST = "cost"
 
 
+class EffortLevelSchema(str, Enum):
+    """Effort level for optimization recommendations."""
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class ExportFormatSchema(str, Enum):
+    """Export format options."""
+    JSON = "json"
+    CSV = "csv"
+    HTML = "html"
+
+
 # Request schemas
 
 class StartProfilingRequest(BaseModel):
@@ -307,7 +321,7 @@ class OptimizationRecommendationResponse(BaseModel):
     optimization_type: OptimizationTypeSchema
     priority: OptimizationPrioritySchema
     estimated_impact: str
-    effort_level: str = Field(pattern="^(low|medium|high)$")
+    effort_level: EffortLevelSchema
     implementation_steps: List[str]
     implementation_steps_tr: List[str]
     code_examples: Optional[List[str]] = None
@@ -483,7 +497,7 @@ class ExportProfilesRequest(BaseModel):
     profile_type: Optional[ProfileTypeSchema] = None
     start_date: Optional[datetime] = None
     end_date: Optional[datetime] = None
-    format: str = Field(default="json", pattern="^(json|csv|html)$")
+    format: ExportFormatSchema = Field(default=ExportFormatSchema.JSON)
     include_raw_data: bool = Field(default=False)
 
 
@@ -493,5 +507,5 @@ class ExportProfilesResponse(BaseModel):
     file_path: str
     file_size_bytes: int
     profile_count: int
-    export_format: str
+    export_format: ExportFormatSchema
     created_at: datetime

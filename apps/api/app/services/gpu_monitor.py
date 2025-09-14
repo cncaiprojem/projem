@@ -328,13 +328,13 @@ class GPUMonitor:
         def monitor_loop():
             while not self._stop_monitoring.wait(self.sample_interval_seconds):
                 for device_id in range(len(self.gpu_devices)):
-                    metrics = self.get_current_metrics(device_id)
-                    if metrics:
+                    current_metrics = self.get_current_metrics(device_id)
+                    if current_metrics:
                         # Store metrics
                         if device_id not in self.metrics_history:
                             self.metrics_history[device_id] = []
 
-                        self.metrics_history[device_id].append(metrics)
+                        self.metrics_history[device_id].append(current_metrics)
 
                         # Limit history size
                         if len(self.metrics_history[device_id]) > self.max_history_size:
@@ -344,12 +344,12 @@ class GPUMonitor:
                         metrics.gpu_utilization_percent.labels(
                             device_id=str(device_id),
                             device_name=self.gpu_devices[device_id].name
-                        ).set(metrics.utilization_percent)
+                        ).set(current_metrics.utilization_percent)
 
                         metrics.gpu_memory_used_mb.labels(
                             device_id=str(device_id),
                             device_name=self.gpu_devices[device_id].name
-                        ).set(metrics.memory_used_mb)
+                        ).set(current_metrics.memory_used_mb)
 
         self._stop_monitoring.clear()
         self._monitoring_thread = threading.Thread(target=monitor_loop, daemon=True)

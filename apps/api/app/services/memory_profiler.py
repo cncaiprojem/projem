@@ -139,7 +139,7 @@ class AdvancedMemoryProfiler:
                  enable_continuous_monitoring: bool = False,
                  snapshot_interval_seconds: int = 60,
                  max_snapshots: int = 100,
-                 leak_detection_threshold_mb: float = 10.0):
+                 leak_detection_threshold_mb: float = 50.0):
         """
         Initialize memory profiler.
 
@@ -206,7 +206,7 @@ class AdvancedMemoryProfiler:
 
             # Get GC statistics
             gc_stats = {
-                "collections": {f"gen{i}": gc.get_count()[i] for i in range(gc.get_count().__len__())},
+                "collections": {f"gen{i}": gc.get_count()[i] for i in range(len(gc.get_count()))},
                 "collected": len(gc.garbage),
                 "uncollectable": len([o for o in gc.garbage if not gc.is_tracked(o)]),
                 "thresholds": gc.get_threshold()

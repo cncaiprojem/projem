@@ -102,7 +102,9 @@ class ConnectionManager:
     async def send_metrics(self, message: PerformanceMetricsMessage):
         """Send metrics to all connected clients."""
         message_dict = message.dict()
-        for connection in self.active_connections:
+        # Create a copy of connections to avoid RuntimeError during iteration
+        connections = list(self.active_connections)
+        for connection in connections:
             try:
                 await connection.send_json(message_dict)
             except Exception as e:
@@ -111,7 +113,9 @@ class ConnectionManager:
     async def send_alert(self, alert: PerformanceAlertMessage):
         """Send alert to all connected clients."""
         alert_dict = alert.dict()
-        for connection in self.active_connections:
+        # Create a copy of connections to avoid RuntimeError during iteration
+        connections = list(self.active_connections)
+        for connection in connections:
             try:
                 await connection.send_json(alert_dict)
             except Exception as e:
@@ -200,17 +204,19 @@ async def start_profiling(
 
         # Start profiling based on type
         if request.profile_type == ProfileTypeSchema.CPU:
-            # Start CPU profiling in background
-            background_tasks.add_task(
-                performance_profiler.profile_cpu,
-                request.operation_name
-            )
+            # Store profile_id for tracking
+            performance_profiler._active_profilers[profile_id] = {
+                "type": "cpu",
+                "operation": request.operation_name,
+                "start_time": datetime.now(timezone.utc)
+            }
         elif request.profile_type == ProfileTypeSchema.MEMORY:
-            # Start memory profiling
-            background_tasks.add_task(
-                performance_profiler.profile_memory,
-                request.operation_name
-            )
+            # Store profile_id for tracking
+            performance_profiler._active_profilers[profile_id] = {
+                "type": "memory",
+                "operation": request.operation_name,
+                "start_time": datetime.now(timezone.utc)
+            }
         elif request.profile_type == ProfileTypeSchema.GPU:
             # Start GPU profiling
             if not gpu_monitor.gpu_devices:
@@ -218,16 +224,18 @@ async def start_profiling(
                     status_code=400,
                     detail="GPU monitoring not available"
                 )
-            background_tasks.add_task(
-                performance_profiler.profile_gpu,
-                request.operation_name
-            )
+            performance_profiler._active_profilers[profile_id] = {
+                "type": "gpu",
+                "operation": request.operation_name,
+                "start_time": datetime.now(timezone.utc)
+            }
         elif request.profile_type == ProfileTypeSchema.FULL:
-            # Start full profiling
-            background_tasks.add_task(
-                performance_profiler.profile_full,
-                request.operation_name
-            )
+            # Store profile_id for tracking
+            performance_profiler._active_profilers[profile_id] = {
+                "type": "full",
+                "operation": request.operation_name,
+                "start_time": datetime.now(timezone.utc)
+            }
 
         # Enable continuous monitoring if requested
         if request.enable_continuous:
@@ -332,8 +340,8 @@ async def profile_operation(
             request.operation_name,
             request.metadata
         ) as operation:
-            # Simulate some work
-            await asyncio.sleep(0.1)
+            # Real work would be done here
+            pass
 
         # Return metrics
         return OperationMetricsResponse(
@@ -759,13 +767,13 @@ async def export_profiles(
     if request.start_date:
         profiles = [
             p for p in profiles
-            if datetime.fromisoformat(p.get("start_time", "")) >= request.start_date
+            if p.get("start_time") and datetime.fromisoformat(p.get("start_time")) >= request.start_date
         ]
 
     if request.end_date:
         profiles = [
             p for p in profiles
-            if datetime.fromisoformat(p.get("start_time", "")) <= request.end_date
+            if p.get("start_time") and datetime.fromisoformat(p.get("start_time")) <= request.end_date
         ]
 
     # Create export file
@@ -833,11 +841,24 @@ async def download_export(
 
     Dışa aktarılan profilleri indirir.
     """
+    # Validate export_id to prevent path traversal
+    import re
+    if not re.match(r'^export_[a-f0-9]{8}$', export_id):
+        raise HTTPException(status_code=400, detail="Invalid export ID format")
+
     # Find export file
     export_dir = Path(tempfile.gettempdir()) / "performance_exports"
 
+    # Ensure export_dir is secure
+    export_dir = export_dir.resolve()
+
     for ext in [".json", ".csv", ".html"]:
-        file_path = export_dir / f"{export_id}{ext}"
+        file_path = (export_dir / f"{export_id}{ext}").resolve()
+
+        # Ensure file_path is within export_dir (prevent path traversal)
+        if not str(file_path).startswith(str(export_dir)):
+            raise HTTPException(status_code=403, detail="Access denied")
+
         if file_path.exists():
             return FileResponse(
                 path=str(file_path),
