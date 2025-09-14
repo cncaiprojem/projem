@@ -32,6 +32,18 @@ from ..models.manufacturing_models import (
 )
 from ..utils.freecad_utils import get_shape_from_document
 
+# Optional FreeCAD imports with graceful fallback
+try:
+    import FreeCAD
+    import Part
+    from FreeCAD import Base
+    FREECAD_AVAILABLE = True
+except ImportError:
+    FREECAD_AVAILABLE = False
+    FreeCAD = None
+    Part = None
+    Base = None
+
 logger = get_logger(__name__)
 
 # Manufacturing Constants
@@ -89,6 +101,10 @@ CASTING_PATTERN_BASE_COST = Decimal("500")  # $
 CASTING_MATERIAL_WASTE_FACTOR = Decimal("1.1")  # 10% waste
 CASTING_FINISHING_COST_PER_CM2 = Decimal("0.05")  # $/cm²
 CASTING_BATCH_SIZE = Decimal("100")  # units for pattern amortization
+
+# Cost Constants
+MINIMUM_HANDLING_CHARGE = Decimal("25")  # Minimum charge for any job
+DEFAULT_COST_MULTIPLIER = Decimal("3")  # Default multiplier for unknown processes
 
 
 @dataclass
@@ -466,12 +482,8 @@ class ManufacturingValidator:
         accessibility = {}
         
         try:
-            # Import FreeCAD modules if available
-            try:
-                import Part
-                import FreeCAD
-                from FreeCAD import Base
-            except ImportError:
+            # Check if FreeCAD is available
+            if not FREECAD_AVAILABLE:
                 # Fallback to simple check
                 features = self._extract_features(shape)
                 for feature_id, feature in features.items():
@@ -527,9 +539,8 @@ class ManufacturingValidator:
     def _check_vertical_access(self, shape: Any, feature: Dict[str, Any]) -> bool:
         """Check if feature is accessible from vertical direction."""
         try:
-            import Part
-            import FreeCAD
-            from FreeCAD import Base
+            if not FREECAD_AVAILABLE:
+                return True  # Default to accessible if FreeCAD not available
             
             # Get feature location
             location = feature.get("location", {})
@@ -583,9 +594,8 @@ class ManufacturingValidator:
     def _check_ray_access(self, shape: Any, feature: Dict[str, Any], vectors: List) -> bool:
         """Check if feature is accessible along any of the given vectors."""
         try:
-            import Part
-            import FreeCAD
-            from FreeCAD import Base
+            if not FREECAD_AVAILABLE:
+                return True  # Default to accessible if FreeCAD not available
             
             # Get feature location
             location = feature.get("location", {})
@@ -644,13 +654,9 @@ class ManufacturingValidator:
         undercuts = []
         
         try:
-            # Import FreeCAD modules if available
-            try:
-                import Part
-                import FreeCAD
-                from FreeCAD import Base
-                import math
-            except ImportError:
+            # Check if FreeCAD is available
+            import math
+            if not FREECAD_AVAILABLE:
                 # Fallback to simple mock
                 if axes < 5:
                     undercuts.append({
@@ -733,8 +739,8 @@ class ManufacturingValidator:
         feature_sizes = {}
         
         try:
-            import Part
-            import FreeCAD
+            if not FREECAD_AVAILABLE:
+                return feature_sizes
             
             features = self._extract_features(shape)
             
@@ -791,11 +797,8 @@ class ManufacturingValidator:
         checks = []
         
         try:
-            # Import FreeCAD modules if available
-            try:
-                import FreeCAD
-                import Part
-            except ImportError:
+            # Check if FreeCAD is available
+            if not FREECAD_AVAILABLE:
                 logger.warning("FreeCAD not available for tolerance validation")
                 return checks
             
@@ -934,11 +937,8 @@ class ManufacturingValidator:
         
         try:
             # Import FreeCAD modules if available
-            try:
-                import FreeCAD
-                import Part
-                import math
-            except ImportError:
+            import math
+            if not FREECAD_AVAILABLE:
                 logger.warning("FreeCAD not available for overhang detection")
                 return overhangs
             
@@ -995,11 +995,8 @@ class ManufacturingValidator:
         trapped = []
         
         try:
-            # Import FreeCAD modules if available
-            try:
-                import Part
-                import FreeCAD
-            except ImportError:
+            # Check if FreeCAD is available
+            if not FREECAD_AVAILABLE:
                 return trapped  # Can't detect without FreeCAD
             
             if not hasattr(shape, 'Solids'):
@@ -1324,11 +1321,10 @@ class ManufacturingValidator:
                 
             else:
                 # Fallback to simple calculation
-                total_cost = raw_material_cost * Decimal("3")  # 3x material cost as default
+                total_cost = raw_material_cost * DEFAULT_COST_MULTIPLIER
             
             # Add minimum handling charge
-            min_charge = Decimal("25")
-            total_cost = max(total_cost, min_charge)
+            total_cost = max(total_cost, MINIMUM_HANDLING_CHARGE)
             
             return total_cost.quantize(Decimal("0.01"))
             
@@ -1758,9 +1754,9 @@ class ManufacturingValidator:
     def _has_draft_angles(self, shape: Any, min_angle: float = 1.0) -> bool:
         """Check if vertical faces have draft angles for molding."""
         try:
-            import FreeCAD
-            import Part
             import math
+            if not FREECAD_AVAILABLE:
+                return False
             
             if not hasattr(shape, 'Faces'):
                 return False
@@ -1812,9 +1808,10 @@ class ManufacturingValidator:
         except Exception as e:
             logger.warning(f"Error checking undercuts: {e}")
             # Fallback to simplified check
+            if not FREECAD_AVAILABLE:
+                return False
+            
             try:
-                import FreeCAD
-                
                 if not hasattr(shape, 'Faces'):
                     return False
                 
@@ -1840,8 +1837,8 @@ class ManufacturingValidator:
     def _check_bend_radius(self, shape: Any, min_bend_radius: float = 1.0) -> bool:
         """Check if bend radii are acceptable for sheet metal."""
         try:
-            import FreeCAD
-            import Part
+            if not FREECAD_AVAILABLE:
+                return True  # Assume OK if FreeCAD not available
             
             if not hasattr(shape, 'Edges'):
                 return True
@@ -1863,8 +1860,8 @@ class ManufacturingValidator:
     def _has_proper_gating_location(self, shape: Any) -> bool:
         """Check if shape has proper locations for injection molding gates."""
         try:
-            import FreeCAD
-            import Part
+            if not FREECAD_AVAILABLE:
+                return True  # Assume OK if FreeCAD not available
             
             if not hasattr(shape, 'Faces'):
                 return False

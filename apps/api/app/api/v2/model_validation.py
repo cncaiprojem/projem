@@ -20,6 +20,11 @@ import uuid
 import shutil
 from pathlib import Path
 
+# Constants for default values
+DEFAULT_FEASIBILITY_SCORE = 0.85  # Default feasibility score when calculation is not available
+DEFAULT_COMPLEXITY_SCORE = 50.0  # Default complexity score for models
+DEFAULT_QUALITY_GRADE = "B"  # Default quality grade when not calculated
+
 from app.core.database import get_db
 from app.core.auth import get_current_user
 from app.core.logging import get_logger
@@ -270,7 +275,7 @@ async def validate_manufacturing(
             return ManufacturingValidationResponse(
                 process=request.process,
                 is_feasible=result.feasible,
-                feasibility_score=result.feasibility_score if hasattr(result, 'feasibility_score') else 0.85,
+                feasibility_score=result.feasibility_score if hasattr(result, 'feasibility_score') else DEFAULT_FEASIBILITY_SCORE,
                 issues=result.issues,
                 warnings=result.warnings,
                 suggestions=result.suggestions,
@@ -379,9 +384,9 @@ async def get_quality_metrics(
                 document_id=document_id,
                 timestamp=datetime.now(timezone.utc),
                 quality_score=report.overall_score,
-                grade=report.grade if hasattr(report, 'grade') else "B",
+                grade=report.grade if hasattr(report, 'grade') else DEFAULT_QUALITY_GRADE,
                 metrics=report.metrics,
-                complexity=report.complexity_score if hasattr(report, 'complexity_score') else 50.0,
+                complexity=report.complexity_score if hasattr(report, 'complexity_score') else DEFAULT_COMPLEXITY_SCORE,
                 manufacturing_readiness=report.manufacturing_readiness,
                 issues_by_category=report.issues_by_category if hasattr(report, 'issues_by_category') else {},
                 improvement_areas=report.improvement_areas if hasattr(report, 'improvement_areas') else []

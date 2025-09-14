@@ -491,110 +491,48 @@ class GeometricValidator:
     
     def find_non_manifold_edges(self, shape: Any) -> List[Dict[str, Any]]:
         """Find non-manifold edges in shape."""
-        non_manifold = []
+        # Use shared topology utilities
+        from ..utils.topology_utils import detect_non_manifold_edges
         
         try:
-            if hasattr(shape, 'Edges') and hasattr(shape, 'Faces'):
-                # Import FreeCAD Part module if available
-                try:
-                    import Part
-                    from collections import defaultdict
-                    
-                    # Build edge-to-face mapping
-                    edge_face_map = defaultdict(list)
-                    
-                    for face_idx, face in enumerate(shape.Faces):
-                        if hasattr(face, 'Edges'):
-                            for edge in face.Edges:
-                                # Use edge vertices as unique identifier (same as find_open_edges)
-                                if hasattr(edge, 'Vertexes') and len(edge.Vertexes) >= 2:
-                                    v1 = edge.Vertexes[0].Point
-                                    v2 = edge.Vertexes[-1].Point
-                                    # Make edge key canonical by sorting vertices
-                                    vert1 = (round(v1.x, 4), round(v1.y, 4), round(v1.z, 4))
-                                    vert2 = (round(v2.x, 4), round(v2.y, 4), round(v2.z, 4))
-                                    edge_key = tuple(sorted([vert1, vert2]))
-                                    edge_face_map[edge_key].append(face_idx)
-                    
-                    # Find non-manifold edges (shared by != 2 faces)
-                    for edge_idx, edge in enumerate(shape.Edges):
-                        if hasattr(edge, 'Vertexes') and len(edge.Vertexes) >= 2:
-                            v1 = edge.Vertexes[0].Point
-                            v2 = edge.Vertexes[-1].Point
-                            # Make edge key canonical by sorting vertices
-                            vert1 = (round(v1.x, 4), round(v1.y, 4), round(v1.z, 4))
-                            vert2 = (round(v2.x, 4), round(v2.y, 4), round(v2.z, 4))
-                            edge_key = tuple(sorted([vert1, vert2]))
-                            face_count = len(edge_face_map[edge_key])
-                            
-                            if face_count != 2 and face_count > 0:
-                                non_manifold.append({
-                                    "edge_index": edge_idx,
-                                    "face_count": face_count,
-                                    "faces": edge_face_map[edge_key],
-                                    "length": edge.Length if hasattr(edge, 'Length') else 0.0
-                                })
-                    
-                except ImportError:
-                    # Fallback to simple check without FreeCAD
-                    logger.debug("FreeCAD not available for detailed non-manifold detection")
-        
+            return detect_non_manifold_edges(shape)
         except Exception as e:
             logger.warning(f"Non-manifold edge detection error: {e}")
-        
-        return non_manifold
+            return []
     
     def find_open_edges(self, shape: Any) -> List[Dict[str, Any]]:
         """Find open edges in shape."""
-        open_edges = []
+        # Use shared topology utilities
+        from ..utils.topology_utils import detect_open_edges
         
         try:
-            if hasattr(shape, 'Edges') and hasattr(shape, 'Faces'):
-                try:
-                    import Part
-                    from collections import defaultdict
-                    
-                    # Build edge-to-face mapping
-                    edge_face_count = defaultdict(int)
-                    
-                    for face in shape.Faces:
-                        if hasattr(face, 'Edges'):
-                            for edge in face.Edges:
-                                # Use edge vertices as unique identifier
-                                if hasattr(edge, 'Vertexes') and len(edge.Vertexes) >= 2:
-                                    v1 = edge.Vertexes[0].Point
-                                    v2 = edge.Vertexes[-1].Point
-                                    # Make edge key canonical by sorting vertices
-                                    vert1 = (round(v1.x, 4), round(v1.y, 4), round(v1.z, 4))
-                                    vert2 = (round(v2.x, 4), round(v2.y, 4), round(v2.z, 4))
-                                    edge_key = tuple(sorted([vert1, vert2]))
-                                    edge_face_count[edge_key] += 1
-                    
-                    # Find edges that belong to only one face (open edges)
-                    for i, edge in enumerate(shape.Edges):
+            open_edges_basic = detect_open_edges(shape)
+            
+            # Add additional fields for compatibility
+            open_edges = []
+            if hasattr(shape, 'Edges'):
+                for edge_info in open_edges_basic:
+                    edge_idx = edge_info.get("edge_index", 0)
+                    if edge_idx < len(shape.Edges):
+                        edge = shape.Edges[edge_idx]
                         if hasattr(edge, 'Vertexes') and len(edge.Vertexes) >= 2:
                             v1 = edge.Vertexes[0].Point
                             v2 = edge.Vertexes[-1].Point
-                            # Make edge key canonical by sorting vertices
-                            vert1 = (round(v1.x, 4), round(v1.y, 4), round(v1.z, 4))
-                            vert2 = (round(v2.x, 4), round(v2.y, 4), round(v2.z, 4))
-                            edge_key = tuple(sorted([vert1, vert2]))
-                            
-                            if edge_face_count[edge_key] == 1:
-                                open_edges.append({
-                                    "edge_index": i,
-                                    "length": edge.Length if hasattr(edge, 'Length') else 0.0,
-                                    "start": {"x": v1.x, "y": v1.y, "z": v1.z},
-                                    "end": {"x": v2.x, "y": v2.y, "z": v2.z}
-                                })
-                    
-                except ImportError:
-                    logger.debug("FreeCAD not available for open edge detection")
-        
+                            open_edges.append({
+                                "edge_index": edge_idx,
+                                "length": edge_info.get("length", 0.0),
+                                "start": {"x": v1.x, "y": v1.y, "z": v1.z},
+                                "end": {"x": v2.x, "y": v2.y, "z": v2.z}
+                            })
+                    else:
+                        open_edges.append(edge_info)
+            else:
+                open_edges = open_edges_basic
+            
+            return open_edges
         except Exception as e:
             logger.warning(f"Open edge detection error: {e}")
-        
-        return open_edges
+            return []
     
     def check_face_normals(self, shape: Any) -> List[Dict[str, Any]]:
         """Check consistency of face normals."""

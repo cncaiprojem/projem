@@ -688,7 +688,12 @@ class ModelValidationFramework:
             try:
                 # Apply fix (would call actual FreeCAD operations)
                 # This is a placeholder - actual implementation would modify the document
-                result = self._apply_single_fix(doc_handle, suggestion)
+                # Use asyncio.to_thread for CPU-bound FreeCAD operations
+                result = await asyncio.to_thread(
+                    self._apply_single_fix,
+                    doc_handle,
+                    suggestion
+                )
                 
                 report.applied_fixes += 1
                 report.successful_fixes += 1

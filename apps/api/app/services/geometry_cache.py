@@ -7,6 +7,7 @@ Based on FreeCAD's recommended caching patterns.
 
 from functools import lru_cache
 from typing import Any, Tuple, Optional, Dict
+from collections import OrderedDict
 import hashlib
 import json
 from decimal import Decimal
@@ -139,7 +140,7 @@ class WallThicknessCache:
     """
     
     def __init__(self, cache_size: int = THICKNESS_CACHE_SIZE):
-        self._cache = {}
+        self._cache = OrderedDict()
         self._max_size = cache_size
     
     def get_or_compute(
@@ -166,6 +167,8 @@ class WallThicknessCache:
         # Check cache
         if cache_key in self._cache:
             logger.debug(f"Wall thickness cache hit for {cache_key}")
+            # Move to end (most recently used) for LRU
+            self._cache.move_to_end(cache_key)
             return self._cache[cache_key]
         
         # Compute if not in cache
@@ -173,9 +176,8 @@ class WallThicknessCache:
         
         # Store in cache (with size limit)
         if len(self._cache) >= self._max_size:
-            # Remove oldest entry (simple FIFO for now)
-            oldest_key = next(iter(self._cache))
-            del self._cache[oldest_key]
+            # Remove least recently used (first item) for proper LRU
+            self._cache.popitem(last=False)
         
         self._cache[cache_key] = thickness
         logger.debug(f"Wall thickness computed and cached for {cache_key}")
@@ -195,7 +197,7 @@ class FaceIntersectionCache:
     """
     
     def __init__(self, cache_size: int = INTERSECTION_CACHE_SIZE):
-        self._cache = {}
+        self._cache = OrderedDict()
         self._max_size = cache_size
     
     def check_intersection(
@@ -225,6 +227,8 @@ class FaceIntersectionCache:
         # Check cache
         if cache_key in self._cache:
             logger.debug(f"Face intersection cache hit")
+            # Move to end (most recently used) for LRU
+            self._cache.move_to_end(cache_key)
             return self._cache[cache_key]
         
         # Compute if not in cache
@@ -232,9 +236,8 @@ class FaceIntersectionCache:
         
         # Store in cache
         if len(self._cache) >= self._max_size:
-            # Remove oldest entry
-            oldest_key = next(iter(self._cache))
-            del self._cache[oldest_key]
+            # Remove least recently used (first item) for proper LRU
+            self._cache.popitem(last=False)
         
         self._cache[cache_key] = intersects
         
