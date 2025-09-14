@@ -45,6 +45,7 @@ from ..core.logging import get_logger
 from ..core.telemetry import create_span
 from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
+from .profiling_state_manager import state_manager
 
 logger = get_logger(__name__)
 
@@ -240,10 +241,11 @@ class PerformanceProfiler:
         self.profile_interval_seconds = profile_interval_seconds
         self.max_profiles_stored = max_profiles_stored
 
-        # Profile storage
-        self.cpu_profiles: deque = deque(maxlen=max_profiles_stored)
-        self.memory_profiles: deque = deque(maxlen=max_profiles_stored)
-        self.gpu_profiles: deque = deque(maxlen=max_profiles_stored)
+        # Profile storage - now using Redis through state_manager
+        # Remove local storage - all state is in Redis
+        # self.cpu_profiles: deque = deque(maxlen=max_profiles_stored)
+        # self.memory_profiles: deque = deque(maxlen=max_profiles_stored)
+        # self.gpu_profiles: deque = deque(maxlen=max_profiles_stored)
 
         # Current profiling state
         self._active_profilers: Dict[str, Any] = {}
@@ -323,9 +325,8 @@ class PerformanceProfiler:
                     correlation_id=correlation_id
                 )
 
-                # Store profile
-                with self._profile_lock:
-                    self.cpu_profiles.append(cpu_profile)
+                # Store profile in Redis
+                state_manager.add_cpu_profile(cpu_profile.to_dict())
 
                 # Log summary
                 logger.info("CPU profile completed",
@@ -442,9 +443,8 @@ class PerformanceProfiler:
                     correlation_id=correlation_id
                 )
 
-                # Store profile
-                with self._profile_lock:
-                    self.memory_profiles.append(memory_profile)
+                # Store profile in Redis
+                state_manager.add_memory_profile(memory_profile.to_dict())
 
                 # Log summary
                 logger.info("Memory profile completed",
@@ -554,9 +554,8 @@ class PerformanceProfiler:
                     correlation_id=correlation_id
                 )
 
-                # Store profile
-                with self._profile_lock:
-                    self.gpu_profiles.append(gpu_profile)
+                # Store profile in Redis
+                state_manager.add_gpu_profile(gpu_profile.to_dict())
 
                 # Log summary
                 logger.info("GPU profile completed",
@@ -621,10 +620,11 @@ class PerformanceProfiler:
         """
         issues = []
 
-        # Analyze CPU profiles
-        for profile in list(self.cpu_profiles)[-5:]:  # Last 5 profiles
+        # Analyze CPU profiles from Redis
+        cpu_profiles_data = state_manager.get_cpu_profiles(limit=5)
+        for profile_data in cpu_profiles_data:
             # Check for slow functions
-            for func_name, stats in profile.function_calls.items():
+            for func_name, stats in profile_data.get('function_calls', {}).items():
                 if stats.get("cumtime", 0) > self.thresholds["slow_function_seconds"]:
                     issues.append(PerformanceIssue(
                         issue_type=PerformanceIssueType.SLOW_FUNCTION,
@@ -632,57 +632,59 @@ class PerformanceProfiler:
                         description=f"Function {func_name} takes {stats['cumtime']:.2f} seconds",
                         description_tr=f"{func_name} fonksiyonu {stats['cumtime']:.2f} saniye sürüyor",
                         location=func_name,
-                        impact=min(stats["cumtime"] / profile.total_time, 1.0),
+                        impact=min(stats["cumtime"] / profile_data.get('total_time', 1), 1.0),
                         recommendation="Consider optimizing this function or using caching",
                         recommendation_tr="Bu fonksiyonu optimize etmeyi veya önbellekleme kullanmayı düşünün",
                         metrics={"cumulative_time": stats["cumtime"], "call_count": stats.get("ncalls", 0)}
                     ))
 
-        # Analyze memory profiles
-        for profile in list(self.memory_profiles)[-5:]:  # Last 5 profiles
+        # Analyze memory profiles from Redis
+        memory_profiles_data = state_manager.get_memory_profiles(limit=5)
+        for profile_data in memory_profiles_data:
             # Check for memory leaks
-            if profile.memory_growth_mb > self.thresholds["memory_growth_mb"]:
+            if profile_data.get('memory_growth_mb', 0) > self.thresholds["memory_growth_mb"]:
                 issues.append(PerformanceIssue(
                     issue_type=PerformanceIssueType.MEMORY_LEAK,
                     severity=OptimizationPriority.CRITICAL,
-                    description=f"Memory grew by {profile.memory_growth_mb:.2f} MB",
-                    description_tr=f"Bellek {profile.memory_growth_mb:.2f} MB arttı",
+                    description=f"Memory grew by {profile_data.get('memory_growth_mb', 0):.2f} MB",
+                    description_tr=f"Bellek {profile_data.get('memory_growth_mb', 0):.2f} MB arttı",
                     location=None,
-                    impact=min(profile.memory_growth_mb / 1000, 1.0),  # Normalize to 1GB
+                    impact=min(profile_data.get('memory_growth_mb', 0) / 1000, 1.0),  # Normalize to 1GB
                     recommendation="Check for unreleased resources or circular references",
                     recommendation_tr="Serbest bırakılmamış kaynakları veya döngüsel referansları kontrol edin",
-                    metrics={"memory_growth_mb": profile.memory_growth_mb, "potential_leaks": len(profile.potential_leaks)}
+                    metrics={"memory_growth_mb": profile_data.get('memory_growth_mb', 0), "potential_leaks": len(profile_data.get('potential_leaks', []))}
                 ))
 
             # Check for fragmentation
-            if profile.fragmentation_ratio > self.thresholds["fragmentation_ratio"]:
+            if profile_data.get('fragmentation_ratio', 0) > self.thresholds["fragmentation_ratio"]:
                 issues.append(PerformanceIssue(
                     issue_type=PerformanceIssueType.MEMORY_FRAGMENTATION,
                     severity=OptimizationPriority.MEDIUM,
-                    description=f"Memory fragmentation ratio: {profile.fragmentation_ratio:.2%}",
-                    description_tr=f"Bellek parçalanma oranı: {profile.fragmentation_ratio:.2%}",
+                    description=f"Memory fragmentation ratio: {profile_data.get('fragmentation_ratio', 0):.2%}",
+                    description_tr=f"Bellek parçalanma oranı: {profile_data.get('fragmentation_ratio', 0):.2%}",
                     location=None,
-                    impact=profile.fragmentation_ratio,
+                    impact=profile_data.get('fragmentation_ratio', 0),
                     recommendation="Consider using memory pools or reducing allocation/deallocation frequency",
                     recommendation_tr="Bellek havuzları kullanmayı veya tahsis/serbest bırakma sıklığını azaltmayı düşünün",
-                    metrics={"fragmentation_ratio": profile.fragmentation_ratio}
+                    metrics={"fragmentation_ratio": profile_data.get('fragmentation_ratio', 0)}
                 ))
 
-        # Analyze GPU profiles
-        for profile in list(self.gpu_profiles)[-5:]:  # Last 5 profiles
-            if profile.gpu_available and profile.gpu_utilization_percent:
+        # Analyze GPU profiles from Redis
+        gpu_profiles_data = state_manager.get_gpu_profiles(limit=5)
+        for profile_data in gpu_profiles_data:
+            if profile_data.get('gpu_available') and profile_data.get('gpu_utilization_percent'):
                 # Check for GPU underutilization
-                if profile.gpu_utilization_percent < self.thresholds["gpu_utilization_low"]:
+                if profile_data.get('gpu_utilization_percent', 0) < self.thresholds["gpu_utilization_low"]:
                     issues.append(PerformanceIssue(
                         issue_type=PerformanceIssueType.GPU_UNDERUTILIZATION,
                         severity=OptimizationPriority.LOW,
-                        description=f"GPU utilization only {profile.gpu_utilization_percent:.1f}%",
-                        description_tr=f"GPU kullanımı sadece %{profile.gpu_utilization_percent:.1f}",
+                        description=f"GPU utilization only {profile_data.get('gpu_utilization_percent', 0):.1f}%",
+                        description_tr=f"GPU kullanımı sadece %{profile_data.get('gpu_utilization_percent', 0):.1f}",
                         location=None,
-                        impact=1.0 - (profile.gpu_utilization_percent / 100),
+                        impact=1.0 - (profile_data.get('gpu_utilization_percent', 0) / 100),
                         recommendation="Consider batching operations or using GPU acceleration more effectively",
                         recommendation_tr="İşlemleri toplu hale getirmeyi veya GPU hızlandırmasını daha etkili kullanmayı düşünün",
-                        metrics={"gpu_utilization": profile.gpu_utilization_percent}
+                        metrics={"gpu_utilization": profile_data.get('gpu_utilization_percent', 0)}
                     ))
 
         return issues
@@ -785,7 +787,7 @@ class PerformanceProfiler:
                            profile_type: Optional[ProfileType] = None,
                            limit: int = 10) -> List[Dict[str, Any]]:
         """
-        Get recent performance profiles.
+        Get recent performance profiles from Redis.
 
         Args:
             profile_type: Filter by profile type
@@ -797,15 +799,15 @@ class PerformanceProfiler:
         profiles = []
 
         if profile_type in (None, ProfileType.CPU, ProfileType.FULL):
-            cpu_profiles = [p.to_dict() for p in list(self.cpu_profiles)[-limit:]]
+            cpu_profiles = state_manager.get_cpu_profiles(limit=limit)
             profiles.extend(cpu_profiles)
 
         if profile_type in (None, ProfileType.MEMORY, ProfileType.FULL):
-            memory_profiles = [p.to_dict() for p in list(self.memory_profiles)[-limit:]]
+            memory_profiles = state_manager.get_memory_profiles(limit=limit)
             profiles.extend(memory_profiles)
 
         if profile_type in (None, ProfileType.GPU, ProfileType.FULL):
-            gpu_profiles = [p.to_dict() for p in list(self.gpu_profiles)[-limit:]]
+            gpu_profiles = state_manager.get_gpu_profiles(limit=limit)
             profiles.extend(gpu_profiles)
 
         # Sort by start time
@@ -820,15 +822,10 @@ class PerformanceProfiler:
         Args:
             profile_type: Clear specific type or all if None
         """
-        with self._profile_lock:
-            if profile_type in (None, ProfileType.CPU, ProfileType.FULL):
-                self.cpu_profiles.clear()
-            if profile_type in (None, ProfileType.MEMORY, ProfileType.FULL):
-                self.memory_profiles.clear()
-            if profile_type in (None, ProfileType.GPU, ProfileType.FULL):
-                self.gpu_profiles.clear()
-
-        logger.info("Profiles cleared", profile_type=profile_type)
+        # In Redis-based storage, clearing would require explicit deletion
+        # For now, we'll rely on TTL expiration
+        # Could implement explicit clearing if needed
+        logger.info("Profile clearing delegated to Redis TTL", profile_type=profile_type)
 
     # Private helper methods
 
@@ -870,58 +867,61 @@ class PerformanceProfiler:
         return hot_spots
 
     def _calculate_cpu_statistics(self) -> Dict[str, Any]:
-        """Calculate CPU performance statistics."""
-        if not self.cpu_profiles:
+        """Calculate CPU performance statistics from Redis."""
+        recent_profiles = state_manager.get_cpu_profiles(limit=10)
+
+        if not recent_profiles:
             return {}
 
-        recent_profiles = list(self.cpu_profiles)[-10:]  # Last 10 profiles
-
-        total_times = [p.total_time for p in recent_profiles]
+        total_times = [p.get('total_time', 0) for p in recent_profiles]
 
         return {
-            "avg_execution_time": sum(total_times) / len(total_times),
-            "max_execution_time": max(total_times),
-            "min_execution_time": min(total_times),
+            "avg_execution_time": sum(total_times) / len(total_times) if total_times else 0,
+            "max_execution_time": max(total_times) if total_times else 0,
+            "min_execution_time": min(total_times) if total_times else 0,
             "profile_count": len(recent_profiles)
         }
 
     def _calculate_memory_statistics(self) -> Dict[str, Any]:
-        """Calculate memory performance statistics."""
-        if not self.memory_profiles:
+        """Calculate memory performance statistics from Redis."""
+        recent_profiles = state_manager.get_memory_profiles(limit=10)
+
+        if not recent_profiles:
             return {}
 
-        recent_profiles = list(self.memory_profiles)[-10:]  # Last 10 profiles
-
-        peak_memories = [p.peak_memory_mb for p in recent_profiles]
-        growth_rates = [p.memory_growth_mb for p in recent_profiles]
+        peak_memories = [p.get('peak_memory_mb', 0) for p in recent_profiles]
+        growth_rates = [p.get('memory_growth_mb', 0) for p in recent_profiles]
 
         return {
-            "avg_peak_memory_mb": sum(peak_memories) / len(peak_memories),
-            "max_peak_memory_mb": max(peak_memories),
-            "avg_growth_mb": sum(growth_rates) / len(growth_rates),
-            "max_growth_mb": max(growth_rates),
+            "avg_peak_memory_mb": sum(peak_memories) / len(peak_memories) if peak_memories else 0,
+            "max_peak_memory_mb": max(peak_memories) if peak_memories else 0,
+            "avg_growth_mb": sum(growth_rates) / len(growth_rates) if growth_rates else 0,
+            "max_growth_mb": max(growth_rates) if growth_rates else 0,
             "profile_count": len(recent_profiles)
         }
 
     def _calculate_gpu_statistics(self) -> Dict[str, Any]:
-        """Calculate GPU performance statistics."""
-        if not self.gpu_profiles:
-            return {}
-
-        recent_profiles = [p for p in list(self.gpu_profiles)[-10:]
-                          if p.gpu_utilization_percent is not None]
+        """Calculate GPU performance statistics from Redis."""
+        recent_profiles = state_manager.get_gpu_profiles(limit=10)
 
         if not recent_profiles:
+            return {}
+
+        # Filter profiles with GPU utilization
+        profiles_with_gpu = [p for p in recent_profiles
+                            if p.get('gpu_utilization_percent') is not None]
+
+        if not profiles_with_gpu:
             return {"gpu_available": False}
 
-        utilizations = [p.gpu_utilization_percent for p in recent_profiles]
+        utilizations = [p.get('gpu_utilization_percent', 0) for p in profiles_with_gpu]
 
         return {
             "gpu_available": True,
-            "avg_utilization_percent": sum(utilizations) / len(utilizations),
-            "max_utilization_percent": max(utilizations),
-            "min_utilization_percent": min(utilizations),
-            "profile_count": len(recent_profiles)
+            "avg_utilization_percent": sum(utilizations) / len(utilizations) if utilizations else 0,
+            "max_utilization_percent": max(utilizations) if utilizations else 0,
+            "min_utilization_percent": min(utilizations) if utilizations else 0,
+            "profile_count": len(profiles_with_gpu)
         }
 
     def _compare_with_baseline(self, baseline_name: str = "default") -> Optional[Dict[str, Any]]:

@@ -30,6 +30,7 @@ from ..core.logging import get_logger
 from ..core.telemetry import create_span
 from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
+from .profiling_state_manager import state_manager
 
 logger = get_logger(__name__)
 
@@ -154,10 +155,11 @@ class AdvancedMemoryProfiler:
         self.max_snapshots = max_snapshots
         self.leak_detection_threshold_mb = leak_detection_threshold_mb
 
-        # Storage
-        self.memory_snapshots: deque = deque(maxlen=max_snapshots)
-        self.detected_leaks: List[MemoryLeak] = []
-        self.fragmentation_analyses: deque = deque(maxlen=50)
+        # Storage - now using Redis through state_manager
+        # Remove local storage - all state is in Redis
+        # self.memory_snapshots: deque = deque(maxlen=max_snapshots)
+        # self.detected_leaks: List[MemoryLeak] = []
+        # self.fragmentation_analyses: deque = deque(maxlen=50)
 
         # Object tracking
         self.tracked_objects: weakref.WeakValueDictionary = weakref.WeakValueDictionary()
@@ -246,8 +248,8 @@ class AdvancedMemoryProfiler:
                 object_counts=sorted_counts
             )
 
-            # Store snapshot
-            self.memory_snapshots.append(snapshot)
+            # Store snapshot in Redis
+            state_manager.add_memory_snapshot(snapshot.to_dict())
 
             logger.debug("Memory snapshot taken",
                         snapshot_id=snapshot_id,
@@ -272,14 +274,36 @@ class AdvancedMemoryProfiler:
         Returns:
             List of detected memory leaks
         """
-        if len(self.memory_snapshots) < 2:
+        # Get snapshots from Redis
+        snapshots_data = state_manager.get_memory_snapshots(limit=100)
+
+        if len(snapshots_data) < 2:
             return []
 
         leaks = []
         cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=time_window_minutes)
 
         # Get recent snapshots
-        recent_snapshots = [s for s in self.memory_snapshots if s.timestamp > cutoff_time]
+        recent_snapshots = []
+        for s_data in snapshots_data:
+            timestamp_str = s_data.get('timestamp')
+            if timestamp_str:
+                try:
+                    timestamp = datetime.fromisoformat(timestamp_str)
+                    if timestamp > cutoff_time:
+                        # Convert dict back to MemorySnapshot
+                        snapshot = MemorySnapshot(
+                            snapshot_id=s_data.get('snapshot_id', ''),
+                            timestamp=timestamp,
+                            process_memory_mb=s_data.get('process_memory_mb', 0),
+                            python_memory_mb=s_data.get('python_memory_mb', 0),
+                            gc_stats=s_data.get('gc_stats', {}),
+                            top_allocations=s_data.get('top_allocations', []),
+                            object_counts=s_data.get('object_counts', {})
+                        )
+                        recent_snapshots.append(snapshot)
+                except (ValueError, TypeError):
+                    continue
 
         if len(recent_snapshots) < 2:
             return []
@@ -333,7 +357,8 @@ class AdvancedMemoryProfiler:
             )
 
             leaks.append(leak)
-            self.detected_leaks.append(leak)
+            # Store leak in Redis
+            state_manager.add_detected_leak(leak.to_dict())
 
             logger.warning("Memory leak detected",
                          leak_id=leak.leak_id,
@@ -389,7 +414,8 @@ class AdvancedMemoryProfiler:
             recommendations=recommendations
         )
 
-        self.fragmentation_analyses.append(analysis)
+        # Store analysis in Redis
+        state_manager.add_fragmentation_analysis(analysis.to_dict())
 
         logger.info("Fragmentation analysis completed",
                    analysis_id=analysis_id,
@@ -661,10 +687,31 @@ class AdvancedMemoryProfiler:
 
     def _calculate_memory_trend(self) -> Dict[str, Any]:
         """Calculate memory usage trend."""
-        if len(self.memory_snapshots) < 2:
+        # Get snapshots from Redis
+        snapshots_data = state_manager.get_memory_snapshots(limit=10)
+
+        if len(snapshots_data) < 2:
             return {"status": "insufficient_data"}
 
-        recent_snapshots = list(self.memory_snapshots)[-10:]  # Last 10
+        recent_snapshots = []
+        for s_data in snapshots_data:
+            timestamp_str = s_data.get('timestamp')
+            if timestamp_str:
+                try:
+                    timestamp = datetime.fromisoformat(timestamp_str)
+                    # Create minimal snapshot for trend calculation
+                    snapshot = MemorySnapshot(
+                        snapshot_id=s_data.get('snapshot_id', ''),
+                        timestamp=timestamp,
+                        process_memory_mb=s_data.get('process_memory_mb', 0),
+                        python_memory_mb=s_data.get('python_memory_mb', 0),
+                        gc_stats=s_data.get('gc_stats', {}),
+                        top_allocations=s_data.get('top_allocations', []),
+                        object_counts=s_data.get('object_counts', {})
+                    )
+                    recent_snapshots.append(snapshot)
+                except (ValueError, TypeError):
+                    continue
 
         if len(recent_snapshots) < 2:
             return {"status": "insufficient_data"}
@@ -691,13 +738,17 @@ class AdvancedMemoryProfiler:
 
     def _get_top_memory_consumers(self, top_n: int = 10) -> List[Dict[str, Any]]:
         """Get top memory consuming objects/types."""
-        if not self.memory_snapshots:
+        # Get latest snapshot from Redis
+        snapshots_data = state_manager.get_memory_snapshots(limit=1)
+
+        if not snapshots_data:
             return []
 
-        latest_snapshot = self.memory_snapshots[-1]
+        latest_snapshot_data = snapshots_data[0]
+        object_counts = latest_snapshot_data.get('object_counts', {})
 
         consumers = []
-        for obj_type, count in list(latest_snapshot.object_counts.items())[:top_n]:
+        for obj_type, count in list(object_counts.items())[:top_n]:
             consumers.append({
                 "type": obj_type,
                 "count": count,

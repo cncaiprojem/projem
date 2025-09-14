@@ -149,12 +149,15 @@ class ConnectionManager:
                 avg_response_ms = self._calculate_avg_response_time()
                 error_rate_val = self._calculate_error_rate()
 
+                # Get active operations count from Redis
+                active_ops_count = len(state_manager.get_active_freecad_operations())
+
                 metrics_msg = PerformanceMetricsMessage(
                     timestamp=datetime.now(timezone.utc),
                     cpu_usage_percent=cpu_percent,
                     memory_usage_mb=memory_mb,
                     gpu_usage_percent=gpu_percent,
-                    active_operations=len(freecad_operation_profiler.active_operations),
+                    active_operations=active_ops_count,
                     operations_per_second=ops_per_second,
                     avg_response_time_ms=avg_response_ms,
                     error_rate=error_rate_val
@@ -311,6 +314,9 @@ async def stop_profiling(
     """
     with tracer.start_as_current_span("stop_profiling") as span:
         span.set_attribute("profile.id", request.profile_id)
+
+        # Remove from active profilers in Redis
+        state_manager.remove_active_profiler(request.profile_id)
 
         # Stop auto-profiling if it was enabled
         if performance_profiler.enable_auto_profiling:

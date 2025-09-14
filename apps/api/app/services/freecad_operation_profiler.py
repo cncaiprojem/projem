@@ -28,6 +28,7 @@ from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
 from .performance_profiler import PerformanceProfiler, performance_profiler
 from .freecad_document_manager import FreeCADDocumentManager, document_manager
+from .profiling_state_manager import state_manager
 
 logger = get_logger(__name__)
 
@@ -140,9 +141,10 @@ class FreeCADOperationProfiler:
         self.document_manager = document_manager
         self.base_profiler = base_profiler or performance_profiler
 
-        # Operation tracking
-        self.active_operations: Dict[str, OperationMetrics] = {}
-        self.completed_operations: List[OperationMetrics] = []
+        # Operation tracking - now using Redis through state_manager
+        # Remove local storage - all state is in Redis
+        # self.active_operations: Dict[str, OperationMetrics] = {}
+        # self.completed_operations: List[OperationMetrics] = []
         self.active_workflows: Dict[str, WorkflowProfile] = {}
         self.completed_workflows: List[WorkflowProfile] = []
 
@@ -189,8 +191,8 @@ class FreeCADOperationProfiler:
                 metadata=metadata or {}
             )
 
-            # Store active operation
-            self.active_operations[operation_id] = operation
+            # Store active operation in Redis
+            state_manager.add_active_freecad_operation(operation_id, operation.to_dict())
 
             # Get initial resource state
             import psutil
@@ -243,9 +245,9 @@ class FreeCADOperationProfiler:
                 ]:
                     operation.metadata.update(self._get_geometry_statistics())
 
-                # Remove from active and add to completed
-                self.active_operations.pop(operation_id, None)
-                self.completed_operations.append(operation)
+                # Remove from active and add to completed in Redis
+                state_manager.remove_active_freecad_operation(operation_id)
+                state_manager.add_completed_freecad_operation(operation.to_dict())
 
                 # Check for bottlenecks
                 self._check_for_bottlenecks(operation)
@@ -294,7 +296,9 @@ class FreeCADOperationProfiler:
             self.active_workflows[workflow_id] = workflow
 
             # Track operations during workflow
-            initial_operation_count = len(self.completed_operations)
+            # Get initial count from Redis
+            initial_operations = state_manager.get_completed_freecad_operations(limit=1000)
+            initial_operation_count = len(initial_operations)
 
             try:
                 yield workflow
@@ -306,8 +310,30 @@ class FreeCADOperationProfiler:
                     workflow.end_time - workflow.start_time
                 ).total_seconds()
 
-                # Get operations that were part of this workflow
-                workflow.operations = self.completed_operations[initial_operation_count:]
+                # Get operations that were part of this workflow from Redis
+                all_operations = state_manager.get_completed_freecad_operations(limit=1000)
+                new_operation_dicts = all_operations[initial_operation_count:]
+
+                # Convert dicts back to OperationMetrics objects
+                workflow.operations = []
+                for op_dict in new_operation_dicts:
+                    op = OperationMetrics(
+                        operation_id=op_dict.get('operation_id', ''),
+                        operation_type=FreeCADOperationType[op_dict.get('operation_type', 'DOCUMENT_CREATE').upper()],
+                        start_time=datetime.fromisoformat(op_dict.get('start_time', datetime.now(timezone.utc).isoformat())),
+                        end_time=datetime.fromisoformat(op_dict.get('end_time', datetime.now(timezone.utc).isoformat())) if op_dict.get('end_time') else None,
+                        duration_seconds=op_dict.get('duration_seconds', 0),
+                        cpu_time_seconds=op_dict.get('cpu_time_seconds', 0),
+                        memory_used_mb=op_dict.get('memory_used_mb', 0),
+                        memory_peak_mb=op_dict.get('memory_peak_mb', 0),
+                        object_count=op_dict.get('object_count', 0),
+                        vertex_count=op_dict.get('vertex_count', 0),
+                        face_count=op_dict.get('face_count', 0),
+                        success=op_dict.get('success', True),
+                        error_message=op_dict.get('error_message'),
+                        metadata=op_dict.get('metadata', {})
+                    )
+                    workflow.operations.append(op)
 
                 # Analyze workflow
                 workflow.bottlenecks = self._identify_workflow_bottlenecks(workflow)
@@ -355,11 +381,29 @@ class FreeCADOperationProfiler:
         Returns:
             Analysis results
         """
-        # Filter operations related to this document
-        doc_operations = [
-            op for op in self.completed_operations
-            if op.metadata.get("document_id") == document_id
-        ]
+        # Filter operations related to this document from Redis
+        all_operations_data = state_manager.get_completed_freecad_operations(limit=1000)
+        doc_operations = []
+
+        for op_dict in all_operations_data:
+            if op_dict.get('metadata', {}).get('document_id') == document_id:
+                op = OperationMetrics(
+                    operation_id=op_dict.get('operation_id', ''),
+                    operation_type=FreeCADOperationType[op_dict.get('operation_type', 'DOCUMENT_CREATE').upper()],
+                    start_time=datetime.fromisoformat(op_dict.get('start_time', datetime.now(timezone.utc).isoformat())),
+                    end_time=datetime.fromisoformat(op_dict.get('end_time', datetime.now(timezone.utc).isoformat())) if op_dict.get('end_time') else None,
+                    duration_seconds=op_dict.get('duration_seconds', 0),
+                    cpu_time_seconds=op_dict.get('cpu_time_seconds', 0),
+                    memory_used_mb=op_dict.get('memory_used_mb', 0),
+                    memory_peak_mb=op_dict.get('memory_peak_mb', 0),
+                    object_count=op_dict.get('object_count', 0),
+                    vertex_count=op_dict.get('vertex_count', 0),
+                    face_count=op_dict.get('face_count', 0),
+                    success=op_dict.get('success', True),
+                    error_message=op_dict.get('error_message'),
+                    metadata=op_dict.get('metadata', {})
+                )
+                doc_operations.append(op)
 
         if not doc_operations:
             return {"document_id": document_id, "operations": [], "analysis": "No operations found"}
@@ -414,10 +458,32 @@ class FreeCADOperationProfiler:
         Returns:
             Operation statistics
         """
-        # Filter operations
-        operations = self.completed_operations
-        if operation_type:
-            operations = [op for op in operations if op.operation_type == operation_type]
+        # Filter operations from Redis
+        all_operations_data = state_manager.get_completed_freecad_operations(limit=1000)
+        operations = []
+
+        for op_dict in all_operations_data:
+            # Convert dict back to OperationMetrics
+            op = OperationMetrics(
+                operation_id=op_dict.get('operation_id', ''),
+                operation_type=FreeCADOperationType[op_dict.get('operation_type', 'DOCUMENT_CREATE').upper()],
+                start_time=datetime.fromisoformat(op_dict.get('start_time', datetime.now(timezone.utc).isoformat())),
+                end_time=datetime.fromisoformat(op_dict.get('end_time', datetime.now(timezone.utc).isoformat())) if op_dict.get('end_time') else None,
+                duration_seconds=op_dict.get('duration_seconds', 0),
+                cpu_time_seconds=op_dict.get('cpu_time_seconds', 0),
+                memory_used_mb=op_dict.get('memory_used_mb', 0),
+                memory_peak_mb=op_dict.get('memory_peak_mb', 0),
+                object_count=op_dict.get('object_count', 0),
+                vertex_count=op_dict.get('vertex_count', 0),
+                face_count=op_dict.get('face_count', 0),
+                success=op_dict.get('success', True),
+                error_message=op_dict.get('error_message'),
+                metadata=op_dict.get('metadata', {})
+            )
+
+            # Filter by operation type if specified
+            if operation_type is None or op.operation_type == operation_type:
+                operations.append(op)
 
         if not operations:
             return {"message": "No operations found"}
@@ -463,11 +529,29 @@ class FreeCADOperationProfiler:
             operation_type: Operation type to baseline
             force: Force update even if baseline exists
         """
-        # Get operations of this type
-        operations = [
-            op for op in self.completed_operations
-            if op.operation_type == operation_type and op.success
-        ]
+        # Get operations of this type from Redis
+        all_operations_data = state_manager.get_completed_freecad_operations(limit=1000)
+        operations = []
+
+        for op_dict in all_operations_data:
+            if op_dict.get('operation_type', '').upper() == operation_type.value.upper() and op_dict.get('success', True):
+                op = OperationMetrics(
+                    operation_id=op_dict.get('operation_id', ''),
+                    operation_type=operation_type,
+                    start_time=datetime.fromisoformat(op_dict.get('start_time', datetime.now(timezone.utc).isoformat())),
+                    end_time=datetime.fromisoformat(op_dict.get('end_time', datetime.now(timezone.utc).isoformat())) if op_dict.get('end_time') else None,
+                    duration_seconds=op_dict.get('duration_seconds', 0),
+                    cpu_time_seconds=op_dict.get('cpu_time_seconds', 0),
+                    memory_used_mb=op_dict.get('memory_used_mb', 0),
+                    memory_peak_mb=op_dict.get('memory_peak_mb', 0),
+                    object_count=op_dict.get('object_count', 0),
+                    vertex_count=op_dict.get('vertex_count', 0),
+                    face_count=op_dict.get('face_count', 0),
+                    success=op_dict.get('success', True),
+                    error_message=op_dict.get('error_message'),
+                    metadata=op_dict.get('metadata', {})
+                )
+                operations.append(op)
 
         if not operations:
             logger.warning(f"No successful operations found for baseline: {operation_type.value}")

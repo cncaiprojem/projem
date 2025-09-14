@@ -477,14 +477,8 @@ class OptimizationRecommender:
             gpu_issues = self.gpu_monitor.check_gpu_health()
             for issue in gpu_issues:
                 if issue.get("severity") in ["critical", "warning"]:
-                    # Map GPU issue to appropriate type based on the issue
-                    gpu_issue_type = PerformanceIssueType.GPU_UNDERUTILIZATION
-                    if "temperature" in issue["issue"].lower() or "overheat" in issue["issue"].lower():
-                        gpu_issue_type = PerformanceIssueType.GPU_OVERHEATING
-                    elif "memory" in issue["issue"].lower():
-                        gpu_issue_type = PerformanceIssueType.GPU_MEMORY_FULL
-                    elif "driver" in issue["issue"].lower():
-                        gpu_issue_type = PerformanceIssueType.GPU_DRIVER_ERROR
+                    # Map GPU issue to appropriate type using helper method
+                    gpu_issue_type = self._map_gpu_issue_type(issue["issue"])
 
                     all_issues.append(PerformanceIssue(
                         issue_type=gpu_issue_type,
@@ -797,6 +791,31 @@ class OptimizationRecommender:
             "timeline": "3 months for full implementation",
             "evaluation_criteria": "A/B testing with baseline metrics"
         }
+
+    def _map_gpu_issue_type(self, issue_text: str) -> PerformanceIssueType:
+        """
+        Map GPU issue text to appropriate PerformanceIssueType.
+
+        Args:
+            issue_text: The GPU issue description text
+
+        Returns:
+            Appropriate PerformanceIssueType enum value
+        """
+        issue_lower = issue_text.lower()
+
+        # Check for specific GPU issue patterns
+        if "temperature" in issue_lower or "overheat" in issue_lower or "thermal" in issue_lower:
+            return PerformanceIssueType.GPU_OVERHEATING
+        elif "memory" in issue_lower or "vram" in issue_lower or "allocation" in issue_lower:
+            return PerformanceIssueType.GPU_MEMORY_FULL
+        elif "driver" in issue_lower or "cuda" in issue_lower or "opencl" in issue_lower:
+            return PerformanceIssueType.GPU_DRIVER_ERROR
+        elif "utilization" in issue_lower or "idle" in issue_lower or "underutilized" in issue_lower:
+            return PerformanceIssueType.GPU_UNDERUTILIZATION
+        else:
+            # Default to underutilization if no specific pattern matches
+            return PerformanceIssueType.GPU_UNDERUTILIZATION
 
 
 # Global optimization recommender instance

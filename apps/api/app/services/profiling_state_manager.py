@@ -469,6 +469,324 @@ class ProfilingStateManager:
             logger.error(f"Failed to release lock: {e}")
             return False
 
+    # Profile storage methods for multi-worker consistency
+
+    def add_cpu_profile(self, profile_data: Dict[str, Any]) -> bool:
+        """Add CPU profile to shared storage."""
+        key = self._make_key(StateKeyPrefix.PROFILE_STORAGE, "cpu")
+        profile_data['timestamp'] = time.time()
+
+        try:
+            # Use Redis list with limited size
+            pipe = self._redis_client.pipeline()
+            pipe.lpush(key, self._serialize(profile_data))
+            pipe.ltrim(key, 0, 99)  # Keep last 100 profiles
+            pipe.expire(key, 86400)  # 24 hour TTL
+
+            results = self._execute_with_retry(pipe.execute)
+            return all(results)
+        except Exception as e:
+            logger.error(f"Failed to add CPU profile: {e}")
+            return False
+
+    def get_cpu_profiles(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent CPU profiles."""
+        key = self._make_key(StateKeyPrefix.PROFILE_STORAGE, "cpu")
+
+        try:
+            raw_profiles = self._execute_with_retry(
+                self._redis_client.lrange,
+                key,
+                0,
+                limit - 1
+            )
+
+            profiles = []
+            for raw in raw_profiles:
+                profile = self._deserialize(raw)
+                if profile:
+                    profiles.append(profile)
+
+            return profiles
+        except Exception as e:
+            logger.error(f"Failed to get CPU profiles: {e}")
+            return []
+
+    def add_memory_profile(self, profile_data: Dict[str, Any]) -> bool:
+        """Add memory profile to shared storage."""
+        key = self._make_key(StateKeyPrefix.PROFILE_STORAGE, "memory")
+        profile_data['timestamp'] = time.time()
+
+        try:
+            # Use Redis list with limited size
+            pipe = self._redis_client.pipeline()
+            pipe.lpush(key, self._serialize(profile_data))
+            pipe.ltrim(key, 0, 99)  # Keep last 100 profiles
+            pipe.expire(key, 86400)  # 24 hour TTL
+
+            results = self._execute_with_retry(pipe.execute)
+            return all(results)
+        except Exception as e:
+            logger.error(f"Failed to add memory profile: {e}")
+            return False
+
+    def get_memory_profiles(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent memory profiles."""
+        key = self._make_key(StateKeyPrefix.PROFILE_STORAGE, "memory")
+
+        try:
+            raw_profiles = self._execute_with_retry(
+                self._redis_client.lrange,
+                key,
+                0,
+                limit - 1
+            )
+
+            profiles = []
+            for raw in raw_profiles:
+                profile = self._deserialize(raw)
+                if profile:
+                    profiles.append(profile)
+
+            return profiles
+        except Exception as e:
+            logger.error(f"Failed to get memory profiles: {e}")
+            return []
+
+    def add_gpu_profile(self, profile_data: Dict[str, Any]) -> bool:
+        """Add GPU profile to shared storage."""
+        key = self._make_key(StateKeyPrefix.PROFILE_STORAGE, "gpu")
+        profile_data['timestamp'] = time.time()
+
+        try:
+            # Use Redis list with limited size
+            pipe = self._redis_client.pipeline()
+            pipe.lpush(key, self._serialize(profile_data))
+            pipe.ltrim(key, 0, 99)  # Keep last 100 profiles
+            pipe.expire(key, 86400)  # 24 hour TTL
+
+            results = self._execute_with_retry(pipe.execute)
+            return all(results)
+        except Exception as e:
+            logger.error(f"Failed to add GPU profile: {e}")
+            return False
+
+    def get_gpu_profiles(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get recent GPU profiles."""
+        key = self._make_key(StateKeyPrefix.PROFILE_STORAGE, "gpu")
+
+        try:
+            raw_profiles = self._execute_with_retry(
+                self._redis_client.lrange,
+                key,
+                0,
+                limit - 1
+            )
+
+            profiles = []
+            for raw in raw_profiles:
+                profile = self._deserialize(raw)
+                if profile:
+                    profiles.append(profile)
+
+            return profiles
+        except Exception as e:
+            logger.error(f"Failed to get GPU profiles: {e}")
+            return []
+
+    # FreeCAD operation storage
+
+    def add_active_freecad_operation(self, operation_id: str, operation_data: Dict[str, Any]) -> bool:
+        """Add active FreeCAD operation."""
+        key = self._make_key(StateKeyPrefix.OPERATION_HISTORY, f"active_{operation_id}")
+        operation_data['timestamp'] = time.time()
+
+        try:
+            return self._execute_with_retry(
+                self._redis_client.setex,
+                key,
+                300,  # 5 minute TTL for active operations
+                self._serialize(operation_data)
+            )
+        except Exception as e:
+            logger.error(f"Failed to add active FreeCAD operation: {e}")
+            return False
+
+    def remove_active_freecad_operation(self, operation_id: str) -> bool:
+        """Remove active FreeCAD operation."""
+        key = self._make_key(StateKeyPrefix.OPERATION_HISTORY, f"active_{operation_id}")
+
+        try:
+            return self._execute_with_retry(self._redis_client.delete, key) > 0
+        except Exception as e:
+            logger.error(f"Failed to remove active FreeCAD operation: {e}")
+            return False
+
+    def get_active_freecad_operations(self) -> Dict[str, Dict[str, Any]]:
+        """Get all active FreeCAD operations."""
+        pattern = self._make_key(StateKeyPrefix.OPERATION_HISTORY, "active_*")
+
+        try:
+            operations = {}
+            cursor = 0
+
+            while True:
+                cursor, keys = self._execute_with_retry(
+                    self._redis_client.scan,
+                    cursor,
+                    match=pattern,
+                    count=100
+                )
+
+                if keys:
+                    # Use pipeline for batch fetching
+                    pipe = self._redis_client.pipeline()
+                    for key in keys:
+                        pipe.get(key)
+
+                    values = self._execute_with_retry(pipe.execute)
+
+                    for key, value in zip(keys, values):
+                        if value:
+                            # Extract operation_id from key
+                            operation_id = key.decode('utf-8').split('active_')[-1]
+                            operations[operation_id] = self._deserialize(value)
+
+                if cursor == 0:
+                    break
+
+            return operations
+        except Exception as e:
+            logger.error(f"Failed to get active FreeCAD operations: {e}")
+            return {}
+
+    def add_completed_freecad_operation(self, operation_data: Dict[str, Any]) -> bool:
+        """Add completed FreeCAD operation."""
+        key = self._make_key(StateKeyPrefix.OPERATION_HISTORY, "completed")
+        operation_data['timestamp'] = time.time()
+
+        try:
+            # Use Redis list with limited size
+            pipe = self._redis_client.pipeline()
+            pipe.lpush(key, self._serialize(operation_data))
+            pipe.ltrim(key, 0, 999)  # Keep last 1000 operations
+            pipe.expire(key, 86400)  # 24 hour TTL
+
+            results = self._execute_with_retry(pipe.execute)
+            return all(results)
+        except Exception as e:
+            logger.error(f"Failed to add completed FreeCAD operation: {e}")
+            return False
+
+    def get_completed_freecad_operations(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """Get completed FreeCAD operations."""
+        key = self._make_key(StateKeyPrefix.OPERATION_HISTORY, "completed")
+
+        try:
+            raw_operations = self._execute_with_retry(
+                self._redis_client.lrange,
+                key,
+                0,
+                limit - 1
+            )
+
+            operations = []
+            for raw in raw_operations:
+                operation = self._deserialize(raw)
+                if operation:
+                    operations.append(operation)
+
+            return operations
+        except Exception as e:
+            logger.error(f"Failed to get completed FreeCAD operations: {e}")
+            return []
+
+    # Memory leak detection storage
+
+    def add_detected_leak(self, leak_data: Dict[str, Any]) -> bool:
+        """Add detected memory leak."""
+        key = self._make_key(StateKeyPrefix.MEMORY_SNAPSHOTS, "leaks")
+        leak_data['timestamp'] = time.time()
+
+        try:
+            # Use Redis list with limited size
+            pipe = self._redis_client.pipeline()
+            pipe.lpush(key, self._serialize(leak_data))
+            pipe.ltrim(key, 0, 99)  # Keep last 100 leaks
+            pipe.expire(key, 86400)  # 24 hour TTL
+
+            results = self._execute_with_retry(pipe.execute)
+            return all(results)
+        except Exception as e:
+            logger.error(f"Failed to add detected leak: {e}")
+            return False
+
+    def get_detected_leaks(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get detected memory leaks."""
+        key = self._make_key(StateKeyPrefix.MEMORY_SNAPSHOTS, "leaks")
+
+        try:
+            raw_leaks = self._execute_with_retry(
+                self._redis_client.lrange,
+                key,
+                0,
+                limit - 1
+            )
+
+            leaks = []
+            for raw in raw_leaks:
+                leak = self._deserialize(raw)
+                if leak:
+                    leaks.append(leak)
+
+            return leaks
+        except Exception as e:
+            logger.error(f"Failed to get detected leaks: {e}")
+            return []
+
+    # Fragmentation analysis storage
+
+    def add_fragmentation_analysis(self, analysis_data: Dict[str, Any]) -> bool:
+        """Add fragmentation analysis."""
+        key = self._make_key(StateKeyPrefix.MEMORY_SNAPSHOTS, "fragmentation")
+        analysis_data['timestamp'] = time.time()
+
+        try:
+            # Use Redis list with limited size
+            pipe = self._redis_client.pipeline()
+            pipe.lpush(key, self._serialize(analysis_data))
+            pipe.ltrim(key, 0, 49)  # Keep last 50 analyses
+            pipe.expire(key, 86400)  # 24 hour TTL
+
+            results = self._execute_with_retry(pipe.execute)
+            return all(results)
+        except Exception as e:
+            logger.error(f"Failed to add fragmentation analysis: {e}")
+            return False
+
+    def get_fragmentation_analyses(self, limit: int = 10) -> List[Dict[str, Any]]:
+        """Get fragmentation analyses."""
+        key = self._make_key(StateKeyPrefix.MEMORY_SNAPSHOTS, "fragmentation")
+
+        try:
+            raw_analyses = self._execute_with_retry(
+                self._redis_client.lrange,
+                key,
+                0,
+                limit - 1
+            )
+
+            analyses = []
+            for raw in raw_analyses:
+                analysis = self._deserialize(raw)
+                if analysis:
+                    analyses.append(analysis)
+
+            return analyses
+        except Exception as e:
+            logger.error(f"Failed to get fragmentation analyses: {e}")
+            return []
+
     # Cleanup methods
 
     def cleanup_expired_data(self) -> Dict[str, int]:
