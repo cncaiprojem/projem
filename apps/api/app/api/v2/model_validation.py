@@ -213,6 +213,15 @@ async def validate_manufacturing(
             if not doc:
                 raise HTTPException(status_code=404, detail="Model bulunamadı")
             
+            # Extract shape from document first - needed for all processes
+            shape = None
+            for obj in doc.Objects:
+                if hasattr(obj, 'Shape'):
+                    shape = obj.Shape
+                    break
+            if not shape:
+                raise HTTPException(status_code=400, detail="Model geometri içermiyor")
+            
             # Get manufacturing validator
             validator = ManufacturingValidator()
             
@@ -224,15 +233,6 @@ async def validate_manufacturing(
                     request.machine_spec
                 )
             elif request.process.startswith("printing_"):
-                # Get first shape for 3D printing validation
-                shape = None
-                for obj in doc.Objects:
-                    if hasattr(obj, 'Shape'):
-                        shape = obj.Shape
-                        break
-                if not shape:
-                    raise HTTPException(status_code=400, detail="Model geometri içermiyor")
-                    
                 result = await asyncio.to_thread(
                     validator.validate_for_3d_printing,
                     shape,
