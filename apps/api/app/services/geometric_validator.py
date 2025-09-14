@@ -23,9 +23,9 @@ from ..middleware.correlation_middleware import get_correlation_id
 from ..models.validation_models import (
     GeometricValidation,
     ValidationIssue,
-    ValidationSeverity,
-    VALIDATION_MESSAGES_TR
+    ValidationSeverity
 )
+from ..utils.freecad_utils import get_shape_from_document
 
 logger = get_logger(__name__)
 
@@ -257,48 +257,7 @@ class GeometricValidator:
     
     def _get_shape_from_document(self, doc_handle: Any) -> Optional[Any]:
         """Extract shape from FreeCAD document."""
-        try:
-            # Import FreeCAD modules
-            import FreeCAD
-            import Part
-            
-            if not doc_handle:
-                return None
-            
-            # Find the first solid or compound shape in the document
-            for obj in doc_handle.Objects:
-                if hasattr(obj, 'Shape'):
-                    shape = obj.Shape
-                    # Return the first valid shape found
-                    if shape and (shape.ShapeType in ['Solid', 'Compound', 'CompSolid', 'Shell']):
-                        return shape
-            
-            # If no solid found, try to create a compound of all shapes
-            shapes = []
-            for obj in doc_handle.Objects:
-                if hasattr(obj, 'Shape') and obj.Shape:
-                    shapes.append(obj.Shape)
-            
-            if shapes:
-                # Create compound shape from all shapes
-                if len(shapes) == 1:
-                    return shapes[0]
-                else:
-                    compound = Part.makeCompound(shapes)
-                    return compound
-            
-            # No shapes found in document
-            if doc_handle:
-                logger.warning("No valid shapes found in document")
-            
-            return None
-            
-        except ImportError:
-            logger.error("FreeCAD not available - cannot perform shape validation")
-            return None
-        except Exception as e:
-            logger.error("Failed to extract shape", exc_info=True)
-            return None
+        return get_shape_from_document(doc_handle)
     
     def _validate_basic_geometry(
         self,
@@ -496,34 +455,33 @@ class GeometricValidator:
                     for face_idx, face in enumerate(shape.Faces):
                         if hasattr(face, 'Edges'):
                             for edge in face.Edges:
-                                # Use edge's hash or center point as key
-                                if hasattr(edge, 'CenterOfMass'):
-                                    edge_key = (
-                                        round(edge.CenterOfMass.x, 4),
-                                        round(edge.CenterOfMass.y, 4),
-                                        round(edge.CenterOfMass.z, 4)
-                                    )
+                                # Use edge vertices as unique identifier (same as find_open_edges)
+                                if hasattr(edge, 'Vertexes') and len(edge.Vertexes) >= 2:
+                                    v1 = edge.Vertexes[0].Point
+                                    v2 = edge.Vertexes[-1].Point
+                                    # Make edge key canonical by sorting vertices
+                                    vert1 = (round(v1.x, 4), round(v1.y, 4), round(v1.z, 4))
+                                    vert2 = (round(v2.x, 4), round(v2.y, 4), round(v2.z, 4))
+                                    edge_key = tuple(sorted([vert1, vert2]))
                                     edge_face_map[edge_key].append(face_idx)
                     
                     # Find non-manifold edges (shared by != 2 faces)
                     for edge_idx, edge in enumerate(shape.Edges):
-                        if hasattr(edge, 'CenterOfMass'):
-                            edge_key = (
-                                round(edge.CenterOfMass.x, 4),
-                                round(edge.CenterOfMass.y, 4),
-                                round(edge.CenterOfMass.z, 4)
-                            )
+                        if hasattr(edge, 'Vertexes') and len(edge.Vertexes) >= 2:
+                            v1 = edge.Vertexes[0].Point
+                            v2 = edge.Vertexes[-1].Point
+                            # Make edge key canonical by sorting vertices
+                            vert1 = (round(v1.x, 4), round(v1.y, 4), round(v1.z, 4))
+                            vert2 = (round(v2.x, 4), round(v2.y, 4), round(v2.z, 4))
+                            edge_key = tuple(sorted([vert1, vert2]))
                             face_count = len(edge_face_map[edge_key])
                             
                             if face_count != 2 and face_count > 0:
                                 non_manifold.append({
                                     "edge_index": edge_idx,
                                     "face_count": face_count,
-                                    "location": {
-                                        "x": edge.CenterOfMass.x,
-                                        "y": edge.CenterOfMass.y,
-                                        "z": edge.CenterOfMass.z
-                                    } if hasattr(edge, 'CenterOfMass') else None
+                                    "faces": edge_face_map[edge_key],
+                                    "length": edge.Length if hasattr(edge, 'Length') else 0.0
                                 })
                     
                 except ImportError:

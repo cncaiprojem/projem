@@ -28,9 +28,9 @@ from ..models.manufacturing_models import (
     PrintValidation,
     ToleranceCheck,
     ValidationIssue,
-    ValidationSeverity,
-    VALIDATION_MESSAGES_TR
+    ValidationSeverity
 )
+from ..utils.freecad_utils import get_shape_from_document
 
 logger = get_logger(__name__)
 
@@ -1214,48 +1214,7 @@ class ManufacturingValidator:
     # Helper methods
     def _get_shape_from_document(self, doc_handle: Any) -> Optional[Any]:
         """Extract shape from FreeCAD document."""
-        try:
-            # Import FreeCAD modules
-            import FreeCAD
-            import Part
-            
-            if not doc_handle:
-                return None
-            
-            # Find the first solid or compound shape in the document
-            for obj in doc_handle.Objects:
-                if hasattr(obj, 'Shape'):
-                    shape = obj.Shape
-                    # Return the first valid shape found
-                    if shape and (shape.ShapeType in ['Solid', 'Compound', 'CompSolid', 'Shell']):
-                        return shape
-            
-            # If no solid found, try to create a compound of all shapes
-            shapes = []
-            for obj in doc_handle.Objects:
-                if hasattr(obj, 'Shape') and obj.Shape:
-                    shapes.append(obj.Shape)
-            
-            if shapes:
-                # Create compound shape from all shapes
-                if len(shapes) == 1:
-                    return shapes[0]
-                else:
-                    compound = Part.makeCompound(shapes)
-                    return compound
-            
-            # No valid shapes found
-            if doc_handle:
-                logger.warning("No valid shapes found in document")
-            
-            return None
-            
-        except ImportError:
-            logger.warning("FreeCAD not available")
-            return None
-        except Exception as e:
-            logger.error("Failed to extract shape", exc_info=True)
-            return None
+        return get_shape_from_document(doc_handle)
     
     def _extract_features(self, shape: Any) -> Dict[str, Any]:
         """Extract manufacturing features from shape."""
@@ -1373,37 +1332,77 @@ class ManufacturingValidator:
         return False
     
     def _has_uniform_wall_thickness(self, shape: Any, tolerance: float = 0.1) -> bool:
-        """Check if shape has uniform wall thickness."""
+        """Check if shape has uniform wall thickness using ray casting approach."""
         try:
             import FreeCAD
             import Part
             
-            if not hasattr(shape, 'Faces'):
-                return False
+            if not hasattr(shape, 'Faces') or not hasattr(shape, 'Solids'):
+                return True  # Can't check non-solid shapes
             
-            # Get all faces and analyze thickness variations
-            faces = shape.Faces
-            if len(faces) < 2:
-                return True  # Single face, no thickness to check
+            # For solid shapes, use a sampling approach
+            if len(shape.Solids) == 0:
+                return True  # Not a solid
             
+            # Sample points on outer faces and measure thickness
             thicknesses = []
-            for i, face1 in enumerate(faces):
-                for face2 in faces[i+1:]:
-                    # Calculate distance between face centers
-                    dist = face1.CenterOfMass.distanceToPoint(face2.CenterOfMass)
-                    if dist > 0.01:  # Ignore very close faces
-                        thicknesses.append(dist)
+            sampled_faces = []
+            
+            # Get bounding box for shape
+            if hasattr(shape, 'BoundBox'):
+                bbox = shape.BoundBox
+                diagonal = bbox.DiagonalLength
+                min_thickness = diagonal * 0.001  # Minimum meaningful thickness
+                
+                # Sample a subset of faces
+                faces = shape.Faces
+                num_samples = min(10, len(faces))  # Sample up to 10 faces
+                import random
+                if len(faces) > num_samples:
+                    sampled_faces = random.sample(faces, num_samples)
+                else:
+                    sampled_faces = faces
+                
+                for face in sampled_faces:
+                    if hasattr(face, 'CenterOfMass') and hasattr(face, 'normalAt'):
+                        try:
+                            # Get face center and normal
+                            center = face.CenterOfMass
+                            u, v = face.Surface.parameter(center) if hasattr(face, 'Surface') else (0.5, 0.5)
+                            normal = face.normalAt(u, v)
+                            
+                            # Cast ray inward from face center
+                            ray_start = center
+                            ray_dir = normal.multiply(-1)  # Inward direction
+                            
+                            # Simple thickness estimation: find opposite face
+                            # This is a simplified approach - proper implementation would use ray-shape intersection
+                            for other_face in faces:
+                                if other_face != face and hasattr(other_face, 'CenterOfMass'):
+                                    # Check if the other face is roughly opposite
+                                    other_center = other_face.CenterOfMass
+                                    dist_vector = other_center.sub(center)
+                                    
+                                    # Check if faces are roughly parallel and opposite
+                                    if dist_vector.Length > min_thickness:
+                                        dot_product = ray_dir.dot(dist_vector.normalize())
+                                        if dot_product > 0.7:  # Faces are roughly aligned
+                                            thicknesses.append(dist_vector.Length)
+                                            break
+                        except Exception:
+                            continue  # Skip problematic faces
             
             if not thicknesses:
-                return True
+                return True  # Could not measure, assume OK
             
-            # Check if all thicknesses are within tolerance
-            avg_thickness = sum(thicknesses) / len(thicknesses) if thicknesses else 0.0
+            # Check uniformity
+            avg_thickness = sum(thicknesses) / len(thicknesses)
             for thickness in thicknesses:
                 if abs(thickness - avg_thickness) / avg_thickness > tolerance:
                     return False
             
             return True
+            
         except Exception as e:
             logger.warning(f"Error checking wall thickness: {e}")
             return True  # Assume OK if can't check

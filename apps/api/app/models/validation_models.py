@@ -61,6 +61,19 @@ class GeometricValidation:
     metrics: Dict[str, Any] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
     info: List[str] = field(default_factory=list)
+    
+    # Fields assigned by GeometricValidator
+    self_intersections: List[str] = field(default_factory=list)
+    non_manifold_edges: List[str] = field(default_factory=list)
+    open_edges: List[str] = field(default_factory=list)
+    topology_errors: List[str] = field(default_factory=list)
+    bounding_box: Optional[Dict[str, float]] = None
+    thin_walls: List[str] = field(default_factory=list)
+    small_features: List[str] = field(default_factory=list)
+    surface_quality_score: float = 100.0
+    volume: Optional[float] = None
+    surface_area: Optional[float] = None
+    center_of_mass: Optional[Dict[str, float]] = None
 
 
 @dataclass
@@ -106,7 +119,6 @@ class ComplianceViolation:
 
 
 # Import centralized Turkish validation messages
-from ..constants.messages import VALIDATION_MESSAGES_TR
 
 
 class ValidationResult(Base):

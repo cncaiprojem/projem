@@ -470,6 +470,11 @@ class ModelValidationFramework:
                     )
                     result.sections['quality'] = metrics_result
                 
+                # Aggregate issues from all sections
+                for section_name, section in result.sections.items():
+                    if hasattr(section, 'issues') and section.issues:
+                        result.issues.extend(section.issues)
+                
                 # Calculate overall score
                 if result.sections:
                     scores = [section.score for section in result.sections.values() if hasattr(section, 'score')]
@@ -967,36 +972,13 @@ class AutoFixSuggestions:
         self.logger = logger
     
     def suggest_fixes(self, validation_result: ValidationResult) -> List[FixSuggestion]:
-        """Generate fix suggestions based on validation issues."""
-        suggestions = []
+        """Generate fix suggestions based on validation issues.
         
-        for issue in validation_result.issues:
-            if issue.severity == "critical":
-                # Generate critical issue fixes
-                suggestion = FixSuggestion(
-                    suggestion_id=f"fix_{issue.issue_id}",
-                    type="auto",
-                    description=f"{issue.type} sorunu için otomatik düzeltme",
-                    turkish_description=f"{issue.type} sorunu için otomatik düzeltme",
-                    severity=issue.severity,
-                    automated=True,
-                    confidence="high"
-                )
-                suggestions.append(suggestion)
-            elif issue.severity == "warning":
-                # Generate warning fixes
-                suggestion = FixSuggestion(
-                    suggestion_id=f"fix_{issue.issue_id}",
-                    type="manual",
-                    description=f"{issue.type} uyarısı için önerilen düzeltme",
-                    turkish_description=f"{issue.type} uyarısı için önerilen düzeltme",
-                    severity=issue.severity,
-                    automated=False,
-                    confidence="medium"
-                )
-                suggestions.append(suggestion)
-        
-        return suggestions
+        This method delegates to the more comprehensive implementation.
+        """
+        # Use the comprehensive implementation from ModelValidationService
+        service = ModelValidationService()
+        return service._generate_fix_suggestions(validation_result)
     
     def apply_automated_fixes(
         self,

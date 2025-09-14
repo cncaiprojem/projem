@@ -15,7 +15,6 @@ from uuid import uuid4
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 # Import Turkish validation messages from models
-from app.models.validation_models import VALIDATION_MESSAGES_TR
 
 
 class ValidationProfile(str, Enum):
@@ -323,4 +322,7 @@ class AutoFixRequest(BaseModel):
     
     document_path: str = Field(..., description="Path to CAD document")
     fix_ids: List[str] = Field(..., description="Fix IDs to apply")
-    validate_after_fix: bool = Field(True, description="Re-validate after fixes")
+    revalidate: bool = Field(True, description="Re-validate after fixes")
+    auto_approve: bool = Field(False, description="Auto-approve safe fixes")
+    save_result: bool = Field(True, description="Save fixed document")
+    output_path: Optional[str] = Field(None, description="Custom output path for fixed document")

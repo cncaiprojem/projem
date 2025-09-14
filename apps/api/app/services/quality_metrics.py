@@ -21,9 +21,9 @@ from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
 from ..models.validation_models import (
     QualityMetricsReport,
-    QualityMetric,
-    VALIDATION_MESSAGES_TR
+    QualityMetric
 )
+from ..utils.freecad_utils import get_shape_from_document
 
 logger = get_logger(__name__)
 
@@ -1328,30 +1328,7 @@ class QualityMetrics:
     
     def _get_shape_from_document(self, doc_handle: Any) -> Optional[Any]:
         """Extract shape from document."""
-        try:
-            if doc_handle:
-                # Try to get shape from document objects
-                if hasattr(doc_handle, 'Objects'):
-                    for obj in doc_handle.Objects:
-                        if hasattr(obj, 'Shape'):
-                            return obj.Shape
-                        elif hasattr(obj, 'Mesh'):
-                            # Convert mesh to shape if needed
-                            import Part
-                            if hasattr(Part, 'Shape'):
-                                shape = Part.Shape()
-                                if hasattr(shape, 'makeShapeFromMesh'):
-                                    shape.makeShapeFromMesh(obj.Mesh, 0.1)
-                                    return shape
-                
-                # Try to get combined shape
-                if hasattr(doc_handle, 'Shape'):
-                    return doc_handle.Shape
-        
-        except Exception as e:
-            logger.debug(f"Could not extract shape from document: {e}")
-        
-        return None
+        return get_shape_from_document(doc_handle)
     
     def _has_assembly_features(self, doc_handle: Any) -> bool:
         """Check if model has assembly features."""

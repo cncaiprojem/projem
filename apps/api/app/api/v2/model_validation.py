@@ -623,35 +623,31 @@ async def upload_and_validate(
             
         except ValueError as e:
             span.record_exception(e)
-            # Clean up immediately on error
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    logger.debug("Best effort cleanup failed")
-            if doc:
-                try:
-                    FreeCAD.closeDocument(doc.Name)
-                except Exception:
-                    logger.debug("Best effort document cleanup failed")
+            _cleanup_resources(tmp_path, doc)
             raise HTTPException(status_code=400, detail="Geçersiz dosya formatı. Lütfen dosya tipini kontrol edin.")
         except Exception as e:
             span.record_exception(e)
-            # Clean up immediately on error
-            if tmp_path and os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    logger.debug("Best effort cleanup failed")
-            if doc:
-                try:
-                    FreeCAD.closeDocument(doc.Name)
-                except Exception:
-                    logger.debug("Best effort document cleanup failed")
+            _cleanup_resources(tmp_path, doc)
             raise HTTPException(status_code=500, detail="Yükleme ve doğrulama hatası. Dosya işlenemedi.")
 
 
 # Helper functions
+def _cleanup_resources(tmp_path: Optional[str], doc: Optional[Any]) -> None:
+    """Clean up temporary file and FreeCAD document resources."""
+    if tmp_path and os.path.exists(tmp_path):
+        try:
+            os.unlink(tmp_path)
+        except Exception:
+            logger.debug("Best effort cleanup failed for temporary file")
+    
+    if doc:
+        try:
+            import FreeCAD
+            FreeCAD.closeDocument(doc.Name)
+        except Exception:
+            logger.debug("Best effort document cleanup failed")
+
+
 async def _store_report(report: str, user_id: int, db: AsyncSession) -> str:
     """Store validation report and return URL."""
     try:

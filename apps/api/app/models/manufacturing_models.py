@@ -122,4 +122,3 @@ class ManufacturingValidation:
 
 
 # Import centralized Turkish validation messages
-from ..constants.messages import VALIDATION_MESSAGES_TR
