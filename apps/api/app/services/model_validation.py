@@ -423,52 +423,92 @@ class ModelValidationFramework:
                     metadata={}
                 )
                 
-                # Get validators for profile
-                validators = self.validator_registry.get_validators_for_profile(validation_profile)
+                # Get validator names for profile
+                validator_names = self.validator_registry.profiles.get(validation_profile, set())
                 
-                # Execute validations in parallel where possible
-                validation_tasks = []
-                
-                # Geometric validation (always first)
-                geometric_validator = self.validator_registry.get('geometric')
-                if geometric_validator:
-                    # Use asyncio.to_thread for CPU-bound geometric validation
-                    geometric_result = await asyncio.to_thread(
-                        geometric_validator.validate,
-                        doc_handle
-                    )
-                    result.sections['geometric'] = geometric_result
-                
-                # Manufacturing validation would be done separately if needed
-                # Processes not passed in new signature
-                
-                # Standards compliance if requested
-                if standards:
-                    standards_checker = self.validator_registry.get('standards')
-                    if standards_checker:
-                        for standard_str in standards:
-                            try:
-                                # Convert string to StandardType enum
-                                from ..models.validation_models import StandardType
-                                standard = StandardType(standard_str)
-                                compliance_result = await asyncio.to_thread(
-                                    standards_checker.check_compliance,
-                                    doc_handle,
-                                    standard
+                # Execute only validators that are in the profile
+                for validator_name in validator_names:
+                    validator = self.validator_registry.get(validator_name)
+                    if not validator:
+                        logger.debug(f"Validator '{validator_name}' not found in registry")
+                        continue
+                    
+                    try:
+                        # Handle different validator types
+                        if validator_name in ['geometric', 'geometric_basic']:
+                            # Use asyncio.to_thread for CPU-bound geometric validation
+                            result_data = await asyncio.to_thread(
+                                validator.validate,
+                                doc_handle
+                            )
+                            result.sections[validator_name] = result_data
+                            
+                        elif validator_name in ['manufacturing', 'manufacturing_basic']:
+                            # Manufacturing validation - note: processes not passed in new signature
+                            result_data = await asyncio.to_thread(
+                                validator.validate,
+                                doc_handle,
+                                []  # Empty processes list as it's not passed anymore
+                            )
+                            result.sections[validator_name] = result_data
+                            
+                        elif validator_name == 'quality':
+                            # Quality metrics calculation
+                            result_data = await asyncio.to_thread(
+                                validator.calculate_metrics,
+                                doc_handle
+                            )
+                            result.sections['quality'] = result_data
+                            
+                        elif validator_name == 'standards' and standards:
+                            # Standards compliance if requested
+                            for standard_str in standards:
+                                try:
+                                    # Convert string to StandardType enum
+                                    from ..models.validation_models import StandardType
+                                    standard = StandardType(standard_str)
+                                    compliance_result = await asyncio.to_thread(
+                                        validator.check_compliance,
+                                        doc_handle,
+                                        standard
+                                    )
+                                    result.sections[f'standards_{standard.value}'] = compliance_result
+                                except ValueError:
+                                    logger.warning(f"Unknown standard: {standard_str}")
+                                    continue
+                                    
+                        elif validator_name == 'performance':
+                            # Performance validation (if available)
+                            if hasattr(validator, 'validate'):
+                                result_data = await asyncio.to_thread(
+                                    validator.validate,
+                                    doc_handle
                                 )
-                                result.sections[f'standards_{standard.value}'] = compliance_result
-                            except ValueError:
-                                logger.warning(f"Unknown standard: {standard_str}")
-                                continue
-                
-                # Quality metrics
-                quality_metrics = self.validator_registry.get('quality')
-                if quality_metrics:
-                    metrics_result = await asyncio.to_thread(
-                        quality_metrics.calculate_metrics,
-                        doc_handle
-                    )
-                    result.sections['quality'] = metrics_result
+                                result.sections[validator_name] = result_data
+                                
+                        elif validator_name == 'tolerance':
+                            # Tolerance validation (if available)
+                            if hasattr(validator, 'validate'):
+                                result_data = await asyncio.to_thread(
+                                    validator.validate,
+                                    doc_handle
+                                )
+                                result.sections[validator_name] = result_data
+                                
+                        elif validator_name == 'certification':
+                            # Certification validation (if available)
+                            if hasattr(validator, 'validate'):
+                                result_data = await asyncio.to_thread(
+                                    validator.validate,
+                                    doc_handle
+                                )
+                                result.sections[validator_name] = result_data
+                        else:
+                            logger.debug(f"Unknown validator type: {validator_name}")
+                            
+                    except Exception as e:
+                        logger.error(f"Error in {validator_name} validation: {str(e)}")
+                        # Continue with other validators even if one fails
                 
                 # Aggregate issues from all sections
                 for section_name, section in result.sections.items():

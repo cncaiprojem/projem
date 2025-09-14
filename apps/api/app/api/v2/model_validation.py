@@ -624,7 +624,7 @@ async def upload_and_validate(
             elif file_ext in ['.iges', '.igs', '.IGES', '.IGS']:
                 Import.insert(tmp_path, doc.Name)
             else:
-                raise ValueError(f"Desteklenmeyen dosya formatı: {file_ext}")
+                raise ValueError("Desteklenmeyen dosya formatı")
             
             # Validate
             validation_result = await validation_framework.validate_model(
