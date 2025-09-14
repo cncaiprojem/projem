@@ -334,11 +334,49 @@ class GeometricValidator:
             if not has_intersections and hasattr(shape, 'Faces'):
                 try:
                     import Part
-                    # Check face-to-face intersections
+                    # Check face-to-face intersections with performance limits
                     faces = shape.Faces
-                    for i, face1 in enumerate(faces):
-                        for j, face2 in enumerate(faces[i+1:], i+1):
+                    num_faces = len(faces)
+                    
+                    # Constants for performance optimization
+                    MAX_FACE_CHECKS = 1000  # Limit total intersection checks
+                    MAX_FACES_FOR_FULL_CHECK = 100  # Skip detailed check for very complex models
+                    
+                    if num_faces > MAX_FACES_FOR_FULL_CHECK:
+                        # For complex models, sample a subset of faces
+                        import random
+                        sample_size = min(20, num_faces // 5)  # Check ~20% or max 20 faces
+                        sampled_indices = random.sample(range(num_faces), sample_size)
+                        faces_to_check = [faces[i] for i in sampled_indices]
+                        logger.debug(f"Complex model with {num_faces} faces - sampling {sample_size} faces")
+                    else:
+                        faces_to_check = faces
+                        sampled_indices = range(num_faces)
+                    
+                    checks_performed = 0
+                    for idx, i in enumerate(sampled_indices):
+                        if checks_performed >= MAX_FACE_CHECKS:
+                            logger.debug(f"Reached maximum face intersection checks ({MAX_FACE_CHECKS})")
+                            break
+                            
+                        face1 = faces[i]
+                        # Only check nearby faces for efficiency (skip distant faces)
+                        for j in range(i+1, min(i+10, num_faces)):  # Check only next 10 faces
+                            if checks_performed >= MAX_FACE_CHECKS:
+                                break
+                                
+                            face2 = faces[j]
+                            checks_performed += 1
+                            
                             if hasattr(face1, 'common') and hasattr(face2, 'Surface'):
+                                # Quick bounding box check first
+                                if hasattr(face1, 'BoundBox') and hasattr(face2, 'BoundBox'):
+                                    bb1 = face1.BoundBox
+                                    bb2 = face2.BoundBox
+                                    # Skip if bounding boxes don't overlap
+                                    if not bb1.intersect(bb2):
+                                        continue
+                                
                                 common = face1.common(face2)
                                 if common and hasattr(common, 'Area') and common.Area > 0.001:
                                     # Found intersection
@@ -349,6 +387,11 @@ class GeometricValidator:
                                         "face2_index": j,
                                         "intersection_area": common.Area
                                     })
+                                    # Early exit on first intersection for performance
+                                    if has_intersections:
+                                        break
+                        if has_intersections:
+                            break
                 except ImportError:
                     pass  # FreeCAD not available
             

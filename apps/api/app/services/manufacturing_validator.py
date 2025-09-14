@@ -57,6 +57,39 @@ PRINTER_MACHINE_RATE = Decimal("20")  # $/hour
 SETUP_TIME_CNC = Decimal("0.5")  # hours
 SETUP_TIME_3D_PRINT = Decimal("0.25")  # hours
 
+# CNC Machining Parameters
+CNC_REMOVAL_RATE_ALUMINUM = Decimal("5.0")  # cm³/min
+CNC_REMOVAL_RATE_STEEL = Decimal("2.5")  # cm³/min
+CNC_REMOVAL_RATE_DEFAULT = Decimal("4.0")  # cm³/min
+CNC_TOOL_WEAR_FACTOR = Decimal("0.01")  # $/cm²
+
+# 3D Printing Parameters
+FDM_LAYER_HEIGHT_MM = Decimal("0.2")  # mm
+SLA_LAYER_HEIGHT_MM = Decimal("0.05")  # mm
+SLS_LAYER_HEIGHT_MM = Decimal("0.1")  # mm
+PRINT_SPEED_MM_PER_S = Decimal("50.0")  # mm/s
+PRINT_TIME_PER_LAYER_MIN = Decimal("1.0")  # minutes
+PRINT_TIME_PER_CM3 = Decimal("0.1")  # hours
+SUPPORT_MATERIAL_FACTOR = Decimal("1.2")  # 20% additional for complex parts
+
+# Injection Molding Parameters
+MOLD_BASE_COST = Decimal("5000")  # $ for simple mold
+MOLD_BATCH_SIZE = Decimal("1000")  # units for amortization
+INJECTION_CYCLE_TIME_BASE = Decimal("30")  # seconds
+INJECTION_CYCLE_TIME_PER_CM3 = Decimal("0.5")  # seconds/cm³
+
+# Sheet Metal Parameters  
+SHEET_THICKNESS_DEFAULT = Decimal("2.0")  # mm
+BEND_COST_PER_BEND = Decimal("2.0")  # $/bend
+CUTTING_COST_PER_CM2 = Decimal("0.02")  # $/cm²
+SHEET_METAL_NUM_BENDS_ESTIMATE = Decimal("5")  # Default estimate
+
+# Casting Parameters
+CASTING_PATTERN_BASE_COST = Decimal("500")  # $
+CASTING_MATERIAL_WASTE_FACTOR = Decimal("1.1")  # 10% waste
+CASTING_FINISHING_COST_PER_CM2 = Decimal("0.05")  # $/cm²
+CASTING_BATCH_SIZE = Decimal("100")  # units for pattern amortization
+
 
 @dataclass
 class MachineSpecification:
@@ -1178,7 +1211,13 @@ class ManufacturingValidator:
             if process in [ManufacturingProcess.CNC_MILLING, ManufacturingProcess.CNC_TURNING]:
                 # CNC: Time-based costing
                 # Estimate machining time based on material removal rate
-                removal_rate_cm3_per_min = Decimal("5.0")  # Typical for aluminum
+                # Select removal rate based on material (simplified)
+                if material_density < Decimal("3.0"):  # Aluminum-like
+                    removal_rate_cm3_per_min = CNC_REMOVAL_RATE_ALUMINUM
+                elif material_density > Decimal("7.0"):  # Steel-like
+                    removal_rate_cm3_per_min = CNC_REMOVAL_RATE_STEEL
+                else:
+                    removal_rate_cm3_per_min = CNC_REMOVAL_RATE_DEFAULT
                 if bbox:
                     stock_volume_cm3 = Decimal(str(
                         bbox.XLength * bbox.YLength * bbox.ZLength / 1000
@@ -1195,7 +1234,7 @@ class ManufacturingValidator:
                 machine_cost = total_time * CNC_MACHINE_RATE
                 
                 # Tool wear cost (proportional to surface area and complexity)
-                tool_wear_cost = surface_area_cm2 * Decimal("0.01") * complexity_factor
+                tool_wear_cost = surface_area_cm2 * CNC_TOOL_WEAR_FACTOR * complexity_factor
                 
                 total_cost = raw_material_cost + machine_cost + tool_wear_cost
                 
@@ -1206,15 +1245,20 @@ class ManufacturingValidator:
             ]:
                 # 3D Printing: Volume and time-based costing
                 # Estimate print time based on volume and layer height
-                layer_height_mm = Decimal("0.2") if process == ManufacturingProcess.FDM_3D_PRINTING else Decimal("0.05")
+                if process == ManufacturingProcess.FDM_3D_PRINTING:
+                    layer_height_mm = FDM_LAYER_HEIGHT_MM
+                elif process == ManufacturingProcess.SLA_3D_PRINTING:
+                    layer_height_mm = SLA_LAYER_HEIGHT_MM
+                else:  # SLS
+                    layer_height_mm = SLS_LAYER_HEIGHT_MM
                 if bbox:
                     height_mm = Decimal(str(bbox.ZLength))
                     num_layers = height_mm / layer_height_mm
-                    # Rough estimate: 1 minute per layer for small parts
-                    print_time_hours = (num_layers * Decimal("1")) / Decimal("60")
+                    # Rough estimate: time per layer for small parts
+                    print_time_hours = (num_layers * PRINT_TIME_PER_LAYER_MIN) / Decimal("60")
                 else:
                     # Fallback: estimate based on volume
-                    print_time_hours = (volume_cm3 * Decimal("0.1"))  # 0.1 hour per cm³
+                    print_time_hours = volume_cm3 * PRINT_TIME_PER_CM3
                 
                 setup_time = SETUP_TIME_3D_PRINT
                 total_time = print_time_hours + setup_time
@@ -1222,26 +1266,26 @@ class ManufacturingValidator:
                 # Machine cost
                 machine_cost = total_time * PRINTER_MACHINE_RATE
                 
-                # Support material cost (estimate 20% additional for complex parts)
-                support_factor = Decimal("1.2") if complexity_factor > Decimal("1.5") else Decimal("1.0")
+                # Support material cost (estimate additional for complex parts)
+                support_factor = SUPPORT_MATERIAL_FACTOR if complexity_factor > Decimal("1.5") else Decimal("1.0")
                 material_cost_adjusted = raw_material_cost * support_factor
                 
                 total_cost = material_cost_adjusted + machine_cost
                 
             elif process == ManufacturingProcess.INJECTION_MOLDING:
                 # Injection molding: High setup, low per-unit
-                mold_cost = Decimal("5000")  # Simple mold cost
+                mold_cost = MOLD_BASE_COST  # Simple mold cost
                 mold_complexity_multiplier = complexity_factor
                 adjusted_mold_cost = mold_cost * mold_complexity_multiplier
                 
                 # Per-unit cost
-                cycle_time_seconds = Decimal("30") + volume_cm3 * Decimal("0.5")
+                cycle_time_seconds = INJECTION_CYCLE_TIME_BASE + volume_cm3 * INJECTION_CYCLE_TIME_PER_CM3
                 cycle_time_hours = cycle_time_seconds / Decimal("3600")
                 per_unit_machine_cost = cycle_time_hours * CNC_MACHINE_RATE
                 per_unit_material_cost = raw_material_cost
                 
-                # Assume batch of 1000 units for mold amortization
-                batch_size = Decimal("1000")
+                # Assume batch size for mold amortization
+                batch_size = MOLD_BATCH_SIZE
                 amortized_mold_cost = adjusted_mold_cost / batch_size
                 
                 total_cost = amortized_mold_cost + per_unit_machine_cost + per_unit_material_cost
@@ -1249,31 +1293,31 @@ class ManufacturingValidator:
             elif process == ManufacturingProcess.SHEET_METAL:
                 # Sheet metal: Area-based costing
                 # Estimate sheet thickness based on part
-                sheet_thickness_mm = Decimal("2.0")
+                sheet_thickness_mm = SHEET_THICKNESS_DEFAULT
                 sheet_volume_cm3 = surface_area_cm2 * (sheet_thickness_mm / Decimal("10"))
                 
                 # Material cost
                 sheet_material_cost = sheet_volume_cm3 * material_density * material_cost / Decimal("1000")
                 
                 # Cutting/bending operations
-                num_bends = Decimal("5")  # Estimate based on complexity
-                bend_cost = num_bends * Decimal("2")  # $2 per bend
-                cutting_cost = surface_area_cm2 * Decimal("0.02")  # $0.02 per cm²
+                num_bends = SHEET_METAL_NUM_BENDS_ESTIMATE * complexity_factor  # Scale with complexity
+                bend_cost = num_bends * BEND_COST_PER_BEND
+                cutting_cost = surface_area_cm2 * CUTTING_COST_PER_CM2
                 
                 total_cost = sheet_material_cost + bend_cost + cutting_cost
                 
             elif process == ManufacturingProcess.CASTING:
                 # Casting: Pattern + material + finishing
-                pattern_cost = Decimal("500") * complexity_factor
+                pattern_cost = CASTING_PATTERN_BASE_COST * complexity_factor
                 
-                # Material cost with 10% waste
-                casting_material_cost = raw_material_cost * Decimal("1.1")
+                # Material cost with waste factor
+                casting_material_cost = raw_material_cost * CASTING_MATERIAL_WASTE_FACTOR
                 
                 # Finishing cost based on surface area
-                finishing_cost = surface_area_cm2 * Decimal("0.05")
+                finishing_cost = surface_area_cm2 * CASTING_FINISHING_COST_PER_CM2
                 
-                # Assume batch of 100 units for pattern amortization
-                batch_size = Decimal("100")
+                # Assume batch size for pattern amortization
+                batch_size = CASTING_BATCH_SIZE
                 amortized_pattern_cost = pattern_cost / batch_size
                 
                 total_cost = amortized_pattern_cost + casting_material_cost + finishing_cost

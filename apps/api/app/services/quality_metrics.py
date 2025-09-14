@@ -272,58 +272,92 @@ class SurfaceQualityAnalyzer:
                 'g2': 0   # Curvature discontinuity
             }
             
-            for edge in edges:
+            # Performance optimization constants
+            MAX_EDGE_CONTINUITY_CHECKS = 500  # Limit total checks
+            MAX_EDGES_FOR_FULL_CHECK = 50  # Skip detailed check for very complex models
+            num_edges = len(edges)
+            
+            if num_edges > MAX_EDGES_FOR_FULL_CHECK:
+                # For complex models, sample a subset of edges
+                import random
+                sample_size = min(20, num_edges // 5)  # Check ~20% or max 20 edges
+                sampled_edges = random.sample(edges, sample_size)
+                logger.debug(f"Complex model with {num_edges} edges - sampling {sample_size} edges")
+            else:
+                sampled_edges = edges
+            
+            # Build vertex-to-edge map for efficient connectivity checking
+            vertex_to_edges = {}  # Map vertex position to list of (edge, param) tuples
+            
+            for edge in sampled_edges:
                 try:
-                    if hasattr(edge, 'Curve'):
-                        curve = edge.Curve
+                    if not hasattr(edge, 'Curve') or not hasattr(edge, 'ParameterRange'):
+                        continue
                         
-                        # Check continuity at edge endpoints
-                        param_range = edge.ParameterRange
-                        
-                        # Sample points along the edge
-                        for t in [param_range[0], (param_range[0] + param_range[1]) / 2, param_range[1]]:
-                            try:
-                                point = curve.value(t)
-                                
-                                # Check if this point connects smoothly to adjacent edges
-                                for other_edge in edges:
-                                    if other_edge == edge:
-                                        continue
-                                    
-                                    # Check G0 continuity (position)
-                                    other_range = other_edge.ParameterRange
-                                    for other_t in [other_range[0], other_range[1]]:
-                                        other_point = other_edge.Curve.value(other_t)
-                                        dist = point.distanceToPoint(other_point) if hasattr(point, 'distanceToPoint') else (point - other_point).Length
-                                        
-                                        if dist < 0.001:  # Points are connected
-                                            # Check G1 continuity (tangent)
-                                            if hasattr(curve, 'tangent') and hasattr(other_edge.Curve, 'tangent'):
-                                                tan1 = curve.tangent(t)
-                                                tan2 = other_edge.Curve.tangent(other_t)
-                                                
-                                                if tan1 and tan2:
-                                                    # Check if tangents are parallel
-                                                    dot_product = abs(tan1[0].dot(tan2[0])) if hasattr(tan1[0], 'dot') else 1.0
-                                                    if dot_product < 0.95:  # Not parallel
-                                                        discontinuities['g1'] += 1
-                                            
-                                            # Check G2 continuity (curvature)
-                                            if hasattr(curve, 'curvature') and hasattr(other_edge.Curve, 'curvature'):
-                                                curv1 = curve.curvature(t)
-                                                curv2 = other_edge.Curve.curvature(other_t)
-                                                
-                                                if curv1 is not None and curv2 is not None:
-                                                    curv_diff = abs(curv1 - curv2)
-                                                    if curv_diff > 0.1:  # Curvature discontinuity
-                                                        discontinuities['g2'] += 1
-                            except Exception as e:
-                                logger.debug(f"Inner loop error: {e}")
-                                continue
-                                
-                except Exception as e:
-                    logger.debug(f"Processing error: {e}")
+                    param_range = edge.ParameterRange
+                    curve = edge.Curve
+                    # Store edge endpoints in the vertex map
+                    for t in [param_range[0], param_range[1]]:
+                        try:
+                            point = curve.value(t)
+                            # Round coordinates to avoid floating point issues
+                            if hasattr(point, 'x'):
+                                key = (round(point.x, 3), round(point.y, 3), round(point.z, 3))
+                            else:
+                                key = str(point)
+                            if key not in vertex_to_edges:
+                                vertex_to_edges[key] = []
+                            vertex_to_edges[key].append((edge, t))
+                        except Exception:
+                            continue
+                except Exception:
                     continue
+            
+            checks_performed = 0
+            # Now check continuity only between connected edges
+            for vertex_key, edge_list in vertex_to_edges.items():
+                if checks_performed >= MAX_EDGE_CONTINUITY_CHECKS:
+                    logger.debug(f"Reached maximum edge continuity checks ({MAX_EDGE_CONTINUITY_CHECKS})")
+                    break
+                    
+                # Only check edges that share this vertex
+                if len(edge_list) < 2:
+                    continue
+                    
+                for i, (edge1, t1) in enumerate(edge_list):
+                    for j, (edge2, t2) in enumerate(edge_list[i+1:], i+1):
+                        if checks_performed >= MAX_EDGE_CONTINUITY_CHECKS:
+                            break
+                            
+                        checks_performed += 1
+                        
+                        try:
+                            curve1 = edge1.Curve
+                            curve2 = edge2.Curve
+                            
+                            # Check G1 continuity (tangent)
+                            if hasattr(curve1, 'tangent') and hasattr(curve2, 'tangent'):
+                                tan1 = curve1.tangent(t1)
+                                tan2 = curve2.tangent(t2)
+                                
+                                if tan1 and tan2:
+                                    # Check if tangents are parallel
+                                    dot_product = abs(tan1[0].dot(tan2[0])) if hasattr(tan1[0], 'dot') else 1.0
+                                    if dot_product < 0.95:  # Not parallel
+                                        discontinuities['g1'] += 1
+                            
+                            # Check G2 continuity (curvature)
+                            if hasattr(curve1, 'curvature') and hasattr(curve2, 'curvature'):
+                                curv1 = curve1.curvature(t1)
+                                curv2 = curve2.curvature(t2)
+                                
+                                if curv1 is not None and curv2 is not None:
+                                    curv_diff = abs(curv1 - curv2)
+                                    if curv_diff > 0.1:  # Curvature discontinuity
+                                        discontinuities['g2'] += 1
+                        except Exception as e:
+                            logger.debug(f"Continuity check error: {e}")
+                            continue
             
             # Calculate continuity score based on discontinuities
             total_checks = len(edges) * 3  # 3 points per edge

@@ -226,7 +226,7 @@ async def validate_manufacturing(
                         shape = obj.Shape
                         break
                 if not shape:
-                    raise ValueError("Model geometri içermiyor")
+                    raise HTTPException(status_code=400, detail="Model geometri içermiyor")
                     
                 result = await asyncio.to_thread(
                     validator.validate_for_3d_printing,
@@ -241,7 +241,7 @@ async def validate_manufacturing(
                     request.machine_spec
                 )
             else:
-                raise ValueError(f"Desteklenmeyen üretim yöntemi: {request.process}")
+                raise HTTPException(status_code=400, detail=f"Desteklenmeyen üretim yöntemi: {request.process}")
             
             # Estimate cost and lead time using real geometry-based calculation
             unit_cost = result.cost_estimate if hasattr(result, 'cost_estimate') else validator._estimate_cost(shape, request.process)
