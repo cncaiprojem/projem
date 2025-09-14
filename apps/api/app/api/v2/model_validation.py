@@ -134,6 +134,25 @@ async def validate_model(
                 correlation_id=request.correlation_id
             )
             
+            # Store validation result in database
+            validation_model = ValidationResultModel(
+                validation_id=result.validation_id,
+                model_id=result.model_id,
+                user_id=current_user.id,
+                profile=result.profile.value,
+                status=result.status.value,
+                overall_score=result.overall_score,
+                sections_json=json.dumps({
+                    name: section.dict() if hasattr(section, 'dict') else str(section) 
+                    for name, section in result.sections.items()
+                }),
+                issues_json=json.dumps([issue.dict() if hasattr(issue, 'dict') else str(issue) for issue in result.issues]),
+                duration_ms=result.duration_ms if hasattr(result, 'duration_ms') else 0
+            )
+            
+            db.add(validation_model)
+            await db.commit()
+            
             # Update metrics
             validation_operations_total.labels(
                 operation="validate",
@@ -250,7 +269,9 @@ async def validate_manufacturing(
                 raise HTTPException(status_code=400, detail="Desteklenmeyen üretim yöntemi")
             
             # Estimate cost and lead time using real geometry-based calculation
-            unit_cost = result.cost_estimate if hasattr(result, 'cost_estimate') else validator._estimate_cost(shape, request.process)
+            # Extract material spec from request if available
+            material_spec = request.machine_spec.get('material') if request.machine_spec else None
+            unit_cost = result.cost_estimate if hasattr(result, 'cost_estimate') else validator._estimate_cost(shape, request.process, material_spec)
             unit_lead_time = result.lead_time_estimate if hasattr(result, 'lead_time_estimate') else validator._estimate_lead_time(shape, request.process)
             
             # Scale cost by quantity with volume discounts

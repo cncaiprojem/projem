@@ -445,8 +445,12 @@ class ModelValidationFramework:
                         task_names.append(validator_name)
                         
                     elif validator_name in ['manufacturing', 'manufacturing_basic']:
+                        # Manufacturing validator requires process and specification
+                        # Using a default process for general validation
+                        from ..schemas.validation import ManufacturingProcess
+                        default_process = ManufacturingProcess.CNC_MILLING
                         task = asyncio.create_task(
-                            asyncio.to_thread(validator.validate, doc_handle, [])
+                            asyncio.to_thread(validator.validate, doc_handle, default_process, None)
                         )
                         validation_tasks.append(task)
                         task_names.append(validator_name)

@@ -273,7 +273,17 @@ class ASMEY145Checker(StandardChecker):
                                 z_axis = FreeCAD.Vector(0, 0, 1)
                                 dot_product = abs(axis.dot(z_axis))
                                 angle_error = math.degrees(math.acos(min(1.0, max(-1.0, dot_product))))
-                                perpendicular_value = round(min(angle_error, 90) * PERPENDICULARITY_CONVERSION_FACTOR, 4)
+                                
+                                # Get feature length (cylinder height) for proper tolerance calculation
+                                feature_length = 10.0  # Default length in mm
+                                if hasattr(face, 'BoundBox'):
+                                    bbox = face.BoundBox
+                                    # Cylinder height is typically along its axis
+                                    feature_length = max(bbox.XLength, bbox.YLength, bbox.ZLength)
+                                
+                                # Calculate perpendicularity tolerance based on angle error and feature length
+                                # Perpendicularity = tan(angle_error) * feature_length
+                                perpendicular_value = round(abs(math.tan(math.radians(min(angle_error, 89)))) * feature_length, 4)
                                 
                                 features.append({
                                     "id": f"perp_{i}",

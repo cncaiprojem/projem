@@ -246,7 +246,12 @@ class ManufacturingValidator:
                 
                 # Estimate cost and lead time
                 if validation.is_manufacturable:
-                    validation.cost_estimate = self._estimate_cost(shape, process)
+                    # Extract material spec from specification if available
+                    material_spec = None
+                    if specification and isinstance(specification, dict):
+                        material_spec = specification.get('material')
+                    
+                    validation.cost_estimate = self._estimate_cost(shape, process, material_spec)
                     validation.lead_time_estimate = self._estimate_lead_time(shape, process)
                     validation.material_recommendations = self._recommend_materials(process)
                     validation.process_recommendations = self._recommend_process_improvements(
@@ -1176,7 +1181,8 @@ class ManufacturingValidator:
     def _estimate_cost(
         self,
         shape: Any,
-        process: ManufacturingProcess
+        process: ManufacturingProcess,
+        material_spec: Optional[Dict[str, Any]] = None
     ) -> Decimal:
         """Estimate manufacturing cost based on geometry, material, and process."""
         try:
@@ -1199,8 +1205,8 @@ class ManufacturingValidator:
                 complexity_factor = Decimal("1.0") + (Decimal(str(aspect_ratio)) - Decimal("1.0")) * Decimal("0.1")
                 complexity_factor = min(complexity_factor, Decimal("2.0"))  # Cap at 2x
             
-            # Material selection and cost
-            material_density, material_cost = self._get_material_properties(process)
+            # Material selection and cost - now using material_spec if provided
+            material_density, material_cost = self._get_material_properties(process, material_spec)
             material_weight_kg = volume_cm3 * material_density / Decimal("1000")  # Convert g to kg
             raw_material_cost = material_weight_kg * material_cost
             
@@ -1341,13 +1347,54 @@ class ManufacturingValidator:
             return defaults.get(process, Decimal("100"))
     
     def _get_material_properties(
-        self, process: ManufacturingProcess
+        self, 
+        process: ManufacturingProcess,
+        material_spec: Optional[Dict[str, Any]] = None
     ) -> Tuple[Decimal, Decimal]:
         """Get material density and cost for process.
         
+        Args:
+            process: Manufacturing process
+            material_spec: Optional material specification from request
+            
         Returns:
             Tuple of (density in g/cm³, cost in $/kg)
         """
+        # Check if material is specified in request
+        if material_spec:
+            material_type = material_spec.get('type', '').lower()
+            custom_density = material_spec.get('density')
+            custom_cost = material_spec.get('cost_per_kg')
+            
+            # Use custom values if provided
+            if custom_density and custom_cost:
+                return (Decimal(str(custom_density)), Decimal(str(custom_cost)))
+            
+            # Map common material types to properties
+            material_map = {
+                'aluminum': (MATERIAL_DENSITY_ALUMINUM, MATERIAL_COST_ALUMINUM),
+                'aluminum_6061': (MATERIAL_DENSITY_ALUMINUM, MATERIAL_COST_ALUMINUM),
+                'aluminum_7075': (Decimal("2.81"), Decimal("4.0")),  # Slightly denser/expensive
+                'steel': (MATERIAL_DENSITY_STEEL, MATERIAL_COST_STEEL),
+                'steel_1045': (MATERIAL_DENSITY_STEEL, MATERIAL_COST_STEEL),
+                'stainless_steel': (Decimal("8.0"), Decimal("2.5")),
+                'brass': (Decimal("8.5"), Decimal("5.0")),
+                'copper': (Decimal("8.96"), Decimal("7.0")),
+                'titanium': (Decimal("4.5"), Decimal("25.0")),
+                'pla': (Decimal("1.25"), Decimal("2.0")),
+                'abs': (Decimal("1.05"), Decimal("1.8")),
+                'petg': (Decimal("1.27"), Decimal("2.2")),
+                'nylon': (Decimal("1.15"), Decimal("3.5")),
+                'resin': (Decimal("1.2"), Decimal("3.0")),
+                'pp': (Decimal("0.9"), Decimal("1.5")),
+                'pc': (Decimal("1.2"), Decimal("3.0"))
+            }
+            
+            if material_type in material_map:
+                density, cost = material_map[material_type]
+                return (Decimal(str(density)), cost)
+        
+        # Fall back to process defaults
         if process in [ManufacturingProcess.CNC_MILLING, ManufacturingProcess.CNC_TURNING]:
             # Default to aluminum for CNC
             return (Decimal(str(MATERIAL_DENSITY_ALUMINUM)), MATERIAL_COST_ALUMINUM)
