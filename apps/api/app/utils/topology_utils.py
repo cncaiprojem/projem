@@ -50,9 +50,11 @@ def build_vertex_edge_map(edges: List[Any]) -> Dict[Any, List[Tuple[Any, float]]
                     if key not in vertex_to_edges:
                         vertex_to_edges[key] = []
                     vertex_to_edges[key].append((edge, t))
-                except Exception:
+                except Exception as e:
+                    logger.debug(f"Failed to process edge vertex: {e}")
                     continue
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Failed to process edge in vertex-edge map: {e}")
             continue
     
     return vertex_to_edges

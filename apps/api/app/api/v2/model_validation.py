@@ -98,6 +98,30 @@ doc_manager = FreeCADDocumentManager()
 freecad_service = FreeCADService()
 
 
+def _normalize_material_spec(material: Any) -> Optional[Dict[str, Any]]:
+    """
+    Normalize material specification to consistent dict format.
+    
+    Args:
+        material: Material specification (string or dict)
+        
+    Returns:
+        Normalized material spec as dict or None
+    """
+    if not material:
+        return None
+    
+    if isinstance(material, str):
+        # Convert string to dict format for consistency
+        return {'type': material}
+    elif isinstance(material, dict):
+        return material
+    else:
+        # Log unexpected type and return None
+        logger.warning(f"Unexpected material type: {type(material)}")
+        return None
+
+
 @router.post("/validate", response_model=ValidationResponse)
 async def validate_model(
     request: ValidationRequest,
@@ -269,24 +293,18 @@ async def validate_manufacturing(
                 raise HTTPException(status_code=400, detail="Desteklenmeyen üretim yöntemi")
             
             # Estimate cost and lead time using real geometry-based calculation
-            # Extract material spec from request if available
+            # Extract material spec with clear priority order:
+            # 1. Direct material field on request (highest priority)
+            # 2. Material from machine_spec (fallback)
             material_spec = None
-            if request.machine_spec:
-                # Handle both string and dict material specs
-                material_from_spec = request.machine_spec.get('material')
-                if material_from_spec:
-                    if isinstance(material_from_spec, str):
-                        # Convert string to dict format for consistency
-                        material_spec = {'type': material_from_spec}
-                    else:
-                        material_spec = material_from_spec
             
-            # Also check direct material field on request
+            # First priority: direct material field on request
             if hasattr(request, 'material') and request.material:
-                if isinstance(request.material, str):
-                    material_spec = {'type': request.material}
-                else:
-                    material_spec = request.material
+                material_spec = _normalize_material_spec(request.material)
+            # Second priority: material from machine_spec (only if no direct material)
+            elif request.machine_spec and 'material' in request.machine_spec:
+                material_from_spec = request.machine_spec['material']
+                material_spec = _normalize_material_spec(material_from_spec)
             
             unit_cost = result.cost_estimate if hasattr(result, 'cost_estimate') else validator._estimate_cost(shape, request.process, material_spec)
             unit_lead_time = result.lead_time_estimate if hasattr(result, 'lead_time_estimate') else validator._estimate_lead_time(shape, request.process)

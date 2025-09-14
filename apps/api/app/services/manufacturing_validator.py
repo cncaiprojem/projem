@@ -1871,12 +1871,14 @@ class ManufacturingValidator:
                             normal = face.normalAt(0.5, 0.5)
                             if normal.z < -0.1:  # Pointing downward
                                 undercut_count += 1
-                        except:
+                        except Exception as e:
+                            logger.debug(f"Failed to get normal for face: {e}")
                             continue
                 
                 return undercut_count > 2
                 
-            except:
+            except Exception as e:
+                logger.warning(f"Failed to check complex undercuts: {e}")
                 return False  # Assume no complex undercuts if can't check
     
     def _has_constant_thickness(self, shape: Any) -> bool:
