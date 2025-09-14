@@ -58,58 +58,203 @@ class GeometryCache:
     """
     Caching layer for expensive geometric calculations.
     
-    Implements LRU caching with configurable size limits.
+    Implements LRU caching with configurable size limits using compute function pattern.
     """
     
     def __init__(self, cache_size: int = GEOMETRY_CACHE_SIZE):
         self.cache_size = cache_size
+        self._volume_cache = OrderedDict()
+        self._area_cache = OrderedDict()
+        self._mass_cache = OrderedDict()
+        self._thickness_cache = OrderedDict()
+        self._intersection_cache = OrderedDict()
+        self._continuity_cache = OrderedDict()
         self._cache_hits = 0
         self._cache_misses = 0
     
-    @lru_cache(maxsize=GEOMETRY_CACHE_SIZE)
-    def get_volume(self, shape_hash: str) -> Optional[float]:
-        """Cache volume calculations."""
-        return None  # Will be overridden by actual calculation
+    def get_or_compute_volume(self, shape: Any, compute_func: Any = None) -> float:
+        """Get cached volume or compute if not available."""
+        shape_hash = geometry_hash(shape)
+        
+        if shape_hash in self._volume_cache:
+            self._cache_hits += 1
+            self._volume_cache.move_to_end(shape_hash)  # LRU update
+            return self._volume_cache[shape_hash]
+        
+        self._cache_misses += 1
+        
+        # Compute volume
+        if compute_func:
+            volume = compute_func(shape)
+        else:
+            # Default computation using FreeCAD shape properties
+            volume = shape.Volume if hasattr(shape, 'Volume') else 0.0
+        
+        # Store in cache with size limit
+        if len(self._volume_cache) >= self.cache_size:
+            self._volume_cache.popitem(last=False)  # Remove oldest
+        
+        self._volume_cache[shape_hash] = volume
+        return volume
     
-    @lru_cache(maxsize=GEOMETRY_CACHE_SIZE)
-    def get_area(self, shape_hash: str) -> Optional[float]:
-        """Cache surface area calculations."""
-        return None  # Will be overridden by actual calculation
+    def get_or_compute_area(self, shape: Any, compute_func: Any = None) -> float:
+        """Get cached surface area or compute if not available."""
+        shape_hash = geometry_hash(shape)
+        
+        if shape_hash in self._area_cache:
+            self._cache_hits += 1
+            self._area_cache.move_to_end(shape_hash)  # LRU update
+            return self._area_cache[shape_hash]
+        
+        self._cache_misses += 1
+        
+        # Compute area
+        if compute_func:
+            area = compute_func(shape)
+        else:
+            # Default computation using FreeCAD shape properties
+            area = shape.Area if hasattr(shape, 'Area') else 0.0
+        
+        # Store in cache with size limit
+        if len(self._area_cache) >= self.cache_size:
+            self._area_cache.popitem(last=False)  # Remove oldest
+        
+        self._area_cache[shape_hash] = area
+        return area
     
-    @lru_cache(maxsize=GEOMETRY_CACHE_SIZE)
-    def get_mass(self, shape_hash: str, density: float = 1.0) -> Optional[float]:
-        """Cache mass calculations with density."""
-        return None  # Will be overridden by actual calculation
-    
-    @lru_cache(maxsize=THICKNESS_CACHE_SIZE)
-    def get_wall_thickness(
+    def get_or_compute_mass(
         self, 
-        shape_hash: str, 
-        point_x: float, 
-        point_y: float, 
-        point_z: float
-    ) -> Optional[float]:
-        """Cache wall thickness measurements at specific points."""
-        return None  # Will be overridden by actual calculation
+        shape: Any, 
+        density: float = 1.0, 
+        compute_func: Any = None
+    ) -> float:
+        """Get cached mass or compute if not available."""
+        shape_hash = geometry_hash(shape)
+        cache_key = f"{shape_hash}_{density}"
+        
+        if cache_key in self._mass_cache:
+            self._cache_hits += 1
+            self._mass_cache.move_to_end(cache_key)  # LRU update
+            return self._mass_cache[cache_key]
+        
+        self._cache_misses += 1
+        
+        # Compute mass
+        if compute_func:
+            mass = compute_func(shape, density)
+        else:
+            # Default computation: volume * density
+            volume = self.get_or_compute_volume(shape)
+            mass = volume * density
+        
+        # Store in cache with size limit
+        if len(self._mass_cache) >= self.cache_size:
+            self._mass_cache.popitem(last=False)  # Remove oldest
+        
+        self._mass_cache[cache_key] = mass
+        return mass
     
-    @lru_cache(maxsize=INTERSECTION_CACHE_SIZE)
-    def get_face_intersection(
+    def get_or_compute_wall_thickness(
         self,
-        face1_hash: str,
-        face2_hash: str,
-        tolerance: float = 0.001
-    ) -> bool:
-        """Cache face intersection results."""
-        return None  # Will be overridden by actual calculation
+        shape: Any,
+        point: Tuple[float, float, float],
+        compute_func: Any
+    ) -> float:
+        """Get cached wall thickness or compute if not available."""
+        shape_hash = geometry_hash(shape)
+        cache_key = f"{shape_hash}_{point[0]:.3f}_{point[1]:.3f}_{point[2]:.3f}"
+        
+        if cache_key in self._thickness_cache:
+            self._cache_hits += 1
+            self._thickness_cache.move_to_end(cache_key)  # LRU update
+            return self._thickness_cache[cache_key]
+        
+        self._cache_misses += 1
+        
+        # Compute thickness (must provide compute function)
+        if not compute_func:
+            logger.warning("No compute function provided for wall thickness")
+            return 0.0
+            
+        thickness = compute_func(shape, point)
+        
+        # Store in cache with size limit
+        if len(self._thickness_cache) >= THICKNESS_CACHE_SIZE:
+            self._thickness_cache.popitem(last=False)  # Remove oldest
+        
+        self._thickness_cache[cache_key] = thickness
+        return thickness
     
-    @lru_cache(maxsize=GEOMETRY_CACHE_SIZE)
-    def get_edge_continuity(
+    def check_or_compute_intersection(
         self,
-        edge_hash: str,
-        tolerance: float = 0.001
+        face1: Any,
+        face2: Any,
+        tolerance: float = 0.001,
+        compute_func: Any = None
     ) -> bool:
-        """Cache edge continuity check results."""
-        return None  # Will be overridden by actual calculation
+        """Check cached face intersection or compute if not available."""
+        hash1 = geometry_hash(face1)
+        hash2 = geometry_hash(face2)
+        cache_key = f"{min(hash1, hash2)}_{max(hash1, hash2)}_{tolerance}"
+        
+        if cache_key in self._intersection_cache:
+            self._cache_hits += 1
+            self._intersection_cache.move_to_end(cache_key)  # LRU update
+            return self._intersection_cache[cache_key]
+        
+        self._cache_misses += 1
+        
+        # Compute intersection
+        if compute_func:
+            intersects = compute_func(face1, face2, tolerance)
+        else:
+            # Default: check if faces share common area
+            try:
+                common = face1.common(face2)
+                intersects = common.Area > tolerance if hasattr(common, 'Area') else False
+            except Exception:
+                intersects = False
+        
+        # Store in cache with size limit
+        if len(self._intersection_cache) >= INTERSECTION_CACHE_SIZE:
+            self._intersection_cache.popitem(last=False)  # Remove oldest
+        
+        self._intersection_cache[cache_key] = intersects
+        return intersects
+    
+    def check_or_compute_edge_continuity(
+        self,
+        edge: Any,
+        tolerance: float = 0.001,
+        compute_func: Any = None
+    ) -> bool:
+        """Check cached edge continuity or compute if not available."""
+        edge_hash = geometry_hash(edge)
+        cache_key = f"{edge_hash}_{tolerance}"
+        
+        if cache_key in self._continuity_cache:
+            self._cache_hits += 1
+            self._continuity_cache.move_to_end(cache_key)  # LRU update
+            return self._continuity_cache[cache_key]
+        
+        self._cache_misses += 1
+        
+        # Compute continuity
+        if compute_func:
+            is_continuous = compute_func(edge, tolerance)
+        else:
+            # Default: check if edge is closed
+            try:
+                is_continuous = edge.isClosed() if hasattr(edge, 'isClosed') else True
+            except Exception:
+                is_continuous = True
+        
+        # Store in cache with size limit
+        if len(self._continuity_cache) >= self.cache_size:
+            self._continuity_cache.popitem(last=False)  # Remove oldest
+        
+        self._continuity_cache[cache_key] = is_continuous
+        return is_continuous
     
     def get_stats(self) -> Dict[str, Any]:
         """Get cache statistics."""
@@ -122,12 +267,12 @@ class GeometryCache:
     
     def clear(self):
         """Clear all caches."""
-        self.get_volume.cache_clear()
-        self.get_area.cache_clear()
-        self.get_mass.cache_clear()
-        self.get_wall_thickness.cache_clear()
-        self.get_face_intersection.cache_clear()
-        self.get_edge_continuity.cache_clear()
+        self._volume_cache.clear()
+        self._area_cache.clear()
+        self._mass_cache.clear()
+        self._thickness_cache.clear()
+        self._intersection_cache.clear()
+        self._continuity_cache.clear()
         self._cache_hits = 0
         self._cache_misses = 0
 

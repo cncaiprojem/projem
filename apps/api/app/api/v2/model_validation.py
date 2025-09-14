@@ -626,7 +626,7 @@ async def upload_and_validate(
                 doc = FreeCAD.newDocument("UploadedModel")
                 Import.insert(tmp_path, doc.Name)
             else:
-                raise ValueError("Desteklenmeyen dosya formatı")
+                raise HTTPException(status_code=400, detail="Desteklenmeyen dosya formatı")
             
             # Validate
             validation_result = await validation_framework.validate_model(
@@ -647,10 +647,10 @@ async def upload_and_validate(
                 validation_id=validation_result.validation_id
             )
             
-        except ValueError as e:
-            span.record_exception(e)
+        except HTTPException:
+            # Re-raise HTTPException as-is
             _cleanup_resources(tmp_path, doc)
-            raise HTTPException(status_code=400, detail="Geçersiz dosya formatı. Lütfen dosya tipini kontrol edin.")
+            raise
         except Exception as e:
             span.record_exception(e)
             _cleanup_resources(tmp_path, doc)
