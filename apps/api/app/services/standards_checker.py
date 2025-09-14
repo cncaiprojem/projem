@@ -18,9 +18,9 @@ from ..core.logging import get_logger
 from ..core.telemetry import create_span
 from ..core import metrics
 from ..middleware.correlation_middleware import get_correlation_id
-from ..schemas.validation_schemas import (
-    ComplianceResult,
-    ComplianceViolation,
+from ..schemas.validation import (
+    ComplianceResultDataclass as ComplianceResult,
+    ComplianceViolationDataclass as ComplianceViolation,
     StandardType,
     ValidationSeverity
 )

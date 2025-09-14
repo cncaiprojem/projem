@@ -8,6 +8,7 @@ and all related data structures.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import dataclass, field as dataclass_field
 from enum import Enum
 from typing import Any, Dict, List, Optional, Set
 from uuid import uuid4
@@ -60,10 +61,15 @@ class ManufacturingProcess(str, Enum):
 class StandardType(str, Enum):
     """Standard types for compliance checking."""
     ISO_10303 = "ISO_10303"  # STEP
-    ASME_Y14_5 = "ASME_Y14.5"  # GD&T
-    ISO_1101 = "ISO_1101"  # Geometrical tolerancing
-    DIN_919 = "DIN_919"  # German standards
+    ISO_14040 = "ISO_14040"  # LCA
     ISO_9001 = "ISO_9001"  # Quality management
+    ISO_2768 = "ISO_2768"  # General tolerances
+    ISO_286 = "ISO_286"  # Limits and fits
+    ISO_1101 = "ISO_1101"  # Geometrical tolerancing
+    ASME_Y14_5 = "ASME_Y14.5"  # GD&T
+    DIN_919 = "DIN_919"  # German standards
+    DIN_8580 = "DIN_8580"  # Manufacturing processes
+    CE_MARKING = "CE_MARKING"  # CE compliance
 
 
 class ValidationRequest(BaseModel):
@@ -319,10 +325,94 @@ class CertificateVerificationRequest(BaseModel):
 class AutoFixRequest(BaseModel):
     """Request for automated fixes."""
     model_config = ConfigDict(use_enum_values=True)
-    
+
     document_path: str = Field(..., description="Path to CAD document")
     fix_ids: List[str] = Field(..., description="Fix IDs to apply")
     revalidate: bool = Field(True, description="Re-validate after fixes")
     auto_approve: bool = Field(False, description="Auto-approve safe fixes")
     save_result: bool = Field(True, description="Save fixed document")
     output_path: Optional[str] = Field(None, description="Custom output path for fixed document")
+
+
+# Dataclasses for internal validation operations
+# These are used internally by validation services and not exposed via API
+
+@dataclass
+class ValidationIssueDataclass:
+    """Represents a validation issue (dataclass version for internal use)."""
+    type: str
+    severity: ValidationSeverity
+    message: str
+    turkish_message: str
+    details: Optional[Dict[str, Any]] = None
+    location: Optional[str] = None
+    fix_available: bool = False
+    fix_suggestion: Optional[str] = None
+
+
+@dataclass
+class GeometricValidation:
+    """Geometric validation result."""
+    is_valid: bool
+    issues: List[ValidationIssueDataclass] = dataclass_field(default_factory=list)
+    metrics: Dict[str, Any] = dataclass_field(default_factory=dict)
+    warnings: List[str] = dataclass_field(default_factory=list)
+    info: List[str] = dataclass_field(default_factory=list)
+
+    # Fields assigned by GeometricValidator
+    self_intersections: List[str] = dataclass_field(default_factory=list)
+    non_manifold_edges: List[str] = dataclass_field(default_factory=list)
+    open_edges: List[str] = dataclass_field(default_factory=list)
+    topology_errors: List[str] = dataclass_field(default_factory=list)
+    bounding_box: Optional[Dict[str, float]] = None
+    thin_walls: List[str] = dataclass_field(default_factory=list)
+    small_features: List[str] = dataclass_field(default_factory=list)
+    surface_quality_score: float = 100.0
+    volume: Optional[float] = None
+    surface_area: Optional[float] = None
+    center_of_mass: Optional[Dict[str, float]] = None
+
+
+@dataclass
+class QualityMetricsReport:
+    """Quality metrics report."""
+    overall_score: float
+    metrics: Dict[str, Any] = dataclass_field(default_factory=dict)
+    issues: List[ValidationIssueDataclass] = dataclass_field(default_factory=list)
+    recommendations: List[str] = dataclass_field(default_factory=list)
+
+
+@dataclass
+class QualityMetric:
+    """Individual quality metric."""
+    name: str
+    value: float
+    unit: Optional[str] = None
+    threshold: Optional[float] = None
+    passed: bool = True
+
+
+@dataclass
+class ComplianceResultDataclass:
+    """Standards compliance result (dataclass version for internal use)."""
+    standard: StandardType
+    is_compliant: bool
+    compliance_score: float = 0.0
+    violations: List['ComplianceViolationDataclass'] = dataclass_field(default_factory=list)
+    recommendations: List[str] = dataclass_field(default_factory=list)
+    warnings: List[str] = dataclass_field(default_factory=list)
+    certificate_eligible: bool = False
+    passed_rules: int = 0
+    checked_rules: int = 0
+
+
+@dataclass
+class ComplianceViolationDataclass:
+    """Compliance violation detail (dataclass version for internal use)."""
+    rule_id: str
+    rule_description: str
+    severity: ValidationSeverity
+    location: Optional[str] = None
+    actual_value: Optional[float] = None
+    expected_value: Optional[float] = None
+    recommendation: Optional[str] = None

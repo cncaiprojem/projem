@@ -22,11 +22,7 @@ except ImportError:
     Base = declarative_base()
 
 
-# Import dataclasses from schemas - only import what's actually used
-from ..schemas.validation_schemas import (
-    StandardType,
-    ComplianceResult
-)
+# No imports needed from schemas - models are database-only
 
 
 class ValidationResult(Base):
