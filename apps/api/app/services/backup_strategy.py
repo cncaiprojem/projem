@@ -35,7 +35,7 @@ import aiofiles
 import croniter
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2KDF as PBKDF2
 from pydantic import BaseModel, Field, field_validator
 
 try:
@@ -471,31 +471,25 @@ class EncryptionHandler:
         password = getattr(settings, "BACKUP_ENCRYPTION_KEY", None)
         salt_string = getattr(settings, "BACKUP_ENCRYPTION_SALT", None)
 
-        # Check if we're in production environment
-        # In production (not dev/test), encryption keys MUST be explicitly configured
-        env_name = getattr(settings, "ENVIRONMENT", "development")
-        is_production = env_name.lower() in ["production", "prod"]
-
-        if is_production and (not password or not salt_string):
+        # CRITICAL SECURITY: Encryption keys MUST be explicitly configured
+        # No defaults allowed in ANY environment to prevent accidental misuse
+        if not password or not salt_string:
             raise ValueError(
-                "BACKUP_ENCRYPTION_KEY ve BACKUP_ENCRYPTION_SALT production ortamında zorunludur. "
-                "Güvenlik için bu değerler environment değişkenlerinde tanımlanmalıdır."
+                "BACKUP_ENCRYPTION_KEY ve BACKUP_ENCRYPTION_SALT zorunludur.\n"
+                "Güvenlik için bu değerler environment değişkenlerinde tanımlanmalıdır.\n\n"
+                "Yapılandırma talimatları:\n"
+                "1. .env dosyanıza şu değişkenleri ekleyin:\n"
+                "   BACKUP_ENCRYPTION_KEY=<güçlü-rastgele-parola>\n"
+                "   BACKUP_ENCRYPTION_SALT=<güçlü-rastgele-salt>\n\n"
+                "2. Güvenli değerler oluşturmak için:\n"
+                "   python -c \"import secrets; print('KEY:', secrets.token_urlsafe(32))\"\n"
+                "   python -c \"import secrets; print('SALT:', secrets.token_urlsafe(16))\"\n\n"
+                "3. Production ortamında:\n"
+                "   - Değerler güvenli bir secret manager'da saklanmalıdır\n"
+                "   - Container/pod tanımında environment değişkeni olarak inject edilmelidir\n"
+                "   - Asla kod deposunda veya Docker image'ında saklanmamalıdır\n\n"
+                "UYARI: Varsayılan değerler güvenlik riski oluşturur ve kabul edilmez."
             )
-
-        # For non-production environments, use defaults with strong warning
-        if not password:
-            logger.warning(
-                "BACKUP_ENCRYPTION_KEY tanımlı değil. Güvenlik riski! "
-                "Production'da bu hata olarak rapor edilecektir."
-            )
-            password = "default-backup-key-INSECURE-change-immediately"
-
-        if not salt_string:
-            logger.warning(
-                "BACKUP_ENCRYPTION_SALT tanımlı değil. Güvenlik riski! "
-                "Production'da bu hata olarak rapor edilecektir."
-            )
-            salt_string = "freecad-backup-salt-INSECURE-2024"
 
         # Create deterministic salt from the configuration
         # Hash the salt string to ensure consistent 16-byte value
@@ -589,8 +583,9 @@ class BackupStrategy:
             span.set_attribute("source_id", source_id)
             span.set_attribute("backup_type", backup_type)
 
-            # Generate backup ID using UUID for consistency
-            backup_id = f"backup_{source_id}_{uuid.uuid4().hex}"
+            # Generate backup ID with robust separator for reliable parsing
+            # Using double colon (::) as separator to avoid conflicts with source_id content
+            backup_id = f"backup::{source_id}::{uuid.uuid4().hex}"
 
             # Compress data
             compressed_data, compression_algo = self.compression.compress(data)
@@ -650,6 +645,49 @@ class BackupStrategy:
 
             return metadata
 
+    def _extract_source_id_from_backup_id(self, backup_id: str) -> Optional[str]:
+        """
+        Extract source_id from backup_id with robust parsing.
+
+        Handles both legacy and new backup ID formats:
+        - New format: backup::{source_id}::{uuid}
+        - Legacy format: backup_{source_id}_{uuid}
+
+        Args:
+            backup_id: The backup identifier
+
+        Returns:
+            Extracted source_id or None if unable to parse
+        """
+        try:
+            # Try new format first (double colon separator)
+            if '::' in backup_id:
+                parts = backup_id.split('::')
+                if len(parts) == 3 and parts[0] == "backup":
+                    return parts[1]  # Return source_id
+
+            # Try legacy format (underscore separator)
+            # This is less reliable but maintains backward compatibility
+            elif backup_id.startswith("backup_"):
+                parts = backup_id.split('_')
+                if len(parts) >= 3:
+                    # Extract everything between "backup_" and the last part (UUID)
+                    # The UUID is always 32 hex characters
+                    last_part = parts[-1]
+                    if len(last_part) == 32 and all(c in '0123456789abcdef' for c in last_part):
+                        # Join all parts between "backup" and the UUID
+                        return '_'.join(parts[1:-1])
+
+            return None
+
+        except Exception as e:
+            logger.warning(
+                "Backup ID ayrıştırma hatası",
+                backup_id=backup_id,
+                error=str(e)
+            )
+            return None
+
     async def restore_backup(
         self,
         backup_id: str,
@@ -682,13 +720,9 @@ class BackupStrategy:
                         path = f"{source_id}/{backup_id}"
                     else:
                         # Extract source_id from backup_id if not provided
-                        # Backup ID format: backup_{source_id}_{timestamp}
-                        # source_id can contain underscores, so use proper parsing
-                        parts = backup_id.split('_')
-                        if len(parts) >= 3 and parts[0] == "backup":
-                            # Join all parts between "backup" and the last part (timestamp)
-                            # This handles source_id that contains underscores
-                            source_id = '_'.join(parts[1:-1])
+                        source_id_extracted = self._extract_source_id_from_backup_id(backup_id)
+                        if source_id_extracted:
+                            source_id = source_id_extracted
                             path = f"{source_id}/{backup_id}"
                         else:
                             # Fallback to just backup_id

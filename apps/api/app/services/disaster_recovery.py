@@ -245,6 +245,111 @@ class HealthMonitor:
         self.success_counts[check.check_id] = 0
         self.last_check_timestamps[check.check_id] = datetime.now(timezone.utc)
 
+    async def _tcp_health_check(self, endpoint: Optional[str], timeout_seconds: float) -> bool:
+        """
+        Perform TCP health check with timeout and error handling.
+
+        Args:
+            endpoint: TCP endpoint in format "host:port" or "host" (defaults to port 80)
+            timeout_seconds: Connection timeout in seconds
+
+        Returns:
+            True if TCP connection successful, False otherwise
+        """
+        if not endpoint:
+            logger.warning("TCP sağlık kontrolü için endpoint tanımlı değil")
+            return False
+
+        try:
+            # Parse endpoint to extract host and port
+            if ':' in endpoint:
+                # Handle explicit port (e.g., "localhost:8000" or "192.168.1.1:3306")
+                parts = endpoint.rsplit(':', 1)
+                host = parts[0]
+                try:
+                    port = int(parts[1])
+                except ValueError:
+                    logger.error(
+                        "Geçersiz TCP port formatı",
+                        endpoint=endpoint,
+                        port=parts[1]
+                    )
+                    return False
+            else:
+                # No port specified, default to standard port 80
+                host = endpoint
+                port = 80
+
+            # Remove protocol if present (e.g., "tcp://host" -> "host")
+            if '://' in host:
+                host = host.split('://')[-1]
+
+            # Handle IPv6 addresses in brackets (e.g., "[::1]:8000")
+            if host.startswith('[') and host.endswith(']'):
+                host = host[1:-1]
+
+            logger.debug(
+                "TCP sağlık kontrolü başlatılıyor",
+                host=host,
+                port=port,
+                timeout=timeout_seconds
+            )
+
+            # Attempt TCP connection with timeout
+            try:
+                # Use asyncio.wait_for to enforce timeout
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port),
+                    timeout=timeout_seconds
+                )
+
+                # Connection successful, close it immediately
+                writer.close()
+                await writer.wait_closed()
+
+                logger.debug(
+                    "TCP bağlantısı başarılı",
+                    host=host,
+                    port=port
+                )
+                return True
+
+            except asyncio.TimeoutError:
+                logger.warning(
+                    "TCP bağlantısı zaman aşımına uğradı",
+                    host=host,
+                    port=port,
+                    timeout=timeout_seconds
+                )
+                return False
+
+            except ConnectionRefusedError:
+                logger.debug(
+                    "TCP bağlantısı reddedildi",
+                    host=host,
+                    port=port
+                )
+                return False
+
+            except OSError as e:
+                # Covers various network errors (host unreachable, network down, etc.)
+                logger.warning(
+                    "TCP bağlantı hatası",
+                    host=host,
+                    port=port,
+                    error=str(e)
+                )
+                return False
+
+        except Exception as e:
+            logger.error(
+                "TCP sağlık kontrolü beklenmeyen hata",
+                endpoint=endpoint,
+                error=str(e),
+                error_type=type(e).__name__
+            )
+            return False
+
     async def check_health(self, check_id: str) -> HealthStatus:
         """Execute health check."""
         check = self.health_checks.get(check_id)
@@ -260,8 +365,8 @@ class HealthMonitor:
                 is_healthy = response.status_code == check.expected_status
 
             elif check.check_type == "tcp":
-                # TCP health check (simplified)
-                is_healthy = True  # Would implement actual TCP check
+                # TCP health check with proper timeout and error handling
+                is_healthy = await self._tcp_health_check(check.endpoint, check.timeout_seconds)
 
             else:
                 # Custom check

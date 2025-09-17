@@ -433,9 +433,33 @@ class UltraEnterpriseEnvironment(BaseSettings):
     )
     
     # ===================================================================
+    # BACKUP & DISASTER RECOVERY CONFIGURATION (Task 7.26)
+    # ===================================================================
+
+    BACKUP_ENCRYPTION_KEY: Optional[str] = Field(
+        default=None,
+        description="Backup encryption key (required for backup operations)"
+    )
+
+    BACKUP_ENCRYPTION_SALT: Optional[str] = Field(
+        default=None,
+        description="Backup encryption salt for key derivation (required for backup operations)"
+    )
+
+    BACKUP_RETENTION_DAYS: int = Field(
+        default=30,
+        description="Default backup retention period in days"
+    )
+
+    BACKUP_COMPRESSION_ENABLED: bool = Field(
+        default=True,
+        description="Enable backup compression"
+    )
+
+    # ===================================================================
     # FREECAD & APPLICATION SPECIFIC
     # ===================================================================
-    
+
     FREECADCMD_PATH: Optional[str] = Field(default=None, description="FreeCAD binary path")
     FREECAD_TIMEOUT_SECONDS: int = Field(default=1200, description="FreeCAD timeout")
     FREECAD_MONITORING_INTERVAL_SECONDS: float = Field(default=1.0, description="FreeCAD process monitoring interval in seconds")
