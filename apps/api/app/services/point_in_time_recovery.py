@@ -313,14 +313,19 @@ class WALManager:
 
         for segment_file in self.wal_dir.glob("wal_*.log*"):
             try:
-                # Parse timestamp from filename
-                timestamp_str = segment_file.stem.split('_')[1]
-                timestamp = int(timestamp_str) / 1000
-                segment_time = datetime.fromtimestamp(timestamp, timezone.utc)
+                # Use file modification time instead of parsing UUID from filename
+                # WAL segments are named with UUIDs, not timestamps
+                file_stat = segment_file.stat()
+                segment_time = datetime.fromtimestamp(file_stat.st_mtime, timezone.utc)
 
                 if segment_time < cutoff_time:
                     segment_file.unlink()
-                    logger.debug("Eski WAL segmenti silindi", segment=segment_file.name)
+                    logger.debug(
+                        "Eski WAL segmenti silindi",
+                        segment=segment_file.name,
+                        modified_time=segment_time.isoformat(),
+                        cutoff_time=cutoff_time.isoformat()
+                    )
 
             except Exception as e:
                 logger.warning("Segment temizleme hatası", file=segment_file.name, error=str(e))

@@ -467,13 +467,35 @@ class EncryptionHandler:
             # Use provided key
             return self.config.encryption_key.encode()[:32].ljust(32, b'0')
 
-        # Generate from environment or default
-        password = getattr(settings, "BACKUP_ENCRYPTION_KEY", "default-backup-key-change-me!")
+        # Get encryption key from environment
+        password = getattr(settings, "BACKUP_ENCRYPTION_KEY", None)
+        salt_string = getattr(settings, "BACKUP_ENCRYPTION_SALT", None)
 
-        # Use a deterministic salt from settings for consistency across restarts
-        # This ensures encrypted data remains recoverable after service restarts
-        # In production, use a secure, static salt configured in environment
-        salt_string = getattr(settings, "BACKUP_ENCRYPTION_SALT", "freecad-backup-salt-2024")
+        # Check if we're in production environment
+        # In production (not dev/test), encryption keys MUST be explicitly configured
+        env_name = getattr(settings, "ENVIRONMENT", "development")
+        is_production = env_name.lower() in ["production", "prod"]
+
+        if is_production and (not password or not salt_string):
+            raise ValueError(
+                "BACKUP_ENCRYPTION_KEY ve BACKUP_ENCRYPTION_SALT production ortamında zorunludur. "
+                "Güvenlik için bu değerler environment değişkenlerinde tanımlanmalıdır."
+            )
+
+        # For non-production environments, use defaults with strong warning
+        if not password:
+            logger.warning(
+                "BACKUP_ENCRYPTION_KEY tanımlı değil. Güvenlik riski! "
+                "Production'da bu hata olarak rapor edilecektir."
+            )
+            password = "default-backup-key-INSECURE-change-immediately"
+
+        if not salt_string:
+            logger.warning(
+                "BACKUP_ENCRYPTION_SALT tanımlı değil. Güvenlik riski! "
+                "Production'da bu hata olarak rapor edilecektir."
+            )
+            salt_string = "freecad-backup-salt-INSECURE-2024"
 
         # Create deterministic salt from the configuration
         # Hash the salt string to ensure consistent 16-byte value
@@ -661,9 +683,12 @@ class BackupStrategy:
                     else:
                         # Extract source_id from backup_id if not provided
                         # Backup ID format: backup_{source_id}_{timestamp}
+                        # source_id can contain underscores, so use proper parsing
                         parts = backup_id.split('_')
                         if len(parts) >= 3 and parts[0] == "backup":
-                            source_id = parts[1]
+                            # Join all parts between "backup" and the last part (timestamp)
+                            # This handles source_id that contains underscores
+                            source_id = '_'.join(parts[1:-1])
                             path = f"{source_id}/{backup_id}"
                         else:
                             # Fallback to just backup_id

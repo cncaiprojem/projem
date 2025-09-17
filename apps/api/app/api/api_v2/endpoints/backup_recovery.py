@@ -547,9 +547,19 @@ async def get_backup_status(
     """
     Get backup system status.
     """
-    # Get backup statistics
-    total_backups = db.query(BackupSnapshotModel).count()
-    total_size = db.query(func.sum(BackupSnapshotModel.size_bytes)).scalar() or 0
+    # Get all backup statistics in a single optimized query
+    # This reduces database round trips and improves performance
+    stats = db.query(
+        func.count(BackupSnapshotModel.id).label('total_count'),
+        func.sum(BackupSnapshotModel.size_bytes).label('total_size'),
+        func.min(BackupSnapshotModel.created_at).label('oldest'),
+        func.max(BackupSnapshotModel.created_at).label('newest')
+    ).first()
+
+    total_backups = stats.total_count or 0
+    total_size = stats.total_size or 0
+    oldest_backup = stats.oldest
+    newest_backup = stats.newest
 
     # Initialize all possible values to 0 for consistency
     backups_by_type = {backup_type.value: 0 for backup_type in BackupType}
@@ -578,13 +588,8 @@ async def get_backup_status(
         if tier in backups_by_tier:
             backups_by_tier[tier] = count
 
-    # Get oldest and newest backups
-    oldest = db.query(BackupSnapshotModel.created_at).order_by(
-        BackupSnapshotModel.created_at.asc()
-    ).first()
-    newest = db.query(BackupSnapshotModel.created_at).order_by(
-        BackupSnapshotModel.created_at.desc()
-    ).first()
+    # Already retrieved oldest and newest in the combined query above
+    # No need for separate queries
 
     # Get deduplication stats from incremental manager
     stats = incremental_manager.get_stats()
@@ -594,8 +599,8 @@ async def get_backup_status(
         total_size_bytes=total_size,
         backups_by_type=backups_by_type,
         backups_by_tier=backups_by_tier,
-        oldest_backup=oldest[0] if oldest else None,
-        newest_backup=newest[0] if newest else None,
+        oldest_backup=oldest_backup,
+        newest_backup=newest_backup,
         deduplication_ratio=stats.get("chunk_stats", {}).get("dedup_ratio", 1.0),
         compression_ratio=0.5  # Would calculate actual ratio
     )
@@ -652,7 +657,7 @@ async def get_health_status(
             component=check.component,
             status=status,
             last_check=dr_orchestrator.health_monitor.last_check_timestamps.get(
-                check_id, datetime.now(timezone.utc)
+                check_id, None  # Return None if component has never been checked
             ),
             failure_count=dr_orchestrator.health_monitor.failure_counts.get(check_id, 0),
             success_count=dr_orchestrator.health_monitor.success_counts.get(check_id, 0),

@@ -571,12 +571,32 @@ class IncrementalBackupManager:
         })
 
     async def _load_snapshot(self, snapshot_id: str) -> Optional[BackupSnapshot]:
-        """Load snapshot metadata from Redis."""
-        snapshots = await state_manager.get_memory_snapshots(limit=100)
+        """
+        Load snapshot metadata from Redis with optimized O(1) lookup.
 
-        for snap_data in snapshots:
-            if snap_data.get("snapshot_id") == snapshot_id:
-                return BackupSnapshot(**snap_data.get("data", {}))
+        Uses direct Redis key access for enterprise-grade performance,
+        avoiding inefficient list scanning of up to 100 records.
+        """
+        # Use optimized direct key lookup
+        snap_data = await asyncio.to_thread(
+            state_manager.get_snapshot_by_id,
+            snapshot_id
+        )
+
+        if snap_data:
+            # Handle both new format (with 'data' field) and legacy format
+            if "data" in snap_data:
+                return BackupSnapshot(**snap_data["data"])
+            else:
+                # Try direct deserialization for backward compatibility
+                try:
+                    return BackupSnapshot(**snap_data)
+                except Exception:
+                    logger.warning(
+                        "Snapshot veri formatı uyumsuz",
+                        snapshot_id=snapshot_id,
+                        keys=list(snap_data.keys()) if snap_data else []
+                    )
 
         return None
 

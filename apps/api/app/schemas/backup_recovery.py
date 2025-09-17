@@ -330,7 +330,7 @@ class HealthCheckResponse(BaseModel):
     """Schema for health check response."""
     component: str
     status: str  # healthy, degraded, unhealthy, unknown
-    last_check: datetime
+    last_check: Optional[datetime]  # None if component has never been checked
     failure_count: int
     success_count: int
     details: Dict[str, Any]
