@@ -22,6 +22,7 @@ import hashlib
 import json
 import tempfile
 import time
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from pathlib import Path
@@ -306,7 +307,7 @@ class CorruptionDetector:
             severity = CorruptionDetector._determine_severity(corruption_type, len(errors))
 
             corruption = ModelCorruption(
-                corruption_id=f"corruption_{document_id}_{int(time.time() * 1000)}",
+                corruption_id=f"corruption_{document_id}_{uuid.uuid4().hex}",
                 document_id=document_id,
                 corruption_type=corruption_type,
                 severity=severity,
@@ -391,7 +392,7 @@ class ModelRecoveryService:
         with create_span("model_recovery", correlation_id=correlation_id) as span:
             span.set_attribute("document_id", document_id)
 
-            report_id = f"recovery_{document_id}_{int(time.time() * 1000)}"
+            report_id = f"recovery_{document_id}_{uuid.uuid4().hex}"
             start_time = time.time()
 
             async with self._recovery_lock:
@@ -464,7 +465,7 @@ class ModelRecoveryService:
         strategy: Optional[RecoveryStrategy]
     ) -> RecoveryPlan:
         """Create recovery plan based on corruption."""
-        plan_id = f"plan_{document_id}_{int(time.time() * 1000)}"
+        plan_id = f"plan_{document_id}_{uuid.uuid4().hex}"
 
         # Determine strategy if not specified
         if not strategy:

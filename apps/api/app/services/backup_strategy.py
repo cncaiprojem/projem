@@ -24,6 +24,7 @@ import json
 import os
 import tempfile
 import time
+import uuid
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
 from enum import Enum
@@ -566,8 +567,8 @@ class BackupStrategy:
             span.set_attribute("source_id", source_id)
             span.set_attribute("backup_type", backup_type)
 
-            # Generate backup ID
-            backup_id = f"backup_{source_id}_{int(time.time() * 1000)}"
+            # Generate backup ID using UUID for consistency
+            backup_id = f"backup_{source_id}_{uuid.uuid4().hex}"
 
             # Compress data
             compressed_data, compression_algo = self.compression.compress(data)

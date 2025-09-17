@@ -176,12 +176,21 @@ async def create_backup(
     # For now, create mock data
     data = b"mock_model_data"
 
+    # Convert string policy_id to database ID if provided
+    db_policy_id = None
+    if backup_request.policy_id:
+        policy = db.query(BackupPolicyModel).filter(
+            BackupPolicyModel.policy_id == backup_request.policy_id
+        ).first()
+        if policy:
+            db_policy_id = policy.id
+
     # Create backup using backup strategy
     metadata = await backup_strategy.create_backup(
         data=data,
         source_id=backup_request.source_id,
         backup_type=backup_request.backup_type,
-        retention_policy_id=str(backup_request.policy_id) if backup_request.policy_id else None
+        retention_policy_id=backup_request.policy_id
     )
 
     # Store in database
@@ -196,7 +205,7 @@ async def create_backup(
         compression_algorithm=metadata.compression_algorithm.value,
         storage_tier=metadata.storage_tier.value,
         storage_path=metadata.storage_path,
-        policy_id=backup_request.policy_id,
+        policy_id=db_policy_id,
         created_by_id=current_user.id,
         metadata=backup_request.metadata
     )
@@ -286,6 +295,15 @@ async def initiate_recovery(
     # Generate unique operation ID using UUID
     operation_id = f"recovery_{uuid.uuid4().hex}"
 
+    # Convert string backup_id to database ID if provided
+    db_backup_id = None
+    if recovery_request.backup_id:
+        backup = db.query(BackupSnapshotModel).filter(
+            BackupSnapshotModel.backup_id == recovery_request.backup_id
+        ).first()
+        if backup:
+            db_backup_id = backup.id
+
     # Create recovery operation record
     db_operation = RecoveryOperationModel(
         operation_id=operation_id,
@@ -294,6 +312,7 @@ async def initiate_recovery(
         recovery_mode=recovery_request.recovery_mode,
         target_timestamp=recovery_request.target_timestamp,
         target_transaction_id=recovery_request.target_transaction_id,
+        backup_id=db_backup_id,
         status="pending",
         initiated_by_id=current_user.id,
         created_at=datetime.now(timezone.utc)
@@ -532,21 +551,32 @@ async def get_backup_status(
     total_backups = db.query(BackupSnapshotModel).count()
     total_size = db.query(func.sum(BackupSnapshotModel.size_bytes)).scalar() or 0
 
-    # Get backup counts by type using BackupType enum
-    backups_by_type = {}
-    for backup_type in BackupType:
-        count = db.query(BackupSnapshotModel).filter(
-            BackupSnapshotModel.backup_type == backup_type.value
-        ).count()
-        backups_by_type[backup_type.value] = count
+    # Initialize all possible values to 0 for consistency
+    backups_by_type = {backup_type.value: 0 for backup_type in BackupType}
 
-    # Get backup counts by tier
-    backups_by_tier = {}
-    for tier in ["hot", "warm", "cold", "glacier"]:
-        count = db.query(BackupSnapshotModel).filter(
-            BackupSnapshotModel.storage_tier == tier
-        ).count()
-        backups_by_tier[tier] = count
+    # Get backup counts by type using single group_by query
+    type_counts = db.query(
+        BackupSnapshotModel.backup_type,
+        func.count(BackupSnapshotModel.id).label('count')
+    ).group_by(BackupSnapshotModel.backup_type).all()
+
+    for backup_type, count in type_counts:
+        if backup_type in backups_by_type:
+            backups_by_type[backup_type] = count
+
+    # Initialize all tier values to 0
+    tier_options = ["hot", "warm", "cold", "glacier"]
+    backups_by_tier = {tier: 0 for tier in tier_options}
+
+    # Get backup counts by tier using single group_by query
+    tier_counts = db.query(
+        BackupSnapshotModel.storage_tier,
+        func.count(BackupSnapshotModel.id).label('count')
+    ).group_by(BackupSnapshotModel.storage_tier).all()
+
+    for tier, count in tier_counts:
+        if tier in backups_by_tier:
+            backups_by_tier[tier] = count
 
     # Get oldest and newest backups
     oldest = db.query(BackupSnapshotModel.created_at).order_by(
@@ -621,7 +651,9 @@ async def get_health_status(
         health_checks.append(HealthCheckResponse(
             component=check.component,
             status=status,
-            last_check=datetime.now(timezone.utc),
+            last_check=dr_orchestrator.health_monitor.last_check_timestamps.get(
+                check_id, datetime.now(timezone.utc)
+            ),
             failure_count=dr_orchestrator.health_monitor.failure_counts.get(check_id, 0),
             success_count=dr_orchestrator.health_monitor.success_counts.get(check_id, 0),
             details={"check_type": check.check_type, "critical": check.critical}

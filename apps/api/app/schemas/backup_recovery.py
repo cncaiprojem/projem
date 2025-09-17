@@ -76,7 +76,7 @@ class BackupSnapshotBase(BaseModel):
 
 class BackupSnapshotCreate(BackupSnapshotBase):
     """Schema for creating backup snapshot."""
-    policy_id: Optional[int] = Field(None, description="Associated policy ID")
+    policy_id: Optional[str] = Field(None, description="Associated policy ID")
     compression_enabled: bool = Field(True, description="Enable compression")
     encryption_enabled: bool = Field(True, description="Enable encryption")
     verify_after_backup: bool = Field(True, description="Verify backup after creation")
@@ -117,7 +117,7 @@ class RecoveryRequestBase(BaseModel):
 
 class RecoveryOperationCreate(RecoveryRequestBase):
     """Schema for creating recovery operation."""
-    backup_id: Optional[int] = Field(None, description="Specific backup to restore")
+    backup_id: Optional[str] = Field(None, description="Specific backup to restore")
     conflict_resolution: str = Field("theirs", description="Conflict resolution: ours, theirs, merge, manual")
 
 

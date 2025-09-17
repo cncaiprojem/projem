@@ -232,6 +232,7 @@ class HealthMonitor:
         self.health_status: Dict[str, HealthStatus] = {}
         self.failure_counts: Dict[str, int] = {}
         self.success_counts: Dict[str, int] = {}
+        self.last_check_timestamps: Dict[str, datetime] = {}  # Track actual health check times
         self._monitoring_task = None
         self._monitoring_lock = asyncio.Lock()  # Add lock for race condition prevention
         self._http_client = httpx.AsyncClient(timeout=config.health_check_timeout_seconds)
@@ -242,6 +243,7 @@ class HealthMonitor:
         self.health_status[check.check_id] = HealthStatus.UNKNOWN
         self.failure_counts[check.check_id] = 0
         self.success_counts[check.check_id] = 0
+        self.last_check_timestamps[check.check_id] = datetime.now(timezone.utc)
 
     async def check_health(self, check_id: str) -> HealthStatus:
         """Execute health check."""
@@ -281,6 +283,9 @@ class HealthMonitor:
                 else:
                     self.health_status[check_id] = HealthStatus.DEGRADED
 
+            # Update last check timestamp
+            self.last_check_timestamps[check_id] = datetime.now(timezone.utc)
+
             logger.debug(
                 "Sağlık kontrolü tamamlandı",
                 check_id=check_id,
@@ -297,6 +302,9 @@ class HealthMonitor:
 
             if self.failure_counts[check_id] >= self.config.unhealthy_threshold:
                 self.health_status[check_id] = HealthStatus.UNHEALTHY
+
+            # Update last check timestamp even on failure
+            self.last_check_timestamps[check_id] = datetime.now(timezone.utc)
 
             return self.health_status[check_id]
 

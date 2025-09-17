@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     Column,
     DateTime,
@@ -57,8 +58,8 @@ class BackupSnapshot(Base):
     backup_id = Column(String(100), unique=True, index=True, nullable=False)
     source_id = Column(String(100), index=True, nullable=False)  # Document/model ID
     backup_type = Column(String(20), nullable=False)  # full, incremental, differential, synthetic
-    size_bytes = Column(Integer, nullable=False)
-    compressed_size_bytes = Column(Integer)
+    size_bytes = Column(BigInteger, nullable=False)
+    compressed_size_bytes = Column(BigInteger)
     checksum = Column(String(64), nullable=False)
     encryption_method = Column(String(20), default="none")
     compression_algorithm = Column(String(20), default="none")
