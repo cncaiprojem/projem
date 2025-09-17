@@ -5,7 +5,7 @@ Request and response schemas for backup/recovery API endpoints.
 """
 
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -50,7 +50,7 @@ class BackupPolicyUpdate(BaseModel):
     retention_days: Optional[int] = Field(None, ge=1, le=3650)
     retention_versions: Optional[int] = Field(None, ge=1, le=1000)
     legal_hold_until: Optional[datetime] = None
-    priority: Optional[str] = None  # Fixed: SeverityLevel type hint replaced with Optional[str]
+    priority: Optional[Literal["critical", "high", "medium", "low"]] = None
     tags: Optional[List[str]] = None
 
 
@@ -222,7 +222,7 @@ class BackupScheduleUpdate(BaseModel):
     name: Optional[str] = None
     cron_expression: Optional[str] = None
     enabled: Optional[bool] = None
-    priority: Optional[str] = None  # Fixed: SeverityLevel type hint replaced with Optional[str]
+    priority: Optional[Literal["critical", "high", "medium", "low"]] = None
     tags: Optional[List[str]] = None
 
 
@@ -288,7 +288,7 @@ class BatchBackupRequest(BaseModel):
     """Schema for batch backup request."""
     source_ids: List[str] = Field(..., min_items=1, max_items=100, description="Sources to backup")
     backup_type: str = Field("incremental", description="Backup type")
-    policy_id: Optional[int] = Field(None, description="Policy to apply")
+    policy_id: Optional[str] = Field(None, description="Policy to apply")
     parallel: bool = Field(True, description="Process in parallel")
 
 

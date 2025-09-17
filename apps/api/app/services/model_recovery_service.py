@@ -765,21 +765,15 @@ class ModelRecoveryService:
                                 return backup_data is not None
                             else:
                                 logger.warning(
-                                    "No backups found for document",
-                                    document_id=document_id
+                                    "No backups found for document - cannot restore from backup",
+                                    document_id=document_id,
+                                    msg="Belge için yedek bulunamadı"
                                 )
-                                # If no backups exist, raise NotImplementedError with clear message
-                                raise NotImplementedError(
-                                    f"No backups found for document {document_id}. "
-                                    "Backup creation functionality needs to be implemented "
-                                    "before recovery can work."
-                                )
+                                # No backups exist, return False indicating the restore step failed
+                                return False
                         finally:
                             db.close()
 
-                    except NotImplementedError:
-                        # Re-raise NotImplementedError
-                        raise
                     except Exception as e:
                         logger.error("Son yedek bulunamadı", document_id=document_id, error=str(e))
                         return False

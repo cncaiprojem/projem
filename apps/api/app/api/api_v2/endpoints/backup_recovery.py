@@ -592,7 +592,7 @@ async def get_backup_status(
     # No need for separate queries
 
     # Get deduplication stats from incremental manager
-    stats = incremental_manager.get_stats()
+    dedup_stats = incremental_manager.get_stats()
 
     return BackupStatusResponse(
         total_backups=total_backups,
@@ -601,7 +601,7 @@ async def get_backup_status(
         backups_by_tier=backups_by_tier,
         oldest_backup=oldest_backup,
         newest_backup=newest_backup,
-        deduplication_ratio=stats.get("chunk_stats", {}).get("dedup_ratio", 1.0),
+        deduplication_ratio=dedup_stats.get("chunk_stats", {}).get("dedup_ratio", 1.0),
         compression_ratio=0.5  # Would calculate actual ratio
     )
 
