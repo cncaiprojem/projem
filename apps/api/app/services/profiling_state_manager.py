@@ -287,12 +287,21 @@ class ProfilingStateManager:
         key = self._make_key(StateKeyPrefix.MEMORY_SNAPSHOTS)
         snapshot_id = snapshot_data.get('snapshot_id', str(uuid.uuid4()))
 
+        # Also store with direct key for efficient lookup
+        direct_key = f"{StateKeyPrefix.MEMORY_SNAPSHOTS}:snapshot:{snapshot_id}"
+
         try:
-            # Use Redis list with limited size
+            # Use Redis list with limited size AND direct key storage
             pipe = self._redis_client.pipeline()
+
+            # Store in list for recent snapshots
             pipe.lpush(key, self._serialize(snapshot_data))
             pipe.ltrim(key, 0, 99)  # Keep last 100 snapshots
             pipe.expire(key, 86400)  # 24 hour TTL
+
+            # Also store by direct key for O(1) lookup
+            pipe.set(direct_key, self._serialize(snapshot_data))
+            pipe.expire(direct_key, 86400)  # 24 hour TTL
 
             results = self._execute_with_retry(pipe.execute)
             return all(results)
@@ -324,6 +333,49 @@ class ProfilingStateManager:
         except Exception as e:
             logger.error(f"Failed to get memory snapshots: {e}")
             return []
+
+    def get_snapshot_by_id(self, snapshot_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a specific memory snapshot by ID with O(1) lookup.
+
+        Enterprise-grade optimization for direct key access, avoiding
+        inefficient list scanning when looking for a specific snapshot.
+
+        Args:
+            snapshot_id: The unique snapshot identifier
+
+        Returns:
+            Snapshot data if found, None otherwise
+        """
+        direct_key = f"{StateKeyPrefix.MEMORY_SNAPSHOTS}:snapshot:{snapshot_id}"
+
+        try:
+            raw_data = self._execute_with_retry(
+                self._redis_client.get,
+                direct_key
+            )
+
+            if raw_data:
+                return self._deserialize(raw_data)
+
+            # Fallback to list search for backward compatibility
+            # This handles snapshots created before direct key storage was added
+            snapshots = self.get_memory_snapshots(limit=100)
+            for snapshot in snapshots:
+                if snapshot.get('snapshot_id') == snapshot_id:
+                    # Cache it with direct key for next time
+                    self._redis_client.set(
+                        direct_key,
+                        self._serialize(snapshot),
+                        ex=86400  # 24 hour TTL
+                    )
+                    return snapshot
+
+            return None
+
+        except Exception as e:
+            logger.error(f"Failed to get snapshot by ID {snapshot_id}: {e}")
+            return None
 
     # Operation history management
 
