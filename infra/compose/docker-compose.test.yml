@@ -154,7 +154,7 @@ services:
     volumes:
       - ../../apps/api:/app
       - test_results:/test_results
-      - ./test_artifacts:/artifacts
+      - ./test_artefacts:/artefacts
     command: >
       bash -c "
         echo 'Waiting for services...' &&

@@ -12,6 +12,8 @@ Tests cover:
 import hashlib
 import json
 import os
+import random
+import re
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -24,7 +26,6 @@ from sqlalchemy.orm import Session
 
 from app.core.environment import environment as settings
 from app.models.job import Job
-from app.models.artefact import Artefact
 from app.services.freecad_service import FreeCADService
 from app.services.freecad_document_manager import FreeCADDocumentManager, DocumentManagerConfig
 from app.services.s3_service import S3Service
@@ -172,7 +173,6 @@ class TestTurkishLocaleScenarios:
         assert "," in prompt, "Test prompt should contain Turkish decimal comma"
 
         # Extract dimensions from prompt
-        import re
         numbers = re.findall(r'\d+,\d+', prompt)
         assert len(numbers) > 0, "Should find Turkish decimal numbers"
 
@@ -409,7 +409,7 @@ class TestRateLimiting:
                             save_before_close=False,
                             owner_id="test"
                         )
-                    except:
+                    except Exception:
                         pass
 
 
@@ -427,7 +427,6 @@ class TestRetryMechanism:
             delay = min(base_delay * (2 ** attempt), max_delay)
 
             # Add jitter
-            import random
             jittered_delay = delay * (1 + random.uniform(-jitter, jitter))
             delays.append(jittered_delay)
 
