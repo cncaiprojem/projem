@@ -1,0 +1,23 @@
+{
+  "id": "params_standard_box",
+  "operation": "create_box",
+  "parameters": {
+    "length": 100.0,
+    "width": 50.0,
+    "height": 25.0,
+    "units": "mm",
+    "material": "steel",
+    "tolerance": 0.1,
+    "surface_finish": "machined"
+  },
+  "expected": {
+    "volume": 125000.0,
+    "surface_area": 17500.0,
+    "mass": 981.25,
+    "bounding_box": {
+      "min": [0, 0, 0],
+      "max": [100, 50, 25]
+    }
+  },
+  "tags": ["parametric", "deterministic", "validated"]
+}

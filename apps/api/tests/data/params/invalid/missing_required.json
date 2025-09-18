@@ -1,0 +1,14 @@
+{
+  "id": "params_missing_required",
+  "operation": "create_box",
+  "parameters": {
+    "length": 100.0,
+    "width": 50.0
+  },
+  "expected_error": {
+    "type": "validation_error",
+    "field": "height",
+    "message": "Required parameter 'height' is missing"
+  },
+  "tags": ["validation", "missing_field", "error_case"]
+}

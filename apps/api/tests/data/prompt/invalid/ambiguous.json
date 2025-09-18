@@ -1,0 +1,10 @@
+{
+  "id": "prompt_ambiguous",
+  "prompt": "Make something nice",
+  "language": "en",
+  "expected_error": {
+    "type": "ambiguous_specification",
+    "message": "Prompt lacks specific dimensions or geometry type"
+  },
+  "tags": ["ambiguous", "error_case", "validation"]
+}

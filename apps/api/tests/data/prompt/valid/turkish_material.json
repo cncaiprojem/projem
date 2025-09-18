@@ -1,0 +1,17 @@
+{
+  "id": "prompt_turkish_material",
+  "prompt": "Çelik malzemeden 200x100x50 mm boyutlarında bir parça üret. Alüminyum alternatifi de değerlendir.",
+  "language": "tr",
+  "expected": {
+    "type": "part",
+    "dimensions": {
+      "length": 200.0,
+      "width": 100.0,
+      "height": 50.0
+    },
+    "material": "steel",
+    "alternative_material": "aluminum",
+    "units": "mm"
+  },
+  "tags": ["turkish", "material", "multi_material"]
+}
