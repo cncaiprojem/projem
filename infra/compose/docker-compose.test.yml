@@ -1,0 +1,182 @@
+version: '3.8'
+
+# Docker Compose configuration for Task 7.14 CI integration tests
+# This setup provides deterministic testing environment with FreeCAD in container
+
+services:
+  # PostgreSQL for test database
+  postgres_test:
+    image: postgres:16-alpine
+    container_name: fc_postgres_test
+    environment:
+      POSTGRES_USER: freecad_test
+      POSTGRES_PASSWORD: test_password
+      POSTGRES_DB: freecad_test
+      LC_ALL: C.UTF-8
+      TZ: UTC
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_test_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U freecad_test"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # Redis for test caching
+  redis_test:
+    image: redis:7-alpine
+    container_name: fc_redis_test
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  # MinIO for test S3 storage
+  minio_test:
+    image: minio/minio:latest
+    container_name: fc_minio_test
+    ports:
+      - "9001:9000"
+      - "9002:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      MINIO_DEFAULT_BUCKETS: test-artefacts,test-golden,test-logs
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_test_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # RabbitMQ for test queues
+  rabbitmq_test:
+    image: rabbitmq:3.13-management-alpine
+    container_name: fc_rabbitmq_test
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: freecad_test
+      RABBITMQ_DEFAULT_PASS: test_password
+      RABBITMQ_DEFAULT_VHOST: /
+      RABBITMQ_FEATURE_FLAGS: quorum_queue,stream_queue
+    volumes:
+      - rabbitmq_test_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 5s
+      timeout: 10s
+      retries: 5
+
+  # FreeCAD container with deterministic setup
+  freecad_test:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.freecad
+      args:
+        FREECAD_VERSION: "1.1.0"
+        OCCT_VERSION: "7.8.1"
+    image: freecad-test:1.1.0
+    container_name: fc_freecad_test
+    environment:
+      # Deterministic environment
+      PYTHONHASHSEED: "0"
+      LC_ALL: C.UTF-8
+      LANG: C.UTF-8
+      TZ: UTC
+      # FreeCAD settings
+      FREECAD_USER_CFG: /tmp/freecad_test
+      FREECAD_SYSTEM_CFG: /usr/share/freecad
+    volumes:
+      - freecad_test_data:/data
+      - ../../apps/api:/app
+    healthcheck:
+      test: ["CMD", "FreeCADCmd", "--version"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  # Test runner container
+  test_runner:
+    build:
+      context: ../../
+      dockerfile: infra/docker/Dockerfile.test
+    image: freecad-test-runner:latest
+    container_name: fc_test_runner
+    depends_on:
+      postgres_test:
+        condition: service_healthy
+      redis_test:
+        condition: service_healthy
+      minio_test:
+        condition: service_healthy
+      rabbitmq_test:
+        condition: service_healthy
+      freecad_test:
+        condition: service_healthy
+    environment:
+      # Test environment
+      TESTING: "true"
+      PYTHONPATH: /app
+      PYTEST_TIMEOUT: 300
+      # Deterministic settings
+      PYTHONHASHSEED: "0"
+      LC_ALL: C.UTF-8
+      TZ: UTC
+      # Database
+      DATABASE_URL: postgresql+psycopg2://freecad_test:test_password@postgres_test:5432/freecad_test
+      # Redis
+      REDIS_URL: redis://redis_test:6379/0
+      # MinIO
+      AWS_S3_ENDPOINT: http://minio_test:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      S3_BUCKET_NAME: test-artefacts
+      ENABLE_S3_STORAGE: "true"
+      # RabbitMQ
+      RABBITMQ_URL: amqp://freecad_test:test_password@rabbitmq_test:5672/
+      # FreeCAD
+      FREECADCMD_PATH: /usr/bin/FreeCADCmd
+      USE_REAL_FREECAD: "true"
+      # Test markers
+      RUN_SLOW_TESTS: "${RUN_SLOW_TESTS:-false}"
+      TEST_TURKISH_LOCALE: "${TEST_TURKISH_LOCALE:-true}"
+      TEST_FILE_UPLOADS: "${TEST_FILE_UPLOADS:-true}"
+      TEST_ASSEMBLY4: "${TEST_ASSEMBLY4:-true}"
+    volumes:
+      - ../../apps/api:/app
+      - test_results:/test_results
+      - ./test_artefacts:/artefacts
+    command: >
+      bash -c "
+        echo 'Waiting for services...' &&
+        sleep 10 &&
+        echo 'Running database migrations...' &&
+        cd /app &&
+        alembic upgrade head &&
+        echo 'Initializing test data...' &&
+        python -c 'from tools.gen_golden import GoldenArtefactGenerator; gen = GoldenArtefactGenerator(); gen.generate_all()' &&
+        echo 'Running integration tests...' &&
+        pytest tests/integration/test_task_7_14_golden_artefacts.py -v --junit-xml=/test_results/junit.xml --cov=/app --cov-report=xml:/test_results/coverage.xml &&
+        echo 'Tests completed!'
+      "
+
+volumes:
+  postgres_test_data:
+  redis_test_data:
+  minio_test_data:
+  rabbitmq_test_data:
+  freecad_test_data:
+  test_results:
+
+networks:
+  default:
+    name: freecad_test_network
