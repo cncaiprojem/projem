@@ -23,7 +23,7 @@ DC ?= docker compose -f infra/compose/docker-compose.dev.yml
 
 .DEFAULT_GOAL := help
 
-.PHONY: help init dev dev-full stop logs migrate seed test lint fmt build clean gen-docs run-freecad-smoke run-s3-smoke seed-basics pre-commit-install pre-commit-run pre-commit-check rabbitmq-setup rabbitmq-status dlq-status rabbitmq-ui test-celery-rabbitmq test-migration-integrity test-migration-safety test-constraints test-audit-integrity test-performance test-turkish-compliance
+.PHONY: help init dev dev-full stop logs migrate seed test lint fmt build clean gen-docs run-freecad-smoke run-s3-smoke seed-basics pre-commit-install pre-commit-run pre-commit-check rabbitmq-setup rabbitmq-status dlq-status rabbitmq-ui test-celery-rabbitmq test-migration-integrity test-migration-safety test-constraints test-audit-integrity test-performance test-turkish-compliance test-golden gen-golden verify-golden test-integration-ci
 
 help:
 	@echo.
@@ -45,6 +45,12 @@ help:
 	@echo Smoke Tests:
 	@echo   make run-freecad-smoke - Test FreeCAD functionality
 	@echo   make run-s3-smoke      - Test S3/MinIO functionality
+	@echo.
+	@echo Golden Artefacts (Task 7.14):
+	@echo   make test-golden       - Run golden artefact tests
+	@echo   make gen-golden        - Generate golden artefacts
+	@echo   make verify-golden     - Verify golden artefacts
+	@echo   make test-integration-ci - Run full CI test suite
 	@echo.
 	@echo RabbitMQ Management:
 	@echo   make rabbitmq-setup   - Initialize RabbitMQ queues and DLX
@@ -245,3 +251,25 @@ test-performance:
 test-turkish-compliance:
 	@echo Running Turkish KVKV/GDPR compliance tests...
 	$(DC) exec api python scripts/run_migration_integrity_tests.py --compliance --verbose
+
+# Task 7.14: Golden Artefacts and Integration Testing
+test-golden:
+	@echo Running golden artefact integration tests...
+	$(DC) exec api pytest tests/integration/test_task_7_14_golden_artefacts.py -v
+
+gen-golden:
+	@echo Generating golden artefacts...
+	$(DC) exec api python tools/gen_golden.py --regenerate
+
+verify-golden:
+	@echo Verifying golden artefacts...
+	$(DC) exec api python tools/gen_golden.py --verify
+
+test-integration-ci:
+	@echo Running full CI integration test suite...
+ifeq ($(OS),Windows_NT)
+	@scripts\ci\run_integration_tests.bat
+else
+	@chmod +x scripts/ci/run_integration_tests.sh
+	@./scripts/ci/run_integration_tests.sh
+endif

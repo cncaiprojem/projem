@@ -1,0 +1,32 @@
+{
+  "id": "a4_circular_reference",
+  "name": "Assembly with Circular Reference",
+  "parts": [
+    {
+      "name": "PartA",
+      "type": "box",
+      "dimensions": {"length": 50, "width": 50, "height": 10},
+      "position": [0, 0, 0],
+      "parent": "PartB"
+    },
+    {
+      "name": "PartB",
+      "type": "box",
+      "dimensions": {"length": 50, "width": 50, "height": 10},
+      "position": [60, 0, 0],
+      "parent": "PartC"
+    },
+    {
+      "name": "PartC",
+      "type": "box",
+      "dimensions": {"length": 50, "width": 50, "height": 10},
+      "position": [120, 0, 0],
+      "parent": "PartA"
+    }
+  ],
+  "expected_error": {
+    "type": "circular_dependency",
+    "message": "Circular reference detected in assembly hierarchy: PartA -> PartB -> PartC -> PartA"
+  },
+  "tags": ["error_case", "circular_dependency", "validation"]
+}
