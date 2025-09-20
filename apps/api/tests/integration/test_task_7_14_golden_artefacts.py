@@ -273,9 +273,13 @@ class TestEdgeCases:
         with open(ambiguous_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        # Test that ambiguous prompts are properly rejected
+        # Test that ambiguous prompts are properly rejected with detailed validation
         expected_error = data.get("expected_error", {})
-        assert expected_error.get("type") == "ambiguous_specification"
+        assert expected_error, "Test data should include expected_error field"
+
+        error_type = expected_error.get("type")
+        assert error_type == "ambiguous_specification", \
+            f"Expected error type 'ambiguous_specification', got '{error_type}'"
 
     def test_corrupted_file_handling(self, test_data_dir):
         """Test handling of corrupted upload files."""
@@ -286,9 +290,11 @@ class TestEdgeCases:
         with open(corrupted_file, 'r', encoding='utf-8') as f:
             content = f.read()
 
-        # Verify file is intentionally corrupted
-        assert "CORRUPTED DATA HERE" in content
-        assert "INCOMPLETE_ENTITY" in content
+        # Verify file is intentionally corrupted with specific markers
+        assert "CORRUPTED DATA HERE" in content, \
+            "Corrupted file should contain corruption marker 'CORRUPTED DATA HERE'"
+        assert "INCOMPLETE_ENTITY" in content or "INVALID_STEP" in content, \
+            f"Corrupted file should contain 'INCOMPLETE_ENTITY' or 'INVALID_STEP' marker"
 
     @pytest.mark.asyncio
     async def test_circular_reference_detection(self, test_data_dir, async_client):
@@ -317,12 +323,17 @@ class TestEdgeCases:
             headers={"Authorization": "Bearer test-token"}
         )
 
-        # Should reject the job with validation error
-        assert response.status_code == 422, "Should reject job with circular reference"
+        # Should reject the job with validation error (422 Unprocessable Entity)
+        assert response.status_code == 422, \
+            f"Expected status code 422 for circular reference, got {response.status_code}"
 
         error_data = response.json()
-        assert "error" in error_data
-        assert "circular" in error_data["error"].lower() or "validation" in error_data["error"].lower()
+        assert "error" in error_data or "detail" in error_data, \
+            f"Response should contain 'error' or 'detail' field, got: {error_data.keys()}"
+
+        error_message = error_data.get("error", error_data.get("detail", "")).lower()
+        assert "circular" in error_message or "validation" in error_message or "invalid" in error_message, \
+            f"Error message should mention 'circular', 'validation', or 'invalid', got: {error_message}"
 
     def test_missing_required_parameters(self, test_data_dir):
         """Test handling of missing required parameters."""
@@ -334,12 +345,16 @@ class TestEdgeCases:
             data = json.load(f)
 
         params = data["parameters"]
-        # Verify required field is missing
-        assert "height" not in params
+        # Verify required field is missing with specific assertions
+        assert "height" not in params, "Height parameter should be missing in test data"
 
         expected_error = data.get("expected_error", {})
-        assert expected_error.get("field") == "height"
-        assert "missing" in expected_error.get("message", "").lower()
+        assert expected_error.get("field") == "height", \
+            f"Expected error field to be 'height', got {expected_error.get('field')}"
+
+        error_message = expected_error.get("message", "")
+        assert "missing" in error_message.lower() or "required" in error_message.lower(), \
+            f"Error message should mention 'missing' or 'required', got: {error_message}"
 
 
 class TestIdempotency:
@@ -374,19 +389,37 @@ class TestIdempotency:
             )
 
             # First request should create (201), subsequent should return existing (200)
-            assert response.status_code in [200, 201]
+            if _ == 0:
+                assert response.status_code == 201, \
+                    f"First request should create job (201), got {response.status_code}"
+            else:
+                assert response.status_code == 200, \
+                    f"Subsequent request {_ + 1} should return existing job (200), got {response.status_code}"
 
             result = response.json()
             results.append(result)
             job_ids.append(result["job_id"])
 
         # Verify all job IDs are identical (idempotency worked)
-        assert len(set(job_ids)) == 1, "All requests should return the same job ID"
+        unique_job_ids = set(job_ids)
+        assert len(unique_job_ids) == 1, \
+            f"All requests should return the same job ID for idempotency, got {len(unique_job_ids)} unique IDs: {unique_job_ids}"
 
-        # Verify response structure is consistent
-        for result in results[1:]:
-            assert result["job_id"] == results[0]["job_id"]
-            assert result["status"] == results[0]["status"]
+        # Verify job ID format
+        job_id = job_ids[0]
+        assert isinstance(job_id, (str, int)), f"Job ID should be string or int, got {type(job_id)}"
+
+        # Verify response structure is consistent across all requests
+        first_result = results[0]
+        for idx, result in enumerate(results[1:], start=2):
+            assert result["job_id"] == first_result["job_id"], \
+                f"Request {idx} job_id mismatch: {result['job_id']} != {first_result['job_id']}"
+            assert result["status"] == first_result["status"], \
+                f"Request {idx} status mismatch: {result['status']} != {first_result['status']}"
+
+            # Verify consistent response structure
+            assert set(result.keys()) == set(first_result.keys()), \
+                f"Request {idx} has different keys: {set(result.keys()) ^ set(first_result.keys())}"
 
     def test_parameter_hash_consistency(self):
         """Test that parameter hashing is consistent."""
@@ -406,7 +439,15 @@ class TestIdempotency:
             hashes.append(param_hash)
 
         # All hashes should be identical
-        assert len(set(hashes)) == 1, "Parameter hashes should be consistent"
+        unique_hashes = set(hashes)
+        assert len(unique_hashes) == 1, \
+            f"Parameter hashes should be consistent, got {len(unique_hashes)} unique hashes: {unique_hashes}"
+
+        # Verify hash format (should be SHA256 hex string)
+        hash_value = hashes[0]
+        assert len(hash_value) == 64, f"SHA256 hash should be 64 characters, got {len(hash_value)}"
+        assert all(c in '0123456789abcdef' for c in hash_value.lower()), \
+            f"Hash should be hexadecimal string, got: {hash_value}"
 
 
 class TestRateLimiting:

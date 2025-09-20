@@ -18,6 +18,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -255,11 +256,13 @@ class GoldenArtefactGenerator:
             import FreeCAD
             import Part
         except ImportError as e:
-            logger.error(f"FreeCAD not available: {e}")
-            # For CI environment without FreeCAD, create placeholder
-            doc_path = output_dir / f"{case_id}.FCStd"
-            doc_path.touch()
-            return doc_path
+            error_msg = (
+                f"FreeCAD is required for golden artefact generation but not available: {e}. "
+                "Ensure FreeCAD is installed and accessible in the Python path. "
+                "Golden generation must run in the freecad_test container or with FreeCAD installed."
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
 
         # Create FreeCAD document
         doc = FreeCAD.newDocument(case_id)
@@ -280,7 +283,6 @@ class GoldenArtefactGenerator:
             geom_type = "sphere"
 
         # Parse dimensions from prompt text using regex
-        import re
 
         # Look for dimensions in various formats (e.g., "100x50x25mm", "100mm x 50mm x 25mm")
         dimension_pattern = r'(\d+(?:[,.]\d+)?)[\s]*(?:mm)?[\s]*[xX×][\s]*(\d+(?:[,.]\d+)?)[\s]*(?:mm)?[\s]*[xX×][\s]*(\d+(?:[,.]\d+)?)[\s]*(?:mm)?'
@@ -373,11 +375,13 @@ class GoldenArtefactGenerator:
             import FreeCAD
             import Part
         except ImportError as e:
-            logger.error(f"FreeCAD not available: {e}")
-            # For CI environment without FreeCAD, create placeholder
-            doc_path = output_dir / f"{case_id}.FCStd"
-            doc_path.touch()
-            return doc_path
+            error_msg = (
+                f"FreeCAD is required for golden artefact generation but not available: {e}. "
+                "Ensure FreeCAD is installed and accessible in the Python path. "
+                "Golden generation must run in the freecad_test container or with FreeCAD installed."
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
 
         # Create FreeCAD document
         doc = FreeCAD.newDocument(case_id)
@@ -467,11 +471,13 @@ class GoldenArtefactGenerator:
             import Import
             import Mesh
         except ImportError as e:
-            logger.error(f"FreeCAD not available: {e}")
-            # For CI environment without FreeCAD, create placeholder
-            doc_path = output_dir / f"{case_id}.FCStd"
-            doc_path.touch()
-            return doc_path
+            error_msg = (
+                f"FreeCAD is required for golden artefact generation but not available: {e}. "
+                "Ensure FreeCAD is installed and accessible in the Python path. "
+                "Golden generation must run in the freecad_test container or with FreeCAD installed."
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
 
         # Create FreeCAD document
         doc = FreeCAD.newDocument(case_id)
@@ -569,23 +575,12 @@ class GoldenArtefactGenerator:
             import FreeCAD
             import Part
         except ImportError as e:
-            logger.error(f"FreeCAD not available: {e}")
-            # Create minimal STEP file for CI environments
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write("ISO-10303-21;\n")
-                f.write("HEADER;\n")
-                f.write(f"FILE_NAME('{output_path.name}','2025-01-18T12:00:00Z',")
-                f.write("('Golden Generator'),('Test'),'FreeCAD','FreeCAD','');\n")
-                f.write("FILE_SCHEMA(('AP214'));\n")
-                f.write("ENDSEC;\n")
-                f.write("DATA;\n")
-                f.write("#1=CARTESIAN_POINT('',(0.,0.,0.));\n")
-                f.write("#2=DIRECTION('',(0.,0.,1.));\n")
-                f.write("#3=DIRECTION('',(1.,0.,0.));\n")
-                f.write("#4=AXIS2_PLACEMENT_3D('',#1,#2,#3);\n")
-                f.write("ENDSEC;\n")
-                f.write("END-ISO-10303-21;\n")
-            return
+            error_msg = (
+                f"FreeCAD is required for STEP export but not available: {e}. "
+                "Golden generation must run with FreeCAD installed."
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
 
         # Open FreeCAD document
         doc = FreeCAD.open(str(doc_path))
@@ -623,20 +618,12 @@ class GoldenArtefactGenerator:
             import Part
             import Mesh
         except ImportError as e:
-            logger.error(f"FreeCAD not available: {e}")
-            # Create minimal STL file for CI environments
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write("solid GoldenArtefact\n")
-                # Add a simple triangle for validity
-                f.write("  facet normal 0.0 0.0 1.0\n")
-                f.write("    outer loop\n")
-                f.write("      vertex 0.0 0.0 0.0\n")
-                f.write("      vertex 1.0 0.0 0.0\n")
-                f.write("      vertex 0.5 1.0 0.0\n")
-                f.write("    endloop\n")
-                f.write("  endfacet\n")
-                f.write("endsolid GoldenArtefact\n")
-            return
+            error_msg = (
+                f"FreeCAD is required for STL export but not available: {e}. "
+                "Golden generation must run with FreeCAD installed."
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
 
         # Open FreeCAD document
         doc = FreeCAD.open(str(doc_path))
@@ -690,22 +677,12 @@ class GoldenArtefactGenerator:
             import FreeCAD
             import Part
         except ImportError as e:
-            logger.error(f"FreeCAD not available for metric computation: {e}")
-            # Return placeholder metrics for CI without FreeCAD
-            return {
-                "bounding_box": {
-                    "min": [0.0, 0.0, 0.0],
-                    "max": [100.0, 50.0, 25.0]
-                },
-                "volume": 125000.0,
-                "surface_area": 17500.0,
-                "center_of_mass": [50.0, 25.0, 12.5],
-                "moment_of_inertia": {
-                    "xx": 1302083.33,
-                    "yy": 2604166.67,
-                    "zz": 3385416.67
-                }
-            }
+            error_msg = (
+                f"FreeCAD is required for metric computation but not available: {e}. "
+                "Golden generation must run with FreeCAD installed."
+            )
+            logger.error(error_msg)
+            raise RuntimeError(error_msg) from e
 
         # Open the FreeCAD document
         doc = FreeCAD.open(str(doc_path))

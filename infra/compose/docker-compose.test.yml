@@ -38,7 +38,7 @@ services:
 
   # MinIO for test S3 storage
   minio_test:
-    image: minio/minio:latest
+    image: minio/minio:RELEASE.2024-01-16T16-07-38Z
     container_name: fc_minio_test
     ports:
       - "9001:9000"
@@ -104,6 +104,57 @@ services:
       timeout: 5s
       retries: 3
 
+  # Golden artefact generator (runs in FreeCAD container)
+  golden_generator:
+    image: freecad-test:1.1.0
+    container_name: fc_golden_generator
+    depends_on:
+      postgres_test:
+        condition: service_healthy
+      redis_test:
+        condition: service_healthy
+      minio_test:
+        condition: service_healthy
+      freecad_test:
+        condition: service_healthy
+    environment:
+      # Test environment
+      TESTING: "true"
+      PYTHONPATH: /app
+      # Deterministic settings
+      PYTHONHASHSEED: "0"
+      LC_ALL: C.UTF-8
+      TZ: UTC
+      # Database
+      DATABASE_URL: postgresql+psycopg2://freecad_test:test_password@postgres_test:5432/freecad_test
+      # Redis
+      REDIS_URL: redis://redis_test:6379/0
+      # MinIO
+      AWS_S3_ENDPOINT: http://minio_test:9000
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      S3_BUCKET_NAME: test-golden
+      ENABLE_S3_STORAGE: "true"
+      # FreeCAD
+      FREECADCMD_PATH: /usr/bin/FreeCADCmd
+      USE_REAL_FREECAD: "true"
+    volumes:
+      - ../../apps/api:/app
+      - test_results:/test_results
+      - ./golden_artefacts:/golden
+    command: >
+      bash -c "
+        echo 'Golden generation service - waiting for dependencies...' &&
+        sleep 5 &&
+        cd /app &&
+        alembic upgrade head &&
+        python tools/gen_golden.py --regenerate --output /golden/manifest.json &&
+        python tools/gen_golden.py --verify --output /golden/verification.json &&
+        echo 'Golden generation completed!'
+      "
+    profiles:
+      - golden
+
   # Test runner container
   test_runner:
     build:
@@ -153,36 +204,10 @@ services:
       TEST_ASSEMBLY4: "${TEST_ASSEMBLY4:-true}"
     volumes:
       - ../../apps/api:/app
+      - ../../scripts/test:/scripts
       - test_results:/test_results
       - ./test_artefacts:/artefacts
-    command: >
-      bash -c "
-        echo 'Waiting for services to be ready...' &&
-        # Wait for postgres specifically
-        until PGPASSWORD=test_password psql -h postgres_test -U freecad_test -d freecad_test -c '\q' 2>/dev/null; do
-          echo 'Waiting for PostgreSQL...';
-          sleep 2;
-        done &&
-        # Wait for redis
-        until redis-cli -h redis_test ping 2>/dev/null; do
-          echo 'Waiting for Redis...';
-          sleep 2;
-        done &&
-        # Wait for rabbitmq
-        until python -c 'import pika; pika.BlockingConnection(pika.ConnectionParameters(\"rabbitmq_test\"))' 2>/dev/null; do
-          echo 'Waiting for RabbitMQ...';
-          sleep 2;
-        done &&
-        echo 'All services are ready!' &&
-        echo 'Running database migrations...' &&
-        cd /app &&
-        alembic upgrade head &&
-        echo 'Initializing test data...' &&
-        python -c 'from tools.gen_golden import GoldenArtefactGenerator; gen = GoldenArtefactGenerator(); gen.generate_all()' &&
-        echo 'Running integration tests...' &&
-        pytest tests/integration/test_task_7_14_golden_artefacts.py -v --junit-xml=/test_results/junit.xml --cov=/app --cov-report=xml:/test_results/coverage.xml &&
-        echo 'Tests completed!'
-      "
+    entrypoint: ["/bin/bash", "/scripts/entrypoint.sh"]
 
 volumes:
   postgres_test_data:
