@@ -23,7 +23,7 @@ DC ?= docker compose -f infra/compose/docker-compose.dev.yml
 
 .DEFAULT_GOAL := help
 
-.PHONY: help init dev dev-full stop logs migrate seed test lint fmt build clean gen-docs run-freecad-smoke run-s3-smoke seed-basics pre-commit-install pre-commit-run pre-commit-check rabbitmq-setup rabbitmq-status dlq-status rabbitmq-ui test-celery-rabbitmq test-migration-integrity test-migration-safety test-constraints test-audit-integrity test-performance test-turkish-compliance
+.PHONY: help init dev dev-full stop logs migrate seed test lint fmt build clean gen-docs run-freecad-smoke run-s3-smoke seed-basics pre-commit-install pre-commit-run pre-commit-check rabbitmq-setup rabbitmq-status dlq-status rabbitmq-ui test-celery-rabbitmq test-migration-integrity test-migration-safety test-constraints test-audit-integrity test-performance test-turkish-compliance test-golden gen-golden verify-golden test-integration-ci
 
 help:
 	@echo.
@@ -45,6 +45,15 @@ help:
 	@echo Smoke Tests:
 	@echo   make run-freecad-smoke - Test FreeCAD functionality
 	@echo   make run-s3-smoke      - Test S3/MinIO functionality
+	@echo.
+	@echo Golden Artefacts (Task 7.14):
+	@echo   make test-golden       - Run golden artefact tests in test environment
+	@echo   make gen-golden        - Generate golden artefacts with FreeCAD
+	@echo   make verify-golden     - Verify golden artefacts against manifests
+	@echo   make test-integration-ci - Run full CI integration test suite
+	@echo   make test-unit-ci      - Run unit tests in CI environment
+	@echo   make test-performance-ci - Run performance tests in CI environment
+	@echo   make test-clean        - Clean up test environment and artefacts
 	@echo.
 	@echo RabbitMQ Management:
 	@echo   make rabbitmq-setup   - Initialize RabbitMQ queues and DLX
@@ -245,3 +254,44 @@ test-performance:
 test-turkish-compliance:
 	@echo Running Turkish KVKV/GDPR compliance tests...
 	$(DC) exec api python scripts/run_migration_integrity_tests.py --compliance --verbose
+
+# Task 7.14: Golden Artefacts and Integration Testing
+# Define test compose file
+DC_TEST := docker compose -f infra/compose/docker-compose.test.yml
+
+test-golden:
+	@echo Running golden artefact integration tests in test environment...
+	$(DC_TEST) up -d postgres_test redis_test minio_test rabbitmq_test freecad_test
+	$(DC_TEST) run --rm test_runner
+
+gen-golden:
+	@echo Generating golden artefacts with FreeCAD...
+	$(DC_TEST) up -d postgres_test redis_test minio_test freecad_test
+	$(DC_TEST) run --rm --profile golden golden_generator
+
+verify-golden:
+	@echo Verifying golden artefacts...
+	$(DC_TEST) up -d freecad_test
+	$(DC_TEST) exec freecad_test bash -c "cd /app && python tools/gen_golden.py --verify"
+
+test-integration-ci:
+	@echo Running full CI integration test suite...
+	$(DC_TEST) up -d
+	TEST_TYPE=all $(DC_TEST) run --rm test_runner
+	$(DC_TEST) down -v
+
+# Additional test targets for different test types
+test-unit-ci:
+	@echo Running unit tests in CI environment...
+	TEST_TYPE=unit $(DC_TEST) run --rm test_runner
+
+test-performance-ci:
+	@echo Running performance tests in CI environment...
+	TEST_TYPE=performance $(DC_TEST) run --rm test_runner
+
+# Clean up test environment
+test-clean:
+	@echo Cleaning up test environment...
+	$(DC_TEST) down -v
+	rm -rf infra/compose/test_artefacts
+	rm -rf infra/compose/golden_artefacts

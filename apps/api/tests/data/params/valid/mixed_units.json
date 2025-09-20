@@ -1,0 +1,25 @@
+{
+  "id": "params_mixed_units",
+  "operation": "create_cylinder",
+  "parameters": {
+    "radius": 25.4,
+    "height": 101.6,
+    "units": "mm",
+    "original_units": {
+      "radius": {"value": 1.0, "unit": "inch"},
+      "height": {"value": 4.0, "unit": "inch"}
+    },
+    "material": "aluminum",
+    "segments": 32
+  },
+  "expected": {
+    "volume": 205886.97,
+    "surface_area": 20106.19,
+    "mass": 556.89,
+    "bounding_box": {
+      "min": [-25.4, -25.4, 0],
+      "max": [25.4, 25.4, 101.6]
+    }
+  },
+  "tags": ["unit_conversion", "imperial_metric", "cylinder"]
+}
