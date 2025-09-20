@@ -163,7 +163,7 @@ services:
         cd /app &&
         alembic upgrade head &&
         echo 'Initializing test data...' &&
-        python -c 'from tools.gen_golden import GoldenArtefactGenerator; gen = GoldenArtefactGenerator(); gen.generate_all()' &&
+        python -c 'from app.tools.gen_golden import GoldenArtefactGenerator; gen = GoldenArtefactGenerator(); gen.generate_all()' &&
         echo 'Running integration tests...' &&
         pytest tests/integration/test_task_7_14_golden_artefacts.py -v --junit-xml=/test_results/junit.xml --cov=/app --cov-report=xml:/test_results/coverage.xml &&
         echo 'Tests completed!'

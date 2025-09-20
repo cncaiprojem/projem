@@ -270,7 +270,7 @@ class TestEdgeCases:
         part_map = {p["name"]: p.get("parent") for p in parts}
 
         # Detect circular reference
-        def has_circular_reference(start_part: str, visited: set = None) -> bool:
+        def has_circular_reference(start_part: str, visited: Optional[set] = None) -> bool:
             if visited is None:
                 visited = set()
 
@@ -364,20 +364,49 @@ class TestRateLimiting:
         """Test enforcement of concurrent job limits."""
         max_concurrent = getattr(settings, "MAX_CONCURRENT_FREECAD_JOBS", 5)
 
-        # Track active jobs
+        # Track active jobs and rejected jobs
         active_jobs = []
+        queued_jobs = []
+        rejected_jobs = []
 
         # Try to exceed limit
         for i in range(max_concurrent + 2):
             job_id = f"test_job_{i}"
+
             if len(active_jobs) < max_concurrent:
-                # Should succeed
+                # Should succeed - job is accepted
                 active_jobs.append(job_id)
+
+                # Verify job is marked as active
+                assert job_id in active_jobs, f"Job {job_id} should be in active jobs"
+                assert len(active_jobs) <= max_concurrent, \
+                    f"Active jobs ({len(active_jobs)}) should not exceed max_concurrent ({max_concurrent})"
             else:
                 # Should be rate limited or queued
-                pass
+                queued_jobs.append(job_id)
 
-        assert len(active_jobs) <= max_concurrent
+                # Verify the job was not added to active jobs
+                assert job_id not in active_jobs, \
+                    f"Job {job_id} should not be in active jobs when limit is reached"
+
+                # Verify we have exactly max_concurrent active jobs
+                assert len(active_jobs) == max_concurrent, \
+                    f"Should have exactly {max_concurrent} active jobs when limit is reached"
+
+                # Optionally track rejected jobs if queue is also full
+                # This depends on implementation - jobs might be queued or rejected
+                if len(queued_jobs) > getattr(settings, "MAX_QUEUE_SIZE", 10):
+                    rejected_jobs.append(job_id)
+                    assert job_id not in queued_jobs, \
+                        f"Job {job_id} should be rejected when queue is full"
+
+        # Final assertions
+        assert len(active_jobs) == max_concurrent, \
+            f"Should have exactly {max_concurrent} active jobs at the end"
+        assert len(queued_jobs) >= 2, \
+            f"Should have at least 2 queued jobs (attempted {max_concurrent + 2} total)"
+        assert len(active_jobs) + len(queued_jobs) + len(rejected_jobs) == max_concurrent + 2, \
+            "Total jobs should equal attempted jobs"
 
     def test_memory_limit_enforcement(self, doc_manager):
         """Test memory limit enforcement."""
