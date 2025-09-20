@@ -146,7 +146,7 @@ docker compose -f "$COMPOSE_FILE" exec -T rabbitmq_test rabbitmqctl await_startu
 # Regenerate golden artefacts if requested
 if [ "$REGENERATE_GOLDEN" = true ]; then
     print_status "Regenerating golden artefacts..."
-    docker compose -f "$COMPOSE_FILE" run --rm test_runner python app/tools/gen_golden.py --regenerate
+    docker compose -f "$COMPOSE_FILE" run --rm test_runner python tools/gen_golden.py --regenerate
 fi
 
 # Run integration tests

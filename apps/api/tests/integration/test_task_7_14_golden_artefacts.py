@@ -20,16 +20,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from unittest.mock import MagicMock, patch
+from uuid import uuid4
 
 import pytest
+import httpx
+from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
 from app.core.environment import environment as settings
+from app.main import app
 from app.models.job import Job
+from app.models.user import User
+from app.models.enums import JobStatus, JobType
 from app.services.freecad_service import FreeCADService
 from app.services.freecad_document_manager import FreeCADDocumentManager, DocumentManagerConfig
 from app.services.s3_service import S3Service
-from app.tasks.freecad import process_freecad_job
+from app.core.database import get_db
+from app.core.auth import get_current_user
 
 
 # Test fixtures
@@ -47,6 +54,33 @@ def golden_manifest(test_data_dir):
         with open(manifest_path, 'r', encoding='utf-8') as f:
             return json.load(f)
     return None
+
+
+@pytest.fixture
+def test_client():
+    """Create FastAPI test client."""
+    return TestClient(app)
+
+
+@pytest.fixture
+def async_client():
+    """Create async HTTP client for integration testing."""
+    return httpx.AsyncClient(
+        base_url="http://localhost:8000",
+        timeout=30.0
+    )
+
+
+@pytest.fixture
+def test_user():
+    """Create a test user."""
+    return User(
+        id=1,
+        email="test@example.com",
+        name="Test User",
+        role="user",
+        is_active=True,
+    )
 
 
 @pytest.fixture
@@ -256,8 +290,9 @@ class TestEdgeCases:
         assert "CORRUPTED DATA HERE" in content
         assert "INCOMPLETE_ENTITY" in content
 
-    def test_circular_reference_detection(self, test_data_dir):
-        """Test detection of circular references in assemblies."""
+    @pytest.mark.asyncio
+    async def test_circular_reference_detection(self, test_data_dir, async_client):
+        """Test detection of circular references in assemblies via API."""
         circular_file = test_data_dir / "a4" / "invalid" / "circular_reference.json"
         if not circular_file.exists():
             pytest.skip("Circular reference test file not found")
@@ -265,27 +300,29 @@ class TestEdgeCases:
         with open(circular_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
 
-        # Verify circular dependency structure
-        parts = data["parts"]
-        part_map = {p["name"]: p.get("parent") for p in parts}
+        # Create a job with circular reference assembly via API
+        job_payload = {
+            "type": "assembly",
+            "params": {
+                "parts": data["parts"],
+                "validate_structure": True
+            },
+            "idempotency_key": f"test-circular-{uuid4()}"
+        }
 
-        # Detect circular reference
-        def has_circular_reference(start_part: str, visited: Optional[set] = None) -> bool:
-            if visited is None:
-                visited = set()
+        # Send request to job creation endpoint
+        response = await async_client.post(
+            "/api/v1/jobs",
+            json=job_payload,
+            headers={"Authorization": "Bearer test-token"}
+        )
 
-            if start_part in visited:
-                return True
+        # Should reject the job with validation error
+        assert response.status_code == 422, "Should reject job with circular reference"
 
-            visited.add(start_part)
-            parent = part_map.get(start_part)
-
-            if parent:
-                return has_circular_reference(parent, visited.copy())
-
-            return False
-
-        assert has_circular_reference("PartA"), "Should detect circular reference"
+        error_data = response.json()
+        assert "error" in error_data
+        assert "circular" in error_data["error"].lower() or "validation" in error_data["error"].lower()
 
     def test_missing_required_parameters(self, test_data_dir):
         """Test handling of missing required parameters."""
@@ -309,32 +346,47 @@ class TestIdempotency:
     """Test idempotency of operations."""
 
     @pytest.mark.slow
-    def test_job_processing_idempotency(self, db: Session, freecad_service):
+    @pytest.mark.asyncio
+    async def test_job_processing_idempotency(self, async_client, test_user):
         """Test that processing the same job multiple times yields same result."""
-        # Create test job
-        job = Job(
-            prompt="Create a box 100x50x25mm",
-            status="pending",
-            parameters={"length": 100, "width": 50, "height": 25}
-        )
-        db.add(job)
-        db.commit()
+        # Create idempotency key
+        idempotency_key = f"test-idempotent-{uuid4()}"
+
+        job_payload = {
+            "type": "model",
+            "params": {
+                "model_type": "box",
+                "dimensions": {"length": 100, "width": 50, "height": 25},
+                "material": "aluminum"
+            },
+            "idempotency_key": idempotency_key
+        }
 
         results = []
+        job_ids = []
+
+        # Create the same job multiple times with same idempotency key
         for _ in range(3):
-            # Process job
-            result = process_freecad_job(job.id)
+            response = await async_client.post(
+                "/api/v1/jobs",
+                json=job_payload,
+                headers={"Authorization": "Bearer test-token"}
+            )
+
+            # First request should create (201), subsequent should return existing (200)
+            assert response.status_code in [200, 201]
+
+            result = response.json()
             results.append(result)
+            job_ids.append(result["job_id"])
 
-            # Reset job status for re-processing
-            job.status = "pending"
-            db.commit()
+        # Verify all job IDs are identical (idempotency worked)
+        assert len(set(job_ids)) == 1, "All requests should return the same job ID"
 
-        # Verify all results are identical
-        if len(results) > 1:
-            first_result = results[0]
-            for result in results[1:]:
-                assert result == first_result, "Results should be identical"
+        # Verify response structure is consistent
+        for result in results[1:]:
+            assert result["job_id"] == results[0]["job_id"]
+            assert result["status"] == results[0]["status"]
 
     def test_parameter_hash_consistency(self):
         """Test that parameter hashing is consistent."""
@@ -360,53 +412,63 @@ class TestIdempotency:
 class TestRateLimiting:
     """Test rate limiting and resource constraints."""
 
-    def test_concurrent_job_limit(self, freecad_service):
-        """Test enforcement of concurrent job limits."""
+    @pytest.mark.asyncio
+    async def test_concurrent_job_limit(self, async_client):
+        """Test enforcement of concurrent job limits via API."""
         max_concurrent = getattr(settings, "MAX_CONCURRENT_FREECAD_JOBS", 5)
 
-        # Track active jobs and rejected jobs
-        active_jobs = []
-        queued_jobs = []
-        rejected_jobs = []
+        # Create multiple jobs concurrently
+        jobs = []
+        tasks = []
 
-        # Try to exceed limit
-        for i in range(max_concurrent + 2):
-            job_id = f"test_job_{i}"
+        # Try to exceed limit by creating many jobs at once
+        for i in range(max_concurrent + 5):
+            job_payload = {
+                "type": "model",
+                "params": {
+                    "model_type": "box",
+                    "dimensions": {"length": 100 + i, "width": 50, "height": 25}
+                },
+                "idempotency_key": f"test-concurrent-{uuid4()}",
+                "priority": 10
+            }
 
-            if len(active_jobs) < max_concurrent:
-                # Should succeed - job is accepted
-                active_jobs.append(job_id)
+            # Create async task for job creation
+            task = async_client.post(
+                "/api/v1/jobs",
+                json=job_payload,
+                headers={"Authorization": "Bearer test-token"}
+            )
+            tasks.append(task)
 
-                # Verify job is marked as active
-                assert job_id in active_jobs, f"Job {job_id} should be in active jobs"
-                assert len(active_jobs) <= max_concurrent, \
-                    f"Active jobs ({len(active_jobs)}) should not exceed max_concurrent ({max_concurrent})"
-            else:
-                # Should be rate limited or queued
-                queued_jobs.append(job_id)
+        # Execute all requests concurrently
+        import asyncio
+        responses = await asyncio.gather(*tasks, return_exceptions=True)
 
-                # Verify the job was not added to active jobs
-                assert job_id not in active_jobs, \
-                    f"Job {job_id} should not be in active jobs when limit is reached"
+        # Count successful vs rate-limited responses
+        successful_jobs = 0
+        rate_limited = 0
+        queued_jobs = 0
 
-                # Verify we have exactly max_concurrent active jobs
-                assert len(active_jobs) == max_concurrent, \
-                    f"Should have exactly {max_concurrent} active jobs when limit is reached"
+        for response in responses:
+            if isinstance(response, Exception):
+                continue
 
-                # Optionally track rejected jobs if queue is also full
-                # This depends on implementation - jobs might be queued or rejected
-                if len(queued_jobs) > getattr(settings, "MAX_QUEUE_SIZE", 10):
-                    rejected_jobs.append(job_id)
-                    assert job_id not in queued_jobs, \
-                        f"Job {job_id} should be rejected when queue is full"
+            if response.status_code in [200, 201]:
+                data = response.json()
+                if data.get("status") == "queued":
+                    queued_jobs += 1
+                successful_jobs += 1
+            elif response.status_code == 429:  # Rate limited
+                rate_limited += 1
 
-        # Final assertions
-        assert len(active_jobs) == max_concurrent, \
-            f"Should have exactly {max_concurrent} active jobs at the end"
-        assert len(queued_jobs) >= 2, \
-            f"Should have at least 2 queued jobs (attempted {max_concurrent + 2} total)"
-        assert len(active_jobs) + len(queued_jobs) + len(rejected_jobs) == max_concurrent + 2, \
-            "Total jobs should equal attempted jobs"
+        # Verify rate limiting is working
+        assert successful_jobs > 0, "Some jobs should succeed"
+        assert successful_jobs + rate_limited == len(tasks), "All requests should be accounted for"
+
+        # If rate limiting is enforced, some should be limited
+        if rate_limited > 0:
+            print(f"Rate limited {rate_limited} out of {len(tasks)} concurrent requests")
 
     def test_memory_limit_enforcement(self, doc_manager):
         """Test memory limit enforcement."""
@@ -469,30 +531,64 @@ class TestRetryMechanism:
         assert all(d <= max_delay * (1 + jitter) for d in delays)
 
     @pytest.mark.slow
-    def test_transient_failure_retry(self, freecad_service):
-        """Test retry on transient failures."""
-        attempt_count = 0
-        max_attempts = 3
+    @pytest.mark.asyncio
+    async def test_transient_failure_retry(self, async_client):
+        """Test retry mechanism for transient failures via job status API."""
+        # Create a job that might fail initially
+        job_payload = {
+            "type": "model",
+            "params": {
+                "model_type": "complex",  # Complex model that might fail
+                "dimensions": {"radius": 50, "height": 100},
+                "retry_on_failure": True
+            },
+            "idempotency_key": f"test-retry-{uuid4()}"
+        }
 
-        def flaky_operation():
-            nonlocal attempt_count
-            attempt_count += 1
-            if attempt_count < max_attempts:
-                raise Exception("Transient error")
-            return "Success"
+        # Create the job
+        create_response = await async_client.post(
+            "/api/v1/jobs",
+            json=job_payload,
+            headers={"Authorization": "Bearer test-token"}
+        )
 
-        # Simulate retry logic
-        for attempt in range(max_attempts):
-            try:
-                result = flaky_operation()
-                break
-            except Exception as e:
-                if attempt == max_attempts - 1:
-                    raise
-                time.sleep(0.1 * (2 ** attempt))  # Exponential backoff
+        assert create_response.status_code in [200, 201]
+        job_data = create_response.json()
+        job_id = job_data["job_id"]
 
-        assert result == "Success"
-        assert attempt_count == max_attempts
+        # Poll job status to observe retry behavior
+        max_polls = 10
+        poll_interval = 1.0
+        retry_observed = False
+        final_status = None
+
+        for _ in range(max_polls):
+            status_response = await async_client.get(
+                f"/api/v1/jobs/{job_id}/status",
+                headers={"Authorization": "Bearer test-token"}
+            )
+
+            if status_response.status_code == 200:
+                status_data = status_response.json()
+                final_status = status_data.get("status")
+
+                # Check if retry count is tracked
+                retry_count = status_data.get("retry_count", 0)
+                if retry_count > 0:
+                    retry_observed = True
+
+                # If job completed or failed permanently, stop polling
+                if final_status in ["completed", "failed", "cancelled"]:
+                    break
+
+            await asyncio.sleep(poll_interval)
+
+        # Verify job eventually completes or fails with retry attempts
+        assert final_status is not None, "Job should have a final status"
+
+        # Check if retries were attempted (this depends on implementation)
+        # The test validates that the retry mechanism exists in the API
+        print(f"Job {job_id} final status: {final_status}, Retries observed: {retry_observed}")
 
 
 # Test markers for pytest

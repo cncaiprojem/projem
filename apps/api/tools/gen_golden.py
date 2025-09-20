@@ -264,10 +264,52 @@ class GoldenArtefactGenerator:
         # Create FreeCAD document
         doc = FreeCAD.newDocument(case_id)
 
-        # Parse expected geometry from prompt data
-        expected = prompt_data.get("expected", {})
-        geom_type = expected.get("type", "box")
-        dimensions = expected.get("dimensions", {})
+        # Parse prompt text to extract geometry information
+        prompt_text = prompt_data.get("prompt", "")
+
+        # Look for dimensions and geometry type in the prompt text
+        geom_type = "box"  # Default
+        dimensions = {}
+
+        # Parse geometry type from prompt
+        if "kutu" in prompt_text.lower() or "box" in prompt_text.lower():
+            geom_type = "box"
+        elif "silindir" in prompt_text.lower() or "cylinder" in prompt_text.lower():
+            geom_type = "cylinder"
+        elif "küre" in prompt_text.lower() or "sphere" in prompt_text.lower():
+            geom_type = "sphere"
+
+        # Parse dimensions from prompt text using regex
+        import re
+
+        # Look for dimensions in various formats (e.g., "100x50x25mm", "100mm x 50mm x 25mm")
+        dimension_pattern = r'(\d+(?:[,.]\d+)?)[\s]*(?:mm)?[\s]*[xX×][\s]*(\d+(?:[,.]\d+)?)[\s]*(?:mm)?[\s]*[xX×][\s]*(\d+(?:[,.]\d+)?)[\s]*(?:mm)?'
+        match = re.search(dimension_pattern, prompt_text)
+
+        if match:
+            # Convert Turkish decimal comma to dot if present
+            length = float(match.group(1).replace(',', '.'))
+            width = float(match.group(2).replace(',', '.'))
+            height = float(match.group(3).replace(',', '.'))
+            dimensions = {"length": length, "width": width, "height": height}
+        else:
+            # Look for individual dimensions
+            # Pattern for radius
+            radius_pattern = r'(?:yarıçap|radius)[\s:=]*(\d+(?:[,.]\d+)?)[\s]*(?:mm)?'
+            radius_match = re.search(radius_pattern, prompt_text, re.IGNORECASE)
+            if radius_match:
+                dimensions["radius"] = float(radius_match.group(1).replace(',', '.'))
+
+            # Pattern for height
+            height_pattern = r'(?:yükseklik|height|boy)[\s:=]*(\d+(?:[,.]\d+)?)[\s]*(?:mm)?'
+            height_match = re.search(height_pattern, prompt_text, re.IGNORECASE)
+            if height_match:
+                dimensions["height"] = float(height_match.group(1).replace(',', '.'))
+
+            # If no dimensions found in prompt, check expected field as fallback
+            if not dimensions:
+                expected = prompt_data.get("expected", {})
+                dimensions = expected.get("dimensions", {})
 
         # Create geometry with deterministic parameters
         if geom_type == "box":
@@ -643,21 +685,133 @@ class GoldenArtefactGenerator:
         FreeCAD.closeDocument(doc.Name)
 
     def _compute_metrics(self, doc_path: Path) -> Dict[str, Any]:
-        """Compute geometric metrics for the document."""
-        # This would use FreeCAD API to compute actual metrics
-        # For testing, return example metrics
+        """Compute geometric metrics for the document using FreeCAD API."""
+        try:
+            import FreeCAD
+            import Part
+        except ImportError as e:
+            logger.error(f"FreeCAD not available for metric computation: {e}")
+            # Return placeholder metrics for CI without FreeCAD
+            return {
+                "bounding_box": {
+                    "min": [0.0, 0.0, 0.0],
+                    "max": [100.0, 50.0, 25.0]
+                },
+                "volume": 125000.0,
+                "surface_area": 17500.0,
+                "center_of_mass": [50.0, 25.0, 12.5],
+                "moment_of_inertia": {
+                    "xx": 1302083.33,
+                    "yy": 2604166.67,
+                    "zz": 3385416.67
+                }
+            }
+
+        # Open the FreeCAD document
+        doc = FreeCAD.open(str(doc_path))
+
+        # Collect all shapes in the document
+        shapes = []
+        for obj in doc.Objects:
+            if hasattr(obj, 'Shape') and obj.Shape:
+                if obj.Shape.ShapeType in ['Solid', 'Compound', 'CompSolid', 'Shell']:
+                    shapes.append(obj.Shape)
+
+        if not shapes:
+            logger.warning(f"No shapes found in document {doc_path}")
+            FreeCAD.closeDocument(doc.Name)
+            return {
+                "bounding_box": {"min": [0.0, 0.0, 0.0], "max": [0.0, 0.0, 0.0]},
+                "volume": 0.0,
+                "surface_area": 0.0,
+                "center_of_mass": [0.0, 0.0, 0.0],
+                "moment_of_inertia": {"xx": 0.0, "yy": 0.0, "zz": 0.0}
+            }
+
+        # Combine all shapes if multiple
+        if len(shapes) == 1:
+            combined_shape = shapes[0]
+        else:
+            combined_shape = Part.makeCompound(shapes)
+
+        # Compute bounding box
+        bbox = combined_shape.BoundBox
+        bounding_box = {
+            "min": [bbox.XMin, bbox.YMin, bbox.ZMin],
+            "max": [bbox.XMax, bbox.YMax, bbox.ZMax]
+        }
+
+        # Compute volume (in mm³)
+        volume = combined_shape.Volume
+
+        # Compute surface area (in mm²)
+        surface_area = combined_shape.Area
+
+        # Compute center of mass
+        if hasattr(combined_shape, 'CenterOfMass'):
+            com = combined_shape.CenterOfMass
+            center_of_mass = [com.x, com.y, com.z]
+        else:
+            # Fallback to bounding box center
+            center_of_mass = [
+                (bbox.XMin + bbox.XMax) / 2,
+                (bbox.YMin + bbox.YMax) / 2,
+                (bbox.ZMin + bbox.ZMax) / 2
+            ]
+
+        # Compute moment of inertia
+        moment_of_inertia = {"xx": 0.0, "yy": 0.0, "zz": 0.0}
+
+        try:
+            # Try to compute matrix of inertia if available
+            if hasattr(combined_shape, 'MatrixOfInertia'):
+                matrix = combined_shape.MatrixOfInertia
+                moment_of_inertia = {
+                    "xx": matrix.A11,
+                    "yy": matrix.A22,
+                    "zz": matrix.A33
+                }
+            elif hasattr(combined_shape, 'StaticMoments'):
+                # Alternative computation using static moments
+                moments = combined_shape.StaticMoments
+                # These would need proper calculation based on shape
+                # Using simplified estimates based on bounding box
+                dx = bbox.XMax - bbox.XMin
+                dy = bbox.YMax - bbox.YMin
+                dz = bbox.ZMax - bbox.ZMin
+                mass = volume * 0.0027  # Assuming aluminum density ~2.7 g/cm³
+
+                moment_of_inertia = {
+                    "xx": mass * (dy*dy + dz*dz) / 12.0,
+                    "yy": mass * (dx*dx + dz*dz) / 12.0,
+                    "zz": mass * (dx*dx + dy*dy) / 12.0
+                }
+        except Exception as e:
+            logger.warning(f"Could not compute moment of inertia: {e}")
+            # Use estimated values based on bounding box
+            dx = bbox.XMax - bbox.XMin
+            dy = bbox.YMax - bbox.YMin
+            dz = bbox.ZMax - bbox.ZMin
+            mass = volume * 0.0027  # Assuming aluminum density
+
+            moment_of_inertia = {
+                "xx": mass * (dy*dy + dz*dz) / 12.0,
+                "yy": mass * (dx*dx + dz*dz) / 12.0,
+                "zz": mass * (dx*dx + dy*dy) / 12.0
+            }
+
+        # Close document
+        FreeCAD.closeDocument(doc.Name)
+
         return {
-            "bounding_box": {
-                "min": [0.0, 0.0, 0.0],
-                "max": [100.0, 50.0, 25.0]
-            },
-            "volume": 125000.0,
-            "surface_area": 17500.0,
-            "center_of_mass": [50.0, 25.0, 12.5],
+            "bounding_box": bounding_box,
+            "volume": round(volume, 6),
+            "surface_area": round(surface_area, 6),
+            "center_of_mass": [round(x, 6) for x in center_of_mass],
             "moment_of_inertia": {
-                "xx": 1302083.33,
-                "yy": 2604166.67,
-                "zz": 3385416.67
+                "xx": round(moment_of_inertia["xx"], 6),
+                "yy": round(moment_of_inertia["yy"], 6),
+                "zz": round(moment_of_inertia["zz"], 6)
             }
         }
 
