@@ -1,0 +1,54 @@
+{
+  "id": "a4_two_part_assembly",
+  "name": "Simple Two-Part Assembly",
+  "parts": [
+    {
+      "name": "Base",
+      "type": "box",
+      "dimensions": {
+        "length": 100.0,
+        "width": 100.0,
+        "height": 10.0
+      },
+      "position": [0, 0, 0],
+      "rotation": [0, 0, 0],
+      "material": "steel"
+    },
+    {
+      "name": "Pin",
+      "type": "cylinder",
+      "dimensions": {
+        "radius": 5.0,
+        "height": 30.0
+      },
+      "position": [50, 50, 10],
+      "rotation": [0, 0, 0],
+      "material": "steel"
+    }
+  ],
+  "constraints": [
+    {
+      "type": "concentric",
+      "part1": "Base",
+      "feature1": "hole_center",
+      "part2": "Pin",
+      "feature2": "axis"
+    },
+    {
+      "type": "planar",
+      "part1": "Base",
+      "feature1": "top_face",
+      "part2": "Pin",
+      "feature2": "bottom_face"
+    }
+  ],
+  "expected": {
+    "total_volume": 125785.398,
+    "total_mass": 987.42,
+    "bounding_box": {
+      "min": [0, 0, 0],
+      "max": [100, 100, 40]
+    }
+  },
+  "tags": ["assembly", "constraints", "multi_part"]
+}
