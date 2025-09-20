@@ -1,0 +1,15 @@
+{
+  "id": "prompt_turkish_decimal",
+  "prompt": "100,5 mm uzunluğunda, 50,2 mm genişliğinde ve 25,7 mm yüksekliğinde bir kutu oluştur",
+  "language": "tr",
+  "expected": {
+    "type": "box",
+    "dimensions": {
+      "length": 100.5,
+      "width": 50.2,
+      "height": 25.7
+    },
+    "units": "mm"
+  },
+  "tags": ["turkish", "decimal_comma", "localization"]
+}

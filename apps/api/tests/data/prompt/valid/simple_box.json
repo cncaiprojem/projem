@@ -1,0 +1,15 @@
+{
+  "id": "prompt_simple_box",
+  "prompt": "Create a simple box with dimensions 100x50x25mm",
+  "language": "en",
+  "expected": {
+    "type": "box",
+    "dimensions": {
+      "length": 100.0,
+      "width": 50.0,
+      "height": 25.0
+    },
+    "units": "mm"
+  },
+  "tags": ["simple", "box", "deterministic"]
+}
