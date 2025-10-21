@@ -11,7 +11,7 @@
 # Purpose: Build the Next.js application in standalone mode
 # Optimization: Layer caching, minimal context copying, includes optimized dependencies
 # ------------------------------------------------------------------------------
-FROM node:20-alpine@sha256:df02558528d3d3d0d621f112e232611aecfee7cbc654f6b375765f72bb262799 AS builder
+FROM node:25-alpine@sha256:809972647175c30a4c7763d3e6cc064dec588972af57e540e5a6f27442bb0845 AS builder
 
 WORKDIR /app
 
@@ -53,7 +53,7 @@ RUN mkdir -p /app/public
 # Purpose: Minimal production runtime with security hardening
 # Security: Non-root user, read-only filesystem, minimal packages
 # ------------------------------------------------------------------------------
-FROM node:20-alpine@sha256:df02558528d3d3d0d621f112e232611aecfee7cbc654f6b375765f72bb262799 AS runner
+FROM node:25-alpine@sha256:809972647175c30a4c7763d3e6cc064dec588972af57e540e5a6f27442bb0845 AS runner
 
 # Install only essential runtime dependencies and security updates
 RUN apk add --no-cache \
